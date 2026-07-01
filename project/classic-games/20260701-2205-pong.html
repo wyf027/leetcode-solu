@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pong</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 px-4 py-8">
+      <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-2xl shadow-black/30">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-normal text-white">Mini Pong</h1>
+            <p class="text-sm text-zinc-400">Move the left paddle and beat the console paddle to 7 points.</p>
+          </div>
+          <div class="flex items-center gap-3 text-sm">
+            <span class="rounded bg-emerald-500/15 px-3 py-1 text-emerald-200">W/S or arrows</span>
+            <span class="rounded bg-sky-500/15 px-3 py-1 text-sky-200">Mouse drag</span>
+          </div>
+        </div>
+
+        <div class="relative overflow-hidden rounded border border-zinc-700 bg-black">
+          <canvas id="game" class="block w-full touch-none" width="720" height="420"></canvas>
+          <button
+            id="start"
+            class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-white px-5 py-2 text-sm font-semibold text-zinc-950 shadow-lg transition hover:bg-zinc-200"
+            type="button"
+          >
+            Start Game
+          </button>
+        </div>
+
+        <div class="mt-4 grid grid-cols-3 gap-3 text-center text-sm">
+          <div class="rounded border border-zinc-800 bg-zinc-950 p-3">
+            <div class="text-zinc-500">Player</div>
+            <div id="playerScore" class="text-2xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-950 p-3">
+            <div class="text-zinc-500">Rally</div>
+            <div id="rally" class="text-2xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-950 p-3">
+            <div class="text-zinc-500">Console</div>
+            <div id="consoleScore" class="text-2xl font-bold text-white">0</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const startButton = document.getElementById("start");
+      const playerScoreEl = document.getElementById("playerScore");
+      const consoleScoreEl = document.getElementById("consoleScore");
+      const rallyEl = document.getElementById("rally");
+
+      const game = {
+        running: false,
+        playerScore: 0,
+        consoleScore: 0,
+        rally: 0,
+        keys: new Set(),
+        paddleWidth: 14,
+        paddleHeight: 86,
+        ballSize: 12,
+        player: { x: 28, y: 167, speed: 6.2 },
+        bot: { x: 678, y: 167, speed: 4.4 },
+        ball: { x: 360, y: 210, vx: 4.8, vy: 2.5 },
+      };
+
+      function resetBall(direction) {
+        game.ball.x = canvas.width / 2;
+        game.ball.y = canvas.height / 2;
+        game.ball.vx = direction * (4.6 + Math.random() * 0.8);
+        game.ball.vy = (Math.random() > 0.5 ? 1 : -1) * (2.1 + Math.random() * 1.8);
+        game.rally = 0;
+      }
+
+      function resetMatch() {
+        game.playerScore = 0;
+        game.consoleScore = 0;
+        game.player.y = (canvas.height - game.paddleHeight) / 2;
+        game.bot.y = game.player.y;
+        resetBall(Math.random() > 0.5 ? 1 : -1);
+        updateHud();
+      }
+
+      function updateHud() {
+        playerScoreEl.textContent = game.playerScore;
+        consoleScoreEl.textContent = game.consoleScore;
+        rallyEl.textContent = game.rally;
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function movePlayer() {
+        if (game.keys.has("ArrowUp") || game.keys.has("w")) {
+          game.player.y -= game.player.speed;
+        }
+        if (game.keys.has("ArrowDown") || game.keys.has("s")) {
+          game.player.y += game.player.speed;
+        }
+        game.player.y = clamp(game.player.y, 0, canvas.height - game.paddleHeight);
+      }
+
+      function moveBot() {
+        const botCenter = game.bot.y + game.paddleHeight / 2;
+        const target = game.ball.y - game.paddleHeight / 2;
+        const drift = Math.sign(target - game.bot.y) * game.bot.speed;
+
+        if (Math.abs(game.ball.y - botCenter) > 14) {
+          game.bot.y += drift;
+        }
+
+        game.bot.y = clamp(game.bot.y, 0, canvas.height - game.paddleHeight);
+      }
+
+      function bounceOffPaddle(paddle, side) {
+        const withinX =
+          side === "left"
+            ? game.ball.x <= paddle.x + game.paddleWidth && game.ball.x + game.ballSize >= paddle.x
+            : game.ball.x + game.ballSize >= paddle.x && game.ball.x <= paddle.x + game.paddleWidth;
+        const withinY = game.ball.y + game.ballSize >= paddle.y && game.ball.y <= paddle.y + game.paddleHeight;
+
+        if (!withinX || !withinY) {
+          return;
+        }
+
+        const paddleCenter = paddle.y + game.paddleHeight / 2;
+        const ballCenter = game.ball.y + game.ballSize / 2;
+        const angle = (ballCenter - paddleCenter) / (game.paddleHeight / 2);
+        const speed = Math.min(8.8, Math.abs(game.ball.vx) + 0.34);
+
+        game.ball.vx = side === "left" ? speed : -speed;
+        game.ball.vy = angle * 5.2;
+        game.ball.x = side === "left" ? paddle.x + game.paddleWidth : paddle.x - game.ballSize;
+        game.rally += 1;
+        updateHud();
+      }
+
+      function step() {
+        if (!game.running) {
+          draw();
+          return;
+        }
+
+        movePlayer();
+        moveBot();
+
+        game.ball.x += game.ball.vx;
+        game.ball.y += game.ball.vy;
+
+        if (game.ball.y <= 0 || game.ball.y + game.ballSize >= canvas.height) {
+          game.ball.vy *= -1;
+          game.ball.y = clamp(game.ball.y, 0, canvas.height - game.ballSize);
+        }
+
+        bounceOffPaddle(game.player, "left");
+        bounceOffPaddle(game.bot, "right");
+
+        if (game.ball.x + game.ballSize < 0) {
+          game.consoleScore += 1;
+          resetBall(1);
+        }
+        if (game.ball.x > canvas.width) {
+          game.playerScore += 1;
+          resetBall(-1);
+        }
+
+        if (game.playerScore >= 7 || game.consoleScore >= 7) {
+          game.running = false;
+          startButton.textContent = game.playerScore > game.consoleScore ? "You Win - Play Again" : "Try Again";
+          startButton.classList.remove("hidden");
+        }
+
+        updateHud();
+        draw();
+        requestAnimationFrame(step);
+      }
+
+      function drawCourt() {
+        ctx.fillStyle = "#050505";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "#3f3f46";
+        ctx.setLineDash([10, 12]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 12);
+        ctx.lineTo(canvas.width / 2, canvas.height - 12);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      function drawPaddle(paddle, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(paddle.x, paddle.y, game.paddleWidth, game.paddleHeight);
+      }
+
+      function draw() {
+        drawCourt();
+        drawPaddle(game.player, "#34d399");
+        drawPaddle(game.bot, "#38bdf8");
+        ctx.fillStyle = "#fafafa";
+        ctx.fillRect(game.ball.x, game.ball.y, game.ballSize, game.ballSize);
+      }
+
+      startButton.addEventListener("click", () => {
+        resetMatch();
+        game.running = true;
+        startButton.classList.add("hidden");
+        requestAnimationFrame(step);
+      });
+
+      window.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (["arrowup", "arrowdown", "w", "s", " "].includes(key)) {
+          event.preventDefault();
+        }
+        if (key === " ") {
+          startButton.click();
+          return;
+        }
+        game.keys.add(key === "arrowup" ? "ArrowUp" : key === "arrowdown" ? "ArrowDown" : key);
+      });
+
+      window.addEventListener("keyup", (event) => {
+        const key = event.key.toLowerCase();
+        game.keys.delete(key === "arrowup" ? "ArrowUp" : key === "arrowdown" ? "ArrowDown" : key);
+      });
+
+      canvas.addEventListener("pointermove", (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const scale = canvas.height / rect.height;
+        const pointerY = (event.clientY - rect.top) * scale;
+        game.player.y = clamp(pointerY - game.paddleHeight / 2, 0, canvas.height - game.paddleHeight);
+      });
+
+      draw();
+    </script>
+  </body>
+</html>
