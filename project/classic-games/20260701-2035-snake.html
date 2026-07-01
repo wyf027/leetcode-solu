@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Snake</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-5 px-4 py-8">
+      <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 p-5 shadow-2xl shadow-black/30">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-wide text-emerald-300">Mini Snake</h1>
+            <p class="mt-1 text-sm text-zinc-400">Eat apples, grow longer, and avoid walls or your own tail.</p>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center text-sm">
+            <div class="rounded border border-zinc-800 bg-zinc-950 px-3 py-2">
+              <div class="text-zinc-500">Score</div>
+              <div id="score" class="text-lg font-semibold text-zinc-50">0</div>
+            </div>
+            <div class="rounded border border-zinc-800 bg-zinc-950 px-3 py-2">
+              <div class="text-zinc-500">Best</div>
+              <div id="best" class="text-lg font-semibold text-zinc-50">0</div>
+            </div>
+            <button
+              id="restart"
+              class="rounded border border-emerald-500/60 bg-emerald-500 px-3 py-2 font-semibold text-zinc-950 transition hover:bg-emerald-300"
+              type="button"
+            >
+              Restart
+            </button>
+          </div>
+        </div>
+
+        <canvas
+          id="board"
+          class="mx-auto aspect-square w-full max-w-[560px] rounded border border-zinc-700 bg-zinc-950"
+          width="560"
+          height="560"
+          aria-label="Snake game board"
+        ></canvas>
+
+        <div class="mt-4 grid gap-3 text-sm text-zinc-400 sm:grid-cols-[1fr_auto] sm:items-center">
+          <p>Use arrow keys or WASD. On touch screens, swipe to turn.</p>
+          <div id="status" class="rounded border border-zinc-800 bg-zinc-950 px-3 py-2 text-emerald-300">
+            Press any direction to start
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("board");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const bestEl = document.getElementById("best");
+      const statusEl = document.getElementById("status");
+      const restartBtn = document.getElementById("restart");
+
+      const cells = 20;
+      const cellSize = canvas.width / cells;
+      const tickMs = 115;
+      const keyMap = {
+        ArrowUp: { x: 0, y: -1 },
+        KeyW: { x: 0, y: -1 },
+        ArrowDown: { x: 0, y: 1 },
+        KeyS: { x: 0, y: 1 },
+        ArrowLeft: { x: -1, y: 0 },
+        KeyA: { x: -1, y: 0 },
+        ArrowRight: { x: 1, y: 0 },
+        KeyD: { x: 1, y: 0 },
+      };
+
+      let snake;
+      let apple;
+      let direction;
+      let nextDirection;
+      let score;
+      let best = Number(localStorage.getItem("mini-snake-best") || 0);
+      let timer;
+      let started;
+      let touchStart;
+
+      bestEl.textContent = best;
+
+      function reset() {
+        snake = [
+          { x: 9, y: 10 },
+          { x: 8, y: 10 },
+          { x: 7, y: 10 },
+        ];
+        direction = { x: 1, y: 0 };
+        nextDirection = { x: 1, y: 0 };
+        score = 0;
+        started = false;
+        placeApple();
+        updateScore();
+        statusEl.textContent = "Press any direction to start";
+        clearInterval(timer);
+        draw();
+      }
+
+      function updateScore() {
+        scoreEl.textContent = score;
+        if (score > best) {
+          best = score;
+          bestEl.textContent = best;
+          localStorage.setItem("mini-snake-best", String(best));
+        }
+      }
+
+      function placeApple() {
+        do {
+          apple = {
+            x: Math.floor(Math.random() * cells),
+            y: Math.floor(Math.random() * cells),
+          };
+        } while (snake.some((part) => part.x === apple.x && part.y === apple.y));
+      }
+
+      function setDirection(newDirection) {
+        if (started && newDirection.x + direction.x === 0 && newDirection.y + direction.y === 0) {
+          return;
+        }
+        nextDirection = newDirection;
+        if (!started) {
+          started = true;
+          statusEl.textContent = "Game running";
+          clearInterval(timer);
+          timer = setInterval(step, tickMs);
+        }
+      }
+
+      function step() {
+        direction = nextDirection;
+        const head = {
+          x: snake[0].x + direction.x,
+          y: snake[0].y + direction.y,
+        };
+        const willEat = head.x === apple.x && head.y === apple.y;
+        const bodyToCheck = willEat ? snake : snake.slice(0, -1);
+
+        const hitWall = head.x < 0 || head.x >= cells || head.y < 0 || head.y >= cells;
+        const hitSelf = bodyToCheck.some((part) => part.x === head.x && part.y === head.y);
+
+        if (hitWall || hitSelf) {
+          clearInterval(timer);
+          statusEl.textContent = "Game over - press Restart";
+          started = false;
+          draw();
+          return;
+        }
+
+        snake.unshift(head);
+        if (willEat) {
+          score += 10;
+          updateScore();
+          placeApple();
+        } else {
+          snake.pop();
+        }
+        draw();
+      }
+
+      function drawCell(x, y, fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.fillRect(x * cellSize + 2, y * cellSize + 2, cellSize - 4, cellSize - 4);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#18181b";
+        for (let i = 0; i <= cells; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(i * cellSize, 0);
+          ctx.lineTo(i * cellSize, canvas.height);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, i * cellSize);
+          ctx.lineTo(canvas.width, i * cellSize);
+          ctx.stroke();
+        }
+
+        drawCell(apple.x, apple.y, "#f43f5e");
+        snake.forEach((part, index) => {
+          drawCell(part.x, part.y, index === 0 ? "#34d399" : "#10b981");
+        });
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const newDirection = keyMap[event.code];
+        if (!newDirection) {
+          return;
+        }
+        event.preventDefault();
+        setDirection(newDirection);
+      });
+
+      canvas.addEventListener("touchstart", (event) => {
+        const touch = event.changedTouches[0];
+        touchStart = { x: touch.clientX, y: touch.clientY };
+      });
+
+      canvas.addEventListener("touchend", (event) => {
+        if (!touchStart) {
+          return;
+        }
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - touchStart.x;
+        const dy = touch.clientY - touchStart.y;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) {
+          return;
+        }
+        setDirection(Math.abs(dx) > Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) });
+      });
+
+      restartBtn.addEventListener("click", reset);
+      reset();
+    </script>
+  </body>
+</html>
