@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Sokoban</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
+      <header class="flex flex-col gap-4 border-b border-zinc-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">Classic Games</p>
+          <h1 class="mt-2 text-3xl font-bold sm:text-4xl">Mini Sokoban</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div class="text-zinc-400">Moves</div>
+            <div id="moves" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded-md border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div class="text-zinc-400">Level</div>
+            <div id="level" class="text-2xl font-bold">1</div>
+          </div>
+          <div class="rounded-md border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div class="text-zinc-400">Boxes</div>
+            <div id="boxes" class="text-2xl font-bold">0/0</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid flex-1 gap-5 lg:grid-cols-[1fr_18rem]">
+        <div class="flex items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 p-3">
+          <div id="board" class="grid select-none gap-1" aria-label="Sokoban board"></div>
+        </div>
+
+        <aside class="flex flex-col gap-4">
+          <div class="rounded-md border border-zinc-800 bg-zinc-900 p-4">
+            <h2 class="text-lg font-semibold">Goal</h2>
+            <p class="mt-2 text-sm leading-6 text-zinc-300">
+              Push every crate onto a goal tile. Boxes move only when the next tile is open, so plan the path before
+              trapping a corner.
+            </p>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <button
+              id="undo"
+              class="col-span-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-semibold hover:bg-zinc-700"
+            >
+              Undo
+            </button>
+            <button
+              id="restart"
+              class="col-span-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-semibold hover:bg-zinc-700"
+            >
+              Reset
+            </button>
+            <button
+              id="next"
+              class="col-span-1 rounded-md border border-emerald-500 bg-emerald-500 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+            >
+              Next
+            </button>
+          </div>
+
+          <div class="mx-auto grid w-40 grid-cols-3 gap-2">
+            <div></div>
+            <button data-dir="up" class="control rounded-md bg-zinc-800 py-3 text-xl font-bold hover:bg-zinc-700">↑</button>
+            <div></div>
+            <button data-dir="left" class="control rounded-md bg-zinc-800 py-3 text-xl font-bold hover:bg-zinc-700">←</button>
+            <button data-dir="down" class="control rounded-md bg-zinc-800 py-3 text-xl font-bold hover:bg-zinc-700">↓</button>
+            <button data-dir="right" class="control rounded-md bg-zinc-800 py-3 text-xl font-bold hover:bg-zinc-700">→</button>
+          </div>
+
+          <div id="message" class="rounded-md border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+            Use arrow keys or WASD to move. Push crates onto the emerald goals.
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const levels = [
+        [
+          "########",
+          "#  .   #",
+          "#  $   #",
+          "#  @   #",
+          "#      #",
+          "########",
+        ],
+        [
+          "#########",
+          "#   #   #",
+          "# .$@$. #",
+          "#   #   #",
+          "#       #",
+          "#########",
+        ],
+        [
+          "##########",
+          "#   .    #",
+          "#   $    #",
+          "#  ##    #",
+          "#  @ $ . #",
+          "#        #",
+          "##########",
+        ],
+      ];
+
+      const board = document.getElementById("board");
+      const movesEl = document.getElementById("moves");
+      const levelEl = document.getElementById("level");
+      const boxesEl = document.getElementById("boxes");
+      const messageEl = document.getElementById("message");
+      const directions = {
+        up: { x: 0, y: -1 },
+        down: { x: 0, y: 1 },
+        left: { x: -1, y: 0 },
+        right: { x: 1, y: 0 },
+      };
+
+      let levelIndex = 0;
+      let state = null;
+      let history = [];
+
+      function parseLevel(map) {
+        const walls = new Set();
+        const goals = new Set();
+        const boxes = new Set();
+        let player = { x: 0, y: 0 };
+
+        map.forEach((row, y) => {
+          [...row].forEach((tile, x) => {
+            const key = pointKey(x, y);
+            if (tile === "#") walls.add(key);
+            if (tile === "." || tile === "*" || tile === "+") goals.add(key);
+            if (tile === "$" || tile === "*") boxes.add(key);
+            if (tile === "@" || tile === "+") player = { x, y };
+          });
+        });
+
+        return {
+          width: Math.max(...map.map((row) => row.length)),
+          height: map.length,
+          walls,
+          goals,
+          boxes,
+          player,
+          moves: 0,
+        };
+      }
+
+      function pointKey(x, y) {
+        return `${x},${y}`;
+      }
+
+      function cloneState(source) {
+        return {
+          width: source.width,
+          height: source.height,
+          walls: new Set(source.walls),
+          goals: new Set(source.goals),
+          boxes: new Set(source.boxes),
+          player: { ...source.player },
+          moves: source.moves,
+        };
+      }
+
+      function loadLevel(index) {
+        levelIndex = (index + levels.length) % levels.length;
+        state = parseLevel(levels[levelIndex]);
+        history = [];
+        messageEl.textContent = "Use arrow keys or WASD to move. Push crates onto the emerald goals.";
+        render();
+      }
+
+      function move(dirName) {
+        const dir = directions[dirName];
+        const next = {
+          x: state.player.x + dir.x,
+          y: state.player.y + dir.y,
+        };
+        const nextKey = pointKey(next.x, next.y);
+        if (state.walls.has(nextKey)) return;
+
+        const hasBox = state.boxes.has(nextKey);
+        if (hasBox) {
+          const after = { x: next.x + dir.x, y: next.y + dir.y };
+          const afterKey = pointKey(after.x, after.y);
+          if (state.walls.has(afterKey) || state.boxes.has(afterKey)) return;
+          history.push(cloneState(state));
+          state.boxes.delete(nextKey);
+          state.boxes.add(afterKey);
+        } else {
+          history.push(cloneState(state));
+        }
+
+        state.player = next;
+        state.moves += 1;
+        render();
+
+        if (isWon()) {
+          messageEl.textContent = "Cleared. Start the next warehouse or replay this one with fewer moves.";
+        }
+      }
+
+      function isWon() {
+        return [...state.boxes].every((box) => state.goals.has(box));
+      }
+
+      function undo() {
+        const previous = history.pop();
+        if (!previous) return;
+        state = previous;
+        messageEl.textContent = "Move undone.";
+        render();
+      }
+
+      function render() {
+        board.innerHTML = "";
+        board.style.gridTemplateColumns = `repeat(${state.width}, minmax(0, 1fr))`;
+        board.style.width = `min(92vw, ${state.width * 3.5}rem)`;
+
+        for (let y = 0; y < state.height; y += 1) {
+          for (let x = 0; x < state.width; x += 1) {
+            const key = pointKey(x, y);
+            const cell = document.createElement("div");
+            cell.className =
+              "flex aspect-square items-center justify-center rounded text-lg font-black shadow-inner sm:text-2xl";
+
+            if (state.walls.has(key)) {
+              cell.classList.add("bg-zinc-700", "text-zinc-500");
+              cell.textContent = "";
+            } else {
+              cell.classList.add("bg-zinc-800");
+              if (state.goals.has(key)) {
+                cell.classList.add("ring-2", "ring-emerald-400");
+              }
+              if (state.boxes.has(key)) {
+                cell.classList.add(state.goals.has(key) ? "bg-emerald-500" : "bg-amber-400", "text-zinc-950");
+                cell.textContent = "□";
+              }
+              if (state.player.x === x && state.player.y === y) {
+                cell.classList.add("bg-sky-400", "text-zinc-950");
+                cell.textContent = "●";
+              }
+            }
+
+            board.appendChild(cell);
+          }
+        }
+
+        const placed = [...state.boxes].filter((box) => state.goals.has(box)).length;
+        movesEl.textContent = state.moves;
+        levelEl.textContent = levelIndex + 1;
+        boxesEl.textContent = `${placed}/${state.boxes.size}`;
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const keys = {
+          ArrowUp: "up",
+          w: "up",
+          W: "up",
+          ArrowDown: "down",
+          s: "down",
+          S: "down",
+          ArrowLeft: "left",
+          a: "left",
+          A: "left",
+          ArrowRight: "right",
+          d: "right",
+          D: "right",
+        };
+        const dir = keys[event.key];
+        if (!dir) return;
+        event.preventDefault();
+        move(dir);
+      });
+
+      document.querySelectorAll(".control").forEach((button) => {
+        button.addEventListener("click", () => move(button.dataset.dir));
+      });
+      document.getElementById("undo").addEventListener("click", undo);
+      document.getElementById("restart").addEventListener("click", () => loadLevel(levelIndex));
+      document.getElementById("next").addEventListener("click", () => loadLevel(levelIndex + 1));
+
+      loadLevel(0);
+    </script>
+  </body>
+</html>
