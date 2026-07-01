@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini Breakout</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p class="text-sm uppercase tracking-wide text-cyan-300">Classic Games</p>
+          <h1 class="text-3xl font-semibold">Mini Breakout</h1>
+        </div>
+        <div class="flex gap-3 text-sm">
+          <div class="rounded border border-neutral-700 px-3 py-2">
+            Score <span id="score" class="font-semibold text-cyan-300">0</span>
+          </div>
+          <div class="rounded border border-neutral-700 px-3 py-2">
+            Lives <span id="lives" class="font-semibold text-rose-300">3</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 md:grid-cols-[1fr_14rem]">
+        <div class="overflow-hidden rounded border border-neutral-700 bg-neutral-900">
+          <canvas id="game" width="720" height="460" class="block aspect-[36/23] w-full"></canvas>
+        </div>
+        <aside class="flex flex-col gap-3 text-sm text-neutral-300">
+          <button
+            id="restart"
+            class="rounded bg-cyan-400 px-4 py-2 font-semibold text-neutral-950 transition hover:bg-cyan-300"
+            type="button"
+          >
+            Restart
+          </button>
+          <div class="rounded border border-neutral-700 p-3">
+            <p class="font-semibold text-neutral-100">Controls</p>
+            <p class="mt-2">Move with Left/Right, A/D, mouse, or touch. Clear all bricks before the ball escapes.</p>
+          </div>
+          <div id="status" class="rounded border border-neutral-700 p-3 text-neutral-200">
+            Press Restart anytime for a fresh board.
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const statusEl = document.getElementById("status");
+      const restartButton = document.getElementById("restart");
+
+      const paddle = { x: 300, y: 430, width: 120, height: 14, speed: 8 };
+      const ball = { x: 360, y: 320, radius: 8, dx: 4, dy: -4 };
+      const keys = new Set();
+      const brickRows = 5;
+      const brickCols = 9;
+      const brickGap = 8;
+      const brickWidth = 70;
+      const brickHeight = 22;
+      let bricks = [];
+      let score = 0;
+      let lives = 3;
+      let running = true;
+
+      function resetBall() {
+        ball.x = canvas.width / 2;
+        ball.y = 330;
+        ball.dx = Math.random() > 0.5 ? 4 : -4;
+        ball.dy = -4;
+        paddle.x = (canvas.width - paddle.width) / 2;
+      }
+
+      function buildBricks() {
+        bricks = [];
+        const left = (canvas.width - brickCols * brickWidth - (brickCols - 1) * brickGap) / 2;
+        for (let row = 0; row < brickRows; row += 1) {
+          for (let col = 0; col < brickCols; col += 1) {
+            bricks.push({
+              x: left + col * (brickWidth + brickGap),
+              y: 54 + row * (brickHeight + brickGap),
+              alive: true,
+              color: ["#22d3ee", "#38bdf8", "#a78bfa", "#fb7185", "#facc15"][row],
+            });
+          }
+        }
+      }
+
+      function restart() {
+        score = 0;
+        lives = 3;
+        running = true;
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        statusEl.textContent = "Break the wall before your lives run out.";
+        buildBricks();
+        resetBall();
+      }
+
+      function clampPaddle() {
+        paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x));
+      }
+
+      function movePaddleFromClientX(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        const scale = canvas.width / rect.width;
+        paddle.x = (clientX - rect.left) * scale - paddle.width / 2;
+        clampPaddle();
+      }
+
+      function update() {
+        if (!running) return;
+
+        if (keys.has("ArrowLeft") || keys.has("a")) paddle.x -= paddle.speed;
+        if (keys.has("ArrowRight") || keys.has("d")) paddle.x += paddle.speed;
+        clampPaddle();
+
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+
+        if (ball.x < ball.radius || ball.x > canvas.width - ball.radius) ball.dx *= -1;
+        if (ball.y < ball.radius) ball.dy *= -1;
+
+        const hitPaddle =
+          ball.y + ball.radius >= paddle.y &&
+          ball.y - ball.radius <= paddle.y + paddle.height &&
+          ball.x >= paddle.x &&
+          ball.x <= paddle.x + paddle.width &&
+          ball.dy > 0;
+
+        if (hitPaddle) {
+          const offset = (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2);
+          ball.dx = offset * 5;
+          ball.dy = -Math.abs(ball.dy);
+        }
+
+        for (const brick of bricks) {
+          if (!brick.alive) continue;
+          const hitBrick =
+            ball.x + ball.radius > brick.x &&
+            ball.x - ball.radius < brick.x + brickWidth &&
+            ball.y + ball.radius > brick.y &&
+            ball.y - ball.radius < brick.y + brickHeight;
+          if (hitBrick) {
+            brick.alive = false;
+            ball.dy *= -1;
+            score += 10;
+            scoreEl.textContent = score;
+            break;
+          }
+        }
+
+        if (bricks.every((brick) => !brick.alive)) {
+          running = false;
+          statusEl.textContent = "You cleared the wall. Press Restart to play again.";
+        }
+
+        if (ball.y > canvas.height + ball.radius) {
+          lives -= 1;
+          livesEl.textContent = lives;
+          if (lives <= 0) {
+            running = false;
+            statusEl.textContent = "Game over. Press Restart for another run.";
+          } else {
+            resetBall();
+          }
+        }
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#0a0a0a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (const brick of bricks) {
+          if (!brick.alive) continue;
+          ctx.fillStyle = brick.color;
+          ctx.fillRect(brick.x, brick.y, brickWidth, brickHeight);
+        }
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#67e8f9";
+        ctx.fill();
+      }
+
+      function tick() {
+        update();
+        draw();
+        requestAnimationFrame(tick);
+      }
+
+      document.addEventListener("keydown", (event) => keys.add(event.key));
+      document.addEventListener("keyup", (event) => keys.delete(event.key));
+      canvas.addEventListener("mousemove", (event) => movePaddleFromClientX(event.clientX));
+      canvas.addEventListener("touchmove", (event) => {
+        event.preventDefault();
+        movePaddleFromClientX(event.touches[0].clientX);
+      });
+      restartButton.addEventListener("click", restart);
+
+      restart();
+      tick();
+    </script>
+  </body>
+</html>
