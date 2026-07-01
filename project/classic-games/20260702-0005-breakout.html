@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Breakout</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-4 px-4 py-6">
+      <header class="flex w-full flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-white">Mini Breakout</h1>
+          <p class="mt-1 text-sm text-zinc-400">移动挡板反弹小球，清空所有砖块。</p>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <span class="rounded bg-zinc-800 px-3 py-2">分数 <strong id="score">0</strong></span>
+          <span class="rounded bg-zinc-800 px-3 py-2">生命 <strong id="lives">3</strong></span>
+          <button
+            id="restart"
+            class="rounded bg-emerald-500 px-3 py-2 font-semibold text-zinc-950 hover:bg-emerald-400"
+            type="button"
+          >
+            重新开始
+          </button>
+        </div>
+      </header>
+
+      <section class="w-full">
+        <canvas
+          id="game"
+          class="aspect-[4/3] w-full rounded border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40"
+          width="800"
+          height="600"
+        ></canvas>
+      </section>
+
+      <footer class="w-full text-sm text-zinc-500">
+        键盘使用 A/D 或方向键；触屏与鼠标可直接拖动挡板。
+      </footer>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const restartBtn = document.getElementById("restart");
+
+      const state = {
+        score: 0,
+        lives: 3,
+        running: true,
+        left: false,
+        right: false,
+        paddle: { x: 330, y: 555, width: 140, height: 16, speed: 8 },
+        ball: { x: 400, y: 520, radius: 9, dx: 4, dy: -5 },
+        bricks: [],
+      };
+
+      const rows = 6;
+      const cols = 10;
+      const brick = {
+        width: 68,
+        height: 22,
+        gap: 8,
+        top: 58,
+        left: 26,
+      };
+
+      function buildBricks() {
+        state.bricks = [];
+        for (let row = 0; row < rows; row += 1) {
+          for (let col = 0; col < cols; col += 1) {
+            state.bricks.push({
+              x: brick.left + col * (brick.width + brick.gap),
+              y: brick.top + row * (brick.height + brick.gap),
+              alive: true,
+              hue: 160 + row * 24,
+            });
+          }
+        }
+      }
+
+      function resetBall() {
+        state.paddle.x = (canvas.width - state.paddle.width) / 2;
+        state.ball.x = canvas.width / 2;
+        state.ball.y = state.paddle.y - 34;
+        state.ball.dx = Math.random() > 0.5 ? 4 : -4;
+        state.ball.dy = -5;
+      }
+
+      function resetGame() {
+        state.score = 0;
+        state.lives = 3;
+        state.running = true;
+        buildBricks();
+        resetBall();
+        updateHud();
+      }
+
+      function updateHud() {
+        scoreEl.textContent = state.score;
+        livesEl.textContent = state.lives;
+      }
+
+      function drawText(message, detail) {
+        ctx.fillStyle = "rgba(24,24,27,0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 34px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(message, canvas.width / 2, canvas.height / 2 - 12);
+        ctx.fillStyle = "#a1a1aa";
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText(detail, canvas.width / 2, canvas.height / 2 + 24);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, "#18181b");
+        gradient.addColorStop(1, "#0f172a");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        state.bricks.forEach((item) => {
+          if (!item.alive) return;
+          ctx.fillStyle = `hsl(${item.hue} 72% 56%)`;
+          ctx.fillRect(item.x, item.y, brick.width, brick.height);
+          ctx.fillStyle = "rgba(255,255,255,0.18)";
+          ctx.fillRect(item.x, item.y, brick.width, 5);
+        });
+
+        ctx.fillStyle = "#e4e4e7";
+        ctx.fillRect(state.paddle.x, state.paddle.y, state.paddle.width, state.paddle.height);
+        ctx.fillStyle = "#34d399";
+        ctx.beginPath();
+        ctx.arc(state.ball.x, state.ball.y, state.ball.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (!state.running) {
+          const won = state.bricks.every((item) => !item.alive);
+          drawText(won ? "过关成功" : "游戏结束", "点击重新开始再来一局");
+        }
+      }
+
+      function movePaddle() {
+        if (state.left) state.paddle.x -= state.paddle.speed;
+        if (state.right) state.paddle.x += state.paddle.speed;
+        state.paddle.x = Math.max(0, Math.min(canvas.width - state.paddle.width, state.paddle.x));
+      }
+
+      function collideBricks() {
+        for (const item of state.bricks) {
+          if (!item.alive) continue;
+          const insideX = state.ball.x > item.x && state.ball.x < item.x + brick.width;
+          const insideY = state.ball.y - state.ball.radius < item.y + brick.height && state.ball.y + state.ball.radius > item.y;
+          if (insideX && insideY) {
+            item.alive = false;
+            state.ball.dy *= -1;
+            state.score += 10;
+            updateHud();
+            break;
+          }
+        }
+      }
+
+      function update() {
+        if (!state.running) return;
+        movePaddle();
+
+        state.ball.x += state.ball.dx;
+        state.ball.y += state.ball.dy;
+
+        if (state.ball.x < state.ball.radius || state.ball.x > canvas.width - state.ball.radius) {
+          state.ball.dx *= -1;
+        }
+        if (state.ball.y < state.ball.radius) {
+          state.ball.dy *= -1;
+        }
+
+        const overPaddleX = state.ball.x > state.paddle.x && state.ball.x < state.paddle.x + state.paddle.width;
+        const hitPaddleY = state.ball.y + state.ball.radius > state.paddle.y && state.ball.y < state.paddle.y + state.paddle.height;
+        if (overPaddleX && hitPaddleY && state.ball.dy > 0) {
+          const offset = (state.ball.x - (state.paddle.x + state.paddle.width / 2)) / (state.paddle.width / 2);
+          state.ball.dx = offset * 6;
+          state.ball.dy *= -1;
+        }
+
+        collideBricks();
+
+        if (state.ball.y > canvas.height + state.ball.radius) {
+          state.lives -= 1;
+          updateHud();
+          if (state.lives <= 0) {
+            state.running = false;
+          } else {
+            resetBall();
+          }
+        }
+
+        if (state.bricks.every((item) => !item.alive)) {
+          state.running = false;
+        }
+      }
+
+      function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      function setPointerPosition(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        const scale = canvas.width / rect.width;
+        state.paddle.x = (clientX - rect.left) * scale - state.paddle.width / 2;
+        state.paddle.x = Math.max(0, Math.min(canvas.width - state.paddle.width, state.paddle.x));
+      }
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") state.left = true;
+        if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") state.right = true;
+      });
+
+      window.addEventListener("keyup", (event) => {
+        if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") state.left = false;
+        if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") state.right = false;
+      });
+
+      canvas.addEventListener("mousemove", (event) => setPointerPosition(event.clientX));
+      canvas.addEventListener("touchmove", (event) => {
+        event.preventDefault();
+        setPointerPosition(event.touches[0].clientX);
+      });
+
+      restartBtn.addEventListener("click", resetGame);
+
+      resetGame();
+      loop();
+    </script>
+  </body>
+</html>
