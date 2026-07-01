@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pong</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-100 text-zinc-950">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-4 px-4 py-8">
+      <section class="w-full rounded-lg border border-zinc-300 bg-white p-4 shadow-sm">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-semibold">Mini Pong</h1>
+            <p class="text-sm text-zinc-600">Use W/S or arrow keys to move your paddle.</p>
+          </div>
+          <div class="rounded-md border border-zinc-300 px-3 py-2 text-sm">
+            You <span id="playerScore" class="font-semibold">0</span>
+            <span class="px-1 text-zinc-400">:</span>
+            CPU <span id="cpuScore" class="font-semibold">0</span>
+          </div>
+        </div>
+
+        <canvas
+          id="game"
+          width="640"
+          height="360"
+          class="aspect-video w-full rounded-md border border-zinc-900 bg-zinc-950"
+        ></canvas>
+
+        <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <button id="start" class="rounded-md bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800">
+            Start
+          </button>
+          <button id="reset" class="rounded-md border border-zinc-400 px-4 py-2 text-sm font-medium hover:bg-zinc-100">
+            Reset
+          </button>
+          <span id="status" class="min-w-32 text-center text-sm text-zinc-600">Ready</span>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const playerScoreEl = document.getElementById("playerScore");
+      const cpuScoreEl = document.getElementById("cpuScore");
+      const statusEl = document.getElementById("status");
+      const startBtn = document.getElementById("start");
+      const resetBtn = document.getElementById("reset");
+
+      const paddleWidth = 12;
+      const paddleHeight = 72;
+      const keys = new Set();
+      let player;
+      let cpu;
+      let ball;
+      let playerScore;
+      let cpuScore;
+      let animationId = null;
+      let running = false;
+
+      function resetRound(servingLeft = Math.random() > 0.5) {
+        ball = {
+          x: canvas.width / 2,
+          y: canvas.height / 2,
+          size: 10,
+          vx: servingLeft ? -4 : 4,
+          vy: (Math.random() > 0.5 ? 1 : -1) * 2.5,
+        };
+      }
+
+      function resetGame() {
+        player = { x: 28, y: canvas.height / 2 - paddleHeight / 2, speed: 6 };
+        cpu = { x: canvas.width - 40, y: canvas.height / 2 - paddleHeight / 2, speed: 3.8 };
+        playerScore = 0;
+        cpuScore = 0;
+        resetRound(false);
+        updateHud("Ready");
+        draw();
+      }
+
+      function updateHud(message) {
+        playerScoreEl.textContent = playerScore;
+        cpuScoreEl.textContent = cpuScore;
+        statusEl.textContent = message;
+      }
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function drawPaddle(paddle, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(paddle.x, paddle.y, paddleWidth, paddleHeight);
+      }
+
+      function draw() {
+        ctx.fillStyle = "#18181b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "rgba(244, 244, 245, 0.35)";
+        ctx.setLineDash([8, 10]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 16);
+        ctx.lineTo(canvas.width / 2, canvas.height - 16);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        drawPaddle(player, "#2dd4bf");
+        drawPaddle(cpu, "#e4e4e7");
+
+        ctx.fillStyle = "#f43f5e";
+        ctx.fillRect(ball.x - ball.size / 2, ball.y - ball.size / 2, ball.size, ball.size);
+      }
+
+      function movePlayer() {
+        if (keys.has("ArrowUp") || keys.has("w") || keys.has("W")) player.y -= player.speed;
+        if (keys.has("ArrowDown") || keys.has("s") || keys.has("S")) player.y += player.speed;
+        player.y = clamp(player.y, 0, canvas.height - paddleHeight);
+      }
+
+      function moveCpu() {
+        const target = ball.y - paddleHeight / 2;
+        cpu.y += clamp(target - cpu.y, -cpu.speed, cpu.speed);
+        cpu.y = clamp(cpu.y, 0, canvas.height - paddleHeight);
+      }
+
+      function paddleHit(paddle) {
+        return (
+          ball.x + ball.size / 2 >= paddle.x &&
+          ball.x - ball.size / 2 <= paddle.x + paddleWidth &&
+          ball.y + ball.size / 2 >= paddle.y &&
+          ball.y - ball.size / 2 <= paddle.y + paddleHeight
+        );
+      }
+
+      function update() {
+        movePlayer();
+        moveCpu();
+
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        if (ball.y - ball.size / 2 <= 0 || ball.y + ball.size / 2 >= canvas.height) {
+          ball.vy *= -1;
+          ball.y = clamp(ball.y, ball.size / 2, canvas.height - ball.size / 2);
+        }
+
+        if (paddleHit(player) && ball.vx < 0) {
+          ball.vx = Math.abs(ball.vx) + 0.25;
+          ball.vy += (ball.y - (player.y + paddleHeight / 2)) / 18;
+        }
+
+        if (paddleHit(cpu) && ball.vx > 0) {
+          ball.vx = -Math.abs(ball.vx) - 0.25;
+          ball.vy += (ball.y - (cpu.y + paddleHeight / 2)) / 20;
+        }
+
+        if (ball.x < -20) {
+          cpuScore += 1;
+          resetRound(false);
+        }
+
+        if (ball.x > canvas.width + 20) {
+          playerScore += 1;
+          resetRound(true);
+        }
+
+        updateHud("Playing");
+        draw();
+        animationId = requestAnimationFrame(update);
+      }
+
+      function start() {
+        if (running) return;
+        running = true;
+        startBtn.textContent = "Playing";
+        update();
+      }
+
+      function stop(message) {
+        running = false;
+        startBtn.textContent = "Start";
+        cancelAnimationFrame(animationId);
+        animationId = null;
+        updateHud(message);
+        draw();
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowUp", "ArrowDown", "w", "W", "s", "S"].includes(event.key)) {
+          event.preventDefault();
+          keys.add(event.key);
+          start();
+        }
+      });
+
+      document.addEventListener("keyup", (event) => keys.delete(event.key));
+      startBtn.addEventListener("click", start);
+      resetBtn.addEventListener("click", () => {
+        stop("Ready");
+        resetGame();
+      });
+
+      resetGame();
+    </script>
+  </body>
+</html>
