@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Reversi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:py-8">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wider text-emerald-300">Classic Games</p>
+        <h1 class="text-3xl font-bold sm:text-4xl">Mini Reversi</h1>
+      </div>
+      <button id="resetBtn" class="w-full rounded-md bg-emerald-300 px-4 py-2 font-bold text-emerald-950 shadow hover:bg-emerald-200 sm:w-auto">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg bg-emerald-900/70 p-3 shadow-2xl ring-1 ring-emerald-500/30 sm:p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-8 gap-1 rounded-md bg-emerald-800 p-2 shadow-inner"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4 rounded-lg bg-emerald-900/70 p-4 ring-1 ring-emerald-500/30">
+        <div>
+          <p class="text-sm text-emerald-200">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold">黑棋</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-md bg-emerald-950/70 p-3">
+            <p class="text-sm text-emerald-200">黑棋</p>
+            <p id="blackScore" class="text-3xl font-bold">2</p>
+          </div>
+          <div class="rounded-md bg-emerald-50 p-3 text-emerald-950">
+            <p class="text-sm">白棋</p>
+            <p id="whiteScore" class="text-3xl font-bold">2</p>
+          </div>
+        </div>
+
+        <div class="rounded-md bg-emerald-950/50 p-3 text-sm leading-6 text-emerald-100">
+          <p>黑棋由你控制，白棋会自动选择一个可落子位置。</p>
+          <p>落子后夹住的对方棋子会翻转。无法落子时自动跳过回合。</p>
+        </div>
+
+        <p id="statusText" class="min-h-12 rounded-md bg-amber-200 px-3 py-2 font-semibold text-amber-950">
+          请选择带绿色光点的格子落黑棋。
+        </p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const blackScore = document.getElementById("blackScore");
+    const whiteScore = document.getElementById("whiteScore");
+    const statusText = document.getElementById("statusText");
+    const size = 8;
+    const empty = 0;
+    const black = 1;
+    const white = 2;
+    const directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1], [0, 1],
+      [1, -1], [1, 0], [1, 1],
+    ];
+
+    let board = [];
+    let current = black;
+    let gameOver = false;
+
+    function newBoard() {
+      board = Array.from({ length: size }, () => Array(size).fill(empty));
+      board[3][3] = white;
+      board[3][4] = black;
+      board[4][3] = black;
+      board[4][4] = white;
+      current = black;
+      gameOver = false;
+      render();
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function opponent(player) {
+      return player === black ? white : black;
+    }
+
+    function flipsFor(row, col, player) {
+      if (board[row][col] !== empty) return [];
+      const rival = opponent(player);
+      const flips = [];
+
+      for (const [dr, dc] of directions) {
+        const line = [];
+        let r = row + dr;
+        let c = col + dc;
+
+        while (inside(r, c) && board[r][c] === rival) {
+          line.push([r, c]);
+          r += dr;
+          c += dc;
+        }
+
+        if (line.length && inside(r, c) && board[r][c] === player) {
+          flips.push(...line);
+        }
+      }
+
+      return flips;
+    }
+
+    function movesFor(player) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const flips = flipsFor(row, col, player);
+          if (flips.length) moves.push({ row, col, flips });
+        }
+      }
+      return moves;
+    }
+
+    function place(row, col) {
+      if (gameOver || current !== black) return;
+      const flips = flipsFor(row, col, black);
+      if (!flips.length) return;
+      applyMove(row, col, black, flips);
+      current = white;
+      render("白棋思考中...");
+      window.setTimeout(computerMove, 450);
+    }
+
+    function applyMove(row, col, player, flips) {
+      board[row][col] = player;
+      flips.forEach(([r, c]) => {
+        board[r][c] = player;
+      });
+    }
+
+    function computerMove() {
+      if (gameOver) return;
+      const whiteMoves = movesFor(white);
+      if (whiteMoves.length) {
+        whiteMoves.sort((a, b) => b.flips.length - a.flips.length);
+        const corners = whiteMoves.filter((move) => (
+          (move.row === 0 || move.row === 7) && (move.col === 0 || move.col === 7)
+        ));
+        const move = corners[0] || whiteMoves[0];
+        applyMove(move.row, move.col, white, move.flips);
+      }
+      current = black;
+      resolvePasses();
+      render();
+      if (!gameOver && current === white) {
+        window.setTimeout(computerMove, 450);
+      }
+    }
+
+    function resolvePasses() {
+      const playerMoves = movesFor(current);
+      const rivalMoves = movesFor(opponent(current));
+
+      if (!playerMoves.length && !rivalMoves.length) {
+        gameOver = true;
+        return;
+      }
+
+      if (!playerMoves.length) {
+        current = opponent(current);
+      }
+    }
+
+    function score() {
+      return board.flat().reduce((acc, cell) => {
+        if (cell === black) acc.black += 1;
+        if (cell === white) acc.white += 1;
+        return acc;
+      }, { black: 0, white: 0 });
+    }
+
+    function status(message) {
+      if (message) return message;
+      const legal = movesFor(current).length;
+      if (gameOver) {
+        const points = score();
+        if (points.black === points.white) return "棋局结束，平局。";
+        return points.black > points.white ? "棋局结束，黑棋获胜。" : "棋局结束，白棋获胜。";
+      }
+      if (!legal) return "当前玩家无合法落子，已跳过回合。";
+      return current === black ? "请选择带绿色光点的格子落黑棋。" : "白棋思考中...";
+    }
+
+    function render(message = "") {
+      const legalMoves = new Map(movesFor(black).map((move) => [`${move.row},${move.col}`, move]));
+      boardEl.innerHTML = "";
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = document.createElement("button");
+          const key = `${row},${col}`;
+          const isLegal = current === black && !gameOver && legalMoves.has(key);
+          cell.className = "relative aspect-square rounded bg-emerald-700 shadow-inner transition hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-amber-200";
+          cell.setAttribute("aria-label", `第 ${row + 1} 行第 ${col + 1} 列`);
+          cell.disabled = !isLegal;
+          cell.addEventListener("click", () => place(row, col));
+
+          if (board[row][col] !== empty) {
+            const piece = document.createElement("span");
+            piece.className = board[row][col] === black
+              ? "absolute inset-2 rounded-full bg-slate-950 shadow-lg ring-2 ring-slate-700"
+              : "absolute inset-2 rounded-full bg-emerald-50 shadow-lg ring-2 ring-emerald-200";
+            cell.appendChild(piece);
+          } else if (isLegal) {
+            const hint = document.createElement("span");
+            hint.className = "absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-lime-300 shadow";
+            cell.appendChild(hint);
+          }
+
+          boardEl.appendChild(cell);
+        }
+      }
+
+      const points = score();
+      blackScore.textContent = points.black;
+      whiteScore.textContent = points.white;
+      turnText.textContent = current === black ? "黑棋" : "白棋";
+      statusText.textContent = status(message);
+    }
+
+    resetBtn.addEventListener("click", newBoard);
+    newBoard();
+  </script>
+</body>
+</html>
