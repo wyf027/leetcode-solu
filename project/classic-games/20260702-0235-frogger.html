@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Frogger</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-5 px-4 py-6">
+      <section class="w-full max-w-3xl">
+        <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="text-3xl font-black tracking-tight text-emerald-300">Mini Frogger</h1>
+            <p class="mt-1 text-sm text-zinc-400">Cross the road, avoid traffic, and reach the river bank.</p>
+          </div>
+          <div class="flex gap-2 text-sm">
+            <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+              Score <span id="score" class="font-bold text-emerald-300">0</span>
+            </div>
+            <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+              Lives <span id="lives" class="font-bold text-rose-300">3</span>
+            </div>
+            <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+              Level <span id="level" class="font-bold text-sky-300">1</span>
+            </div>
+          </div>
+        </div>
+
+        <canvas
+          id="game"
+          width="560"
+          height="640"
+          class="aspect-[7/8] w-full rounded border border-zinc-700 bg-zinc-900 shadow-2xl shadow-emerald-950/30"
+        ></canvas>
+
+        <div class="mt-4 grid grid-cols-3 gap-2 sm:hidden">
+          <span></span>
+          <button data-move="up" class="rounded bg-emerald-500 px-4 py-3 font-bold text-zinc-950">Up</button>
+          <span></span>
+          <button data-move="left" class="rounded bg-zinc-800 px-4 py-3 font-bold">Left</button>
+          <button id="restartMobile" class="rounded bg-sky-500 px-4 py-3 font-bold text-zinc-950">Reset</button>
+          <button data-move="right" class="rounded bg-zinc-800 px-4 py-3 font-bold">Right</button>
+          <span></span>
+          <button data-move="down" class="rounded bg-zinc-800 px-4 py-3 font-bold">Down</button>
+          <span></span>
+        </div>
+
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-400">
+          <p>Use arrow keys or WASD. Press Space to restart after a crash or win.</p>
+          <button id="restart" class="rounded bg-emerald-400 px-4 py-2 font-bold text-zinc-950 hover:bg-emerald-300">
+            Restart
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const levelEl = document.getElementById("level");
+      const tile = 80;
+      const cols = 7;
+      const rows = 8;
+      const start = { col: 3, row: 7 };
+      const lanes = [
+        { row: 1, speed: -1.8, color: "#38bdf8", cars: [{ x: 0 }, { x: 280 }] },
+        { row: 2, speed: 2.2, color: "#f97316", cars: [{ x: 80 }, { x: 390 }] },
+        { row: 3, speed: -2.6, color: "#e879f9", cars: [{ x: 20 }, { x: 310 }] },
+        { row: 4, speed: 1.6, color: "#fde047", cars: [{ x: 150 }, { x: 430 }] },
+        { row: 5, speed: -2.1, color: "#fb7185", cars: [{ x: 60 }, { x: 360 }] },
+      ];
+      const state = {
+        frog: { ...start },
+        score: 0,
+        lives: 3,
+        level: 1,
+        running: true,
+        message: "Reach the green bank.",
+      };
+
+      function resetFrog(message) {
+        state.frog = { ...start };
+        state.message = message;
+      }
+
+      function restart() {
+        state.frog = { ...start };
+        state.score = 0;
+        state.lives = 3;
+        state.level = 1;
+        state.running = true;
+        state.message = "Reach the green bank.";
+        lanes.forEach((lane, index) => {
+          lane.cars.forEach((car, carIndex) => {
+            car.x = ((index + 1) * 70 + carIndex * 290) % canvas.width;
+          });
+        });
+        updateHud();
+      }
+
+      function updateHud() {
+        scoreEl.textContent = state.score;
+        livesEl.textContent = state.lives;
+        levelEl.textContent = state.level;
+      }
+
+      function moveFrog(direction) {
+        if (!state.running) return;
+        if (direction === "up") state.frog.row -= 1;
+        if (direction === "down") state.frog.row += 1;
+        if (direction === "left") state.frog.col -= 1;
+        if (direction === "right") state.frog.col += 1;
+        state.frog.col = Math.max(0, Math.min(cols - 1, state.frog.col));
+        state.frog.row = Math.max(0, Math.min(rows - 1, state.frog.row));
+
+        if (state.frog.row === 0) {
+          state.score += 100 * state.level;
+          state.level += 1;
+          resetFrog("Safe crossing. Traffic gets faster.");
+          updateHud();
+        }
+      }
+
+      function crash() {
+        state.lives -= 1;
+        if (state.lives <= 0) {
+          state.running = false;
+          state.message = "Game over. Press Space or Restart.";
+        } else {
+          resetFrog("Hit! Try another gap.");
+        }
+        updateHud();
+      }
+
+      function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let row = 0; row < rows; row += 1) {
+          if (row === 0) ctx.fillStyle = "#064e3b";
+          else if (row === 6 || row === 7) ctx.fillStyle = "#14532d";
+          else ctx.fillStyle = row % 2 ? "#27272a" : "#3f3f46";
+          ctx.fillRect(0, row * tile, canvas.width, tile);
+          ctx.strokeStyle = "rgba(255,255,255,0.08)";
+          ctx.beginPath();
+          ctx.moveTo(0, row * tile);
+          ctx.lineTo(canvas.width, row * tile);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "rgba(255,255,255,0.18)";
+        for (let x = 20; x < canvas.width; x += 80) {
+          for (let y = tile + 35; y < tile * 6; y += tile) ctx.fillRect(x, y, 34, 5);
+        }
+      }
+
+      function drawCars() {
+        lanes.forEach((lane) => {
+          ctx.fillStyle = lane.color;
+          lane.cars.forEach((car) => {
+            const y = lane.row * tile + 18;
+            ctx.fillRect(car.x, y, 96, 44);
+            ctx.fillStyle = "#18181b";
+            ctx.fillRect(car.x + 14, y + 8, 20, 10);
+            ctx.fillRect(car.x + 58, y + 8, 20, 10);
+            ctx.fillStyle = lane.color;
+          });
+        });
+      }
+
+      function drawFrog() {
+        const x = state.frog.col * tile + tile / 2;
+        const y = state.frog.row * tile + tile / 2;
+        ctx.fillStyle = "#34d399";
+        ctx.beginPath();
+        ctx.arc(x, y, 24, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#052e16";
+        ctx.beginPath();
+        ctx.arc(x - 9, y - 8, 4, 0, Math.PI * 2);
+        ctx.arc(x + 9, y - 8, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawMessage() {
+        ctx.fillStyle = "rgba(24,24,27,0.72)";
+        ctx.fillRect(0, 0, canvas.width, 42);
+        ctx.fillStyle = "#d1fae5";
+        ctx.font = "18px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state.message, canvas.width / 2, 27);
+      }
+
+      function updateCars() {
+        if (!state.running) return;
+        lanes.forEach((lane) => {
+          lane.cars.forEach((car) => {
+            car.x += lane.speed * (1 + state.level * 0.08);
+            if (lane.speed > 0 && car.x > canvas.width + 20) car.x = -120;
+            if (lane.speed < 0 && car.x < -120) car.x = canvas.width + 20;
+          });
+        });
+      }
+
+      function detectCollision() {
+        if (!state.running) return;
+        const frogX = state.frog.col * tile + 18;
+        const frogY = state.frog.row * tile + 18;
+        lanes
+          .filter((lane) => lane.row === state.frog.row)
+          .forEach((lane) => {
+            lane.cars.forEach((car) => {
+              const carY = lane.row * tile + 18;
+              const hitX = frogX < car.x + 96 && frogX + 44 > car.x;
+              const hitY = frogY < carY + 44 && frogY + 44 > carY;
+              if (hitX && hitY) crash();
+            });
+          });
+      }
+
+      function loop() {
+        updateCars();
+        detectCollision();
+        drawBoard();
+        drawCars();
+        drawFrog();
+        drawMessage();
+        requestAnimationFrame(loop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const keyMap = {
+          ArrowUp: "up",
+          w: "up",
+          W: "up",
+          ArrowDown: "down",
+          s: "down",
+          S: "down",
+          ArrowLeft: "left",
+          a: "left",
+          A: "left",
+          ArrowRight: "right",
+          d: "right",
+          D: "right",
+        };
+        if (event.code === "Space") restart();
+        if (keyMap[event.key]) {
+          event.preventDefault();
+          moveFrog(keyMap[event.key]);
+        }
+      });
+      document.querySelectorAll("[data-move]").forEach((button) => {
+        button.addEventListener("click", () => moveFrog(button.dataset.move));
+      });
+      document.getElementById("restart").addEventListener("click", restart);
+      document.getElementById("restartMobile").addEventListener("click", restart);
+
+      restart();
+      loop();
+    </script>
+  </body>
+</html>
