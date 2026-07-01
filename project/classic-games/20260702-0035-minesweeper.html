@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Minesweeper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-4 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">Classic Games</p>
+          <h1 class="mt-1 text-3xl font-black tracking-tight text-white sm:text-4xl">Mini Minesweeper</h1>
+        </div>
+        <button
+          id="newGame"
+          class="h-11 rounded border border-cyan-300 bg-cyan-300 px-5 text-sm font-bold text-zinc-950 transition hover:bg-cyan-200"
+          type="button"
+        >
+          New Game
+        </button>
+      </header>
+
+      <section class="grid gap-4 sm:grid-cols-3">
+        <div class="border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-xs uppercase tracking-[0.16em] text-zinc-400">Mines</p>
+          <p id="mineCount" class="mt-1 text-2xl font-black text-cyan-200">10</p>
+        </div>
+        <div class="border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-xs uppercase tracking-[0.16em] text-zinc-400">Time</p>
+          <p id="timer" class="mt-1 text-2xl font-black text-amber-200">000</p>
+        </div>
+        <div class="border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-xs uppercase tracking-[0.16em] text-zinc-400">Status</p>
+          <p id="status" class="mt-1 text-2xl font-black text-lime-200">Ready</p>
+        </div>
+      </section>
+
+      <section class="flex flex-1 flex-col items-center justify-center gap-4">
+        <div
+          id="board"
+          class="grid w-full max-w-[min(92vw,560px)] touch-manipulation border border-zinc-700 bg-zinc-800 p-1 shadow-2xl shadow-black/30"
+          aria-label="Minesweeper board"
+        ></div>
+        <p class="max-w-xl text-center text-sm leading-6 text-zinc-400">
+          左键或点击翻开格子，右键插旗；在触屏设备上长按插旗。避开全部地雷即可获胜。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const size = 9;
+      const totalMines = 10;
+      const boardEl = document.getElementById("board");
+      const mineCountEl = document.getElementById("mineCount");
+      const timerEl = document.getElementById("timer");
+      const statusEl = document.getElementById("status");
+      const newGameBtn = document.getElementById("newGame");
+
+      let cells = [];
+      let revealedCount = 0;
+      let flaggedCount = 0;
+      let started = false;
+      let finished = false;
+      let seconds = 0;
+      let timerId = null;
+      let pressTimer = null;
+
+      function indexOf(row, col) {
+        return row * size + col;
+      }
+
+      function neighbors(row, col) {
+        const spots = [];
+        for (let dr = -1; dr <= 1; dr += 1) {
+          for (let dc = -1; dc <= 1; dc += 1) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = row + dr;
+            const nc = col + dc;
+            if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
+              spots.push(cells[indexOf(nr, nc)]);
+            }
+          }
+        }
+        return spots;
+      }
+
+      function buildCells() {
+        cells = Array.from({ length: size * size }, (_, i) => ({
+          row: Math.floor(i / size),
+          col: i % size,
+          mine: false,
+          revealed: false,
+          flagged: false,
+          count: 0,
+        }));
+
+        const mineSlots = new Set();
+        while (mineSlots.size < totalMines) {
+          mineSlots.add(Math.floor(Math.random() * cells.length));
+        }
+        mineSlots.forEach((slot) => {
+          cells[slot].mine = true;
+        });
+        cells.forEach((cell) => {
+          cell.count = neighbors(cell.row, cell.col).filter((next) => next.mine).length;
+        });
+      }
+
+      function startTimer() {
+        if (started) return;
+        started = true;
+        timerId = setInterval(() => {
+          seconds += 1;
+          timerEl.textContent = String(seconds).padStart(3, "0");
+        }, 1000);
+      }
+
+      function stopTimer() {
+        clearInterval(timerId);
+        timerId = null;
+      }
+
+      function endGame(won) {
+        finished = true;
+        stopTimer();
+        statusEl.textContent = won ? "Cleared" : "Boom";
+        statusEl.className = won
+          ? "mt-1 text-2xl font-black text-lime-200"
+          : "mt-1 text-2xl font-black text-rose-300";
+        if (!won) {
+          cells.forEach((cell) => {
+            if (cell.mine) cell.revealed = true;
+          });
+        }
+        renderBoard();
+      }
+
+      function revealCell(cell) {
+        if (finished || cell.revealed || cell.flagged) return;
+        startTimer();
+        cell.revealed = true;
+        revealedCount += 1;
+
+        if (cell.mine) {
+          endGame(false);
+          return;
+        }
+
+        if (cell.count === 0) {
+          neighbors(cell.row, cell.col).forEach(revealCell);
+        }
+
+        if (revealedCount === cells.length - totalMines) {
+          endGame(true);
+          return;
+        }
+        renderBoard();
+      }
+
+      function toggleFlag(cell) {
+        if (finished || cell.revealed) return;
+        startTimer();
+        cell.flagged = !cell.flagged;
+        flaggedCount += cell.flagged ? 1 : -1;
+        mineCountEl.textContent = String(totalMines - flaggedCount);
+        renderBoard();
+      }
+
+      function cellLabel(cell) {
+        if (!cell.revealed) return cell.flagged ? "F" : "";
+        if (cell.mine) return "*";
+        return cell.count ? String(cell.count) : "";
+      }
+
+      function cellClass(cell) {
+        const numberColors = [
+          "text-zinc-300",
+          "text-sky-300",
+          "text-emerald-300",
+          "text-amber-300",
+          "text-violet-300",
+          "text-rose-300",
+          "text-cyan-200",
+          "text-orange-200",
+          "text-white",
+        ];
+        if (cell.revealed && cell.mine) return "bg-rose-500 text-white";
+        if (cell.revealed) return `bg-zinc-950 ${numberColors[cell.count]} border-zinc-900`;
+        if (cell.flagged) return "bg-amber-300 text-zinc-950 border-amber-200";
+        return "bg-zinc-700 text-zinc-200 border-zinc-600 hover:bg-zinc-600";
+      }
+
+      function renderBoard() {
+        boardEl.innerHTML = "";
+        boardEl.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+        cells.forEach((cell) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `aspect-square select-none border text-lg font-black transition sm:text-xl ${cellClass(cell)}`;
+          button.textContent = cellLabel(cell);
+          button.setAttribute("aria-label", `row ${cell.row + 1}, column ${cell.col + 1}`);
+          button.addEventListener("click", () => revealCell(cell));
+          button.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            toggleFlag(cell);
+          });
+          button.addEventListener("touchstart", () => {
+            pressTimer = setTimeout(() => toggleFlag(cell), 450);
+          });
+          button.addEventListener("touchend", () => clearTimeout(pressTimer));
+          boardEl.appendChild(button);
+        });
+      }
+
+      function resetGame() {
+        stopTimer();
+        revealedCount = 0;
+        flaggedCount = 0;
+        started = false;
+        finished = false;
+        seconds = 0;
+        mineCountEl.textContent = String(totalMines);
+        timerEl.textContent = "000";
+        statusEl.textContent = "Ready";
+        statusEl.className = "mt-1 text-2xl font-black text-lime-200";
+        buildCells();
+        renderBoard();
+      }
+
+      newGameBtn.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
