@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Memory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6">
+    <header class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-emerald-300">Classic Game</p>
+        <h1 class="mt-1 text-3xl font-bold text-white sm:text-4xl">Mini Memory</h1>
+      </div>
+      <button id="restart" class="rounded bg-emerald-400 px-4 py-2 text-sm font-bold text-zinc-950 transition hover:bg-emerald-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="mb-5 grid grid-cols-3 gap-3 text-center">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs text-zinc-400">步数</div>
+        <div id="moves" class="text-2xl font-bold">0</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs text-zinc-400">配对</div>
+        <div id="pairs" class="text-2xl font-bold">0/8</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs text-zinc-400">时间</div>
+        <div id="timer" class="text-2xl font-bold">00:00</div>
+      </div>
+    </section>
+
+    <section id="board" class="grid flex-1 grid-cols-4 gap-3 sm:gap-4" aria-label="Memory card board"></section>
+
+    <section id="result" class="mt-5 hidden rounded border border-emerald-400 bg-emerald-400/10 p-4 text-center">
+      <p class="text-lg font-bold text-emerald-200">全部配对完成</p>
+      <p id="summary" class="mt-1 text-sm text-zinc-200"></p>
+    </section>
+  </main>
+
+  <script>
+    const icons = ["★", "◆", "●", "▲", "☀", "☂", "♫", "♣"];
+    const board = document.getElementById("board");
+    const movesEl = document.getElementById("moves");
+    const pairsEl = document.getElementById("pairs");
+    const timerEl = document.getElementById("timer");
+    const resultEl = document.getElementById("result");
+    const summaryEl = document.getElementById("summary");
+    const restartBtn = document.getElementById("restart");
+
+    let deck = [];
+    let firstCard = null;
+    let lockBoard = false;
+    let moves = 0;
+    let matches = 0;
+    let seconds = 0;
+    let timerId = null;
+
+    function shuffle(cards) {
+      for (let i = cards.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+      return cards;
+    }
+
+    function formatTime(totalSeconds) {
+      const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+      const secs = String(totalSeconds % 60).padStart(2, "0");
+      return `${minutes}:${secs}`;
+    }
+
+    function startTimer() {
+      if (timerId) return;
+      timerId = setInterval(() => {
+        seconds += 1;
+        timerEl.textContent = formatTime(seconds);
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerId);
+      timerId = null;
+    }
+
+    function updateStats() {
+      movesEl.textContent = moves;
+      pairsEl.textContent = `${matches}/${icons.length}`;
+      timerEl.textContent = formatTime(seconds);
+    }
+
+    function setCardOpen(card, isOpen) {
+      const face = card.querySelector(".card-face");
+      card.dataset.open = String(isOpen);
+      card.classList.toggle("bg-emerald-400", isOpen);
+      card.classList.toggle("text-zinc-950", isOpen);
+      card.classList.toggle("bg-zinc-800", !isOpen);
+      card.classList.toggle("text-transparent", !isOpen);
+      face.classList.toggle("scale-100", isOpen);
+      face.classList.toggle("scale-0", !isOpen);
+    }
+
+    function finishGame() {
+      stopTimer();
+      summaryEl.textContent = `用 ${moves} 步完成，耗时 ${formatTime(seconds)}。`;
+      resultEl.classList.remove("hidden");
+    }
+
+    function handleCardClick(event) {
+      const card = event.currentTarget;
+      if (lockBoard || card.dataset.matched === "true" || card.dataset.open === "true") return;
+
+      startTimer();
+      setCardOpen(card, true);
+
+      if (!firstCard) {
+        firstCard = card;
+        return;
+      }
+
+      moves += 1;
+      updateStats();
+
+      if (firstCard.dataset.icon === card.dataset.icon) {
+        firstCard.dataset.matched = "true";
+        card.dataset.matched = "true";
+        firstCard.classList.add("ring-2", "ring-emerald-200");
+        card.classList.add("ring-2", "ring-emerald-200");
+        firstCard = null;
+        matches += 1;
+        updateStats();
+        if (matches === icons.length) finishGame();
+        return;
+      }
+
+      lockBoard = true;
+      setTimeout(() => {
+        setCardOpen(firstCard, false);
+        setCardOpen(card, false);
+        firstCard = null;
+        lockBoard = false;
+      }, 650);
+    }
+
+    function buildCard(icon, index) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.dataset.icon = icon;
+      card.dataset.open = "false";
+      card.dataset.matched = "false";
+      card.className = "aspect-square rounded border border-zinc-700 bg-zinc-800 text-transparent shadow transition hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300";
+      card.setAttribute("aria-label", `Card ${index + 1}`);
+      card.innerHTML = `<span class="card-face flex h-full w-full scale-0 items-center justify-center text-4xl font-black transition-transform sm:text-5xl">${icon}</span>`;
+      card.addEventListener("click", handleCardClick);
+      return card;
+    }
+
+    function resetGame() {
+      stopTimer();
+      deck = shuffle([...icons, ...icons]);
+      firstCard = null;
+      lockBoard = false;
+      moves = 0;
+      matches = 0;
+      seconds = 0;
+      resultEl.classList.add("hidden");
+      updateStats();
+      board.replaceChildren(...deck.map(buildCard));
+    }
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
