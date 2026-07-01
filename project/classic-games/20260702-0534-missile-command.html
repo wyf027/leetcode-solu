@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Missile Command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+      <section class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-3xl font-bold tracking-normal text-cyan-200">Mini Missile Command</h1>
+          <p class="mt-1 text-sm text-slate-300">Click or tap to intercept incoming missiles before they hit your cities.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+            <div class="text-slate-400">Score</div>
+            <div id="score" class="text-lg font-semibold text-cyan-200">0</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+            <div class="text-slate-400">Wave</div>
+            <div id="wave" class="text-lg font-semibold text-amber-200">1</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+            <div class="text-slate-400">Ammo</div>
+            <div id="ammo" class="text-lg font-semibold text-emerald-200">12</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="overflow-hidden rounded border border-slate-700 bg-slate-900 shadow-2xl shadow-cyan-950/30">
+        <canvas id="game" class="block h-[68vh] max-h-[620px] min-h-[420px] w-full touch-none bg-slate-950"></canvas>
+      </section>
+
+      <section class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
+        <div class="flex flex-wrap gap-2">
+          <span class="rounded border border-slate-700 px-3 py-1">Mouse / Touch: aim and fire</span>
+          <span class="rounded border border-slate-700 px-3 py-1">Space: restart after game over</span>
+        </div>
+        <button id="restart" class="rounded bg-cyan-400 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-300">Restart</button>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const waveEl = document.getElementById("wave");
+      const ammoEl = document.getElementById("ammo");
+      const restartButton = document.getElementById("restart");
+
+      const state = {
+        score: 0,
+        wave: 1,
+        ammo: 12,
+        cities: [],
+        enemies: [],
+        shots: [],
+        blasts: [],
+        nextSpawn: 0,
+        remainingInWave: 10,
+        gameOver: false,
+        message: "Defend the cities",
+      };
+
+      function resize() {
+        const rect = canvas.getBoundingClientRect();
+        const scale = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(rect.width * scale);
+        canvas.height = Math.floor(rect.height * scale);
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      }
+
+      function width() {
+        return canvas.getBoundingClientRect().width;
+      }
+
+      function height() {
+        return canvas.getBoundingClientRect().height;
+      }
+
+      function reset() {
+        state.score = 0;
+        state.wave = 1;
+        state.ammo = 12;
+        state.enemies = [];
+        state.shots = [];
+        state.blasts = [];
+        state.nextSpawn = 0;
+        state.remainingInWave = 10;
+        state.gameOver = false;
+        state.message = "Defend the cities";
+        buildCities();
+        updateHud();
+      }
+
+      function buildCities() {
+        const baseY = height() - 34;
+        state.cities = [0.14, 0.29, 0.44, 0.58, 0.73, 0.88].map((ratio) => ({
+          x: width() * ratio,
+          y: baseY,
+          alive: true,
+        }));
+      }
+
+      function updateHud() {
+        scoreEl.textContent = state.score;
+        waveEl.textContent = state.wave;
+        ammoEl.textContent = state.ammo;
+      }
+
+      function spawnEnemy() {
+        const target = state.cities.filter((city) => city.alive)[Math.floor(Math.random() * state.cities.filter((city) => city.alive).length)];
+        if (!target) return;
+        const startX = Math.random() * width();
+        const speed = 34 + state.wave * 8 + Math.random() * 18;
+        state.enemies.push({
+          x: startX,
+          y: -12,
+          startX,
+          startY: -12,
+          targetX: target.x,
+          targetY: target.y,
+          progress: 0,
+          speed,
+        });
+        state.remainingInWave -= 1;
+      }
+
+      function fireAt(clientX, clientY) {
+        if (state.gameOver || state.ammo <= 0) return;
+        const rect = canvas.getBoundingClientRect();
+        const targetX = clientX - rect.left;
+        const targetY = clientY - rect.top;
+        const launchX = width() / 2;
+        const launchY = height() - 12;
+        const distance = Math.hypot(targetX - launchX, targetY - launchY);
+        state.shots.push({
+          x: launchX,
+          y: launchY,
+          targetX,
+          targetY,
+          progress: 0,
+          speed: 620 / Math.max(distance, 160),
+        });
+        state.ammo -= 1;
+        updateHud();
+      }
+
+      function addBlast(x, y, friendly) {
+        state.blasts.push({ x, y, radius: 3, maxRadius: friendly ? 42 : 58, life: 1, friendly });
+      }
+
+      function update(dt, time) {
+        if (state.gameOver) return;
+        if (state.remainingInWave > 0 && time > state.nextSpawn) {
+          spawnEnemy();
+          state.nextSpawn = time + Math.max(380, 1200 - state.wave * 90) + Math.random() * 500;
+        }
+
+        state.enemies.forEach((enemy) => {
+          const distance = Math.hypot(enemy.targetX - enemy.startX, enemy.targetY - enemy.startY);
+          enemy.progress += (enemy.speed * dt) / distance;
+          enemy.x = enemy.startX + (enemy.targetX - enemy.startX) * enemy.progress;
+          enemy.y = enemy.startY + (enemy.targetY - enemy.startY) * enemy.progress;
+        });
+
+        state.shots.forEach((shot) => {
+          shot.progress += shot.speed * dt;
+          shot.x = width() / 2 + (shot.targetX - width() / 2) * Math.min(shot.progress, 1);
+          shot.y = height() - 12 + (shot.targetY - (height() - 12)) * Math.min(shot.progress, 1);
+        });
+
+        state.shots = state.shots.filter((shot) => {
+          if (shot.progress >= 1) {
+            addBlast(shot.targetX, shot.targetY, true);
+            return false;
+          }
+          return true;
+        });
+
+        state.blasts.forEach((blast) => {
+          blast.radius += (blast.maxRadius - blast.radius) * dt * 3.2;
+          blast.life -= dt * 0.62;
+        });
+        state.blasts = state.blasts.filter((blast) => blast.life > 0);
+
+        state.enemies = state.enemies.filter((enemy) => {
+          const hit = state.blasts.some((blast) => blast.friendly && Math.hypot(enemy.x - blast.x, enemy.y - blast.y) < blast.radius);
+          if (hit) {
+            addBlast(enemy.x, enemy.y, false);
+            state.score += 25;
+            updateHud();
+            return false;
+          }
+
+          if (enemy.progress >= 1) {
+            const city = state.cities.find((item) => item.alive && Math.hypot(item.x - enemy.targetX, item.y - enemy.targetY) < 24);
+            if (city) city.alive = false;
+            addBlast(enemy.targetX, enemy.targetY, false);
+            return false;
+          }
+          return true;
+        });
+
+        if (state.remainingInWave <= 0 && state.enemies.length === 0) {
+          const savedCities = state.cities.filter((city) => city.alive).length;
+          if (savedCities === 0) {
+            endGame();
+            return;
+          }
+          state.score += savedCities * 100 + state.ammo * 8;
+          state.wave += 1;
+          state.ammo = 10 + state.wave * 2;
+          state.remainingInWave = 8 + state.wave * 3;
+          state.message = "Wave cleared";
+          updateHud();
+        }
+
+        if (state.cities.every((city) => !city.alive)) endGame();
+      }
+
+      function endGame() {
+        state.gameOver = true;
+        state.message = "Game over";
+        updateHud();
+      }
+
+      function drawBackground() {
+        const w = width();
+        const h = height();
+        const gradient = ctx.createLinearGradient(0, 0, 0, h);
+        gradient.addColorStop(0, "#020617");
+        gradient.addColorStop(0.72, "#082f49");
+        gradient.addColorStop(1, "#0f172a");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.fillStyle = "rgba(186, 230, 253, 0.8)";
+        for (let i = 0; i < 56; i += 1) {
+          const x = (i * 73) % w;
+          const y = (i * 41) % (h * 0.62);
+          ctx.fillRect(x, y, 1.4, 1.4);
+        }
+      }
+
+      function draw() {
+        const w = width();
+        const h = height();
+        drawBackground();
+
+        ctx.strokeStyle = "#22d3ee";
+        ctx.lineWidth = 2;
+        state.shots.forEach((shot) => {
+          ctx.beginPath();
+          ctx.moveTo(w / 2, h - 12);
+          ctx.lineTo(shot.x, shot.y);
+          ctx.stroke();
+        });
+
+        ctx.strokeStyle = "#f87171";
+        state.enemies.forEach((enemy) => {
+          ctx.beginPath();
+          ctx.moveTo(enemy.startX, enemy.startY);
+          ctx.lineTo(enemy.x, enemy.y);
+          ctx.stroke();
+          ctx.fillStyle = "#fecaca";
+          ctx.beginPath();
+          ctx.arc(enemy.x, enemy.y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        state.blasts.forEach((blast) => {
+          const alpha = Math.max(0, blast.life);
+          ctx.strokeStyle = blast.friendly ? `rgba(103, 232, 249, ${alpha})` : `rgba(251, 191, 36, ${alpha})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(blast.x, blast.y, blast.radius, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+
+        ctx.fillStyle = "#164e63";
+        ctx.fillRect(0, h - 28, w, 28);
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.moveTo(w / 2 - 18, h - 4);
+        ctx.lineTo(w / 2, h - 38);
+        ctx.lineTo(w / 2 + 18, h - 4);
+        ctx.closePath();
+        ctx.fill();
+
+        state.cities.forEach((city) => {
+          ctx.fillStyle = city.alive ? "#a7f3d0" : "#475569";
+          ctx.fillRect(city.x - 18, city.y - 16, 36, 16);
+          ctx.fillRect(city.x - 11, city.y - 27, 22, 11);
+          ctx.fillStyle = city.alive ? "#0f766e" : "#1e293b";
+          ctx.fillRect(city.x - 9, city.y - 11, 5, 5);
+          ctx.fillRect(city.x + 4, city.y - 11, 5, 5);
+        });
+
+        if (state.gameOver) {
+          ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = "#cffafe";
+          ctx.font = "700 34px ui-sans-serif, system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(state.message, w / 2, h / 2 - 16);
+          ctx.font = "16px ui-sans-serif, system-ui";
+          ctx.fillText("Press Space or Restart to play again", w / 2, h / 2 + 18);
+        } else {
+          ctx.fillStyle = "rgba(207, 250, 254, 0.84)";
+          ctx.font = "600 16px ui-sans-serif, system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(state.message, w / 2, 28);
+        }
+      }
+
+      let lastTime = performance.now();
+      function loop(time) {
+        const dt = Math.min((time - lastTime) / 1000, 0.033);
+        lastTime = time;
+        update(dt, time);
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      canvas.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        fireAt(event.clientX, event.clientY);
+      });
+
+      restartButton.addEventListener("click", reset);
+      window.addEventListener("keydown", (event) => {
+        if (event.code === "Space" && state.gameOver) reset();
+      });
+      window.addEventListener("resize", () => {
+        resize();
+        buildCities();
+      });
+
+      resize();
+      reset();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>
