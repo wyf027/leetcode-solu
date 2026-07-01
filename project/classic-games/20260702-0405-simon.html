@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Simon</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-6 px-4 py-8">
+      <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900/80 p-5 shadow-2xl shadow-black/30">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 class="text-3xl font-bold tracking-tight">Mini Simon</h1>
+            <p id="status" class="mt-2 text-sm text-zinc-300">按 Start 记住亮起顺序。</p>
+          </div>
+          <div class="grid grid-cols-3 gap-3 text-center text-sm">
+            <div class="rounded-md bg-zinc-800 px-3 py-2">
+              <div class="text-zinc-400">回合</div>
+              <div id="round" class="text-xl font-semibold">0</div>
+            </div>
+            <div class="rounded-md bg-zinc-800 px-3 py-2">
+              <div class="text-zinc-400">最佳</div>
+              <div id="best" class="text-xl font-semibold">0</div>
+            </div>
+            <button
+              id="start"
+              class="rounded-md bg-emerald-500 px-4 py-2 font-semibold text-emerald-950 transition hover:bg-emerald-400"
+            >
+              Start
+            </button>
+          </div>
+        </div>
+
+        <div class="mx-auto mt-6 grid aspect-square w-full max-w-md grid-cols-2 gap-3">
+          <button
+            class="pad rounded-tl-full bg-emerald-700 shadow-inner shadow-white/10 transition"
+            data-color="0"
+            aria-label="green"
+          ></button>
+          <button
+            class="pad rounded-tr-full bg-rose-700 shadow-inner shadow-white/10 transition"
+            data-color="1"
+            aria-label="red"
+          ></button>
+          <button
+            class="pad rounded-bl-full bg-amber-600 shadow-inner shadow-white/10 transition"
+            data-color="2"
+            aria-label="yellow"
+          ></button>
+          <button
+            class="pad rounded-br-full bg-sky-700 shadow-inner shadow-white/10 transition"
+            data-color="3"
+            aria-label="blue"
+          ></button>
+        </div>
+
+        <div class="mt-5 flex flex-wrap justify-center gap-2 text-xs text-zinc-400">
+          <span class="rounded bg-zinc-800 px-2 py-1">键盘：Q W A S</span>
+          <span class="rounded bg-zinc-800 px-2 py-1">重复系统给出的颜色序列</span>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const pads = [...document.querySelectorAll(".pad")];
+      const startButton = document.querySelector("#start");
+      const statusText = document.querySelector("#status");
+      const roundText = document.querySelector("#round");
+      const bestText = document.querySelector("#best");
+      const tones = [261.63, 329.63, 392, 523.25];
+      const keys = { q: 0, w: 1, a: 2, s: 3 };
+      let audioContext;
+      let sequence = [];
+      let inputIndex = 0;
+      let acceptingInput = false;
+      let best = Number(localStorage.getItem("mini-simon-best") || 0);
+
+      bestText.textContent = best;
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function playTone(index, duration = 280) {
+        audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.frequency.value = tones[index];
+        oscillator.type = "triangle";
+        gain.gain.setValueAtTime(0.001, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.16, audioContext.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration / 1000);
+        oscillator.connect(gain).connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + duration / 1000);
+      }
+
+      async function flash(index, duration = 320) {
+        const pad = pads[index];
+        pad.classList.add("brightness-150", "scale-95", "ring-4", "ring-white/80");
+        playTone(index, duration);
+        await wait(duration);
+        pad.classList.remove("brightness-150", "scale-95", "ring-4", "ring-white/80");
+      }
+
+      async function showSequence() {
+        acceptingInput = false;
+        statusText.textContent = "记住顺序...";
+        await wait(500);
+        for (const color of sequence) {
+          await flash(color);
+          await wait(150);
+        }
+        inputIndex = 0;
+        acceptingInput = true;
+        statusText.textContent = "轮到你了。";
+      }
+
+      async function nextRound() {
+        sequence.push(Math.floor(Math.random() * pads.length));
+        roundText.textContent = sequence.length;
+        await showSequence();
+      }
+
+      function saveBest() {
+        if (sequence.length - 1 > best) {
+          best = sequence.length - 1;
+          localStorage.setItem("mini-simon-best", String(best));
+          bestText.textContent = best;
+        }
+      }
+
+      async function handleInput(index) {
+        if (!acceptingInput) return;
+        acceptingInput = false;
+        await flash(index, 180);
+
+        if (index !== sequence[inputIndex]) {
+          saveBest();
+          statusText.textContent = `失误了，成绩 ${Math.max(sequence.length - 1, 0)} 回合。`;
+          sequence = [];
+          inputIndex = 0;
+          roundText.textContent = "0";
+          return;
+        }
+
+        inputIndex += 1;
+        if (inputIndex === sequence.length) {
+          saveBest();
+          statusText.textContent = "正确，下一回合。";
+          await wait(650);
+          await nextRound();
+        } else {
+          acceptingInput = true;
+          statusText.textContent = `已输入 ${inputIndex}/${sequence.length}`;
+        }
+      }
+
+      startButton.addEventListener("click", async () => {
+        sequence = [];
+        inputIndex = 0;
+        startButton.blur();
+        await nextRound();
+      });
+
+      pads.forEach((pad, index) => {
+        pad.addEventListener("click", () => handleInput(index));
+      });
+
+      window.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (key in keys) {
+          event.preventDefault();
+          handleInput(keys[key]);
+        }
+      });
+    </script>
+  </body>
+</html>
