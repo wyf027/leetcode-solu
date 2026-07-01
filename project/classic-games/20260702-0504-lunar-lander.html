@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Lunar Lander</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-4">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal text-white">Mini Lunar Lander</h1>
+        <p class="text-sm text-zinc-400">Touch down gently on the green pad before fuel runs out.</p>
+      </div>
+      <button id="restart" class="rounded border border-emerald-400/60 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-400/10">Restart</button>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-4">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-500">Fuel</div>
+        <div id="fuel" class="text-xl font-semibold">100</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-500">Vertical Speed</div>
+        <div id="speed" class="text-xl font-semibold">0.0</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-500">Angle</div>
+        <div id="angle" class="text-xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-500">Status</div>
+        <div id="status" class="text-xl font-semibold text-amber-200">Flying</div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="560" class="w-full rounded border border-zinc-800 bg-black shadow-2xl"></canvas>
+
+    <nav class="grid grid-cols-3 gap-2 sm:hidden">
+      <button data-key="ArrowLeft" class="rounded bg-zinc-800 py-3 font-semibold active:bg-zinc-700">Left</button>
+      <button data-key="ArrowUp" class="rounded bg-emerald-700 py-3 font-semibold active:bg-emerald-600">Thrust</button>
+      <button data-key="ArrowRight" class="rounded bg-zinc-800 py-3 font-semibold active:bg-zinc-700">Right</button>
+    </nav>
+
+    <p class="text-sm text-zinc-500">Controls: Arrow keys or A/D rotate, W/Up thrust, Space restarts after landing or crash.</p>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const fuelEl = document.getElementById("fuel");
+    const speedEl = document.getElementById("speed");
+    const angleEl = document.getElementById("angle");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restart");
+    const keys = new Set();
+
+    const pad = { x: 372, y: 500, w: 156, h: 10 };
+    const terrain = [
+      [0, 505], [90, 470], [170, 494], [250, 452], [330, 501],
+      [pad.x, pad.y], [pad.x + pad.w, pad.y], [610, 466],
+      [710, 505], [810, 475], [900, 514]
+    ];
+    let lander;
+    let stars;
+    let state;
+    let lastTime;
+
+    function reset() {
+      lander = {
+        x: 450,
+        y: 78,
+        vx: 0,
+        vy: 0,
+        angle: 0,
+        fuel: 100,
+        thrusting: false
+      };
+      stars = Array.from({ length: 90 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * 420,
+        r: Math.random() * 1.6 + 0.3
+      }));
+      state = "flying";
+      lastTime = performance.now();
+      updateHud();
+    }
+
+    function update(dt) {
+      if (state !== "flying") return;
+
+      lander.thrusting = false;
+      if (keys.has("ArrowLeft") || keys.has("a")) lander.angle -= 2.8 * dt;
+      if (keys.has("ArrowRight") || keys.has("d")) lander.angle += 2.8 * dt;
+      lander.angle = Math.max(-0.9, Math.min(0.9, lander.angle));
+
+      lander.vy += 36 * dt;
+      if ((keys.has("ArrowUp") || keys.has("w")) && lander.fuel > 0) {
+        lander.thrusting = true;
+        lander.fuel = Math.max(0, lander.fuel - 24 * dt);
+        const power = 78;
+        lander.vx += Math.sin(lander.angle) * power * dt;
+        lander.vy -= Math.cos(lander.angle) * power * dt;
+      }
+
+      lander.x += lander.vx * dt;
+      lander.y += lander.vy * dt;
+      lander.vx *= 0.998;
+      lander.vy *= 0.998;
+
+      if (lander.x < 20 || lander.x > canvas.width - 20 || lander.y < -30) state = "crashed";
+      checkTouchdown();
+      updateHud();
+    }
+
+    function checkTouchdown() {
+      const footY = lander.y + 18;
+      const onPadX = lander.x > pad.x + 12 && lander.x < pad.x + pad.w - 12;
+      const nearPadY = footY >= pad.y && footY <= pad.y + 18;
+
+      if (onPadX && nearPadY) {
+        const gentle = Math.abs(lander.vx) < 16 && lander.vy < 22 && Math.abs(lander.angle) < 0.18;
+        state = gentle ? "landed" : "crashed";
+        return;
+      }
+
+      for (let i = 0; i < terrain.length - 1; i += 1) {
+        const a = terrain[i];
+        const b = terrain[i + 1];
+        if (lander.x >= a[0] && lander.x <= b[0]) {
+          const t = (lander.x - a[0]) / (b[0] - a[0]);
+          const groundY = a[1] + (b[1] - a[1]) * t;
+          if (footY >= groundY) state = "crashed";
+          break;
+        }
+      }
+    }
+
+    function updateHud() {
+      fuelEl.textContent = Math.ceil(lander.fuel);
+      speedEl.textContent = lander.vy.toFixed(1);
+      angleEl.textContent = Math.round(lander.angle * 57.3);
+      statusEl.textContent = state === "landed" ? "Landed" : state === "crashed" ? "Crashed" : "Flying";
+      statusEl.className = "text-xl font-semibold " + (state === "landed" ? "text-emerald-300" : state === "crashed" ? "text-rose-300" : "text-amber-200");
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, "#020617");
+      sky.addColorStop(1, "#18181b");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#e4e4e7";
+      stars.forEach((star) => {
+        ctx.globalAlpha = 0.45 + star.r / 3;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = "#71717a";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      terrain.forEach((point, index) => index ? ctx.lineTo(point[0], point[1]) : ctx.moveTo(point[0], point[1]));
+      ctx.stroke();
+
+      ctx.fillStyle = "#34d399";
+      ctx.fillRect(pad.x, pad.y, pad.w, pad.h);
+      ctx.fillStyle = "#064e3b";
+      ctx.fillRect(pad.x + 8, pad.y + 3, pad.w - 16, 4);
+
+      drawLander();
+      drawMessage();
+    }
+
+    function drawLander() {
+      ctx.save();
+      ctx.translate(lander.x, lander.y);
+      ctx.rotate(lander.angle);
+      ctx.strokeStyle = "#f8fafc";
+      ctx.fillStyle = "#cbd5e1";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -18);
+      ctx.lineTo(14, 9);
+      ctx.lineTo(-14, 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-12, 10);
+      ctx.lineTo(-22, 19);
+      ctx.moveTo(12, 10);
+      ctx.lineTo(22, 19);
+      ctx.stroke();
+
+      if (lander.thrusting) {
+        ctx.fillStyle = "#f59e0b";
+        ctx.beginPath();
+        ctx.moveTo(-7, 12);
+        ctx.lineTo(0, 34 + Math.random() * 10);
+        ctx.lineTo(7, 12);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawMessage() {
+      if (state === "flying") return;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.62)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = state === "landed" ? "#6ee7b7" : "#fda4af";
+      ctx.font = "700 44px system-ui";
+      ctx.fillText(state === "landed" ? "Successful Landing" : "Mission Lost", canvas.width / 2, 245);
+      ctx.fillStyle = "#d4d4d8";
+      ctx.font = "20px system-ui";
+      ctx.fillText("Press Space or Restart to fly again", canvas.width / 2, 290);
+      ctx.textAlign = "start";
+    }
+
+    function loop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", " ", "a", "d", "w"].includes(key)) event.preventDefault();
+      if (key === " " && state !== "flying") reset();
+      keys.add(key);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    restartBtn.addEventListener("click", reset);
+    document.querySelectorAll("[data-key]").forEach((button) => {
+      const key = button.dataset.key;
+      button.addEventListener("pointerdown", () => keys.add(key));
+      button.addEventListener("pointerup", () => keys.delete(key));
+      button.addEventListener("pointerleave", () => keys.delete(key));
+    });
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
