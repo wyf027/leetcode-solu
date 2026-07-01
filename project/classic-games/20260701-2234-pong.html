@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pong</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-4 px-4 py-6">
+      <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-xl">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal">Mini Pong</h1>
+            <p class="text-sm text-zinc-400">W/S 或方向键移动左侧球拍，先得 7 分获胜。</p>
+          </div>
+          <button
+            id="resetBtn"
+            class="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+            type="button"
+          >
+            重新开始
+          </button>
+        </div>
+
+        <div class="mb-3 grid grid-cols-3 items-center gap-2 text-center">
+          <div class="rounded-md bg-zinc-800 px-3 py-2">
+            <div class="text-xs text-zinc-400">玩家</div>
+            <div id="playerScore" class="text-2xl font-bold">0</div>
+          </div>
+          <div id="status" class="text-sm font-medium text-emerald-300">点击画布或按空格发球</div>
+          <div class="rounded-md bg-zinc-800 px-3 py-2">
+            <div class="text-xs text-zinc-400">电脑</div>
+            <div id="cpuScore" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+
+        <canvas
+          id="game"
+          class="block aspect-[16/10] w-full rounded-md border border-zinc-700 bg-zinc-950"
+          width="800"
+          height="500"
+          aria-label="Mini Pong game canvas"
+        ></canvas>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const playerScoreEl = document.getElementById("playerScore");
+      const cpuScoreEl = document.getElementById("cpuScore");
+      const statusEl = document.getElementById("status");
+      const resetBtn = document.getElementById("resetBtn");
+
+      const paddle = { width: 14, height: 92, speed: 7 };
+      const player = { x: 28, y: 204, score: 0 };
+      const cpu = { x: canvas.width - 42, y: 204, score: 0 };
+      const ball = { x: 400, y: 250, radius: 9, vx: 0, vy: 0, speed: 6 };
+      const keys = new Set();
+      let running = false;
+      let winner = "";
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function resetBall(direction = Math.random() > 0.5 ? 1 : -1) {
+        ball.x = canvas.width / 2;
+        ball.y = canvas.height / 2;
+        ball.vx = 0;
+        ball.vy = 0;
+        ball.speed = 6;
+        running = false;
+        statusEl.textContent = winner || "点击画布或按空格发球";
+        ball.nextDirection = direction;
+      }
+
+      function serve() {
+        if (winner) return;
+        if (!running) {
+          const angle = (Math.random() * 0.7 - 0.35) * Math.PI;
+          const direction = ball.nextDirection || (Math.random() > 0.5 ? 1 : -1);
+          ball.vx = Math.cos(angle) * ball.speed * direction;
+          ball.vy = Math.sin(angle) * ball.speed;
+          running = true;
+          statusEl.textContent = "对战中";
+        }
+      }
+
+      function resetGame() {
+        player.score = 0;
+        cpu.score = 0;
+        player.y = 204;
+        cpu.y = 204;
+        winner = "";
+        updateScore();
+        resetBall();
+      }
+
+      function updateScore() {
+        playerScoreEl.textContent = player.score;
+        cpuScoreEl.textContent = cpu.score;
+      }
+
+      function scorePoint(side) {
+        if (side === "player") {
+          player.score += 1;
+          resetBall(-1);
+        } else {
+          cpu.score += 1;
+          resetBall(1);
+        }
+        updateScore();
+
+        if (player.score >= 7 || cpu.score >= 7) {
+          winner = player.score > cpu.score ? "玩家获胜，按重新开始再战" : "电脑获胜，按重新开始再战";
+          statusEl.textContent = winner;
+        }
+      }
+
+      function movePaddles() {
+        if (keys.has("ArrowUp") || keys.has("KeyW")) player.y -= paddle.speed;
+        if (keys.has("ArrowDown") || keys.has("KeyS")) player.y += paddle.speed;
+        player.y = clamp(player.y, 0, canvas.height - paddle.height);
+
+        const target = ball.y - paddle.height / 2;
+        const cpuSpeed = running ? 4.8 : 2.5;
+        cpu.y += clamp(target - cpu.y, -cpuSpeed, cpuSpeed);
+        cpu.y = clamp(cpu.y, 0, canvas.height - paddle.height);
+      }
+
+      function hitPaddle(p) {
+        return (
+          ball.x - ball.radius < p.x + paddle.width &&
+          ball.x + ball.radius > p.x &&
+          ball.y + ball.radius > p.y &&
+          ball.y - ball.radius < p.y + paddle.height
+        );
+      }
+
+      function updateBall() {
+        if (!running) return;
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        if (ball.y < ball.radius || ball.y > canvas.height - ball.radius) {
+          ball.vy *= -1;
+          ball.y = clamp(ball.y, ball.radius, canvas.height - ball.radius);
+        }
+
+        if (ball.vx < 0 && hitPaddle(player)) {
+          bounceFrom(player, 1);
+        }
+
+        if (ball.vx > 0 && hitPaddle(cpu)) {
+          bounceFrom(cpu, -1);
+        }
+
+        if (ball.x < -ball.radius) scorePoint("cpu");
+        if (ball.x > canvas.width + ball.radius) scorePoint("player");
+      }
+
+      function bounceFrom(p, direction) {
+        const impact = (ball.y - (p.y + paddle.height / 2)) / (paddle.height / 2);
+        ball.speed = Math.min(ball.speed + 0.35, 11);
+        ball.vx = direction * ball.speed;
+        ball.vy = impact * ball.speed * 0.85;
+        ball.x = direction > 0 ? p.x + paddle.width + ball.radius : p.x - ball.radius;
+      }
+
+      function drawNet() {
+        ctx.strokeStyle = "#3f3f46";
+        ctx.lineWidth = 4;
+        ctx.setLineDash([14, 16]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 18);
+        ctx.lineTo(canvas.width / 2, canvas.height - 18);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawNet();
+
+        ctx.fillStyle = "#e4e4e7";
+        ctx.fillRect(player.x, player.y, paddle.width, paddle.height);
+        ctx.fillRect(cpu.x, cpu.y, paddle.width, paddle.height);
+
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#34d399";
+        ctx.fill();
+      }
+
+      function loop() {
+        movePaddles();
+        updateBall();
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      window.addEventListener("keydown", (event) => {
+        keys.add(event.code);
+        if (event.code === "Space") {
+          event.preventDefault();
+          serve();
+        }
+      });
+
+      window.addEventListener("keyup", (event) => {
+        keys.delete(event.code);
+      });
+
+      canvas.addEventListener("click", serve);
+      resetBtn.addEventListener("click", resetGame);
+
+      resetGame();
+      loop();
+    </script>
+  </body>
+</html>
