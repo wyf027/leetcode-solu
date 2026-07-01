@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pong</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5 sm:py-8">
+      <header class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Classic Game</p>
+          <h1 class="text-2xl font-bold sm:text-4xl">Mini Pong</h1>
+        </div>
+        <div class="flex items-center gap-2 text-sm text-zinc-300">
+          <span class="rounded border border-zinc-700 px-2 py-1">方向键 / W S</span>
+          <span class="rounded border border-zinc-700 px-2 py-1">点击开始</span>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-3 shadow-2xl shadow-cyan-950/20">
+          <canvas id="game" class="block aspect-[16/10] w-full rounded bg-zinc-950" width="960" height="600"></canvas>
+        </div>
+
+        <aside class="grid content-start gap-3 rounded border border-zinc-800 bg-zinc-900 p-4">
+          <div class="grid grid-cols-2 gap-2 text-center">
+            <div class="rounded bg-zinc-950 p-3">
+              <div class="text-xs text-zinc-400">玩家</div>
+              <div id="playerScore" class="text-3xl font-bold text-cyan-300">0</div>
+            </div>
+            <div class="rounded bg-zinc-950 p-3">
+              <div class="text-xs text-zinc-400">电脑</div>
+              <div id="aiScore" class="text-3xl font-bold text-rose-300">0</div>
+            </div>
+          </div>
+          <button
+            id="startButton"
+            class="rounded bg-cyan-400 px-4 py-2 font-semibold text-zinc-950 transition hover:bg-cyan-300"
+            type="button"
+          >
+            开始
+          </button>
+          <button
+            id="resetButton"
+            class="rounded border border-zinc-700 px-4 py-2 font-semibold text-zinc-100 transition hover:border-zinc-500"
+            type="button"
+          >
+            重置
+          </button>
+          <p id="status" class="min-h-12 text-sm leading-6 text-zinc-300">先拿到 7 分获胜。移动左侧球拍反弹小球。</p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const playerScoreEl = document.getElementById("playerScore");
+      const aiScoreEl = document.getElementById("aiScore");
+      const statusEl = document.getElementById("status");
+      const startButton = document.getElementById("startButton");
+      const resetButton = document.getElementById("resetButton");
+
+      const paddle = { width: 16, height: 104, speed: 8 };
+      const player = { x: 34, y: canvas.height / 2 - paddle.height / 2, score: 0, move: 0 };
+      const ai = { x: canvas.width - 50, y: canvas.height / 2 - paddle.height / 2, score: 0 };
+      const ball = { x: canvas.width / 2, y: canvas.height / 2, r: 10, vx: 6, vy: 3.5 };
+      let running = false;
+      let rally = 0;
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function resetBall(direction = 1) {
+        ball.x = canvas.width / 2;
+        ball.y = canvas.height / 2;
+        const angle = (Math.random() * 0.8 - 0.4) * Math.PI;
+        ball.vx = direction * (5.2 + Math.min(rally * 0.12, 2.4)) * Math.cos(angle);
+        ball.vy = (4 + Math.min(rally * 0.08, 2)) * Math.sin(angle || 0.5);
+      }
+
+      function resetGame() {
+        player.score = 0;
+        ai.score = 0;
+        rally = 0;
+        player.y = canvas.height / 2 - paddle.height / 2;
+        ai.y = canvas.height / 2 - paddle.height / 2;
+        resetBall(Math.random() > 0.5 ? 1 : -1);
+        updateScore();
+        statusEl.textContent = "先拿到 7 分获胜。移动左侧球拍反弹小球。";
+        draw();
+      }
+
+      function updateScore() {
+        playerScoreEl.textContent = player.score;
+        aiScoreEl.textContent = ai.score;
+      }
+
+      function scorePoint(side) {
+        side.score += 1;
+        rally = 0;
+        updateScore();
+        if (side.score >= 7) {
+          running = false;
+          statusEl.textContent = side === player ? "你赢了！点击开始再来一局。" : "电脑赢了。点击开始再挑战。";
+          startButton.textContent = "再来一局";
+          return;
+        }
+        resetBall(side === player ? 1 : -1);
+      }
+
+      function collidePaddle(target) {
+        const hitX =
+          ball.x - ball.r < target.x + paddle.width &&
+          ball.x + ball.r > target.x &&
+          ball.y + ball.r > target.y &&
+          ball.y - ball.r < target.y + paddle.height;
+
+        if (!hitX) return;
+
+        const relative = (ball.y - (target.y + paddle.height / 2)) / (paddle.height / 2);
+        const direction = target === player ? 1 : -1;
+        rally += 1;
+        ball.vx = direction * (6 + Math.min(rally * 0.28, 4));
+        ball.vy = relative * 6.5;
+        ball.x = target === player ? target.x + paddle.width + ball.r : target.x - ball.r;
+      }
+
+      function update() {
+        player.y = clamp(player.y + player.move * paddle.speed, 0, canvas.height - paddle.height);
+
+        const aiCenter = ai.y + paddle.height / 2;
+        const aiTarget = ball.y - aiCenter;
+        ai.y = clamp(ai.y + clamp(aiTarget, -5.5, 5.5), 0, canvas.height - paddle.height);
+
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        if (ball.y < ball.r || ball.y > canvas.height - ball.r) {
+          ball.vy *= -1;
+          ball.y = clamp(ball.y, ball.r, canvas.height - ball.r);
+        }
+
+        collidePaddle(player);
+        collidePaddle(ai);
+
+        if (ball.x < -ball.r) scorePoint(ai);
+        if (ball.x > canvas.width + ball.r) scorePoint(player);
+      }
+
+      function drawNet() {
+        ctx.strokeStyle = "rgba(212, 212, 216, 0.35)";
+        ctx.lineWidth = 4;
+        ctx.setLineDash([12, 18]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 24);
+        ctx.lineTo(canvas.width / 2, canvas.height - 24);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      function drawPaddle(target, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(target.x, target.y, paddle.width, paddle.height);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawNet();
+        drawPaddle(player, "#67e8f9");
+        drawPaddle(ai, "#fda4af");
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function loop() {
+        if (running) update();
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      function setPlayerFromPointer(event) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleY = canvas.height / rect.height;
+        player.y = clamp((event.clientY - rect.top) * scaleY - paddle.height / 2, 0, canvas.height - paddle.height);
+      }
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowUp" || event.key.toLowerCase() === "w") player.move = -1;
+        if (event.key === "ArrowDown" || event.key.toLowerCase() === "s") player.move = 1;
+        if (event.key === " ") running = true;
+      });
+
+      window.addEventListener("keyup", (event) => {
+        if (["ArrowUp", "ArrowDown", "w", "s"].includes(event.key.toLowerCase())) player.move = 0;
+      });
+
+      canvas.addEventListener("pointermove", setPlayerFromPointer);
+      canvas.addEventListener("pointerdown", (event) => {
+        setPlayerFromPointer(event);
+        running = true;
+        statusEl.textContent = "比赛进行中。";
+      });
+
+      startButton.addEventListener("click", () => {
+        if (player.score >= 7 || ai.score >= 7) resetGame();
+        running = true;
+        startButton.textContent = "继续";
+        statusEl.textContent = "比赛进行中。";
+      });
+
+      resetButton.addEventListener("click", () => {
+        running = false;
+        startButton.textContent = "开始";
+        resetGame();
+      });
+
+      resetGame();
+      loop();
+    </script>
+  </body>
+</html>
