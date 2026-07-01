@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Pong</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Pong</h1>
+        <p class="mt-1 text-sm text-zinc-400">First to 7 wins. Move with W/S or Arrow keys.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="serveBtn" class="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300">Serve</button>
+        <button id="resetBtn" class="rounded border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-500">Reset</button>
+      </div>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px] md:items-start">
+      <canvas id="game" width="800" height="480" class="aspect-[5/3] w-full rounded border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40"></canvas>
+
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-zinc-950 p-3">
+            <div class="text-xs uppercase text-zinc-500">Player</div>
+            <div id="playerScore" class="text-3xl font-bold">0</div>
+          </div>
+          <div class="rounded bg-zinc-950 p-3">
+            <div class="text-xs uppercase text-zinc-500">CPU</div>
+            <div id="cpuScore" class="text-3xl font-bold">0</div>
+          </div>
+        </div>
+        <div id="status" class="mt-4 rounded bg-zinc-950 p-3 text-sm text-zinc-300">Press Serve to start.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const serveBtn = document.getElementById("serveBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const statusEl = document.getElementById("status");
+    const playerScoreEl = document.getElementById("playerScore");
+    const cpuScoreEl = document.getElementById("cpuScore");
+
+    const keys = new Set();
+    const paddle = { w: 14, h: 88, speed: 7 };
+    const player = { x: 34, y: canvas.height / 2 - paddle.h / 2, score: 0 };
+    const cpu = { x: canvas.width - 48, y: canvas.height / 2 - paddle.h / 2, score: 0 };
+    const ball = { x: canvas.width / 2, y: canvas.height / 2, r: 9, vx: 0, vy: 0 };
+    let running = false;
+    let winner = "";
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function updateScore() {
+      playerScoreEl.textContent = player.score;
+      cpuScoreEl.textContent = cpu.score;
+    }
+
+    function centerBall(direction) {
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      ball.vx = direction * 5.4;
+      ball.vy = (Math.random() * 3.2 + 1.2) * (Math.random() > 0.5 ? 1 : -1);
+    }
+
+    function resetGame() {
+      player.score = 0;
+      cpu.score = 0;
+      player.y = canvas.height / 2 - paddle.h / 2;
+      cpu.y = canvas.height / 2 - paddle.h / 2;
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      ball.vx = 0;
+      ball.vy = 0;
+      running = false;
+      winner = "";
+      updateScore();
+      statusEl.textContent = "Press Serve to start.";
+      draw();
+    }
+
+    function serve() {
+      if (winner) resetGame();
+      if (!running) {
+        running = true;
+        centerBall(Math.random() > 0.5 ? 1 : -1);
+        statusEl.textContent = "Rally in progress.";
+      }
+    }
+
+    function scorePoint(side) {
+      running = false;
+      if (side === "player") {
+        player.score += 1;
+        statusEl.textContent = "Player scores. Serve again.";
+      } else {
+        cpu.score += 1;
+        statusEl.textContent = "CPU scores. Serve again.";
+      }
+      updateScore();
+
+      if (player.score >= 7 || cpu.score >= 7) {
+        winner = player.score > cpu.score ? "Player" : "CPU";
+        statusEl.textContent = `${winner} wins. Reset or serve for a new match.`;
+      }
+
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      ball.vx = 0;
+      ball.vy = 0;
+    }
+
+    function movePaddles() {
+      if (keys.has("w") || keys.has("arrowup")) player.y -= paddle.speed;
+      if (keys.has("s") || keys.has("arrowdown")) player.y += paddle.speed;
+      player.y = clamp(player.y, 12, canvas.height - paddle.h - 12);
+
+      const target = ball.y - paddle.h / 2;
+      const cpuSpeed = ball.vx > 0 ? 5.1 : 3.3;
+      cpu.y += clamp(target - cpu.y, -cpuSpeed, cpuSpeed);
+      cpu.y = clamp(cpu.y, 12, canvas.height - paddle.h - 12);
+    }
+
+    function paddleHit(p) {
+      return ball.x + ball.r > p.x &&
+        ball.x - ball.r < p.x + paddle.w &&
+        ball.y + ball.r > p.y &&
+        ball.y - ball.r < p.y + paddle.h;
+    }
+
+    function update() {
+      movePaddles();
+      if (!running) return;
+
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      if (ball.y - ball.r <= 0 || ball.y + ball.r >= canvas.height) {
+        ball.vy *= -1;
+        ball.y = clamp(ball.y, ball.r, canvas.height - ball.r);
+      }
+
+      if (paddleHit(player) && ball.vx < 0) {
+        const offset = (ball.y - (player.y + paddle.h / 2)) / (paddle.h / 2);
+        ball.vx = Math.abs(ball.vx) + 0.25;
+        ball.vy = offset * 5.6;
+      }
+
+      if (paddleHit(cpu) && ball.vx > 0) {
+        const offset = (ball.y - (cpu.y + paddle.h / 2)) / (paddle.h / 2);
+        ball.vx = -Math.abs(ball.vx) - 0.25;
+        ball.vy = offset * 5.6;
+      }
+
+      if (ball.x < -ball.r) scorePoint("cpu");
+      if (ball.x > canvas.width + ball.r) scorePoint("player");
+    }
+
+    function drawNet() {
+      ctx.fillStyle = "#3f3f46";
+      for (let y = 18; y < canvas.height; y += 28) {
+        ctx.fillRect(canvas.width / 2 - 2, y, 4, 14);
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawNet();
+
+      ctx.fillStyle = "#10b981";
+      ctx.fillRect(player.x, player.y, paddle.w, paddle.h);
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(cpu.x, cpu.y, paddle.w, paddle.h);
+
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+      ctx.fillStyle = "#fafafa";
+      ctx.fill();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.toLowerCase());
+      if (event.key === " ") serve();
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key.toLowerCase());
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const scale = canvas.height / rect.height;
+      player.y = clamp((event.clientY - rect.top) * scale - paddle.h / 2, 12, canvas.height - paddle.h - 12);
+    });
+
+    serveBtn.addEventListener("click", serve);
+    resetBtn.addEventListener("click", resetGame);
+
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>
