@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Breakout</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6">
+      <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Breakout</h1>
+          <p class="text-sm text-slate-300">移动挡板击碎所有砖块，别让球落下。</p>
+        </div>
+        <button
+          id="restart"
+          class="rounded bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="mb-4 grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded bg-slate-900 p-3">
+          <div class="text-slate-400">分数</div>
+          <div id="score" class="text-xl font-bold">0</div>
+        </div>
+        <div class="rounded bg-slate-900 p-3">
+          <div class="text-slate-400">生命</div>
+          <div id="lives" class="text-xl font-bold">3</div>
+        </div>
+        <div class="rounded bg-slate-900 p-3">
+          <div class="text-slate-400">剩余砖块</div>
+          <div id="bricksLeft" class="text-xl font-bold">0</div>
+        </div>
+      </section>
+
+      <div class="relative mx-auto w-full max-w-3xl overflow-hidden rounded border border-slate-700 bg-slate-900">
+        <canvas id="game" class="block w-full" width="900" height="560"></canvas>
+        <div
+          id="message"
+          class="pointer-events-none absolute inset-0 hidden items-center justify-center bg-slate-950/70 text-center text-3xl font-bold"
+        ></div>
+      </div>
+
+      <p class="mt-4 text-center text-sm text-slate-400">
+        使用方向键、A/D、鼠标或触控移动挡板。
+      </p>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const bricksLeftEl = document.getElementById("bricksLeft");
+      const messageEl = document.getElementById("message");
+      const restartButton = document.getElementById("restart");
+
+      const paddle = { width: 138, height: 16, x: 381, y: 520, speed: 9 };
+      const ball = { x: 450, y: 482, radius: 9, dx: 4.4, dy: -4.8 };
+      const keys = { left: false, right: false };
+      const brickRows = 5;
+      const brickCols = 10;
+      const brickGap = 8;
+      const brickWidth = 78;
+      const brickHeight = 24;
+      const brickOffsetX = 38;
+      const brickOffsetY = 58;
+
+      let bricks = [];
+      let score = 0;
+      let lives = 3;
+      let running = true;
+      let animationId = 0;
+
+      function buildBricks() {
+        bricks = [];
+        const colors = ["#fb7185", "#f59e0b", "#facc15", "#34d399", "#38bdf8"];
+        for (let row = 0; row < brickRows; row += 1) {
+          for (let col = 0; col < brickCols; col += 1) {
+            bricks.push({
+              x: brickOffsetX + col * (brickWidth + brickGap),
+              y: brickOffsetY + row * (brickHeight + brickGap),
+              color: colors[row],
+              alive: true,
+            });
+          }
+        }
+      }
+
+      function resetBall() {
+        ball.x = canvas.width / 2;
+        ball.y = paddle.y - 38;
+        ball.dx = Math.random() > 0.5 ? 4.4 : -4.4;
+        ball.dy = -4.8;
+        paddle.x = (canvas.width - paddle.width) / 2;
+      }
+
+      function updateHud() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        bricksLeftEl.textContent = bricks.filter((brick) => brick.alive).length;
+      }
+
+      function showMessage(text) {
+        messageEl.textContent = text;
+        messageEl.classList.remove("hidden");
+        messageEl.classList.add("flex");
+      }
+
+      function hideMessage() {
+        messageEl.classList.add("hidden");
+        messageEl.classList.remove("flex");
+      }
+
+      function restart() {
+        score = 0;
+        lives = 3;
+        running = true;
+        hideMessage();
+        buildBricks();
+        resetBall();
+        updateHud();
+        cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(loop);
+      }
+
+      function drawRoundedRect(x, y, width, height, radius, fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, radius);
+        ctx.fill();
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, "#0f172a");
+        gradient.addColorStop(1, "#020617");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        bricks.forEach((brick) => {
+          if (brick.alive) {
+            drawRoundedRect(brick.x, brick.y, brickWidth, brickHeight, 5, brick.color);
+          }
+        });
+
+        drawRoundedRect(paddle.x, paddle.y, paddle.width, paddle.height, 8, "#a7f3d0");
+
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#f8fafc";
+        ctx.shadowColor = "#67e8f9";
+        ctx.shadowBlur = 14;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      function movePaddle() {
+        if (keys.left) {
+          paddle.x -= paddle.speed;
+        }
+        if (keys.right) {
+          paddle.x += paddle.speed;
+        }
+        paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x));
+      }
+
+      function collideWithBricks() {
+        for (const brick of bricks) {
+          if (
+            brick.alive &&
+            ball.x + ball.radius > brick.x &&
+            ball.x - ball.radius < brick.x + brickWidth &&
+            ball.y + ball.radius > brick.y &&
+            ball.y - ball.radius < brick.y + brickHeight
+          ) {
+            brick.alive = false;
+            ball.dy *= -1;
+            score += 10;
+            updateHud();
+            break;
+          }
+        }
+      }
+
+      function update() {
+        movePaddle();
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+
+        if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= canvas.width) {
+          ball.dx *= -1;
+        }
+        if (ball.y - ball.radius <= 0) {
+          ball.dy *= -1;
+        }
+
+        const hitsPaddle =
+          ball.y + ball.radius >= paddle.y &&
+          ball.y - ball.radius <= paddle.y + paddle.height &&
+          ball.x >= paddle.x &&
+          ball.x <= paddle.x + paddle.width;
+
+        if (hitsPaddle && ball.dy > 0) {
+          const hitOffset = (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2);
+          ball.dx = hitOffset * 6;
+          ball.dy *= -1;
+        }
+
+        collideWithBricks();
+
+        if (bricks.every((brick) => !brick.alive)) {
+          running = false;
+          showMessage("胜利！");
+        }
+
+        if (ball.y - ball.radius > canvas.height) {
+          lives -= 1;
+          updateHud();
+          if (lives <= 0) {
+            running = false;
+            showMessage("游戏结束");
+          } else {
+            resetBall();
+          }
+        }
+      }
+
+      function loop() {
+        if (running) {
+          update();
+        }
+        draw();
+        animationId = requestAnimationFrame(loop);
+      }
+
+      function setPaddleFromClientX(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        const scale = canvas.width / rect.width;
+        paddle.x = (clientX - rect.left) * scale - paddle.width / 2;
+        paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x));
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") {
+          keys.left = true;
+        }
+        if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") {
+          keys.right = true;
+        }
+      });
+
+      document.addEventListener("keyup", (event) => {
+        if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") {
+          keys.left = false;
+        }
+        if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") {
+          keys.right = false;
+        }
+      });
+
+      canvas.addEventListener("mousemove", (event) => setPaddleFromClientX(event.clientX));
+      canvas.addEventListener("touchmove", (event) => {
+        event.preventDefault();
+        setPaddleFromClientX(event.touches[0].clientX);
+      });
+      restartButton.addEventListener("click", restart);
+
+      restart();
+    </script>
+  </body>
+</html>
