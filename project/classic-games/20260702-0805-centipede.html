@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Centipede</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">Classic Arcade</p>
+          <h1 class="mt-1 text-3xl font-black text-white sm:text-4xl">Mini Centipede</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <p class="text-xs text-zinc-400">Score</p>
+            <p id="score" class="text-xl font-bold">0</p>
+          </div>
+          <div class="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <p class="text-xs text-zinc-400">Wave</p>
+            <p id="wave" class="text-xl font-bold">1</p>
+          </div>
+          <div class="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <p class="text-xs text-zinc-400">Lives</p>
+            <p id="lives" class="text-xl font-bold">3</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <div class="rounded-lg border border-zinc-800 bg-black p-2 shadow-2xl shadow-emerald-950/30">
+          <canvas id="game" width="720" height="560" class="aspect-[9/7] w-full rounded bg-zinc-950"></canvas>
+        </div>
+
+        <aside class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div class="space-y-4">
+            <div>
+              <h2 class="text-lg font-bold text-white">Controls</h2>
+              <p class="mt-2 text-sm leading-6 text-zinc-300">
+                Move with arrow keys or WASD. Press space to fire. Clear every segment before the centipede reaches your
+                shooter.
+              </p>
+            </div>
+            <button
+              id="restart"
+              class="w-full rounded-md bg-emerald-400 px-4 py-3 text-sm font-bold text-zinc-950 transition hover:bg-emerald-300"
+              type="button"
+            >
+              New Game
+            </button>
+            <div class="rounded-md border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-300">
+              <p class="font-semibold text-emerald-300">Tip</p>
+              <p class="mt-1">Hit middle segments to split the chain and use mushrooms to slow its descent.</p>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const waveEl = document.getElementById("wave");
+      const livesEl = document.getElementById("lives");
+      const restartBtn = document.getElementById("restart");
+
+      const cell = 20;
+      const cols = canvas.width / cell;
+      const rows = canvas.height / cell;
+      const keys = new Set();
+      let score = 0;
+      let wave = 1;
+      let lives = 3;
+      let running = true;
+      let player;
+      let bullet;
+      let mushrooms;
+      let chains;
+      let lastTime = 0;
+      let moveTimer = 0;
+
+      function resetGame() {
+        score = 0;
+        wave = 1;
+        lives = 3;
+        running = true;
+        startWave();
+        updateHud();
+      }
+
+      function startWave() {
+        player = { x: canvas.width / 2 - 10, y: canvas.height - 42, size: 20, speed: 260 };
+        bullet = null;
+        moveTimer = 0;
+        mushrooms = makeMushrooms(34 + wave * 3);
+        chains = [
+          {
+            dir: 1,
+            segments: Array.from({ length: 8 + Math.min(wave, 8) }, (_, index) => ({
+              x: index,
+              y: 0,
+            })),
+          },
+        ];
+      }
+
+      function makeMushrooms(total) {
+        const items = [];
+        while (items.length < total) {
+          const spot = {
+            x: Math.floor(Math.random() * cols),
+            y: 2 + Math.floor(Math.random() * (rows - 7)),
+            hp: 2,
+          };
+          if (!items.some((item) => item.x === spot.x && item.y === spot.y)) {
+            items.push(spot);
+          }
+        }
+        return items;
+      }
+
+      function updateHud() {
+        scoreEl.textContent = score;
+        waveEl.textContent = wave;
+        livesEl.textContent = lives;
+      }
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function update(delta) {
+        if (!running) return;
+
+        const left = keys.has("ArrowLeft") || keys.has("a");
+        const right = keys.has("ArrowRight") || keys.has("d");
+        const up = keys.has("ArrowUp") || keys.has("w");
+        const down = keys.has("ArrowDown") || keys.has("s");
+        player.x += (Number(right) - Number(left)) * player.speed * delta;
+        player.y += (Number(down) - Number(up)) * player.speed * delta;
+        player.x = clamp(player.x, 0, canvas.width - player.size);
+        player.y = clamp(player.y, canvas.height - cell * 5, canvas.height - player.size);
+
+        if (bullet) {
+          bullet.y -= 520 * delta;
+          if (bullet.y < -10) bullet = null;
+        }
+
+        moveTimer += delta;
+        const stepDelay = Math.max(0.08, 0.22 - wave * 0.012);
+        if (moveTimer >= stepDelay) {
+          moveTimer = 0;
+          moveCentipedes();
+        }
+
+        resolveBulletHits();
+        checkPlayerHit();
+
+        if (chains.every((chain) => chain.segments.length === 0)) {
+          wave += 1;
+          score += 100;
+          startWave();
+        }
+        updateHud();
+      }
+
+      function moveCentipedes() {
+        for (const chain of chains) {
+          for (const segment of chain.segments) {
+            const nextX = segment.x + chain.dir;
+            const blocked =
+              nextX < 0 ||
+              nextX >= cols ||
+              mushrooms.some((mushroom) => mushroom.x === nextX && mushroom.y === segment.y);
+            if (blocked) {
+              chain.dir *= -1;
+              segment.y += 1;
+            } else {
+              segment.x = nextX;
+            }
+          }
+        }
+      }
+
+      function resolveBulletHits() {
+        if (!bullet) return;
+        const bx = Math.floor(bullet.x / cell);
+        const by = Math.floor(bullet.y / cell);
+
+        const mushroom = mushrooms.find((item) => item.x === bx && item.y === by);
+        if (mushroom) {
+          mushroom.hp -= 1;
+          score += 2;
+          if (mushroom.hp <= 0) mushrooms = mushrooms.filter((item) => item !== mushroom);
+          bullet = null;
+          return;
+        }
+
+        for (const chain of chains) {
+          const hitIndex = chain.segments.findIndex((segment) => segment.x === bx && segment.y === by);
+          if (hitIndex !== -1) {
+            const [hit] = chain.segments.splice(hitIndex, 1);
+            mushrooms.push({ x: hit.x, y: hit.y, hp: 2 });
+            score += 15;
+            bullet = null;
+            return;
+          }
+        }
+      }
+
+      function checkPlayerHit() {
+        const px = Math.floor((player.x + player.size / 2) / cell);
+        const py = Math.floor((player.y + player.size / 2) / cell);
+        const struck = chains.some((chain) =>
+          chain.segments.some((segment) => Math.abs(segment.x - px) <= 0 && Math.abs(segment.y - py) <= 0),
+        );
+        if (!struck) return;
+
+        lives -= 1;
+        if (lives <= 0) {
+          running = false;
+        } else {
+          startWave();
+        }
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        drawGrid();
+        for (const mushroom of mushrooms) drawMushroom(mushroom);
+        for (const chain of chains) drawChain(chain);
+        drawPlayer();
+        if (bullet) drawBullet();
+        if (!running) drawGameOver();
+      }
+
+      function drawGrid() {
+        ctx.strokeStyle = "rgba(63, 63, 70, 0.22)";
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= canvas.width; x += cell) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= canvas.height; y += cell) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      }
+
+      function drawMushroom(mushroom) {
+        const x = mushroom.x * cell;
+        const y = mushroom.y * cell;
+        ctx.fillStyle = mushroom.hp === 2 ? "#f97316" : "#facc15";
+        ctx.beginPath();
+        ctx.arc(x + 10, y + 9, 8, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = "#a1a1aa";
+        ctx.fillRect(x + 6, y + 9, 8, 9);
+      }
+
+      function drawChain(chain) {
+        chain.segments.forEach((segment, index) => {
+          const x = segment.x * cell + 10;
+          const y = segment.y * cell + 10;
+          ctx.fillStyle = index === 0 ? "#22d3ee" : "#34d399";
+          ctx.beginPath();
+          ctx.arc(x, y, 8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#052e16";
+          ctx.fillRect(x - 3, y - 3, 2, 2);
+          ctx.fillRect(x + 3, y - 3, 2, 2);
+        });
+      }
+
+      function drawPlayer() {
+        ctx.fillStyle = "#e5e7eb";
+        ctx.beginPath();
+        ctx.moveTo(player.x + player.size / 2, player.y);
+        ctx.lineTo(player.x, player.y + player.size);
+        ctx.lineTo(player.x + player.size, player.y + player.size);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#22c55e";
+        ctx.fillRect(player.x + 8, player.y + 6, 4, 10);
+      }
+
+      function drawBullet() {
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(bullet.x - 2, bullet.y - 10, 4, 14);
+      }
+
+      function drawGameOver() {
+        ctx.fillStyle = "rgba(9, 9, 11, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f8fafc";
+        ctx.textAlign = "center";
+        ctx.font = "700 46px system-ui, sans-serif";
+        ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 12);
+        ctx.font = "500 18px system-ui, sans-serif";
+        ctx.fillText("Press New Game to try again", canvas.width / 2, canvas.height / 2 + 28);
+      }
+
+      function loop(timestamp) {
+        const delta = Math.min(0.033, (timestamp - lastTime) / 1000 || 0);
+        lastTime = timestamp;
+        update(delta);
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      window.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "w", "a", "s", "d"].includes(event.key)) {
+          event.preventDefault();
+        }
+        keys.add(event.key);
+        if (event.key === " " && running && !bullet) {
+          bullet = { x: player.x + player.size / 2, y: player.y };
+        }
+      });
+
+      window.addEventListener("keyup", (event) => keys.delete(event.key));
+      restartBtn.addEventListener("click", resetGame);
+
+      resetGame();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>
