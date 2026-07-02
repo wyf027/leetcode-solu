@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini Space Invaders</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6">
+      <header class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal sm:text-3xl">Mini Space Invaders</h1>
+          <p class="mt-1 text-sm text-zinc-400">移动炮台，击落入侵者，别让它们抵达防线。</p>
+        </div>
+        <button
+          id="restart"
+          class="rounded-md bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-3 rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 sm:grid-cols-4">
+        <div class="rounded-md bg-zinc-950/70 p-3">
+          <div class="text-xs uppercase text-zinc-500">Score</div>
+          <div id="score" class="mt-1 text-2xl font-semibold tabular-nums">0</div>
+        </div>
+        <div class="rounded-md bg-zinc-950/70 p-3">
+          <div class="text-xs uppercase text-zinc-500">Wave</div>
+          <div id="wave" class="mt-1 text-2xl font-semibold tabular-nums">1</div>
+        </div>
+        <div class="rounded-md bg-zinc-950/70 p-3">
+          <div class="text-xs uppercase text-zinc-500">Lives</div>
+          <div id="lives" class="mt-1 text-2xl font-semibold tabular-nums">3</div>
+        </div>
+        <div class="rounded-md bg-zinc-950/70 p-3">
+          <div class="text-xs uppercase text-zinc-500">Controls</div>
+          <div class="mt-2 text-sm text-zinc-300">A/D 或方向键移动，空格射击</div>
+        </div>
+      </section>
+
+      <div class="relative overflow-hidden rounded-lg border border-zinc-800 bg-black shadow-2xl shadow-emerald-950/30">
+        <canvas id="game" class="block aspect-[4/3] w-full" width="960" height="720"></canvas>
+        <div
+          id="message"
+          class="pointer-events-none absolute inset-0 hidden place-items-center bg-black/65 px-6 text-center"
+        >
+          <div>
+            <div id="messageTitle" class="text-3xl font-semibold"></div>
+            <div id="messageText" class="mt-2 text-sm text-zinc-300"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-3 sm:hidden">
+        <button id="left" class="rounded-md bg-zinc-800 py-3 text-lg font-semibold" type="button">←</button>
+        <button id="shoot" class="rounded-md bg-emerald-400 py-3 text-sm font-semibold text-zinc-950" type="button">
+          射击
+        </button>
+        <button id="right" class="rounded-md bg-zinc-800 py-3 text-lg font-semibold" type="button">→</button>
+      </div>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const waveEl = document.getElementById("wave");
+      const livesEl = document.getElementById("lives");
+      const message = document.getElementById("message");
+      const messageTitle = document.getElementById("messageTitle");
+      const messageText = document.getElementById("messageText");
+      const keys = new Set();
+
+      const state = {
+        score: 0,
+        wave: 1,
+        lives: 3,
+        running: true,
+        lastShot: 0,
+        invaderDir: 1,
+        invaderStep: 0,
+        player: { x: 445, y: 650, w: 70, h: 20, speed: 430 },
+        bullets: [],
+        invaderBullets: [],
+        invaders: [],
+      };
+
+      function reset() {
+        state.score = 0;
+        state.wave = 1;
+        state.lives = 3;
+        state.running = true;
+        state.bullets = [];
+        state.invaderBullets = [];
+        state.player.x = 445;
+        spawnInvaders();
+        hideMessage();
+        updateHud();
+      }
+
+      function spawnInvaders() {
+        state.invaderDir = 1;
+        state.invaderStep = 0;
+        state.invaders = [];
+        const rows = 4 + Math.min(2, state.wave - 1);
+        const cols = 10;
+        const startX = 125;
+        const startY = 80;
+        for (let row = 0; row < rows; row += 1) {
+          for (let col = 0; col < cols; col += 1) {
+            state.invaders.push({
+              x: startX + col * 72,
+              y: startY + row * 52,
+              w: 42,
+              h: 28,
+              alive: true,
+              points: (rows - row) * 10,
+            });
+          }
+        }
+      }
+
+      function updateHud() {
+        scoreEl.textContent = state.score;
+        waveEl.textContent = state.wave;
+        livesEl.textContent = state.lives;
+      }
+
+      function showMessage(title, text) {
+        messageTitle.textContent = title;
+        messageText.textContent = text;
+        message.classList.remove("hidden");
+        message.classList.add("grid");
+      }
+
+      function hideMessage() {
+        message.classList.add("hidden");
+        message.classList.remove("grid");
+      }
+
+      function rectsOverlap(a, b) {
+        return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      }
+
+      function shoot(now) {
+        if (!state.running || now - state.lastShot < 260) return;
+        state.lastShot = now;
+        state.bullets.push({
+          x: state.player.x + state.player.w / 2 - 3,
+          y: state.player.y - 14,
+          w: 6,
+          h: 16,
+          speed: 560,
+        });
+      }
+
+      function fireInvaderBullet() {
+        const alive = state.invaders.filter((invader) => invader.alive);
+        if (!alive.length || Math.random() > 0.018 + state.wave * 0.002) return;
+        const shooter = alive[Math.floor(Math.random() * alive.length)];
+        state.invaderBullets.push({
+          x: shooter.x + shooter.w / 2 - 4,
+          y: shooter.y + shooter.h,
+          w: 8,
+          h: 16,
+          speed: 210 + state.wave * 18,
+        });
+      }
+
+      function update(delta, now) {
+        if (!state.running) return;
+
+        const moveLeft = keys.has("ArrowLeft") || keys.has("KeyA");
+        const moveRight = keys.has("ArrowRight") || keys.has("KeyD");
+        if (moveLeft) state.player.x -= state.player.speed * delta;
+        if (moveRight) state.player.x += state.player.speed * delta;
+        state.player.x = Math.max(20, Math.min(canvas.width - state.player.w - 20, state.player.x));
+        if (keys.has("Space")) shoot(now);
+
+        for (const bullet of state.bullets) bullet.y -= bullet.speed * delta;
+        for (const bullet of state.invaderBullets) bullet.y += bullet.speed * delta;
+        state.bullets = state.bullets.filter((bullet) => bullet.y + bullet.h > 0);
+        state.invaderBullets = state.invaderBullets.filter((bullet) => bullet.y < canvas.height);
+
+        const alive = state.invaders.filter((invader) => invader.alive);
+        const speed = 34 + state.wave * 8 + (40 - alive.length) * 0.9;
+        let hitEdge = false;
+        for (const invader of alive) {
+          invader.x += state.invaderDir * speed * delta;
+          if (invader.x < 24 || invader.x + invader.w > canvas.width - 24) hitEdge = true;
+        }
+        if (hitEdge) {
+          state.invaderDir *= -1;
+          for (const invader of alive) invader.y += 24;
+        }
+
+        for (const bullet of state.bullets) {
+          for (const invader of alive) {
+            if (invader.alive && rectsOverlap(bullet, invader)) {
+              invader.alive = false;
+              bullet.y = -100;
+              state.score += invader.points;
+              break;
+            }
+          }
+        }
+
+        for (const bullet of state.invaderBullets) {
+          if (rectsOverlap(bullet, state.player)) {
+            bullet.y = canvas.height + 100;
+            state.lives -= 1;
+            updateHud();
+            if (state.lives <= 0) endGame(false);
+          }
+        }
+
+        if (alive.some((invader) => invader.y + invader.h >= state.player.y - 10)) {
+          endGame(false);
+        }
+
+        fireInvaderBullet();
+        if (state.invaders.every((invader) => !invader.alive)) {
+          state.wave += 1;
+          state.bullets = [];
+          state.invaderBullets = [];
+          spawnInvaders();
+          updateHud();
+        }
+      }
+
+      function endGame(won) {
+        state.running = false;
+        showMessage(won ? "胜利" : "游戏结束", `得分 ${state.score}，点击重新开始再来一局`);
+      }
+
+      function drawPlayer() {
+        ctx.fillStyle = "#34d399";
+        ctx.fillRect(state.player.x, state.player.y, state.player.w, state.player.h);
+        ctx.beginPath();
+        ctx.moveTo(state.player.x + state.player.w / 2, state.player.y - 26);
+        ctx.lineTo(state.player.x + 16, state.player.y);
+        ctx.lineTo(state.player.x + state.player.w - 16, state.player.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function drawInvader(invader) {
+        if (!invader.alive) return;
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(invader.x, invader.y + 8, invader.w, invader.h - 8);
+        ctx.fillStyle = "#a7f3d0";
+        ctx.fillRect(invader.x + 8, invader.y, invader.w - 16, 10);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(invader.x + 10, invader.y + 16, 6, 6);
+        ctx.fillRect(invader.x + invader.w - 16, invader.y + 16, 6, 6);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, "#020617");
+        gradient.addColorStop(1, "#052e2b");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "rgba(52, 211, 153, 0.32)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(20, state.player.y + 48);
+        ctx.lineTo(canvas.width - 20, state.player.y + 48);
+        ctx.stroke();
+
+        for (const invader of state.invaders) drawInvader(invader);
+        ctx.fillStyle = "#facc15";
+        for (const bullet of state.bullets) ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+        ctx.fillStyle = "#fb7185";
+        for (const bullet of state.invaderBullets) ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+        drawPlayer();
+      }
+
+      let previous = performance.now();
+      function loop(now) {
+        const delta = Math.min(0.035, (now - previous) / 1000);
+        previous = now;
+        update(delta, now);
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "Space", "KeyA", "KeyD"].includes(event.code)) {
+          event.preventDefault();
+          keys.add(event.code);
+        }
+      });
+
+      document.addEventListener("keyup", (event) => keys.delete(event.code));
+      document.getElementById("restart").addEventListener("click", reset);
+      document.getElementById("left").addEventListener("pointerdown", () => keys.add("ArrowLeft"));
+      document.getElementById("left").addEventListener("pointerup", () => keys.delete("ArrowLeft"));
+      document.getElementById("right").addEventListener("pointerdown", () => keys.add("ArrowRight"));
+      document.getElementById("right").addEventListener("pointerup", () => keys.delete("ArrowRight"));
+      document.getElementById("shoot").addEventListener("pointerdown", () => shoot(performance.now()));
+
+      reset();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>
