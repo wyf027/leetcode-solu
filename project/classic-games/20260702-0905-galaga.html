@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Galaga</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-cyan-200">Mini Galaga</h1>
+        <p class="text-sm text-slate-400">Move with arrows or A/D. Fire with Space. Clear the wave before your lives run out.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <div class="rounded border border-cyan-400/30 bg-cyan-400/10 px-3 py-2">Score <span id="score" class="font-mono text-cyan-100">0</span></div>
+        <div class="rounded border border-rose-400/30 bg-rose-400/10 px-3 py-2">Lives <span id="lives" class="font-mono text-rose-100">3</span></div>
+        <div class="rounded border border-amber-400/30 bg-amber-400/10 px-3 py-2">Wave <span id="wave" class="font-mono text-amber-100">1</span></div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <div class="relative overflow-hidden rounded border border-slate-700 bg-black shadow-xl shadow-cyan-950/30">
+        <canvas id="game" width="720" height="540" class="block h-auto w-full"></canvas>
+        <div id="overlay" class="absolute inset-0 flex items-center justify-center bg-black/70 text-center">
+          <div class="max-w-sm px-5">
+            <p id="overlayTitle" class="text-3xl font-bold text-cyan-100">Ready?</p>
+            <p id="overlayText" class="mt-2 text-sm text-slate-300">Press Start or Space to launch the first wave.</p>
+            <button id="startBtn" class="mt-5 rounded bg-cyan-400 px-5 py-2 font-semibold text-slate-950 hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-100">Start</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="rounded border border-slate-700 bg-slate-900 p-4">
+        <h2 class="text-sm font-semibold uppercase tracking-normal text-slate-300">Controls</h2>
+        <div class="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+          <button id="leftBtn" class="rounded border border-slate-600 bg-slate-800 py-3 text-lg hover:bg-slate-700" aria-label="Move left">←</button>
+          <button id="fireBtn" class="rounded border border-cyan-500 bg-cyan-500/20 py-3 text-lg text-cyan-100 hover:bg-cyan-500/30" aria-label="Fire">●</button>
+          <button id="rightBtn" class="rounded border border-slate-600 bg-slate-800 py-3 text-lg hover:bg-slate-700" aria-label="Move right">→</button>
+        </div>
+        <button id="resetBtn" class="mt-4 w-full rounded border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800">Reset</button>
+        <div class="mt-5 space-y-2 text-sm text-slate-400">
+          <p>Enemy ships drift in formation, then dive toward your fighter.</p>
+          <p>Hit diving ships for bonus points. A new wave starts when the formation is clear.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const waveEl = document.getElementById("wave");
+    const overlay = document.getElementById("overlay");
+    const overlayTitle = document.getElementById("overlayTitle");
+    const overlayText = document.getElementById("overlayText");
+    const startBtn = document.getElementById("startBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const keys = new Set();
+    const touch = { left: false, right: false };
+
+    const state = {
+      running: false,
+      over: false,
+      score: 0,
+      lives: 3,
+      wave: 1,
+      tick: 0,
+      lastShot: 0,
+      player: { x: 360, y: 486, w: 34, h: 30, invulnerable: 0 },
+      bullets: [],
+      enemyShots: [],
+      enemies: [],
+      sparks: []
+    };
+
+    function resetGame() {
+      state.running = false;
+      state.over = false;
+      state.score = 0;
+      state.lives = 3;
+      state.wave = 1;
+      state.tick = 0;
+      state.bullets = [];
+      state.enemyShots = [];
+      state.sparks = [];
+      state.player.x = 360;
+      state.player.invulnerable = 0;
+      makeWave();
+      updateHud();
+      showOverlay("Ready?", "Press Start or Space to launch the first wave.");
+    }
+
+    function makeWave() {
+      state.enemies = [];
+      const rows = 4;
+      const cols = 8;
+      const gapX = 62;
+      const gapY = 44;
+      const startX = 118;
+      const startY = 76;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          state.enemies.push({
+            homeX: startX + col * gapX,
+            homeY: startY + row * gapY,
+            x: startX + col * gapX,
+            y: startY + row * gapY,
+            row,
+            phase: Math.random() * Math.PI * 2,
+            diving: false,
+            vx: 0,
+            vy: 0,
+            hp: row === 0 ? 2 : 1,
+            cool: Math.random() * 180
+          });
+        }
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      waveEl.textContent = state.wave;
+    }
+
+    function showOverlay(title, text) {
+      overlayTitle.textContent = title;
+      overlayText.textContent = text;
+      overlay.classList.remove("hidden");
+    }
+
+    function hideOverlay() {
+      overlay.classList.add("hidden");
+    }
+
+    function startGame() {
+      if (state.over) resetGame();
+      state.running = true;
+      hideOverlay();
+    }
+
+    function fire() {
+      if (!state.running || state.tick - state.lastShot < 12) return;
+      state.lastShot = state.tick;
+      state.bullets.push({ x: state.player.x, y: state.player.y - 20, vy: -8 });
+    }
+
+    function hit(a, b, sizeA, sizeB) {
+      return Math.abs(a.x - b.x) < sizeA + sizeB && Math.abs(a.y - b.y) < sizeA + sizeB;
+    }
+
+    function addSparks(x, y, color, count) {
+      for (let i = 0; i < count; i += 1) {
+        state.sparks.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 4,
+          vy: (Math.random() - 0.5) * 4,
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updatePlayer() {
+      const movingLeft = keys.has("ArrowLeft") || keys.has("a") || keys.has("A") || touch.left;
+      const movingRight = keys.has("ArrowRight") || keys.has("d") || keys.has("D") || touch.right;
+      if (movingLeft) state.player.x -= 6;
+      if (movingRight) state.player.x += 6;
+      state.player.x = Math.max(28, Math.min(canvas.width - 28, state.player.x));
+      if (keys.has(" ") || keys.has("Spacebar")) fire();
+      if (state.player.invulnerable > 0) state.player.invulnerable -= 1;
+    }
+
+    function updateEnemies() {
+      const drift = Math.sin(state.tick / 42) * (24 + state.wave * 2);
+      const diveChance = 0.0025 + state.wave * 0.0007;
+      state.enemies.forEach((enemy) => {
+        if (!enemy.diving && Math.random() < diveChance) {
+          enemy.diving = true;
+          const dir = Math.sign(state.player.x - enemy.x) || 1;
+          enemy.vx = dir * (1.7 + Math.random() * 1.6);
+          enemy.vy = 2.2 + Math.random() * 1.6 + state.wave * 0.15;
+        }
+
+        if (enemy.diving) {
+          enemy.x += enemy.vx + Math.sin(state.tick / 12 + enemy.phase) * 1.4;
+          enemy.y += enemy.vy;
+          enemy.vx += (state.player.x - enemy.x) * 0.0009;
+          if (enemy.y > canvas.height + 30) {
+            enemy.diving = false;
+            enemy.x = enemy.homeX + drift;
+            enemy.y = enemy.homeY;
+          }
+        } else {
+          enemy.x = enemy.homeX + drift + Math.sin(state.tick / 18 + enemy.phase) * 5;
+          enemy.y = enemy.homeY + Math.cos(state.tick / 24 + enemy.phase) * 4;
+        }
+
+        enemy.cool -= 1;
+        if (enemy.cool <= 0 && enemy.y < state.player.y - 60) {
+          enemy.cool = 120 + Math.random() * 140 - state.wave * 5;
+          state.enemyShots.push({ x: enemy.x, y: enemy.y + 16, vy: 3.8 + state.wave * 0.12 });
+        }
+      });
+    }
+
+    function updateProjectiles() {
+      state.bullets.forEach((bullet) => bullet.y += bullet.vy);
+      state.enemyShots.forEach((shot) => shot.y += shot.vy);
+      state.bullets = state.bullets.filter((bullet) => bullet.y > -20);
+      state.enemyShots = state.enemyShots.filter((shot) => shot.y < canvas.height + 20);
+    }
+
+    function resolveHits() {
+      state.bullets = state.bullets.filter((bullet) => {
+        const target = state.enemies.find((enemy) => hit(bullet, enemy, 8, 19));
+        if (!target) return true;
+        target.hp -= 1;
+        addSparks(target.x, target.y, target.hp > 0 ? "#facc15" : "#22d3ee", 10);
+        if (target.hp <= 0) {
+          state.score += target.diving ? 180 : 100 + target.row * 20;
+          state.enemies = state.enemies.filter((enemy) => enemy !== target);
+        }
+        updateHud();
+        return false;
+      });
+
+      if (state.player.invulnerable <= 0) {
+        const struck = state.enemyShots.some((shot) => hit(shot, state.player, 7, 21)) ||
+          state.enemies.some((enemy) => hit(enemy, state.player, 16, 22));
+        if (struck) {
+          state.lives -= 1;
+          state.player.invulnerable = 110;
+          state.enemyShots = [];
+          addSparks(state.player.x, state.player.y, "#fb7185", 24);
+          updateHud();
+          if (state.lives <= 0) {
+            state.running = false;
+            state.over = true;
+            showOverlay("Game Over", "Press Start or Space to try another run.");
+          }
+        }
+      }
+
+      if (state.enemies.length === 0) {
+        state.wave += 1;
+        state.bullets = [];
+        state.enemyShots = [];
+        makeWave();
+        updateHud();
+      }
+    }
+
+    function updateSparks() {
+      state.sparks.forEach((spark) => {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.life -= 1;
+      });
+      state.sparks = state.sparks.filter((spark) => spark.life > 0);
+    }
+
+    function drawPlayer() {
+      if (state.player.invulnerable > 0 && Math.floor(state.tick / 6) % 2 === 0) return;
+      const p = state.player;
+      ctx.fillStyle = "#67e8f9";
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - 22);
+      ctx.lineTo(p.x - 24, p.y + 20);
+      ctx.lineTo(p.x - 8, p.y + 12);
+      ctx.lineTo(p.x, p.y + 22);
+      ctx.lineTo(p.x + 8, p.y + 12);
+      ctx.lineTo(p.x + 24, p.y + 20);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#e0f2fe";
+      ctx.fillRect(p.x - 3, p.y - 13, 6, 17);
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.fillStyle = enemy.row === 0 ? "#f472b6" : enemy.row === 1 ? "#a78bfa" : "#facc15";
+      ctx.beginPath();
+      ctx.moveTo(0, -17);
+      ctx.lineTo(22, 8);
+      ctx.lineTo(10, 18);
+      ctx.lineTo(0, 11);
+      ctx.lineTo(-10, 18);
+      ctx.lineTo(-22, 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(-6, 0, 12, 5);
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, "#020617");
+      gradient.addColorStop(1, "#111827");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#38bdf8";
+      for (let i = 0; i < 70; i += 1) {
+        const x = (i * 97 + state.tick * 0.35) % canvas.width;
+        const y = (i * 53 + state.tick * 0.75) % canvas.height;
+        ctx.fillRect(x, y, 1.5, 1.5);
+      }
+
+      state.enemies.forEach(drawEnemy);
+
+      ctx.fillStyle = "#ecfeff";
+      state.bullets.forEach((bullet) => ctx.fillRect(bullet.x - 2, bullet.y - 12, 4, 14));
+      ctx.fillStyle = "#fb7185";
+      state.enemyShots.forEach((shot) => ctx.fillRect(shot.x - 3, shot.y - 3, 6, 12));
+
+      state.sparks.forEach((spark) => {
+        ctx.globalAlpha = Math.max(0, spark.life / 24);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+
+      drawPlayer();
+    }
+
+    function step() {
+      if (state.running) {
+        state.tick += 1;
+        updatePlayer();
+        updateEnemies();
+        updateProjectiles();
+        resolveHits();
+        updateSparks();
+      }
+      draw();
+      requestAnimationFrame(step);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      keys.add(event.key);
+      if (event.key === " ") {
+        event.preventDefault();
+        if (!state.running) startGame();
+      }
+    });
+    document.addEventListener("keyup", (event) => keys.delete(event.key));
+    startBtn.addEventListener("click", startGame);
+    resetBtn.addEventListener("click", resetGame);
+    document.getElementById("leftBtn").addEventListener("pointerdown", () => touch.left = true);
+    document.getElementById("leftBtn").addEventListener("pointerup", () => touch.left = false);
+    document.getElementById("leftBtn").addEventListener("pointerleave", () => touch.left = false);
+    document.getElementById("rightBtn").addEventListener("pointerdown", () => touch.right = true);
+    document.getElementById("rightBtn").addEventListener("pointerup", () => touch.right = false);
+    document.getElementById("rightBtn").addEventListener("pointerleave", () => touch.right = false);
+    document.getElementById("fireBtn").addEventListener("pointerdown", fire);
+
+    resetGame();
+    step();
+  </script>
+</body>
+</html>
