@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Kaboom</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-4 px-4 py-6">
+      <section class="grid gap-4 rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-xl md:grid-cols-[1fr_220px]">
+        <div>
+          <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold text-white">Mini Kaboom</h1>
+              <p class="mt-1 text-sm text-stone-400">左右移动篮子接住落下的炸弹，漏接会损失生命。</p>
+            </div>
+            <div class="rounded-md border border-stone-800 bg-stone-950 px-4 py-2 text-right">
+              <div class="text-xs uppercase text-stone-500">Score</div>
+              <div id="score" class="text-3xl font-bold text-lime-300">0</div>
+            </div>
+          </div>
+          <canvas id="game" width="440" height="560" class="mx-auto block w-full max-w-[440px] rounded-md border border-stone-700 bg-stone-950"></canvas>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-md border border-stone-800 bg-stone-950 p-3">
+              <div class="text-xs uppercase text-stone-500">Lives</div>
+              <div id="lives" class="text-2xl font-bold text-rose-300">3</div>
+            </div>
+            <div class="rounded-md border border-stone-800 bg-stone-950 p-3">
+              <div class="text-xs uppercase text-stone-500">Level</div>
+              <div id="level" class="text-2xl font-bold text-cyan-300">1</div>
+            </div>
+          </div>
+          <div id="message" class="min-h-16 rounded-md border border-stone-800 bg-stone-950 p-3 text-sm text-stone-300">
+            使用 A/← 和 D/→ 移动，空格开始。
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              id="leftBtn"
+              type="button"
+              class="rounded-md bg-cyan-500 px-3 py-3 font-bold text-stone-950 transition hover:bg-cyan-400"
+            >
+              左移
+            </button>
+            <button
+              id="rightBtn"
+              type="button"
+              class="rounded-md bg-lime-500 px-3 py-3 font-bold text-stone-950 transition hover:bg-lime-400"
+            >
+              右移
+            </button>
+          </div>
+          <button
+            type="button"
+            onclick="startGame()"
+            class="rounded-md bg-amber-400 px-3 py-2 font-bold text-stone-950 transition hover:bg-amber-300"
+          >
+            开始
+          </button>
+          <button
+            type="button"
+            onclick="resetGame()"
+            class="rounded-md border border-stone-700 px-3 py-2 font-semibold text-stone-200 transition hover:border-stone-500 hover:bg-stone-800"
+          >
+            重新开始
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const basket = { x: 170, y: 506, w: 100, h: 24, speed: 7 };
+      const bombs = [];
+      const keys = { left: false, right: false };
+      let score = 0;
+      let lives = 3;
+      let level = 1;
+      let frame = 0;
+      let running = false;
+
+      function setMessage(text) {
+        document.getElementById("message").textContent = text;
+      }
+
+      function updateHud() {
+        document.getElementById("score").textContent = score;
+        document.getElementById("lives").textContent = lives;
+        document.getElementById("level").textContent = level;
+      }
+
+      function startGame() {
+        if (lives <= 0) resetGame();
+        running = true;
+        setMessage("接住炸弹，节奏会逐步加快。");
+      }
+
+      function resetGame() {
+        score = 0;
+        lives = 3;
+        level = 1;
+        frame = 0;
+        running = false;
+        bombs.length = 0;
+        basket.x = 170;
+        updateHud();
+        setMessage("使用 A/← 和 D/→ 移动，空格开始。");
+        renderGame();
+      }
+
+      function spawnBomb() {
+        const gap = Math.max(32, 78 - level * 4);
+        if (frame % gap !== 0) return;
+
+        bombs.push({
+          x: 28 + Math.random() * (canvas.width - 56),
+          y: 42,
+          r: 9,
+          speed: 2.2 + level * 0.35,
+        });
+      }
+
+      function movePlayer() {
+        if (keys.left) basket.x -= basket.speed;
+        if (keys.right) basket.x += basket.speed;
+        basket.x = Math.max(16, Math.min(canvas.width - basket.w - 16, basket.x));
+      }
+
+      function updateGame() {
+        if (!running) return;
+
+        frame += 1;
+        movePlayer();
+        spawnBomb();
+
+        for (let i = bombs.length - 1; i >= 0; i -= 1) {
+          const bomb = bombs[i];
+          bomb.y += bomb.speed;
+
+          if (hitsBasket(bomb)) {
+            bombs.splice(i, 1);
+            score += 10;
+            level = 1 + Math.floor(score / 80);
+            setMessage("接住了，+10。");
+            updateHud();
+            continue;
+          }
+
+          if (bomb.y - bomb.r > canvas.height) {
+            bombs.splice(i, 1);
+            lives -= 1;
+            updateHud();
+            if (lives <= 0) {
+              running = false;
+              setMessage("游戏结束，点击重新开始再挑战。");
+            } else {
+              setMessage("漏接一次，剩余生命 " + lives + "。");
+            }
+          }
+        }
+      }
+
+      function hitsBasket(bomb) {
+        return (
+          bomb.y + bomb.r >= basket.y &&
+          bomb.y - bomb.r <= basket.y + basket.h &&
+          bomb.x >= basket.x - bomb.r &&
+          bomb.x <= basket.x + basket.w + bomb.r
+        );
+      }
+
+      function renderGame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#0c0a09";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#292524";
+        ctx.fillRect(0, canvas.height - 24, canvas.width, 24);
+
+        drawBomber();
+        bombs.forEach(drawBomb);
+        drawBasket();
+      }
+
+      function drawBomber() {
+        const sway = Math.sin(frame / 45) * 130;
+        const x = canvas.width / 2 + sway;
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(x - 28, 20, 56, 18);
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(x - 14, 38, 28, 16);
+      }
+
+      function drawBomb(bomb) {
+        ctx.fillStyle = "#e7e5e4";
+        ctx.beginPath();
+        ctx.arc(bomb.x, bomb.y, bomb.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#f97316";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bomb.x + 5, bomb.y - 7);
+        ctx.lineTo(bomb.x + 11, bomb.y - 14);
+        ctx.stroke();
+      }
+
+      function drawBasket() {
+        ctx.fillStyle = "#84cc16";
+        ctx.fillRect(basket.x, basket.y, basket.w, basket.h);
+        ctx.fillStyle = "#365314";
+        ctx.fillRect(basket.x + 10, basket.y + 8, basket.w - 20, 6);
+      }
+
+      function loop() {
+        updateGame();
+        renderGame();
+        requestAnimationFrame(loop);
+      }
+
+      function bindControls() {
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = true;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = true;
+          if (event.code === "Space") startGame();
+        });
+        document.addEventListener("keyup", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = false;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = false;
+        });
+
+        bindButton("leftBtn", "left");
+        bindButton("rightBtn", "right");
+      }
+
+      function bindButton(id, side) {
+        const button = document.getElementById(id);
+        button.addEventListener("pointerdown", () => {
+          keys[side] = true;
+        });
+        button.addEventListener("pointerup", () => {
+          keys[side] = false;
+        });
+        button.addEventListener("pointerleave", () => {
+          keys[side] = false;
+        });
+      }
+
+      bindControls();
+      updateHud();
+      renderGame();
+      loop();
+    </script>
+  </body>
+</html>
