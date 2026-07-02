@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Rush Hour</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-white">
+    <main class="mx-auto flex min-h-screen max-w-3xl flex-col justify-center gap-5 px-4 py-8">
+      <section class="rounded-lg border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+        <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal">Mini Rush Hour</h1>
+            <p id="message" class="mt-1 min-h-6 text-sm text-zinc-300">移动挡路车辆，让红车从右侧出口离开。</p>
+          </div>
+          <div class="rounded bg-zinc-800 px-4 py-2 text-sm">
+            步数 <strong id="moves" class="text-cyan-300">0</strong>
+          </div>
+        </div>
+
+        <div id="board" class="relative mx-auto grid aspect-square w-full max-w-md grid-cols-6 grid-rows-6 gap-1 rounded bg-zinc-800 p-2"></div>
+
+        <div class="mt-5 grid grid-cols-2 gap-3">
+          <button id="backward" class="rounded bg-cyan-400 py-3 font-bold text-zinc-950 hover:bg-cyan-300">向前端移动</button>
+          <button id="forward" class="rounded bg-cyan-400 py-3 font-bold text-zinc-950 hover:bg-cyan-300">向后端移动</button>
+        </div>
+        <button id="reset" class="mt-3 w-full rounded border border-zinc-600 py-3 font-semibold hover:bg-zinc-800">重置</button>
+      </section>
+    </main>
+
+    <script>
+      const size = 6;
+      const startCars = [
+        { id: "X", row: 2, col: 0, len: 2, dir: "h", color: "bg-rose-500" },
+        { id: "A", row: 0, col: 2, len: 3, dir: "v", color: "bg-amber-400" },
+        { id: "B", row: 0, col: 4, len: 2, dir: "v", color: "bg-emerald-500" },
+        { id: "C", row: 3, col: 3, len: 2, dir: "h", color: "bg-sky-500" },
+        { id: "D", row: 4, col: 1, len: 3, dir: "h", color: "bg-violet-500" },
+        { id: "E", row: 3, col: 5, len: 2, dir: "v", color: "bg-pink-500" },
+      ];
+
+      const boardEl = document.getElementById("board");
+      const messageEl = document.getElementById("message");
+      const movesEl = document.getElementById("moves");
+      let cars = [];
+      let selected = "X";
+      let moves = 0;
+      let won = false;
+
+      function resetGame() {
+        cars = startCars.map((car) => ({ ...car }));
+        selected = "X";
+        moves = 0;
+        won = false;
+        messageEl.textContent = "移动挡路车辆，让红车从右侧出口离开。";
+        renderBoard();
+      }
+
+      function renderBoard() {
+        boardEl.innerHTML = "";
+        for (let i = 0; i < size * size; i += 1) {
+          const cell = document.createElement("div");
+          cell.className = "rounded bg-zinc-950";
+          boardEl.appendChild(cell);
+        }
+        const exit = document.createElement("div");
+        exit.className = "absolute right-0 top-[36%] h-[12%] w-2 rounded-l bg-rose-300";
+        boardEl.appendChild(exit);
+        cars.forEach((car) => {
+          const button = document.createElement("button");
+          button.className = [
+            "relative z-10 m-0.5 rounded border-2 text-sm font-black text-zinc-950 shadow transition",
+            car.color,
+            selected === car.id ? "border-white ring-4 ring-white/40" : "border-black/20",
+          ].join(" ");
+          button.style.gridColumn = `${car.col + 1} / span ${car.dir === "h" ? car.len : 1}`;
+          button.style.gridRow = `${car.row + 1} / span ${car.dir === "v" ? car.len : 1}`;
+          button.textContent = car.id;
+          button.addEventListener("click", () => {
+            selected = car.id;
+            messageEl.textContent = `${car.id} 已选中。`;
+            renderBoard();
+          });
+          boardEl.appendChild(button);
+        });
+        movesEl.textContent = moves;
+      }
+
+      function occupancy(ignoreId) {
+        const cells = new Set();
+        cars.forEach((car) => {
+          if (car.id === ignoreId) return;
+          for (let i = 0; i < car.len; i += 1) {
+            const row = car.row + (car.dir === "v" ? i : 0);
+            const col = car.col + (car.dir === "h" ? i : 0);
+            cells.add(`${row},${col}`);
+          }
+        });
+        return cells;
+      }
+
+      function moveSelected(delta) {
+        if (won) return;
+        const car = cars.find((item) => item.id === selected);
+        const blocked = occupancy(car.id);
+        const nextRow = car.row + (car.dir === "v" ? delta : 0);
+        const nextCol = car.col + (car.dir === "h" ? delta : 0);
+        if (!canMove(car, nextRow, nextCol, blocked)) {
+          messageEl.textContent = "这一步被边界或其他车辆挡住了。";
+          return;
+        }
+        car.row = nextRow;
+        car.col = nextCol;
+        moves += 1;
+        if (car.id === "X" && car.row === 2 && car.col + car.len >= size) {
+          won = true;
+          messageEl.textContent = `完成！红车用了 ${moves} 步到达出口。`;
+        } else {
+          messageEl.textContent = "继续移动，清出红车右侧出口。";
+        }
+        renderBoard();
+      }
+
+      function canMove(car, row, col, blocked) {
+        for (let i = 0; i < car.len; i += 1) {
+          const r = row + (car.dir === "v" ? i : 0);
+          const c = col + (car.dir === "h" ? i : 0);
+          if (r < 0 || r >= size || c < 0 || c >= size || blocked.has(`${r},${c}`)) {
+            return false;
+          }
+        }
+        return true;
+      }
+
+      document.getElementById("backward").addEventListener("click", () => moveSelected(-1));
+      document.getElementById("forward").addEventListener("click", () => moveSelected(1));
+      document.getElementById("reset").addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
