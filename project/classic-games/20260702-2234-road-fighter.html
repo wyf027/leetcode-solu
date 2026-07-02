@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Road Fighter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-4 px-4 py-6">
+      <section class="grid gap-4 rounded-lg border border-neutral-800 bg-neutral-900 p-4 shadow-xl md:grid-cols-[1fr_220px]">
+        <div>
+          <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold text-white">Mini Road Fighter</h1>
+              <p class="mt-1 text-sm text-neutral-400">在三条车道间闪避车辆，跑得越远分数越高。</p>
+            </div>
+            <div class="rounded-md border border-neutral-800 bg-neutral-950 px-4 py-2 text-right">
+              <div class="text-xs uppercase text-neutral-500">Score</div>
+              <div id="score" class="text-3xl font-bold text-sky-300">0</div>
+            </div>
+          </div>
+          <canvas id="road" width="420" height="580" class="mx-auto block w-full max-w-[420px] rounded-md border border-neutral-700 bg-neutral-950"></canvas>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-md border border-neutral-800 bg-neutral-950 p-3">
+              <div class="text-xs uppercase text-neutral-500">Speed</div>
+              <div id="speed" class="text-2xl font-bold text-amber-300">1</div>
+            </div>
+            <div class="rounded-md border border-neutral-800 bg-neutral-950 p-3">
+              <div class="text-xs uppercase text-neutral-500">Lane</div>
+              <div id="lane" class="text-2xl font-bold text-emerald-300">2</div>
+            </div>
+          </div>
+          <div id="message" class="min-h-16 rounded-md border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-300">
+            使用 A/← 和 D/→ 换道，空格开始。
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="leftBtn" type="button" class="rounded-md bg-sky-500 px-3 py-3 font-bold text-neutral-950 transition hover:bg-sky-400">
+              左移
+            </button>
+            <button id="rightBtn" type="button" class="rounded-md bg-emerald-500 px-3 py-3 font-bold text-neutral-950 transition hover:bg-emerald-400">
+              右移
+            </button>
+          </div>
+          <button type="button" onclick="startGame()" class="rounded-md bg-amber-400 px-3 py-2 font-bold text-neutral-950 transition hover:bg-amber-300">
+            开始
+          </button>
+          <button
+            type="button"
+            onclick="resetGame()"
+            class="rounded-md border border-neutral-700 px-3 py-2 font-semibold text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800"
+          >
+            重新开始
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("road");
+      const ctx = canvas.getContext("2d");
+      const lanes = [105, 210, 315];
+      const player = { lane: 1, y: 478, w: 44, h: 72 };
+      const cars = [];
+      const keys = { left: false, right: false };
+      let running = false;
+      let gameOver = false;
+      let frame = 0;
+      let roadOffset = 0;
+      let score = 0;
+      let speed = 4;
+      let turnLock = false;
+      let lastTime = 0;
+      let accumulator = 0;
+      const stepMs = 1000 / 60;
+
+      function setMessage(text) {
+        document.getElementById("message").textContent = text;
+      }
+
+      function updateHud() {
+        document.getElementById("score").textContent = score;
+        document.getElementById("speed").textContent = Math.max(1, Math.floor(speed - 3));
+        document.getElementById("lane").textContent = player.lane + 1;
+      }
+
+      function startGame() {
+        if (gameOver) resetGame();
+        running = true;
+        setMessage("保持节奏，避开前方车辆。");
+      }
+
+      function resetGame() {
+        running = false;
+        gameOver = false;
+        frame = 0;
+        roadOffset = 0;
+        score = 0;
+        speed = 4;
+        player.lane = 1;
+        cars.length = 0;
+        updateHud();
+        setMessage("使用 A/← 和 D/→ 换道，空格开始。");
+        renderGame();
+      }
+
+      function changeLane(direction) {
+        if (!running || turnLock) return;
+        player.lane = Math.max(0, Math.min(2, player.lane + direction));
+        turnLock = true;
+        updateHud();
+        setTimeout(() => {
+          turnLock = false;
+        }, 110);
+      }
+
+      function spawnCar() {
+        const gap = Math.max(38, 88 - Math.floor(speed * 6));
+        if (frame % gap !== 0) return;
+
+        const lane = Math.floor(Math.random() * lanes.length);
+        const color = ["#f97316", "#e11d48", "#a855f7"][Math.floor(Math.random() * 3)];
+        cars.push({ lane, y: -82, w: 46, h: 70, color });
+      }
+
+      function updateGame() {
+        if (!running) return;
+
+        frame += 1;
+        roadOffset = (roadOffset + speed) % 64;
+        speed = Math.min(8.5, speed + 0.002);
+        score += 1;
+
+        if (keys.left) changeLane(-1);
+        if (keys.right) changeLane(1);
+        spawnCar();
+
+        for (let i = cars.length - 1; i >= 0; i -= 1) {
+          const car = cars[i];
+          car.y += speed + 1.2;
+          if (isCollision(car)) endGame();
+          if (car.y > canvas.height + 90) cars.splice(i, 1);
+        }
+
+        updateHud();
+      }
+
+      function isCollision(car) {
+        if (car.lane !== player.lane) return false;
+        return car.y + car.h > player.y + 8 && car.y < player.y + player.h - 8;
+      }
+
+      function endGame() {
+        running = false;
+        gameOver = true;
+        setMessage("撞车了，点击开始或重新开始再挑战。");
+      }
+
+      function renderGame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawRoad();
+        cars.forEach(drawCar);
+        drawPlayer();
+      }
+
+      function drawRoad() {
+        ctx.fillStyle = "#171717";
+        ctx.fillRect(58, 0, 304, canvas.height);
+        ctx.fillStyle = "#262626";
+        ctx.fillRect(0, 0, 58, canvas.height);
+        ctx.fillRect(362, 0, 58, canvas.height);
+
+        ctx.strokeStyle = "#fafafa";
+        ctx.lineWidth = 4;
+        ctx.setLineDash([24, 20]);
+        ctx.lineDashOffset = -roadOffset;
+        ctx.beginPath();
+        ctx.moveTo(158, 0);
+        ctx.lineTo(158, canvas.height);
+        ctx.moveTo(262, 0);
+        ctx.lineTo(262, canvas.height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      function drawCar(car) {
+        drawVehicle(lanes[car.lane], car.y, car.w, car.h, car.color, "#111827");
+      }
+
+      function drawPlayer() {
+        drawVehicle(lanes[player.lane], player.y, player.w, player.h, "#38bdf8", "#082f49");
+      }
+
+      function drawVehicle(centerX, y, w, h, bodyColor, glassColor) {
+        const x = centerX - w / 2;
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = glassColor;
+        ctx.fillRect(x + 9, y + 10, w - 18, 16);
+        ctx.fillRect(x + 9, y + h - 26, w - 18, 12);
+        ctx.fillStyle = "#0a0a0a";
+        ctx.fillRect(x - 5, y + 12, 5, 16);
+        ctx.fillRect(x + w, y + 12, 5, 16);
+        ctx.fillRect(x - 5, y + h - 28, 5, 16);
+        ctx.fillRect(x + w, y + h - 28, 5, 16);
+      }
+
+      function loop(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        const delta = Math.min(100, timestamp - lastTime);
+        lastTime = timestamp;
+        accumulator += delta;
+
+        while (accumulator >= stepMs) {
+          updateGame();
+          accumulator -= stepMs;
+        }
+
+        renderGame();
+        requestAnimationFrame(loop);
+      }
+
+      function bindControls() {
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = true;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = true;
+          if (event.code === "Space") startGame();
+        });
+        document.addEventListener("keyup", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = false;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = false;
+        });
+
+        document.getElementById("leftBtn").addEventListener("click", () => changeLane(-1));
+        document.getElementById("rightBtn").addEventListener("click", () => changeLane(1));
+      }
+
+      bindControls();
+      updateHud();
+      renderGame();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>
