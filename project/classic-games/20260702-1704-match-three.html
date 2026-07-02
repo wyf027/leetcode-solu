@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Match Three</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal text-white">Mini Match Three</h1>
+          <p class="mt-1 text-sm text-zinc-400">点击两个相邻宝石交换，凑出横向或纵向三连。</p>
+        </div>
+        <button id="reset" class="rounded-md bg-pink-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-pink-300">
+          新局
+        </button>
+      </div>
+
+      <div class="mb-4 grid grid-cols-3 gap-3 text-center text-sm">
+        <div class="rounded-md bg-zinc-800 px-3 py-2">
+          <div class="text-zinc-400">分数</div>
+          <div id="score" class="text-xl font-semibold text-white">0</div>
+        </div>
+        <div class="rounded-md bg-zinc-800 px-3 py-2">
+          <div class="text-zinc-400">交换</div>
+          <div id="moves" class="text-xl font-semibold text-white">0</div>
+        </div>
+        <div class="rounded-md bg-zinc-800 px-3 py-2">
+          <div class="text-zinc-400">状态</div>
+          <div id="status" class="text-xl font-semibold text-white">选择</div>
+        </div>
+      </div>
+
+      <div id="board" class="mx-auto grid w-full max-w-md grid-cols-6 gap-2 rounded-lg bg-zinc-950 p-3"></div>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const gems = ["bg-rose-500", "bg-amber-400", "bg-emerald-400", "bg-sky-500", "bg-violet-500"];
+    const boardEl = document.getElementById("board");
+    const scoreEl = document.getElementById("score");
+    const movesEl = document.getElementById("moves");
+    const statusEl = document.getElementById("status");
+    const resetEl = document.getElementById("reset");
+    let board = [];
+    let selected = null;
+    let score = 0;
+    let moves = 0;
+
+    function resetGame() {
+      score = 0;
+      moves = 0;
+      selected = null;
+      board = Array.from({ length: size }, () =>
+        Array.from({ length: size }, () => randomGem())
+      );
+      while (clearMatches(false) > 0) fillBoard();
+      render();
+    }
+
+    function randomGem() {
+      return Math.floor(Math.random() * gems.length);
+    }
+
+    function choose(row, col) {
+      if (!selected) {
+        selected = [row, col];
+        render();
+        return;
+      }
+      const [sr, sc] = selected;
+      if (sr === row && sc === col) {
+        selected = null;
+        render();
+        return;
+      }
+      if (Math.abs(sr - row) + Math.abs(sc - col) !== 1) {
+        selected = [row, col];
+        render();
+        return;
+      }
+
+      swap(sr, sc, row, col);
+      const matched = clearMatches(true);
+      if (matched === 0) {
+        swap(sr, sc, row, col);
+        statusEl.textContent = "无三连";
+      } else {
+        moves++;
+        cascade();
+      }
+      selected = null;
+      render();
+    }
+
+    function swap(aRow, aCol, bRow, bCol) {
+      [board[aRow][aCol], board[bRow][bCol]] = [board[bRow][bCol], board[aRow][aCol]];
+    }
+
+    function findMatches() {
+      const matched = new Set();
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size - 2; col++) {
+          const value = board[row][col];
+          if (value === board[row][col + 1] && value === board[row][col + 2]) {
+            matched.add(`${row},${col}`);
+            matched.add(`${row},${col + 1}`);
+            matched.add(`${row},${col + 2}`);
+          }
+        }
+      }
+      for (let col = 0; col < size; col++) {
+        for (let row = 0; row < size - 2; row++) {
+          const value = board[row][col];
+          if (value === board[row + 1][col] && value === board[row + 2][col]) {
+            matched.add(`${row},${col}`);
+            matched.add(`${row + 1},${col}`);
+            matched.add(`${row + 2},${col}`);
+          }
+        }
+      }
+      return matched;
+    }
+
+    function clearMatches(countScore) {
+      const matched = findMatches();
+      if (matched.size === 0) return 0;
+      for (const key of matched) {
+        const [row, col] = key.split(",").map(Number);
+        board[row][col] = null;
+      }
+      if (countScore) score += matched.size * 10;
+      return matched.size;
+    }
+
+    function fillBoard() {
+      for (let col = 0; col < size; col++) {
+        const kept = [];
+        for (let row = size - 1; row >= 0; row--) {
+          if (board[row][col] !== null) kept.push(board[row][col]);
+        }
+        for (let row = size - 1; row >= 0; row--) {
+          board[row][col] = kept[size - 1 - row] ?? randomGem();
+        }
+      }
+    }
+
+    function cascade() {
+      let cleared;
+      do {
+        fillBoard();
+        cleared = clearMatches(true);
+      } while (cleared > 0);
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((row, rowIndex) => {
+        row.forEach((value, colIndex) => {
+          const tile = document.createElement("button");
+          const isSelected = selected && selected[0] === rowIndex && selected[1] === colIndex;
+          tile.type = "button";
+          tile.className = [
+            "aspect-square rounded-md border-2 transition focus:outline-none focus:ring-2 focus:ring-pink-200",
+            gems[value],
+            isSelected ? "border-white scale-95" : "border-zinc-950 hover:border-zinc-200"
+          ].join(" ");
+          tile.setAttribute("aria-label", `第 ${rowIndex + 1} 行第 ${colIndex + 1} 列宝石`);
+          tile.addEventListener("click", () => choose(rowIndex, colIndex));
+          boardEl.appendChild(tile);
+        });
+      });
+      scoreEl.textContent = score;
+      movesEl.textContent = moves;
+      if (!selected) statusEl.textContent = "选择";
+    }
+
+    resetEl.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
