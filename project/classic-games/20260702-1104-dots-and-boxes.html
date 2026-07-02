@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Dots and Boxes</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6 sm:py-8">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-neutral-800 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-white">Mini Dots and Boxes</h1>
+        <p class="mt-1 text-sm text-neutral-400">Claim edges. Complete a box to score and keep the turn.</p>
+      </div>
+      <button id="reset" class="rounded-md bg-sky-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-sky-200 focus:outline-none focus:ring-2 focus:ring-sky-100">
+        Reset
+      </button>
+    </header>
+
+    <section class="grid gap-5 md:grid-cols-[1fr_14rem]">
+      <div class="flex justify-center">
+        <div id="board" class="relative aspect-square w-full max-w-[32rem] rounded-md border border-neutral-800 bg-neutral-900 p-4 shadow-2xl shadow-sky-950/30" aria-label="Dots and Boxes board"></div>
+      </div>
+
+      <aside class="grid content-start gap-3">
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <div class="text-xs uppercase tracking-wider text-neutral-500">Turn</div>
+          <div id="turn" class="mt-1 text-2xl font-bold text-sky-300">Blue</div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+            <div class="text-xs uppercase tracking-wider text-neutral-500">Blue</div>
+            <div id="blueScore" class="mt-1 text-3xl font-bold text-sky-300">0</div>
+          </div>
+          <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+            <div class="text-xs uppercase tracking-wider text-neutral-500">Rose</div>
+            <div id="roseScore" class="mt-1 text-3xl font-bold text-rose-300">0</div>
+          </div>
+        </div>
+        <div id="status" class="rounded-md border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+          Pick any open edge.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boxes = 4;
+    const dots = boxes + 1;
+    const players = [
+      { id: "blue", name: "Blue", edge: "bg-sky-300", box: "bg-sky-400/30", text: "text-sky-300" },
+      { id: "rose", name: "Rose", edge: "bg-rose-300", box: "bg-rose-400/30", text: "text-rose-300" }
+    ];
+    const boardEl = document.querySelector("#board");
+    const turnEl = document.querySelector("#turn");
+    const blueScoreEl = document.querySelector("#blueScore");
+    const roseScoreEl = document.querySelector("#roseScore");
+    const statusEl = document.querySelector("#status");
+    const resetBtn = document.querySelector("#reset");
+    let current = 0;
+    let horizontal = [];
+    let vertical = [];
+    let owners = [];
+    let scores = [0, 0];
+
+    function resetGame() {
+      horizontal = Array.from({ length: dots }, () => Array(boxes).fill(null));
+      vertical = Array.from({ length: boxes }, () => Array(dots).fill(null));
+      owners = Array.from({ length: boxes }, () => Array(boxes).fill(null));
+      scores = [0, 0];
+      current = 0;
+      statusEl.textContent = "Pick any open edge.";
+      render();
+    }
+
+    function boxComplete(row, col) {
+      return horizontal[row][col] && horizontal[row + 1][col] && vertical[row][col] && vertical[row][col + 1];
+    }
+
+    function claimBoxesNear(type, row, col) {
+      const gained = [];
+      const candidates = type === "h"
+        ? [[row - 1, col], [row, col]]
+        : [[row, col - 1], [row, col]];
+      candidates.forEach(([boxRow, boxCol]) => {
+        if (boxRow < 0 || boxRow >= boxes || boxCol < 0 || boxCol >= boxes) return;
+        if (!owners[boxRow][boxCol] && boxComplete(boxRow, boxCol)) {
+          owners[boxRow][boxCol] = players[current].id;
+          gained.push([boxRow, boxCol]);
+        }
+      });
+      return gained.length;
+    }
+
+    function play(type, row, col) {
+      const lineSet = type === "h" ? horizontal : vertical;
+      if (lineSet[row][col]) return;
+      lineSet[row][col] = players[current].id;
+      const gained = claimBoxesNear(type, row, col);
+      if (gained > 0) {
+        scores[current] += gained;
+        statusEl.textContent = `${players[current].name} scored ${gained} box${gained === 1 ? "" : "es"} and plays again.`;
+      } else {
+        current = 1 - current;
+        statusEl.textContent = `${players[current].name}'s turn.`;
+      }
+      const total = scores[0] + scores[1];
+      if (total === boxes * boxes) {
+        const winner = scores[0] === scores[1] ? "Draw" : `${scores[0] > scores[1] ? players[0].name : players[1].name} wins`;
+        statusEl.textContent = `${winner}, ${scores[0]}-${scores[1]}.`;
+      }
+      render();
+    }
+
+    function percent(value) {
+      return `${(value / boxes) * 100}%`;
+    }
+
+    function makeEdge(type, row, col, owner) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = [
+        "absolute rounded-full transition focus:outline-none focus:ring-2 focus:ring-white",
+        owner ? players.find((player) => player.id === owner).edge : "bg-neutral-700 hover:bg-neutral-500"
+      ].join(" ");
+      if (type === "h") {
+        button.style.left = `calc(${percent(col)} + 4%)`;
+        button.style.top = `calc(${percent(row)} - 1.2%)`;
+        button.style.width = "17%";
+        button.style.height = "2.4%";
+      } else {
+        button.style.left = `calc(${percent(col)} - 1.2%)`;
+        button.style.top = `calc(${percent(row)} + 4%)`;
+        button.style.width = "2.4%";
+        button.style.height = "17%";
+      }
+      button.setAttribute("aria-label", `${type === "h" ? "Horizontal" : "Vertical"} edge ${row}, ${col}`);
+      button.disabled = Boolean(owner);
+      button.addEventListener("click", () => play(type, row, col));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnEl.textContent = players[current].name;
+      turnEl.className = `mt-1 text-2xl font-bold ${players[current].text}`;
+      blueScoreEl.textContent = scores[0];
+      roseScoreEl.textContent = scores[1];
+
+      for (let row = 0; row < boxes; row += 1) {
+        for (let col = 0; col < boxes; col += 1) {
+          if (!owners[row][col]) continue;
+          const box = document.createElement("div");
+          box.className = `absolute rounded-md ${players.find((player) => player.id === owners[row][col]).box}`;
+          box.style.left = `calc(${percent(col)} + 4%)`;
+          box.style.top = `calc(${percent(row)} + 4%)`;
+          box.style.width = "17%";
+          box.style.height = "17%";
+          boardEl.appendChild(box);
+        }
+      }
+
+      for (let row = 0; row < dots; row += 1) {
+        for (let col = 0; col < boxes; col += 1) {
+          boardEl.appendChild(makeEdge("h", row, col, horizontal[row][col]));
+        }
+      }
+      for (let row = 0; row < boxes; row += 1) {
+        for (let col = 0; col < dots; col += 1) {
+          boardEl.appendChild(makeEdge("v", row, col, vertical[row][col]));
+        }
+      }
+      for (let row = 0; row < dots; row += 1) {
+        for (let col = 0; col < dots; col += 1) {
+          const dot = document.createElement("div");
+          dot.className = "absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white";
+          dot.style.left = percent(col);
+          dot.style.top = percent(row);
+          boardEl.appendChild(dot);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
