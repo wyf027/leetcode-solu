@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pinball</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-4 px-4 py-6">
+      <section class="grid gap-4 rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-xl md:grid-cols-[1fr_220px]">
+        <div>
+          <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold text-white">Mini Pinball</h1>
+              <p class="mt-1 text-sm text-zinc-400">用左右挡板接住弹珠，撞击圆形靶得分。</p>
+            </div>
+            <div class="rounded-md border border-zinc-800 bg-zinc-950 px-4 py-2 text-right">
+              <div class="text-xs uppercase text-zinc-500">Score</div>
+              <div id="score" class="text-3xl font-bold text-amber-300">0</div>
+            </div>
+          </div>
+          <canvas id="table" width="420" height="620" class="mx-auto block w-full max-w-[420px] rounded-md border border-zinc-700 bg-zinc-950"></canvas>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="rounded-md border border-zinc-800 bg-zinc-950 p-3">
+            <div class="text-xs uppercase text-zinc-500">Balls</div>
+            <div id="balls" class="text-2xl font-bold text-cyan-200">3</div>
+          </div>
+          <div id="message" class="min-h-16 rounded-md border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-300">
+            按空格发射，A/← 和 D/→ 控制挡板。
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              id="leftBtn"
+              type="button"
+              class="rounded-md bg-cyan-500 px-3 py-3 font-bold text-zinc-950 transition hover:bg-cyan-400"
+            >
+              左挡板
+            </button>
+            <button
+              id="rightBtn"
+              type="button"
+              class="rounded-md bg-fuchsia-500 px-3 py-3 font-bold text-white transition hover:bg-fuchsia-400"
+            >
+              右挡板
+            </button>
+          </div>
+          <button
+            type="button"
+            onclick="launchBall()"
+            class="rounded-md bg-amber-400 px-3 py-2 font-bold text-zinc-950 transition hover:bg-amber-300"
+          >
+            发射
+          </button>
+          <button
+            type="button"
+            onclick="resetGame()"
+            class="rounded-md border border-zinc-700 px-3 py-2 font-semibold text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+          >
+            重新开始
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("table");
+      const ctx = canvas.getContext("2d");
+      const keys = { left: false, right: false };
+      const ball = { x: 352, y: 548, vx: 0, vy: 0, r: 8, launched: false };
+      const bumpers = [
+        { x: 145, y: 145, r: 24, points: 100, color: "#22d3ee" },
+        { x: 275, y: 145, r: 24, points: 100, color: "#f472b6" },
+        { x: 210, y: 255, r: 28, points: 150, color: "#facc15" },
+      ];
+      const walls = [
+        { x1: 50, y1: 95, x2: 78, y2: 500 },
+        { x1: 370, y1: 95, x2: 342, y2: 500 },
+        { x1: 80, y1: 70, x2: 340, y2: 70 },
+      ];
+      let score = 0;
+      let balls = 3;
+      let running = true;
+
+      function setMessage(text) {
+        document.getElementById("message").textContent = text;
+      }
+
+      function updateHud() {
+        document.getElementById("score").textContent = score;
+        document.getElementById("balls").textContent = balls;
+      }
+
+      function launchBall() {
+        if (ball.launched || balls <= 0) return;
+        ball.launched = true;
+        ball.vx = -3.1;
+        ball.vy = -8.2;
+        setMessage("弹珠已发射。");
+      }
+
+      function resetBall() {
+        ball.x = 352;
+        ball.y = 548;
+        ball.vx = 0;
+        ball.vy = 0;
+        ball.launched = false;
+      }
+
+      function resetGame() {
+        score = 0;
+        balls = 3;
+        running = true;
+        resetBall();
+        updateHud();
+        setMessage("按空格发射，A/← 和 D/→ 控制挡板。");
+      }
+
+      function drawTable() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#52525b";
+        ctx.lineWidth = 4;
+        walls.forEach((wall) => drawLine(wall.x1, wall.y1, wall.x2, wall.y2));
+
+        ctx.fillStyle = "#18181b";
+        ctx.beginPath();
+        ctx.moveTo(70, 520);
+        ctx.lineTo(170, 590);
+        ctx.lineTo(250, 590);
+        ctx.lineTo(350, 520);
+        ctx.stroke();
+
+        bumpers.forEach((bumper) => {
+          ctx.fillStyle = bumper.color;
+          ctx.beginPath();
+          ctx.arc(bumper.x, bumper.y, bumper.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#18181b";
+          ctx.font = "bold 14px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(bumper.points, bumper.x, bumper.y + 5);
+        });
+
+        drawFlipper(130, 535, keys.left ? -0.55 : 0.2, "#22d3ee");
+        drawFlipper(290, 535, keys.right ? Math.PI + 0.55 : Math.PI - 0.2, "#f472b6");
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawLine(x1, y1, x2, y2) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+
+      function drawFlipper(x, y, angle, color) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.fillStyle = color;
+        ctx.fillRect(0, -7, 82, 14);
+        ctx.restore();
+      }
+
+      function updateBall() {
+        if (!running || !ball.launched) return;
+
+        ball.vy += 0.18;
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        if (ball.x < 32 || ball.x > canvas.width - 32) ball.vx *= -0.88;
+        if (ball.y < 32) ball.vy *= -0.88;
+        ball.x = Math.max(32, Math.min(canvas.width - 32, ball.x));
+
+        bumpers.forEach((bumper) => hitBumper(bumper));
+        hitSlantedWall(50, 95, 78, 500);
+        hitSlantedWall(370, 95, 342, 500);
+        hitFlippers();
+
+        if (ball.y > canvas.height + 18) {
+          balls -= 1;
+          updateHud();
+          resetBall();
+          if (balls <= 0) {
+            running = false;
+            setMessage("游戏结束，点击重新开始再挑战。");
+          } else {
+            setMessage("掉球了，按空格发射下一颗。");
+          }
+        }
+      }
+
+      function hitBumper(bumper) {
+        const dx = ball.x - bumper.x;
+        const dy = ball.y - bumper.y;
+        const dist = Math.hypot(dx, dy);
+        const minDist = ball.r + bumper.r;
+        if (dist >= minDist) return;
+
+        const safeDist = dist || 1;
+        const nx = dx / safeDist;
+        const ny = dy / safeDist;
+        ball.x = bumper.x + nx * minDist;
+        ball.y = bumper.y + ny * minDist;
+        ball.vx = nx * 6;
+        ball.vy = ny * 6 - 1;
+        score += bumper.points;
+        updateHud();
+        setMessage("命中靶标 +" + bumper.points);
+      }
+
+      function hitSlantedWall(x1, y1, x2, y2) {
+        const vx = x2 - x1;
+        const vy = y2 - y1;
+        const lenSq = vx * vx + vy * vy;
+        const t = Math.max(0, Math.min(1, ((ball.x - x1) * vx + (ball.y - y1) * vy) / lenSq));
+        const px = x1 + t * vx;
+        const py = y1 + t * vy;
+        const dx = ball.x - px;
+        const dy = ball.y - py;
+        const dist = Math.hypot(dx, dy);
+        if (dist > ball.r + 2) return;
+
+        const safeDist = dist || 1;
+        const nx = dx / safeDist;
+        const ny = dy / safeDist;
+        const dot = ball.vx * nx + ball.vy * ny;
+        ball.vx -= 2 * dot * nx;
+        ball.vy -= 2 * dot * ny;
+        ball.x += nx * 3;
+        ball.y += ny * 3;
+      }
+
+      function hitFlippers() {
+        const leftActive = keys.left && ball.x > 108 && ball.x < 215 && ball.y > 505 && ball.y < 556;
+        const rightActive = keys.right && ball.x > 205 && ball.x < 312 && ball.y > 505 && ball.y < 556;
+        if (!leftActive && !rightActive) return;
+
+        ball.vy = -8.6;
+        ball.vx += leftActive ? 2.5 : -2.5;
+        score += 10;
+        updateHud();
+      }
+
+      function loop() {
+        updateBall();
+        drawTable();
+        requestAnimationFrame(loop);
+      }
+
+      function bindControls() {
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = true;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = true;
+          if (event.code === "Space") launchBall();
+        });
+        document.addEventListener("keyup", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = false;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = false;
+        });
+
+        bindButton("leftBtn", "left");
+        bindButton("rightBtn", "right");
+      }
+
+      function bindButton(id, side) {
+        const button = document.getElementById(id);
+        button.addEventListener("pointerdown", () => (keys[side] = true));
+        button.addEventListener("pointerup", () => (keys[side] = false));
+        button.addEventListener("pointerleave", () => (keys[side] = false));
+      }
+
+      bindControls();
+      updateHud();
+      drawTable();
+      loop();
+    </script>
+  </body>
+</html>
