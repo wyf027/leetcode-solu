@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Yacht Dice</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal text-white">Mini Yacht Dice</h1>
+          <p class="mt-1 text-sm text-zinc-400">每回合最多掷 3 次，锁定骰子后选择一个未用计分类别。</p>
+        </div>
+        <button id="reset" class="rounded-md bg-lime-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-300">
+          新局
+        </button>
+      </div>
+
+      <div class="mb-4 grid grid-cols-3 gap-3 text-center text-sm">
+        <div class="rounded-md bg-zinc-800 px-3 py-2">
+          <div class="text-zinc-400">总分</div>
+          <div id="score" class="text-xl font-semibold text-white">0</div>
+        </div>
+        <div class="rounded-md bg-zinc-800 px-3 py-2">
+          <div class="text-zinc-400">剩余掷骰</div>
+          <div id="rolls" class="text-xl font-semibold text-white">3</div>
+        </div>
+        <div class="rounded-md bg-zinc-800 px-3 py-2">
+          <div class="text-zinc-400">状态</div>
+          <div id="status" class="text-xl font-semibold text-white">掷骰</div>
+        </div>
+      </div>
+
+      <div id="dice" class="mb-4 grid grid-cols-5 gap-2"></div>
+      <button id="roll" class="mb-4 w-full rounded-md bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400">
+        掷骰
+      </button>
+      <div id="sheet" class="grid gap-2 sm:grid-cols-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const diceEl = document.getElementById("dice");
+    const rollEl = document.getElementById("roll");
+    const resetEl = document.getElementById("reset");
+    const sheetEl = document.getElementById("sheet");
+    const scoreEl = document.getElementById("score");
+    const rollsEl = document.getElementById("rolls");
+    const statusEl = document.getElementById("status");
+    const pip = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+    const categories = [
+      ["ones", "一点", dice => sumFace(dice, 1)],
+      ["twos", "二点", dice => sumFace(dice, 2)],
+      ["threes", "三点", dice => sumFace(dice, 3)],
+      ["fours", "四点", dice => sumFace(dice, 4)],
+      ["fives", "五点", dice => sumFace(dice, 5)],
+      ["sixes", "六点", dice => sumFace(dice, 6)],
+      ["four", "四同号", dice => hasCount(dice, 4) ? sum(dice) : 0],
+      ["full", "葫芦", dice => isFullHouse(dice) ? 25 : 0],
+      ["yacht", "五同号", dice => hasCount(dice, 5) ? 50 : 0],
+      ["chance", "机会", dice => sum(dice)]
+    ];
+    let dice = [1, 1, 1, 1, 1];
+    let held = [false, false, false, false, false];
+    let rolls = 3;
+    let used = {};
+    let total = 0;
+    let rolledThisTurn = false;
+
+    function resetGame() {
+      dice = [1, 1, 1, 1, 1];
+      held = [false, false, false, false, false];
+      rolls = 3;
+      used = {};
+      total = 0;
+      rolledThisTurn = false;
+      render();
+    }
+
+    function rollDice() {
+      if (rolls === 0 || isFinished()) return;
+      dice = dice.map((value, index) => held[index] ? value : Math.floor(Math.random() * 6) + 1);
+      rolls--;
+      rolledThisTurn = true;
+      render();
+    }
+
+    function scoreCategory(key, scorer) {
+      if (!rolledThisTurn || used[key] !== undefined || isFinished()) return;
+      const points = scorer(dice);
+      used[key] = points;
+      total += points;
+      held = [false, false, false, false, false];
+      rolls = 3;
+      rolledThisTurn = false;
+      render();
+    }
+
+    function render() {
+      diceEl.innerHTML = "";
+      dice.forEach((value, index) => {
+        const tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = [
+          "h-20 rounded-lg border text-4xl transition focus:outline-none focus:ring-2 focus:ring-lime-200",
+          held[index] ? "border-lime-300 bg-lime-400 text-zinc-950" : "border-zinc-700 bg-zinc-800 text-white hover:bg-zinc-700"
+        ].join(" ");
+        tile.textContent = pip[value];
+        tile.disabled = !rolledThisTurn || isFinished();
+        tile.setAttribute("aria-label", `骰子 ${index + 1}`);
+        tile.addEventListener("click", () => {
+          held[index] = !held[index];
+          render();
+        });
+        diceEl.appendChild(tile);
+      });
+
+      sheetEl.innerHTML = "";
+      categories.forEach(([key, label, scorer]) => {
+        const button = document.createElement("button");
+        const taken = used[key] !== undefined;
+        const preview = taken ? used[key] : scorer(dice);
+        button.type = "button";
+        button.className = [
+          "flex items-center justify-between rounded-md px-3 py-2 text-left text-sm transition",
+          taken ? "bg-zinc-800 text-zinc-500" : "bg-zinc-800 text-zinc-100 hover:bg-zinc-700"
+        ].join(" ");
+        button.disabled = taken || !rolledThisTurn || isFinished();
+        button.innerHTML = `<span>${label}</span><strong>${preview}</strong>`;
+        button.addEventListener("click", () => scoreCategory(key, scorer));
+        sheetEl.appendChild(button);
+      });
+
+      scoreEl.textContent = total;
+      rollsEl.textContent = rolls;
+      rollEl.disabled = rolls === 0 || isFinished();
+      rollEl.className = [
+        "mb-4 w-full rounded-md px-4 py-3 text-sm font-semibold text-white",
+        rollEl.disabled ? "bg-zinc-700 text-zinc-400" : "bg-sky-500 hover:bg-sky-400"
+      ].join(" ");
+      statusEl.textContent = isFinished() ? "完成" : rolledThisTurn ? "计分" : "掷骰";
+    }
+
+    function counts(diceValues) {
+      return diceValues.reduce((map, value) => {
+        map[value] = (map[value] || 0) + 1;
+        return map;
+      }, {});
+    }
+
+    function sum(diceValues) {
+      return diceValues.reduce((acc, value) => acc + value, 0);
+    }
+
+    function sumFace(diceValues, face) {
+      return diceValues.filter(value => value === face).length * face;
+    }
+
+    function hasCount(diceValues, target) {
+      return Object.values(counts(diceValues)).some(count => count >= target);
+    }
+
+    function isFullHouse(diceValues) {
+      const values = Object.values(counts(diceValues)).sort().join(",");
+      return values === "2,3";
+    }
+
+    function isFinished() {
+      return categories.every(([key]) => used[key] !== undefined);
+    }
+
+    rollEl.addEventListener("click", rollDice);
+    resetEl.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
