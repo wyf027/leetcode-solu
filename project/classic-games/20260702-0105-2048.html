@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini 2048</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-100 text-stone-900">
+    <main class="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-4 py-6">
+      <section class="mb-5 flex items-end justify-between gap-4">
+        <div>
+          <h1 class="text-4xl font-black tracking-normal text-stone-800">Mini 2048</h1>
+          <p class="mt-1 text-sm text-stone-600">Join matching tiles and reach 2048.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="rounded bg-stone-700 px-3 py-2 text-white">
+            <div class="text-xs uppercase text-stone-300">Score</div>
+            <div id="score" class="text-xl font-bold">0</div>
+          </div>
+          <div class="rounded bg-stone-700 px-3 py-2 text-white">
+            <div class="text-xs uppercase text-stone-300">Best</div>
+            <div id="best" class="text-xl font-bold">0</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mb-4 flex items-center justify-between gap-3">
+        <p id="status" class="text-sm font-medium text-stone-700">Use arrow keys or swipe.</p>
+        <button
+          id="newGame"
+          type="button"
+          class="rounded bg-orange-500 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+        >
+          New Game
+        </button>
+      </section>
+
+      <section
+        id="board"
+        class="grid aspect-square w-full grid-cols-4 gap-3 rounded bg-stone-400 p-3 shadow-inner touch-none"
+        aria-label="2048 board"
+      ></section>
+
+      <section class="mt-4 grid grid-cols-3 gap-2 sm:hidden">
+        <div></div>
+        <button class="move rounded bg-stone-700 py-3 font-bold text-white" data-dir="up" type="button">Up</button>
+        <div></div>
+        <button class="move rounded bg-stone-700 py-3 font-bold text-white" data-dir="left" type="button">Left</button>
+        <button class="move rounded bg-orange-500 py-3 font-bold text-white" data-dir="down" type="button">Down</button>
+        <button class="move rounded bg-stone-700 py-3 font-bold text-white" data-dir="right" type="button">Right</button>
+      </section>
+    </main>
+
+    <script>
+      const size = 4;
+      const boardElement = document.getElementById("board");
+      const scoreElement = document.getElementById("score");
+      const bestElement = document.getElementById("best");
+      const statusElement = document.getElementById("status");
+      const newGameButton = document.getElementById("newGame");
+      const tileClasses = {
+        0: "bg-stone-300 text-stone-300",
+        2: "bg-orange-100 text-stone-700",
+        4: "bg-orange-200 text-stone-700",
+        8: "bg-orange-300 text-white",
+        16: "bg-orange-400 text-white",
+        32: "bg-red-400 text-white",
+        64: "bg-red-500 text-white",
+        128: "bg-yellow-300 text-stone-800",
+        256: "bg-yellow-400 text-stone-800",
+        512: "bg-emerald-400 text-white",
+        1024: "bg-sky-500 text-white",
+        2048: "bg-violet-600 text-white",
+      };
+
+      let board = [];
+      let score = 0;
+      let best = Number(localStorage.getItem("mini2048Best") || 0);
+      let won = false;
+      let touchStart = null;
+
+      function emptyBoard() {
+        return Array.from({ length: size }, () => Array(size).fill(0));
+      }
+
+      function createCells() {
+        boardElement.innerHTML = "";
+        for (let index = 0; index < size * size; index += 1) {
+          const cell = document.createElement("div");
+          cell.className =
+            "flex aspect-square items-center justify-center rounded text-2xl font-black transition-all sm:text-4xl";
+          boardElement.appendChild(cell);
+        }
+      }
+
+      function addTile() {
+        const empty = [];
+        board.forEach((row, rowIndex) => {
+          row.forEach((value, colIndex) => {
+            if (value === 0) {
+              empty.push([rowIndex, colIndex]);
+            }
+          });
+        });
+        if (empty.length === 0) return;
+        const [row, col] = empty[Math.floor(Math.random() * empty.length)];
+        board[row][col] = Math.random() < 0.9 ? 2 : 4;
+      }
+
+      function render() {
+        best = Math.max(best, score);
+        localStorage.setItem("mini2048Best", String(best));
+        scoreElement.textContent = score;
+        bestElement.textContent = best;
+
+        [...boardElement.children].forEach((cell, index) => {
+          const value = board[Math.floor(index / size)][index % size];
+          cell.textContent = value || "";
+          cell.className =
+            "flex aspect-square items-center justify-center rounded text-2xl font-black transition-all sm:text-4xl " +
+            (tileClasses[value] || "bg-stone-800 text-white");
+        });
+
+        if (!won && board.flat().includes(2048)) {
+          won = true;
+          statusElement.textContent = "2048 reached. Keep going for a higher score.";
+        } else if (!canMove()) {
+          statusElement.textContent = "No moves left. Start a new game.";
+        } else if (!won) {
+          statusElement.textContent = "Use arrow keys or swipe.";
+        }
+      }
+
+      function compressLine(line, shouldScore = true) {
+        const values = line.filter(Boolean);
+        const merged = [];
+        for (let index = 0; index < values.length; index += 1) {
+          if (values[index] === values[index + 1]) {
+            const value = values[index] * 2;
+            merged.push(value);
+            if (shouldScore) {
+              score += value;
+            }
+            index += 1;
+          } else {
+            merged.push(values[index]);
+          }
+        }
+        while (merged.length < size) {
+          merged.push(0);
+        }
+        return merged;
+      }
+
+      function rotateClockwise(grid) {
+        return grid[0].map((_, col) => grid.map((row) => row[col]).reverse());
+      }
+
+      function moveLeft(grid, shouldScore = true) {
+        return grid.map((line) => compressLine(line, shouldScore));
+      }
+
+      function boardsMatch(first, second) {
+        return JSON.stringify(first) === JSON.stringify(second);
+      }
+
+      function nextBoard(direction, shouldScore = true) {
+        let working = board.map((row) => [...row]);
+        const turns = { left: 0, up: 1, right: 2, down: 3 }[direction];
+        for (let count = 0; count < turns; count += 1) {
+          working = rotateClockwise(working);
+        }
+        working = moveLeft(working, shouldScore);
+        for (let count = 0; count < (4 - turns) % 4; count += 1) {
+          working = rotateClockwise(working);
+        }
+        return working;
+      }
+
+      function canMove() {
+        return ["left", "right", "up", "down"].some((direction) => !boardsMatch(board, nextBoard(direction, false)));
+      }
+
+      function move(direction) {
+        const previousScore = score;
+        const updated = nextBoard(direction);
+        if (boardsMatch(board, updated)) {
+          score = previousScore;
+          return;
+        }
+        board = updated;
+        addTile();
+        render();
+      }
+
+      function startGame() {
+        board = emptyBoard();
+        score = 0;
+        won = false;
+        addTile();
+        addTile();
+        render();
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const directions = {
+          ArrowLeft: "left",
+          ArrowRight: "right",
+          ArrowUp: "up",
+          ArrowDown: "down",
+        };
+        if (directions[event.key]) {
+          event.preventDefault();
+          move(directions[event.key]);
+        }
+      });
+
+      boardElement.addEventListener("touchstart", (event) => {
+        const touch = event.changedTouches[0];
+        touchStart = { x: touch.clientX, y: touch.clientY };
+      });
+
+      boardElement.addEventListener("touchend", (event) => {
+        if (!touchStart) return;
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - touchStart.x;
+        const dy = touch.clientY - touchStart.y;
+        touchStart = null;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+        move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up");
+      });
+
+      document.querySelectorAll(".move").forEach((button) => {
+        button.addEventListener("click", () => move(button.dataset.dir));
+      });
+
+      newGameButton.addEventListener("click", startGame);
+      createCells();
+      startGame();
+    </script>
+  </body>
+</html>
