@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Peg Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6 sm:py-8">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-white">Mini Peg Solitaire</h1>
+        <p class="mt-1 text-sm text-slate-400">Jump pegs into empty holes. The jumped peg disappears.</p>
+      </div>
+      <button id="reset" class="rounded-md bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-100">
+        Reset
+      </button>
+    </header>
+
+    <section class="grid gap-5 md:grid-cols-[1fr_14rem]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[30rem] grid-cols-7 gap-2 rounded-md border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-emerald-950/30" aria-label="Peg Solitaire board"></div>
+      </div>
+
+      <aside class="grid content-start gap-3">
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <div class="text-xs uppercase tracking-wider text-slate-500">Pegs</div>
+          <div id="pegs" class="mt-1 text-3xl font-bold text-white">32</div>
+        </div>
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <div class="text-xs uppercase tracking-wider text-slate-500">Moves</div>
+          <div id="moves" class="mt-1 text-3xl font-bold text-emerald-300">0</div>
+        </div>
+        <div id="status" class="rounded-md border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          Select a peg, then an empty hole two spaces away.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const validCells = new Set();
+    const boardEl = document.querySelector("#board");
+    const pegsEl = document.querySelector("#pegs");
+    const movesEl = document.querySelector("#moves");
+    const statusEl = document.querySelector("#status");
+    const resetBtn = document.querySelector("#reset");
+    let board = [];
+    let selected = null;
+    let moves = 0;
+
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        if ((row >= 2 && row <= 4) || (col >= 2 && col <= 4)) {
+          validCells.add(key(row, col));
+        }
+      }
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function isValid(row, col) {
+      return validCells.has(key(row, col));
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (isValid(row, col)) board[row][col] = true;
+        }
+      }
+      board[3][3] = false;
+      selected = null;
+      moves = 0;
+      statusEl.textContent = "Select a peg, then an empty hole two spaces away.";
+      render();
+    }
+
+    function countPegs() {
+      return board.flat().filter(Boolean).length;
+    }
+
+    function legalMove(from, to) {
+      if (!from || !to) return null;
+      const dr = to.row - from.row;
+      const dc = to.col - from.col;
+      if (Math.abs(dr) + Math.abs(dc) !== 2) return null;
+      if (Math.abs(dr) === 1 || Math.abs(dc) === 1) return null;
+      const mid = { row: from.row + dr / 2, col: from.col + dc / 2 };
+      if (!isValid(to.row, to.col) || board[to.row][to.col] !== false) return null;
+      if (board[from.row][from.col] !== true || board[mid.row][mid.col] !== true) return null;
+      return mid;
+    }
+
+    function hasMoves() {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] !== true) continue;
+          const from = { row, col };
+          const targets = [
+            { row: row + 2, col },
+            { row: row - 2, col },
+            { row, col: col + 2 },
+            { row, col: col - 2 }
+          ];
+          if (targets.some((to) => legalMove(from, to))) return true;
+        }
+      }
+      return false;
+    }
+
+    function play(row, col) {
+      if (!isValid(row, col)) return;
+      if (board[row][col]) {
+        selected = { row, col };
+        statusEl.textContent = "Now choose an empty hole two spaces away.";
+        render();
+        return;
+      }
+
+      const mid = legalMove(selected, { row, col });
+      if (!mid) {
+        selected = null;
+        statusEl.textContent = "That jump is not legal.";
+        render();
+        return;
+      }
+
+      board[selected.row][selected.col] = false;
+      board[mid.row][mid.col] = false;
+      board[row][col] = true;
+      moves += 1;
+      selected = null;
+      const pegs = countPegs();
+      if (pegs === 1) {
+        statusEl.textContent = `Solved in ${moves} moves.`;
+      } else if (!hasMoves()) {
+        statusEl.textContent = `No moves left with ${pegs} pegs remaining.`;
+      } else {
+        statusEl.textContent = "Good jump. Keep reducing the board.";
+      }
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      pegsEl.textContent = countPegs();
+      movesEl.textContent = moves;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = document.createElement("button");
+          cell.type = "button";
+          const chosen = selected && selected.row === row && selected.col === col;
+          if (!isValid(row, col)) {
+            cell.className = "aspect-square rounded-md bg-transparent";
+            cell.disabled = true;
+          } else {
+            cell.className = [
+              "aspect-square rounded-md border transition focus:outline-none focus:ring-2 focus:ring-emerald-100",
+              board[row][col] ? "border-emerald-200 bg-emerald-300 shadow-lg shadow-emerald-500/20" : "border-slate-700 bg-slate-950 hover:border-slate-500",
+              chosen ? "ring-2 ring-white" : ""
+            ].join(" ");
+            cell.setAttribute("aria-label", `Row ${row + 1}, column ${col + 1}`);
+            cell.addEventListener("click", () => play(row, col));
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
