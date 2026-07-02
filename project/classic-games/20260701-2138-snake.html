@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Snake</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-4 px-4 py-6">
+    <section class="w-full">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Snake</h1>
+          <p class="text-sm text-zinc-400">Collect food, grow longer, and avoid the walls and yourself.</p>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <span class="rounded bg-zinc-800 px-3 py-1">Score: <strong id="score">0</strong></span>
+          <span class="rounded bg-zinc-800 px-3 py-1">Best: <strong id="best">0</strong></span>
+          <button id="restart" class="rounded bg-emerald-400 px-3 py-1 font-medium text-zinc-950 hover:bg-emerald-300">
+            Restart
+          </button>
+        </div>
+      </div>
+      <div class="overflow-hidden rounded border border-zinc-800 bg-zinc-900 shadow-2xl shadow-emerald-950/20">
+        <canvas id="game" width="640" height="640" class="block h-auto w-full"></canvas>
+      </div>
+      <div class="mt-3 flex flex-wrap justify-between gap-2 text-xs text-zinc-500">
+        <span>Controls: Arrow keys, WASD, or swipe.</span>
+        <span id="message" class="text-emerald-300">Press Space or tap the board to start.</span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const bestEl = document.getElementById("best");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const gridSize = 20;
+    const cellSize = canvas.width / gridSize;
+    const state = {
+      snake: [],
+      food: { x: 0, y: 0 },
+      direction: { x: 1, y: 0 },
+      nextDirection: { x: 1, y: 0 },
+      score: 0,
+      best: Number(localStorage.getItem("mini-snake-best") || 0),
+      running: false,
+      gameOver: false,
+      lastStep: 0,
+      stepMs: 115
+    };
+
+    let touchStart = null;
+
+    function sameCell(a, b) {
+      return a.x === b.x && a.y === b.y;
+    }
+
+    function placeFood() {
+      do {
+        state.food = {
+          x: Math.floor(Math.random() * gridSize),
+          y: Math.floor(Math.random() * gridSize)
+        };
+      } while (state.snake.some((part) => sameCell(part, state.food)));
+    }
+
+    function resetGame() {
+      const middle = Math.floor(gridSize / 2);
+      state.snake = [
+        { x: middle, y: middle },
+        { x: middle - 1, y: middle },
+        { x: middle - 2, y: middle }
+      ];
+      state.direction = { x: 1, y: 0 };
+      state.nextDirection = { x: 1, y: 0 };
+      state.score = 0;
+      state.running = false;
+      state.gameOver = false;
+      state.lastStep = 0;
+      state.stepMs = 115;
+      placeFood();
+      syncHud();
+      messageEl.textContent = "Press Space or tap the board to start.";
+    }
+
+    function syncHud() {
+      scoreEl.textContent = state.score;
+      bestEl.textContent = state.best;
+    }
+
+    function startGame() {
+      if (state.gameOver) {
+        resetGame();
+      }
+      state.running = true;
+      messageEl.textContent = "Eat the food and keep moving.";
+    }
+
+    function setDirection(x, y) {
+      if (state.direction.x + x === 0 && state.direction.y + y === 0) {
+        return;
+      }
+      state.nextDirection = { x, y };
+      startGame();
+    }
+
+    function endGame() {
+      state.running = false;
+      state.gameOver = true;
+      state.best = Math.max(state.best, state.score);
+      localStorage.setItem("mini-snake-best", String(state.best));
+      syncHud();
+      messageEl.textContent = "Game over. Press Space or tap to restart.";
+    }
+
+    function step() {
+      state.direction = state.nextDirection;
+      const head = state.snake[0];
+      const nextHead = {
+        x: head.x + state.direction.x,
+        y: head.y + state.direction.y
+      };
+
+      const hitsWall =
+        nextHead.x < 0 ||
+        nextHead.x >= gridSize ||
+        nextHead.y < 0 ||
+        nextHead.y >= gridSize;
+      const hitsSelf = state.snake.some((part) => sameCell(part, nextHead));
+
+      if (hitsWall || hitsSelf) {
+        endGame();
+        return;
+      }
+
+      state.snake.unshift(nextHead);
+
+      if (sameCell(nextHead, state.food)) {
+        state.score += 10;
+        state.stepMs = Math.max(70, state.stepMs - 1);
+        placeFood();
+        syncHud();
+      } else {
+        state.snake.pop();
+      }
+    }
+
+    function drawBoard() {
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let row = 0; row < gridSize; row += 1) {
+        for (let col = 0; col < gridSize; col += 1) {
+          ctx.fillStyle = (row + col) % 2 === 0 ? "#1f2937" : "#27272a";
+          ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+
+    function drawFood() {
+      const padding = 6;
+      ctx.fillStyle = "#f97316";
+      ctx.beginPath();
+      ctx.roundRect(
+        state.food.x * cellSize + padding,
+        state.food.y * cellSize + padding,
+        cellSize - padding * 2,
+        cellSize - padding * 2,
+        8
+      );
+      ctx.fill();
+    }
+
+    function drawSnake() {
+      state.snake.forEach((part, index) => {
+        const padding = index === 0 ? 3 : 5;
+        ctx.fillStyle = index === 0 ? "#6ee7b7" : "#34d399";
+        ctx.beginPath();
+        ctx.roundRect(
+          part.x * cellSize + padding,
+          part.y * cellSize + padding,
+          cellSize - padding * 2,
+          cellSize - padding * 2,
+          7
+        );
+        ctx.fill();
+      });
+    }
+
+    function drawOverlay() {
+      if (!state.gameOver && state.running) {
+        return;
+      }
+      ctx.fillStyle = "rgba(9, 9, 11, 0.62)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "700 40px system-ui, sans-serif";
+      ctx.fillText(state.gameOver ? "Game Over" : "Mini Snake", canvas.width / 2, canvas.height / 2 - 10);
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "18px system-ui, sans-serif";
+      ctx.fillText("Press Space, tap, or choose a direction", canvas.width / 2, canvas.height / 2 + 28);
+    }
+
+    function frame(timestamp) {
+      if (state.running && timestamp - state.lastStep > state.stepMs) {
+        state.lastStep = timestamp;
+        step();
+      }
+      drawBoard();
+      drawFood();
+      drawSnake();
+      drawOverlay();
+      requestAnimationFrame(frame);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      const key = event.key.toLowerCase();
+      if (key === "arrowup" || key === "w") setDirection(0, -1);
+      if (key === "arrowdown" || key === "s") setDirection(0, 1);
+      if (key === "arrowleft" || key === "a") setDirection(-1, 0);
+      if (key === "arrowright" || key === "d") setDirection(1, 0);
+      if (event.code === "Space") {
+        event.preventDefault();
+        startGame();
+      }
+    });
+
+    canvas.addEventListener("click", startGame);
+    canvas.addEventListener("touchstart", (event) => {
+      touchStart = {
+        x: event.touches[0].clientX,
+        y: event.touches[0].clientY
+      };
+      startGame();
+    });
+    canvas.addEventListener("touchmove", (event) => {
+      event.preventDefault();
+      if (!touchStart) return;
+      const dx = event.touches[0].clientX - touchStart.x;
+      const dy = event.touches[0].clientY - touchStart.y;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) return;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        setDirection(dx > 0 ? 1 : -1, 0);
+      } else {
+        setDirection(0, dy > 0 ? 1 : -1);
+      }
+      touchStart = {
+        x: event.touches[0].clientX,
+        y: event.touches[0].clientY
+      };
+    }, { passive: false });
+
+    restartBtn.addEventListener("click", resetGame);
+
+    resetGame();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
