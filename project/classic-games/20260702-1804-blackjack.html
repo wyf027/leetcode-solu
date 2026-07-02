@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Blackjack</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-emerald-950 text-white">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+      <section class="rounded-lg border border-emerald-700 bg-emerald-900 p-5 shadow-2xl">
+        <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal">Mini Blackjack</h1>
+            <p id="message" class="mt-1 min-h-6 text-sm text-emerald-100">目标接近 21 点但不要爆牌。点击发牌开始。</p>
+          </div>
+          <div class="rounded bg-emerald-800 px-3 py-2 text-sm">
+            胜 <span id="wins" class="font-bold text-amber-200">0</span>
+            / 负 <span id="losses" class="font-bold text-rose-200">0</span>
+          </div>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="rounded border border-emerald-700 bg-emerald-950 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">庄家</h2>
+              <span>点数 <strong id="dealerScore">0</strong></span>
+            </div>
+            <div id="dealerHand" class="flex min-h-28 flex-wrap gap-2"></div>
+          </div>
+
+          <div class="rounded border border-emerald-700 bg-emerald-950 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">玩家</h2>
+              <span>点数 <strong id="playerScore">0</strong></span>
+            </div>
+            <div id="playerHand" class="flex min-h-28 flex-wrap gap-2"></div>
+          </div>
+        </div>
+
+        <div class="mt-5 grid grid-cols-3 gap-3">
+          <button id="deal" class="rounded bg-amber-400 py-3 font-bold text-emerald-950 hover:bg-amber-300">发牌</button>
+          <button id="hit" class="rounded bg-cyan-400 py-3 font-bold text-emerald-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300">抽牌</button>
+          <button id="stand" class="rounded bg-rose-400 py-3 font-bold text-emerald-950 hover:bg-rose-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300">停牌</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const dealerHandEl = document.getElementById("dealerHand");
+      const playerHandEl = document.getElementById("playerHand");
+      const dealerScoreEl = document.getElementById("dealerScore");
+      const playerScoreEl = document.getElementById("playerScore");
+      const messageEl = document.getElementById("message");
+      const winsEl = document.getElementById("wins");
+      const lossesEl = document.getElementById("losses");
+      const hitButton = document.getElementById("hit");
+      const standButton = document.getElementById("stand");
+
+      let deck = [];
+      let dealerHand = [];
+      let playerHand = [];
+      let gameActive = false;
+      let wins = 0;
+      let losses = 0;
+
+      function buildDeck() {
+        deck = suits.flatMap((suit) => ranks.map((rank) => ({ rank, suit })));
+        for (let i = deck.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+      }
+
+      function cardValue(card) {
+        if (card.rank === "A") return 11;
+        if (["J", "Q", "K"].includes(card.rank)) return 10;
+        return Number(card.rank);
+      }
+
+      function scoreHand(hand) {
+        let score = hand.reduce((sum, card) => sum + cardValue(card), 0);
+        let aces = hand.filter((card) => card.rank === "A").length;
+        while (score > 21 && aces > 0) {
+          score -= 10;
+          aces -= 1;
+        }
+        return score;
+      }
+
+      function drawCard(hand) {
+        hand.push(deck.pop());
+      }
+
+      function renderCard(card, hidden = false) {
+        const red = card.suit === "♥" || card.suit === "♦";
+        return `<div class="flex h-24 w-16 flex-col justify-between rounded bg-white p-2 text-lg font-bold ${red ? "text-rose-600" : "text-slate-900"} shadow">
+          <span>${hidden ? "?" : card.rank}</span>
+          <span class="self-end">${hidden ? "?" : card.suit}</span>
+        </div>`;
+      }
+
+      function renderHands(hideDealer = false) {
+        dealerHandEl.innerHTML = dealerHand.map((card, index) => renderCard(card, hideDealer && index === 1)).join("");
+        playerHandEl.innerHTML = playerHand.map((card) => renderCard(card)).join("");
+        dealerScoreEl.textContent = hideDealer ? scoreHand([dealerHand[0]]) : scoreHand(dealerHand);
+        playerScoreEl.textContent = scoreHand(playerHand);
+        winsEl.textContent = wins;
+        lossesEl.textContent = losses;
+        hitButton.disabled = !gameActive;
+        standButton.disabled = !gameActive;
+      }
+
+      function newGame() {
+        buildDeck();
+        dealerHand = [];
+        playerHand = [];
+        gameActive = true;
+        drawCard(playerHand);
+        drawCard(dealerHand);
+        drawCard(playerHand);
+        drawCard(dealerHand);
+        messageEl.textContent = "选择抽牌或停牌。";
+        renderHands(true);
+        if (scoreHand(playerHand) === 21) {
+          stand();
+        }
+      }
+
+      function hit() {
+        if (!gameActive) return;
+        drawCard(playerHand);
+        const score = scoreHand(playerHand);
+        if (score > 21) {
+          endRound("爆牌，庄家获胜。", false);
+          return;
+        }
+        messageEl.textContent = score === 21 ? "21 点，建议停牌。" : "继续抽牌或停牌。";
+        renderHands(true);
+      }
+
+      function stand() {
+        if (!gameActive) return;
+        while (scoreHand(dealerHand) < 17) {
+          drawCard(dealerHand);
+        }
+        const dealerScore = scoreHand(dealerHand);
+        const playerScore = scoreHand(playerHand);
+        if (dealerScore > 21 || playerScore > dealerScore) {
+          endRound("玩家获胜。", true);
+        } else if (dealerScore > playerScore) {
+          endRound("庄家获胜。", false);
+        } else {
+          gameActive = false;
+          messageEl.textContent = "平局，重新发牌再来一局。";
+          renderHands(false);
+        }
+      }
+
+      function endRound(text, playerWon) {
+        gameActive = false;
+        if (playerWon) wins += 1;
+        else losses += 1;
+        messageEl.textContent = text;
+        renderHands(false);
+      }
+
+      document.getElementById("deal").addEventListener("click", newGame);
+      hitButton.addEventListener("click", hit);
+      standButton.addEventListener("click", stand);
+      renderHands(false);
+    </script>
+  </body>
+</html>
