@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pac-Man</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-5 px-4 py-6">
+      <section class="w-full rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-2xl shadow-cyan-950/40">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal text-yellow-300">Mini Pac-Man</h1>
+            <p class="text-sm text-slate-400">Eat every dot, dodge the ghosts, and clear the maze.</p>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center text-sm">
+            <div class="rounded border border-slate-700 px-3 py-2">
+              <div class="text-slate-400">Score</div>
+              <div id="score" class="font-semibold text-white">0</div>
+            </div>
+            <div class="rounded border border-slate-700 px-3 py-2">
+              <div class="text-slate-400">Lives</div>
+              <div id="lives" class="font-semibold text-white">3</div>
+            </div>
+            <div class="rounded border border-slate-700 px-3 py-2">
+              <div class="text-slate-400">Level</div>
+              <div id="level" class="font-semibold text-white">1</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-[1fr_180px]">
+          <div class="flex justify-center">
+            <canvas
+              id="board"
+              width="672"
+              height="528"
+              class="w-full max-w-[672px] rounded border border-slate-700 bg-black"
+            ></canvas>
+          </div>
+
+          <aside class="flex flex-col gap-3 text-sm text-slate-300">
+            <button id="restart" class="rounded bg-yellow-300 px-4 py-2 font-semibold text-slate-950 hover:bg-yellow-200">
+              Restart
+            </button>
+            <div class="rounded border border-slate-700 p-3">
+              <div class="mb-2 font-semibold text-white">Controls</div>
+              <p>Arrow keys or WASD move through the maze. On touch screens, swipe on the board.</p>
+            </div>
+            <div id="status" class="rounded border border-cyan-800 bg-cyan-950/40 p-3 text-cyan-100">
+              Press an arrow key to start.
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("board");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const levelEl = document.getElementById("level");
+      const statusEl = document.getElementById("status");
+      const restartBtn = document.getElementById("restart");
+
+      const tile = 24;
+      const map = [
+        "############################",
+        "#............##............#",
+        "#.####.#####.##.#####.####.#",
+        "#o####.#####.##.#####.####o#",
+        "#..........................#",
+        "#.####.##.########.##.####.#",
+        "#......##....##....##......#",
+        "######.##### ## #####.######",
+        "     #.##          ##.#     ",
+        "######.## ###--### ##.######",
+        "      .   #      #   .      ",
+        "######.## ######## ##.######",
+        "     #.##          ##.#     ",
+        "######.## ######## ##.######",
+        "#............##............#",
+        "#.####.#####.##.#####.####.#",
+        "#o..##................##..o#",
+        "###.##.##.########.##.##.###",
+        "#......##....##....##......#",
+        "#.##########.##.##########.#",
+        "#..........................#",
+        "############################",
+      ];
+
+      const rows = map.length;
+      const cols = map[0].length;
+      const start = { x: 14, y: 16 };
+      const ghostStarts = [
+        { x: 12, y: 10, color: "#f43f5e" },
+        { x: 15, y: 10, color: "#22d3ee" },
+        { x: 13, y: 11, color: "#f97316" },
+      ];
+
+      let dots;
+      let score;
+      let lives;
+      let level;
+      let player;
+      let ghosts;
+      let running;
+      let messageTimer;
+      let lastTime;
+      let touchStart;
+
+      function key(x, y) {
+        return `${x},${y}`;
+      }
+
+      function resetDots() {
+        dots = new Map();
+        for (let y = 0; y < rows; y += 1) {
+          for (let x = 0; x < cols; x += 1) {
+            if (map[y][x] === "." || map[y][x] === "o") {
+              dots.set(key(x, y), map[y][x]);
+            }
+          }
+        }
+      }
+
+      function resetActors() {
+        player = {
+          x: start.x,
+          y: start.y,
+          dir: { x: 0, y: 0 },
+          next: { x: 0, y: 0 },
+          mouth: 0,
+        };
+        ghosts = ghostStarts.map((ghost, index) => ({
+          x: ghost.x,
+          y: ghost.y,
+          color: ghost.color,
+          dir: index === 1 ? { x: -1, y: 0 } : { x: 1, y: 0 },
+          wait: index,
+        }));
+      }
+
+      function newGame() {
+        score = 0;
+        lives = 3;
+        level = 1;
+        running = false;
+        resetDots();
+        resetActors();
+        setStatus("Press an arrow key to start.");
+        updateHud();
+        draw();
+      }
+
+      function updateHud() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        levelEl.textContent = level;
+      }
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+        clearTimeout(messageTimer);
+        messageTimer = setTimeout(() => {
+          if (running) {
+            statusEl.textContent = "Clear the maze.";
+          }
+        }, 1400);
+      }
+
+      function isWall(x, y) {
+        if (y < 0 || y >= rows) return true;
+        const wrappedX = (x + cols) % cols;
+        return map[y][wrappedX] === "#";
+      }
+
+      function canMove(actor, dir) {
+        return !isWall(actor.x + dir.x, actor.y + dir.y);
+      }
+
+      function moveActor(actor, dir) {
+        actor.x = (actor.x + dir.x + cols) % cols;
+        actor.y += dir.y;
+      }
+
+      function setDirection(dir) {
+        if (lives <= 0) return;
+        player.next = dir;
+        if (!running) {
+          running = true;
+          setStatus("Go!");
+        }
+      }
+
+      function chooseGhostDirection(ghost) {
+        const options = [
+          { x: 1, y: 0 },
+          { x: -1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 0, y: -1 },
+        ].filter((dir) => canMove(ghost, dir) && !(dir.x === -ghost.dir.x && dir.y === -ghost.dir.y));
+
+        const legal = options.length ? options : [{ x: -ghost.dir.x, y: -ghost.dir.y }];
+        legal.sort((a, b) => {
+          const ax = (ghost.x + a.x - player.x) ** 2 + (ghost.y + a.y - player.y) ** 2;
+          const bx = (ghost.x + b.x - player.x) ** 2 + (ghost.y + b.y - player.y) ** 2;
+          const chase = Math.random() < 0.65 + level * 0.03;
+          return chase ? ax - bx : Math.random() - 0.5;
+        });
+        return legal[0];
+      }
+
+      function loseLife() {
+        lives -= 1;
+        updateHud();
+        if (lives <= 0) {
+          running = false;
+          setStatus("Game over. Restart to try again.");
+          draw();
+          return;
+        }
+        running = false;
+        resetActors();
+        setStatus("Caught! Press a direction to continue.");
+      }
+
+      function nextLevel() {
+        level += 1;
+        resetDots();
+        resetActors();
+        running = false;
+        updateHud();
+        setStatus("Maze cleared. Press a direction for the next level.");
+      }
+
+      function tick() {
+        if (canMove(player, player.next)) {
+          player.dir = player.next;
+        }
+        if (canMove(player, player.dir)) {
+          moveActor(player, player.dir);
+        }
+
+        const dot = dots.get(key(player.x, player.y));
+        if (dot) {
+          score += dot === "o" ? 50 : 10;
+          dots.delete(key(player.x, player.y));
+          updateHud();
+          if (dots.size === 0) {
+            nextLevel();
+            return;
+          }
+        }
+
+        ghosts.forEach((ghost) => {
+          if (ghost.wait > 0) {
+            ghost.wait -= 1;
+            return;
+          }
+          if (!canMove(ghost, ghost.dir) || Math.random() < 0.28) {
+            ghost.dir = chooseGhostDirection(ghost);
+          }
+          moveActor(ghost, ghost.dir);
+        });
+
+        if (ghosts.some((ghost) => ghost.x === player.x && ghost.y === player.y)) {
+          loseLife();
+        }
+      }
+
+      function drawMaze() {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < rows; y += 1) {
+          for (let x = 0; x < cols; x += 1) {
+            const cell = map[y][x];
+            if (cell === "#") {
+              ctx.fillStyle = "#1d4ed8";
+              ctx.fillRect(x * tile + 2, y * tile + 2, tile - 4, tile - 4);
+              ctx.strokeStyle = "#60a5fa";
+              ctx.strokeRect(x * tile + 4, y * tile + 4, tile - 8, tile - 8);
+            }
+          }
+        }
+
+        dots.forEach((dot, dotKey) => {
+          const [x, y] = dotKey.split(",").map(Number);
+          ctx.fillStyle = dot === "o" ? "#fef08a" : "#f8fafc";
+          ctx.beginPath();
+          ctx.arc(x * tile + tile / 2, y * tile + tile / 2, dot === "o" ? 5 : 2, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      function drawPlayer() {
+        const cx = player.x * tile + tile / 2;
+        const cy = player.y * tile + tile / 2;
+        const angle = Math.atan2(player.dir.y, player.dir.x || 0.001);
+        const open = 0.22 + Math.abs(Math.sin(player.mouth)) * 0.22;
+        ctx.fillStyle = "#fde047";
+        ctx.beginPath();
+        if (player.dir.x === 0 && player.dir.y === 0) {
+          ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+        } else {
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, 9, angle + open, angle + Math.PI * 2 - open);
+          ctx.closePath();
+        }
+        ctx.fill();
+      }
+
+      function drawGhost(ghost) {
+        const x = ghost.x * tile + tile / 2;
+        const y = ghost.y * tile + tile / 2;
+        ctx.fillStyle = ghost.color;
+        ctx.beginPath();
+        ctx.arc(x, y - 2, 9, Math.PI, 0);
+        ctx.lineTo(x + 9, y + 9);
+        ctx.lineTo(x + 4, y + 5);
+        ctx.lineTo(x, y + 9);
+        ctx.lineTo(x - 4, y + 5);
+        ctx.lineTo(x - 9, y + 9);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(x - 3, y - 2, 2, 0, Math.PI * 2);
+        ctx.arc(x + 4, y - 2, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function draw() {
+        drawMaze();
+        ghosts.forEach(drawGhost);
+        drawPlayer();
+      }
+
+      function loop(time) {
+        if (!lastTime) lastTime = time;
+        const speed = Math.max(92, 150 - level * 8);
+        if (running && time - lastTime > speed) {
+          player.mouth += 0.75;
+          tick();
+          lastTime = time;
+        }
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const dirs = {
+          ArrowUp: { x: 0, y: -1 },
+          KeyW: { x: 0, y: -1 },
+          ArrowDown: { x: 0, y: 1 },
+          KeyS: { x: 0, y: 1 },
+          ArrowLeft: { x: -1, y: 0 },
+          KeyA: { x: -1, y: 0 },
+          ArrowRight: { x: 1, y: 0 },
+          KeyD: { x: 1, y: 0 },
+        };
+        if (dirs[event.code]) {
+          event.preventDefault();
+          setDirection(dirs[event.code]);
+        }
+      });
+
+      canvas.addEventListener("touchstart", (event) => {
+        const touch = event.changedTouches[0];
+        touchStart = { x: touch.clientX, y: touch.clientY };
+      });
+
+      canvas.addEventListener("touchend", (event) => {
+        if (!touchStart) return;
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - touchStart.x;
+        const dy = touch.clientY - touchStart.y;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 16) return;
+        setDirection(Math.abs(dx) > Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) });
+      });
+
+      restartBtn.addEventListener("click", newGame);
+
+      newGame();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>
