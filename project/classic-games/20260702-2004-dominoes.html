@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Dominoes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-white">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+      <section class="rounded-lg border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+        <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal">Mini Dominoes</h1>
+            <p id="message" class="mt-1 min-h-6 text-sm text-neutral-300">选择手牌，再接到左端或右端。先出完手牌获胜。</p>
+          </div>
+          <div class="rounded bg-neutral-800 px-4 py-2 text-sm">
+            牌堆 <strong id="stockCount" class="text-cyan-300">0</strong>
+          </div>
+        </div>
+
+        <div class="rounded border border-neutral-700 bg-neutral-950 p-4">
+          <div class="mb-2 text-sm font-semibold text-amber-200">桌面</div>
+          <div id="chain" class="flex min-h-24 flex-wrap items-center gap-2"></div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-3 gap-3">
+          <button id="playLeft" class="rounded bg-cyan-400 py-3 font-bold text-neutral-950 hover:bg-cyan-300">接左端</button>
+          <button id="draw" class="rounded bg-amber-400 py-3 font-bold text-neutral-950 hover:bg-amber-300">抽牌</button>
+          <button id="playRight" class="rounded bg-cyan-400 py-3 font-bold text-neutral-950 hover:bg-cyan-300">接右端</button>
+        </div>
+
+        <div class="mt-4 rounded border border-neutral-700 bg-neutral-950 p-4">
+          <div class="mb-2 text-sm font-semibold text-amber-200">手牌</div>
+          <div id="hand" class="flex min-h-24 flex-wrap gap-2"></div>
+        </div>
+
+        <button id="reset" class="mt-4 w-full rounded border border-neutral-600 py-3 font-semibold hover:bg-neutral-800">重开</button>
+      </section>
+    </main>
+
+    <script>
+      const chainEl = document.getElementById("chain");
+      const handEl = document.getElementById("hand");
+      const messageEl = document.getElementById("message");
+      const stockCountEl = document.getElementById("stockCount");
+      let stock = [];
+      let hand = [];
+      let chain = [];
+      let selected = -1;
+
+      function buildStock() {
+        const tiles = [];
+        for (let left = 0; left <= 6; left += 1) {
+          for (let right = left; right <= 6; right += 1) {
+            tiles.push([left, right]);
+          }
+        }
+        for (let i = tiles.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+        }
+        return tiles;
+      }
+
+      function resetGame() {
+        stock = buildStock();
+        hand = stock.splice(0, 7);
+        chain = [stock.shift()];
+        selected = -1;
+        messageEl.textContent = "选择手牌，再接到左端或右端。";
+        render();
+      }
+
+      function tileHtml(tile, active = false) {
+        return `<div class="flex h-20 w-12 flex-col items-center justify-around rounded border-2 ${
+          active ? "border-cyan-300 bg-cyan-100 text-neutral-950" : "border-neutral-300 bg-white text-neutral-950"
+        } text-lg font-bold shadow"><span>${tile[0]}</span><span class="h-px w-8 bg-neutral-500"></span><span>${tile[1]}</span></div>`;
+      }
+
+      function render() {
+        chainEl.innerHTML = chain.map((tile) => tileHtml(tile)).join("");
+        handEl.innerHTML = "";
+        hand.forEach((tile, index) => {
+          const button = document.createElement("button");
+          button.className = "transition hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-cyan-300";
+          button.innerHTML = tileHtml(tile, index === selected);
+          button.addEventListener("click", () => {
+            selected = index;
+            messageEl.textContent = "选择接左端或接右端。";
+            render();
+          });
+          handEl.appendChild(button);
+        });
+        stockCountEl.textContent = stock.length;
+      }
+
+      function canPlaceLeft(tile) {
+        return tile[0] === chain[0][0] || tile[1] === chain[0][0];
+      }
+
+      function canPlaceRight(tile) {
+        const end = chain[chain.length - 1][1];
+        return tile[0] === end || tile[1] === end;
+      }
+
+      function playLeft() {
+        if (selected < 0) return setMessage("先选择一张手牌。");
+        const tile = hand[selected];
+        if (!canPlaceLeft(tile)) return setMessage("这张牌不能接左端。");
+        const end = chain[0][0];
+        const placed = tile[1] === end ? tile : [tile[1], tile[0]];
+        chain.unshift(placed);
+        hand.splice(selected, 1);
+        afterMove("已接到左端。");
+      }
+
+      function playRight() {
+        if (selected < 0) return setMessage("先选择一张手牌。");
+        const tile = hand[selected];
+        if (!canPlaceRight(tile)) return setMessage("这张牌不能接右端。");
+        const end = chain[chain.length - 1][1];
+        const placed = tile[0] === end ? tile : [tile[1], tile[0]];
+        chain.push(placed);
+        hand.splice(selected, 1);
+        afterMove("已接到右端。");
+      }
+
+      function drawTile() {
+        if (!stock.length) return setMessage("牌堆已空，继续尝试出牌。");
+        hand.push(stock.shift());
+        selected = hand.length - 1;
+        setMessage("抽到一张新牌。");
+        render();
+      }
+
+      function afterMove(text) {
+        selected = -1;
+        if (!hand.length) {
+          messageEl.textContent = "胜利！你出完了所有骨牌。";
+        } else {
+          messageEl.textContent = text;
+        }
+        render();
+      }
+
+      function setMessage(text) {
+        messageEl.textContent = text;
+      }
+
+      document.getElementById("playLeft").addEventListener("click", playLeft);
+      document.getElementById("playRight").addEventListener("click", playRight);
+      document.getElementById("draw").addEventListener("click", drawTile);
+      document.getElementById("reset").addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
