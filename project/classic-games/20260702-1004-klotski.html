@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Klotski</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6 sm:py-8">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-stone-800 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-white">Mini Klotski</h1>
+        <p class="mt-1 text-sm text-stone-400">Slide the large square to the exit at the bottom center.</p>
+      </div>
+      <button id="reset" class="rounded-md bg-amber-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-100">
+        Reset
+      </button>
+    </header>
+
+    <section class="grid gap-5 md:grid-cols-[1fr_14rem]">
+      <div class="flex justify-center">
+        <div class="relative aspect-[4/5] w-full max-w-[25rem] rounded-md border-4 border-stone-700 bg-stone-900 shadow-2xl shadow-amber-950/30">
+          <div class="absolute bottom-0 left-1/2 h-2 w-1/2 -translate-x-1/2 rounded-t bg-amber-300"></div>
+          <div id="board" class="absolute inset-2"></div>
+        </div>
+      </div>
+
+      <aside class="grid content-start gap-3">
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <div class="text-xs uppercase tracking-wider text-stone-500">Moves</div>
+          <div id="moves" class="mt-1 text-3xl font-bold text-white">0</div>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <div class="text-xs uppercase tracking-wider text-stone-500">Goal</div>
+          <div class="mt-2 text-sm leading-6 text-stone-300">Click a block next to open space to slide it. Free the large golden block.</div>
+        </div>
+        <div id="status" class="rounded-md border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          Find the exit path.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const cols = 4;
+    const rows = 5;
+    const startPieces = [
+      { id: "hero", label: "Cao", x: 1, y: 0, w: 2, h: 2, main: true },
+      { id: "v1", label: "G", x: 0, y: 0, w: 1, h: 2 },
+      { id: "v2", label: "G", x: 3, y: 0, w: 1, h: 2 },
+      { id: "v3", label: "G", x: 0, y: 2, w: 1, h: 2 },
+      { id: "v4", label: "G", x: 3, y: 2, w: 1, h: 2 },
+      { id: "wide", label: "H", x: 1, y: 2, w: 2, h: 1 },
+      { id: "s1", label: "S", x: 1, y: 3, w: 1, h: 1 },
+      { id: "s2", label: "S", x: 2, y: 3, w: 1, h: 1 },
+      { id: "s3", label: "S", x: 0, y: 4, w: 1, h: 1 },
+      { id: "s4", label: "S", x: 3, y: 4, w: 1, h: 1 }
+    ];
+
+    const boardEl = document.querySelector("#board");
+    const movesEl = document.querySelector("#moves");
+    const statusEl = document.querySelector("#status");
+    const resetBtn = document.querySelector("#reset");
+    let pieces = [];
+    let moves = 0;
+    let selected = null;
+    let won = false;
+
+    function resetGame() {
+      pieces = startPieces.map((piece) => ({ ...piece }));
+      moves = 0;
+      selected = null;
+      won = false;
+      render();
+    }
+
+    function cellsFor(piece, dx = 0, dy = 0) {
+      const cells = [];
+      for (let y = piece.y + dy; y < piece.y + dy + piece.h; y += 1) {
+        for (let x = piece.x + dx; x < piece.x + dx + piece.w; x += 1) {
+          cells.push(`${x},${y}`);
+        }
+      }
+      return cells;
+    }
+
+    function occupiedByOthers(piece) {
+      const blocked = new Set();
+      pieces.filter((item) => item.id !== piece.id).forEach((item) => {
+        cellsFor(item).forEach((cell) => blocked.add(cell));
+      });
+      return blocked;
+    }
+
+    function canMove(piece, dx, dy) {
+      if (piece.x + dx < 0 || piece.y + dy < 0) return false;
+      if (piece.x + dx + piece.w > cols || piece.y + dy + piece.h > rows) return false;
+      const blocked = occupiedByOthers(piece);
+      return cellsFor(piece, dx, dy).every((cell) => !blocked.has(cell));
+    }
+
+    function availableMove(piece) {
+      return [
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 },
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 }
+      ].find((direction) => canMove(piece, direction.dx, direction.dy));
+    }
+
+    function movePiece(piece) {
+      if (won) return;
+      const direction = availableMove(piece);
+      if (!direction) {
+        selected = piece.id;
+        statusEl.textContent = "That block is boxed in.";
+        render();
+        return;
+      }
+      piece.x += direction.dx;
+      piece.y += direction.dy;
+      moves += 1;
+      selected = piece.id;
+      if (piece.main && piece.x === 1 && piece.y === 3) {
+        won = true;
+        statusEl.textContent = `Escaped in ${moves} moves.`;
+      } else {
+        statusEl.textContent = "Find the exit path.";
+      }
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      movesEl.textContent = moves;
+      pieces.forEach((piece) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = [
+          "absolute flex items-center justify-center rounded-md border text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-amber-100",
+          piece.main ? "border-amber-100 bg-amber-300 text-stone-950 shadow-lg shadow-amber-500/30" : "border-stone-600 bg-stone-700 text-stone-100 hover:bg-stone-600",
+          selected === piece.id ? "ring-2 ring-amber-200" : ""
+        ].join(" ");
+        button.style.left = `${piece.x * 25}%`;
+        button.style.top = `${piece.y * 20}%`;
+        button.style.width = `${piece.w * 25}%`;
+        button.style.height = `${piece.h * 20}%`;
+        button.textContent = piece.label;
+        button.setAttribute("aria-label", `${piece.label} block`);
+        button.addEventListener("click", () => movePiece(piece));
+        boardEl.appendChild(button);
+      });
+      if (won) statusEl.textContent = `Escaped in ${moves} moves.`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
