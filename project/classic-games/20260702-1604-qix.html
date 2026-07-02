@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Qix</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-slate-800 bg-slate-900 p-5 shadow-xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal text-white">Mini Qix</h1>
+          <p class="mt-1 text-sm text-slate-400">方向键移动，按住空格绘制矩形区域，占领 60% 即胜利。</p>
+        </div>
+        <button id="reset" class="rounded-md bg-fuchsia-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-300">
+          重新开始
+        </button>
+      </div>
+
+      <div class="mb-4 grid grid-cols-3 gap-3 text-center text-sm">
+        <div class="rounded-md bg-slate-800 px-3 py-2">
+          <div class="text-slate-400">占领</div>
+          <div id="claimed" class="text-xl font-semibold text-white">0%</div>
+        </div>
+        <div class="rounded-md bg-slate-800 px-3 py-2">
+          <div class="text-slate-400">生命</div>
+          <div id="lives" class="text-xl font-semibold text-white">3</div>
+        </div>
+        <div class="rounded-md bg-slate-800 px-3 py-2">
+          <div class="text-slate-400">状态</div>
+          <div id="status" class="text-xl font-semibold text-white">巡航</div>
+        </div>
+      </div>
+
+      <canvas id="game" width="520" height="360" class="mx-auto block w-full max-w-xl rounded-lg bg-slate-950 ring-1 ring-slate-700"></canvas>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const claimedEl = document.getElementById("claimed");
+    const livesEl = document.getElementById("lives");
+    const statusEl = document.getElementById("status");
+    const resetEl = document.getElementById("reset");
+    const keys = new Set();
+    const claimed = [];
+    let player;
+    let enemy;
+    let drawing = false;
+    let start = null;
+    let lives = 3;
+    let won = false;
+
+    function resetGame() {
+      claimed.length = 0;
+      player = { x: 20, y: 20, size: 10 };
+      enemy = { x: 260, y: 180, vx: 2.2, vy: 1.8, r: 9 };
+      drawing = false;
+      start = null;
+      lives = 3;
+      won = false;
+      render();
+    }
+
+    function update() {
+      if (!won && lives > 0) {
+        const speed = drawing ? 2 : 3;
+        if (keys.has("ArrowLeft")) player.x -= speed;
+        if (keys.has("ArrowRight")) player.x += speed;
+        if (keys.has("ArrowUp")) player.y -= speed;
+        if (keys.has("ArrowDown")) player.y += speed;
+        player.x = Math.max(0, Math.min(canvas.width - player.size, player.x));
+        player.y = Math.max(0, Math.min(canvas.height - player.size, player.y));
+
+        enemy.x += enemy.vx;
+        enemy.y += enemy.vy;
+        if (enemy.x < enemy.r || enemy.x > canvas.width - enemy.r) enemy.vx *= -1;
+        if (enemy.y < enemy.r || enemy.y > canvas.height - enemy.r) enemy.vy *= -1;
+
+        if (drawing && start && touchesEnemy(previewRect())) loseLife();
+        won = claimedArea() >= 0.6;
+      }
+      render();
+      requestAnimationFrame(update);
+    }
+
+    function beginDraw() {
+      if (drawing || won || lives === 0) return;
+      drawing = true;
+      start = { x: player.x + player.size / 2, y: player.y + player.size / 2 };
+    }
+
+    function finishDraw() {
+      if (!drawing || !start) return;
+      const rect = previewRect();
+      drawing = false;
+      start = null;
+      if (rect.w > 24 && rect.h > 24 && !touchesEnemy(rect)) claimed.push(rect);
+    }
+
+    function previewRect() {
+      const x = player.x + player.size / 2;
+      const y = player.y + player.size / 2;
+      return {
+        x: Math.min(start.x, x),
+        y: Math.min(start.y, y),
+        w: Math.abs(start.x - x),
+        h: Math.abs(start.y - y)
+      };
+    }
+
+    function touchesEnemy(rect) {
+      return enemy.x > rect.x && enemy.x < rect.x + rect.w && enemy.y > rect.y && enemy.y < rect.y + rect.h;
+    }
+
+    function claimedArea() {
+      const total = canvas.width * canvas.height;
+      const area = claimed.reduce((sum, rect) => sum + rect.w * rect.h, 0);
+      return Math.min(1, area / total);
+    }
+
+    function loseLife() {
+      lives--;
+      drawing = false;
+      start = null;
+      player.x = 20;
+      player.y = 20;
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(217, 70, 239, 0.35)";
+      for (const rect of claimed) ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+      if (drawing && start) {
+        const rect = previewRect();
+        ctx.strokeStyle = "#f0abfc";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      }
+
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(player.x, player.y, player.size, player.size);
+      ctx.beginPath();
+      ctx.fillStyle = "#fb7185";
+      ctx.arc(enemy.x, enemy.y, enemy.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      claimedEl.textContent = `${Math.floor(claimedArea() * 100)}%`;
+      livesEl.textContent = lives;
+      statusEl.textContent = won ? "胜利" : lives === 0 ? "失败" : drawing ? "绘制" : "巡航";
+    }
+
+    document.addEventListener("keydown", event => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        beginDraw();
+      } else {
+        keys.add(event.key);
+      }
+    });
+    document.addEventListener("keyup", event => {
+      if (event.code === "Space") finishDraw();
+      keys.delete(event.key);
+    });
+    resetEl.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(update);
+  </script>
+</body>
+</html>
