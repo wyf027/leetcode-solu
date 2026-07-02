@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini Checkers</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-center">
+      <section class="flex-1">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic Games</p>
+            <h1 class="text-3xl font-bold text-white">Mini Checkers</h1>
+          </div>
+          <button id="newGame" class="rounded-md bg-amber-400 px-4 py-2 text-sm font-bold text-stone-950 shadow hover:bg-amber-300">
+            New Game
+          </button>
+        </div>
+        <div id="board" class="grid aspect-square w-full max-w-[640px] grid-cols-8 overflow-hidden rounded-md border border-stone-700 bg-stone-800 shadow-2xl"></div>
+      </section>
+
+      <aside class="w-full rounded-md border border-stone-700 bg-stone-900 p-4 shadow-xl md:w-72">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs uppercase tracking-wide text-stone-400">Player</p>
+            <p id="redCount" class="text-2xl font-bold text-red-300">12</p>
+          </div>
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs uppercase tracking-wide text-stone-400">Computer</p>
+            <p id="blackCount" class="text-2xl font-bold text-sky-300">12</p>
+          </div>
+        </div>
+        <p id="status" class="mt-4 rounded-md bg-stone-800 p-3 text-sm leading-6 text-stone-200">Your move. Select a red piece.</p>
+        <div class="mt-4 space-y-2 text-sm text-stone-300">
+          <p>Move diagonally on dark squares. Captures jump over an adjacent piece.</p>
+          <p>Reach the far row to crown a king. Kings move both directions.</p>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const boardEl = document.getElementById("board");
+      const statusEl = document.getElementById("status");
+      const redCountEl = document.getElementById("redCount");
+      const blackCountEl = document.getElementById("blackCount");
+      const newGameButton = document.getElementById("newGame");
+
+      let board = [];
+      let selected = null;
+      let legalMoves = [];
+      let turn = "red";
+      let locked = false;
+
+      function createBoard() {
+        board = Array.from({ length: 8 }, () => Array(8).fill(null));
+        for (let row = 0; row < 3; row += 1) {
+          for (let col = 0; col < 8; col += 1) {
+            if ((row + col) % 2 === 1) board[row][col] = { side: "black", king: false };
+          }
+        }
+        for (let row = 5; row < 8; row += 1) {
+          for (let col = 0; col < 8; col += 1) {
+            if ((row + col) % 2 === 1) board[row][col] = { side: "red", king: false };
+          }
+        }
+        selected = null;
+        legalMoves = [];
+        turn = "red";
+        locked = false;
+        statusEl.textContent = "Your move. Select a red piece.";
+        render();
+      }
+
+      function directions(piece) {
+        const dirs = [];
+        if (piece.side === "red" || piece.king) dirs.push([-1, -1], [-1, 1]);
+        if (piece.side === "black" || piece.king) dirs.push([1, -1], [1, 1]);
+        return dirs;
+      }
+
+      function inBounds(row, col) {
+        return row >= 0 && row < 8 && col >= 0 && col < 8;
+      }
+
+      function movesFor(row, col) {
+        const piece = board[row][col];
+        if (!piece) return [];
+        const moves = [];
+        directions(piece).forEach(([dr, dc]) => {
+          const stepRow = row + dr;
+          const stepCol = col + dc;
+          const jumpRow = row + dr * 2;
+          const jumpCol = col + dc * 2;
+          if (inBounds(stepRow, stepCol) && !board[stepRow][stepCol]) {
+            moves.push({ fromRow: row, fromCol: col, toRow: stepRow, toCol: stepCol, capture: null });
+          }
+          if (
+            inBounds(jumpRow, jumpCol) &&
+            board[stepRow]?.[stepCol] &&
+            board[stepRow][stepCol].side !== piece.side &&
+            !board[jumpRow][jumpCol]
+          ) {
+            moves.push({
+              fromRow: row,
+              fromCol: col,
+              toRow: jumpRow,
+              toCol: jumpCol,
+              capture: { row: stepRow, col: stepCol },
+            });
+          }
+        });
+        return moves;
+      }
+
+      function allMoves(side) {
+        const moves = [];
+        for (let row = 0; row < 8; row += 1) {
+          for (let col = 0; col < 8; col += 1) {
+            if (board[row][col]?.side === side) moves.push(...movesFor(row, col));
+          }
+        }
+        const captures = moves.filter((move) => move.capture);
+        return captures.length ? captures : moves;
+      }
+
+      function countPieces(side) {
+        return board.flat().filter((piece) => piece?.side === side).length;
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        const redCount = countPieces("red");
+        const blackCount = countPieces("black");
+        redCountEl.textContent = redCount;
+        blackCountEl.textContent = blackCount;
+
+        for (let row = 0; row < 8; row += 1) {
+          for (let col = 0; col < 8; col += 1) {
+            const cell = document.createElement("button");
+            const dark = (row + col) % 2 === 1;
+            const piece = board[row][col];
+            const isSelected = selected?.row === row && selected?.col === col;
+            const isTarget = legalMoves.some((move) => move.toRow === row && move.toCol === col);
+            cell.type = "button";
+            cell.dataset.row = row;
+            cell.dataset.col = col;
+            cell.className = [
+              "relative flex aspect-square items-center justify-center transition",
+              dark ? "bg-stone-700 hover:bg-stone-600" : "bg-stone-300",
+              isSelected ? "ring-4 ring-amber-300 ring-inset" : "",
+              isTarget ? "after:absolute after:h-5 after:w-5 after:rounded-full after:bg-amber-300 after:shadow-lg" : "",
+            ].join(" ");
+            cell.setAttribute("aria-label", `row ${row + 1}, column ${col + 1}`);
+            cell.addEventListener("click", () => handleCell(row, col));
+
+            if (piece) {
+              const checker = document.createElement("span");
+              checker.className = [
+                "relative z-10 flex h-[72%] w-[72%] items-center justify-center rounded-full border-4 shadow-lg",
+                piece.side === "red" ? "border-red-200 bg-red-500" : "border-sky-200 bg-sky-600",
+              ].join(" ");
+              if (piece.king) {
+                checker.textContent = "K";
+                checker.classList.add("text-lg", "font-black", "text-white");
+              }
+              cell.appendChild(checker);
+            }
+            boardEl.appendChild(cell);
+          }
+        }
+      }
+
+      function handleCell(row, col) {
+        if (locked || turn !== "red") return;
+        const piece = board[row][col];
+        if (piece?.side === "red") {
+          selected = { row, col };
+          legalMoves = allMoves("red").filter((move) => move.fromRow === row && move.fromCol === col);
+          statusEl.textContent = legalMoves.length ? "Choose a highlighted destination." : "That piece has no legal move.";
+          render();
+          return;
+        }
+        const move = legalMoves.find((item) => item.toRow === row && item.toCol === col);
+        if (move) playMove(move);
+      }
+
+      function crown(piece, row) {
+        if ((piece.side === "red" && row === 0) || (piece.side === "black" && row === 7)) piece.king = true;
+      }
+
+      function playMove(move) {
+        const piece = board[move.fromRow][move.fromCol];
+        board[move.fromRow][move.fromCol] = null;
+        board[move.toRow][move.toCol] = piece;
+        if (move.capture) board[move.capture.row][move.capture.col] = null;
+        crown(piece, move.toRow);
+        selected = null;
+        legalMoves = [];
+        turn = turn === "red" ? "black" : "red";
+        render();
+        checkGame();
+        if (turn === "black" && !locked) {
+          locked = true;
+          statusEl.textContent = "Computer is thinking...";
+          window.setTimeout(computerMove, 450);
+        }
+      }
+
+      function computerMove() {
+        const moves = allMoves("black");
+        if (!moves.length) {
+          finish("You win. The computer has no legal moves.");
+          return;
+        }
+        const captures = moves.filter((move) => move.capture);
+        const pool = captures.length ? captures : moves;
+        const move = pool[Math.floor(Math.random() * pool.length)];
+        locked = false;
+        playMove(move);
+        if (!locked) statusEl.textContent = "Your move. Select a red piece.";
+      }
+
+      function checkGame() {
+        const redCount = countPieces("red");
+        const blackCount = countPieces("black");
+        if (!redCount) finish("Computer wins. No red pieces remain.");
+        else if (!blackCount) finish("You win. No blue pieces remain.");
+        else if (turn === "red" && !allMoves("red").length) finish("Computer wins. You have no legal moves.");
+        else if (turn === "black" && !allMoves("black").length) finish("You win. The computer has no legal moves.");
+      }
+
+      function finish(message) {
+        locked = true;
+        statusEl.textContent = message;
+      }
+
+      newGameButton.addEventListener("click", createBoard);
+      createBoard();
+    </script>
+  </body>
+</html>
