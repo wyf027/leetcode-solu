@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Tapper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-amber-200">Mini Tapper</h1>
+        <p class="text-sm text-zinc-400">Move between lanes, pour mugs, and keep every customer away from the bar.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <span class="rounded bg-zinc-900 px-3 py-2 text-amber-100">Score <b id="score">0</b></span>
+        <span class="rounded bg-zinc-900 px-3 py-2 text-rose-100">Misses <b id="misses">0</b>/5</span>
+        <span class="rounded bg-zinc-900 px-3 py-2 text-sky-100">Wave <b id="wave">1</b></span>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="760" height="520" class="w-full rounded border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black"></canvas>
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-300">
+        <h2 class="mb-3 text-lg font-semibold text-zinc-100">Controls</h2>
+        <div class="grid gap-2">
+          <div class="flex items-center justify-between gap-3"><span>Move</span><kbd class="rounded bg-zinc-800 px-2 py-1">Up / Down</kbd></div>
+          <div class="flex items-center justify-between gap-3"><span>Serve</span><kbd class="rounded bg-zinc-800 px-2 py-1">Space</kbd></div>
+          <div class="flex items-center justify-between gap-3"><span>Restart</span><kbd class="rounded bg-zinc-800 px-2 py-1">R</kbd></div>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-amber-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-amber-300">Restart</button>
+        <p class="mt-4 text-xs leading-5 text-zinc-500">Catch returning empty mugs by standing in their lane. A customer reaching the bar or an uncaught mug counts as a miss.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const missesEl = document.getElementById("misses");
+    const waveEl = document.getElementById("wave");
+    const restartBtn = document.getElementById("restart");
+
+    const lanes = [82, 192, 302, 412];
+    const barX = 86;
+    const laneStart = 136;
+    const laneEnd = 700;
+    const laneHeight = 62;
+    const bartender = { lane: 1, x: 86 };
+    const keys = new Set();
+    let mugs = [];
+    let empties = [];
+    let customers = [];
+    let score = 0;
+    let misses = 0;
+    let wave = 1;
+    let spawnTimer = 0;
+    let serveCooldown = 0;
+    let gameOver = false;
+    let lastTime = 0;
+
+    function resetGame() {
+      mugs = [];
+      empties = [];
+      customers = [];
+      score = 0;
+      misses = 0;
+      wave = 1;
+      spawnTimer = 0;
+      serveCooldown = 0;
+      gameOver = false;
+      bartender.lane = 1;
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      missesEl.textContent = misses;
+      waveEl.textContent = wave;
+    }
+
+    function spawnCustomer() {
+      const lane = Math.floor(Math.random() * lanes.length);
+      const speed = 20 + wave * 4 + Math.random() * 8;
+      customers.push({ lane, x: laneEnd, speed, angry: 0 });
+    }
+
+    function serveMug() {
+      if (serveCooldown > 0 || gameOver) return;
+      mugs.push({ lane: bartender.lane, x: barX + 34, speed: 340 });
+      serveCooldown = 0.34;
+    }
+
+    function miss() {
+      misses += 1;
+      if (misses >= 5) gameOver = true;
+      updateHud();
+    }
+
+    function updateTapper(dt) {
+      if (gameOver) return;
+      serveCooldown = Math.max(0, serveCooldown - dt);
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnCustomer();
+        spawnTimer = Math.max(0.65, 1.35 - wave * 0.08);
+      }
+
+      if (keys.has("ArrowUp") || keys.has("KeyW")) {
+        bartender.lane = Math.max(0, bartender.lane - 1);
+        keys.delete("ArrowUp");
+        keys.delete("KeyW");
+      }
+      if (keys.has("ArrowDown") || keys.has("KeyS")) {
+        bartender.lane = Math.min(lanes.length - 1, bartender.lane + 1);
+        keys.delete("ArrowDown");
+        keys.delete("KeyS");
+      }
+      if (keys.has("Space")) {
+        serveMug();
+        keys.delete("Space");
+      }
+
+      customers.forEach((customer) => {
+        customer.x -= customer.speed * dt;
+        customer.angry = Math.max(0, customer.angry - dt);
+      });
+      mugs.forEach((mug) => mug.x += mug.speed * dt);
+      empties.forEach((mug) => mug.x -= mug.speed * dt);
+
+      for (let i = mugs.length - 1; i >= 0; i -= 1) {
+        const mug = mugs[i];
+        if (mug.x > laneEnd + 24) {
+          mugs.splice(i, 1);
+          miss();
+          continue;
+        }
+        const hitIndex = customers.findIndex((customer) => customer.lane === mug.lane && Math.abs(customer.x - mug.x) < 30);
+        if (hitIndex >= 0) {
+          const served = customers.splice(hitIndex, 1)[0];
+          mugs.splice(i, 1);
+          empties.push({ lane: served.lane, x: Math.min(laneEnd, served.x + 18), speed: 210 + wave * 12 });
+          score += 50;
+          if (score > 0 && score % 450 === 0) wave += 1;
+          updateHud();
+        }
+      }
+
+      for (let i = customers.length - 1; i >= 0; i -= 1) {
+        if (customers[i].x <= barX + 28) {
+          customers.splice(i, 1);
+          miss();
+        }
+      }
+
+      for (let i = empties.length - 1; i >= 0; i -= 1) {
+        const mug = empties[i];
+        if (mug.x <= barX + 38 && mug.lane === bartender.lane) {
+          empties.splice(i, 1);
+          score += 20;
+          updateHud();
+        } else if (mug.x < barX - 18) {
+          empties.splice(i, 1);
+          miss();
+        }
+      }
+    }
+
+    function drawBar() {
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(46, 42, 76, 420);
+      ctx.fillStyle = "#f59e0b";
+      ctx.fillRect(106, 46, 12, 412);
+      ctx.fillStyle = "#fef3c7";
+      ctx.font = "bold 16px system-ui, sans-serif";
+      ctx.fillText("BAR", 66, 38);
+    }
+
+    function drawLanes() {
+      lanes.forEach((y, index) => {
+        ctx.fillStyle = index % 2 === 0 ? "#18181b" : "#1f2937";
+        ctx.fillRect(laneStart, y - 28, laneEnd - laneStart + 42, laneHeight);
+        ctx.strokeStyle = "#92400e";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(laneStart, y + 24);
+        ctx.lineTo(laneEnd + 40, y + 24);
+        ctx.stroke();
+      });
+    }
+
+    function drawBartender() {
+      const y = lanes[bartender.lane];
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(barX - 17, y - 24, 34, 48);
+      ctx.fillStyle = "#e0f2fe";
+      ctx.beginPath();
+      ctx.arc(barX, y - 34, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0c4a6e";
+      ctx.fillRect(barX + 10, y - 8, 28, 12);
+    }
+
+    function drawMug(x, y, full) {
+      ctx.fillStyle = full ? "#fbbf24" : "#e5e7eb";
+      ctx.fillRect(x - 10, y - 12, 20, 24);
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x - 10, y - 12, 20, 24);
+      ctx.beginPath();
+      ctx.arc(x + 14, y, 7, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
+    }
+
+    function drawCustomer(customer) {
+      const y = lanes[customer.lane];
+      ctx.fillStyle = customer.angry > 0 ? "#f87171" : "#a78bfa";
+      ctx.fillRect(customer.x - 18, y - 22, 36, 44);
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.arc(customer.x, y - 32, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(customer.x - 7, y - 35, 4, 4);
+      ctx.fillRect(customer.x + 5, y - 35, 4, 4);
+    }
+
+    function renderTapper() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawLanes();
+      drawBar();
+      customers.forEach(drawCustomer);
+      mugs.forEach((mug) => drawMug(mug.x, lanes[mug.lane], true));
+      empties.forEach((mug) => drawMug(mug.x, lanes[mug.lane], false));
+      drawBartender();
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.68)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fef3c7";
+        ctx.font = "bold 34px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Last call", canvas.width / 2, 235);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("Press R or Restart to play again", canvas.width / 2, 270);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function gameLoop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      updateTapper(dt);
+      renderTapper();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", "Space"].includes(event.code)) event.preventDefault();
+      if (event.code === "KeyR") resetGame();
+      keys.add(event.code);
+    });
+    restartBtn.addEventListener("click", resetGame);
+
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
