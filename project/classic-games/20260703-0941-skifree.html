@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini SkiFree</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-sky-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-4 px-4 py-6">
+      <section class="grid gap-4 rounded-lg border border-sky-800 bg-sky-900 p-4 shadow-xl md:grid-cols-[1fr_220px]">
+        <div>
+          <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold text-white">Mini SkiFree</h1>
+              <p class="mt-1 text-sm text-sky-200/80">滑下雪道，穿过旗门得分，避开树桩。</p>
+            </div>
+            <div class="rounded-md border border-sky-800 bg-sky-950 px-4 py-2 text-right">
+              <div class="text-xs uppercase text-sky-300/70">Score</div>
+              <div id="score" class="text-3xl font-bold text-amber-200">0</div>
+            </div>
+          </div>
+          <canvas id="slope" width="420" height="580" class="mx-auto block w-full max-w-[420px] rounded-md border border-sky-700 bg-slate-50"></canvas>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-md border border-sky-800 bg-sky-950 p-3">
+              <div class="text-xs uppercase text-sky-300/70">Gates</div>
+              <div id="gates" class="text-2xl font-bold text-emerald-200">0</div>
+            </div>
+            <div class="rounded-md border border-sky-800 bg-sky-950 p-3">
+              <div class="text-xs uppercase text-sky-300/70">Speed</div>
+              <div id="speed" class="text-2xl font-bold text-cyan-200">1</div>
+            </div>
+          </div>
+          <div id="message" class="min-h-16 rounded-md border border-sky-800 bg-sky-950 p-3 text-sm text-sky-100/90">
+            使用 A/← 和 D/→ 转向，空格开始。
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="leftBtn" type="button" class="rounded-md bg-cyan-400 px-3 py-3 font-bold text-sky-950 transition hover:bg-cyan-300">
+              左转
+            </button>
+            <button id="rightBtn" type="button" class="rounded-md bg-emerald-400 px-3 py-3 font-bold text-sky-950 transition hover:bg-emerald-300">
+              右转
+            </button>
+          </div>
+          <button type="button" onclick="startGame()" class="rounded-md bg-amber-300 px-3 py-2 font-bold text-sky-950 transition hover:bg-amber-200">
+            开始
+          </button>
+          <button
+            type="button"
+            onclick="resetGame()"
+            class="rounded-md border border-sky-700 px-3 py-2 font-semibold text-sky-100 transition hover:border-sky-500 hover:bg-sky-800"
+          >
+            重新开始
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("slope");
+      const ctx = canvas.getContext("2d");
+      const skier = { x: 210, y: 445, vx: 0, w: 24, h: 34 };
+      const objects = [];
+      const keys = { left: false, right: false };
+      let score = 0;
+      let gates = 0;
+      let speed = 3.2;
+      let frame = 0;
+      let running = false;
+      let gameOver = false;
+
+      function setMessage(text) {
+        document.getElementById("message").textContent = text;
+      }
+
+      function updateHud() {
+        document.getElementById("score").textContent = score;
+        document.getElementById("gates").textContent = gates;
+        document.getElementById("speed").textContent = Math.max(1, Math.floor(speed - 2));
+      }
+
+      function startGame() {
+        if (gameOver) resetGame();
+        running = true;
+        setMessage("顺着雪道下滑，穿旗门加 25 分。");
+      }
+
+      function resetGame() {
+        score = 0;
+        gates = 0;
+        speed = 3.2;
+        frame = 0;
+        running = false;
+        gameOver = false;
+        skier.x = 210;
+        skier.vx = 0;
+        objects.length = 0;
+        updateHud();
+        setMessage("使用 A/← 和 D/→ 转向，空格开始。");
+        renderGame();
+      }
+
+      function spawnObject() {
+        if (frame % 38 === 0) {
+          objects.push({
+            type: "tree",
+            x: 28 + Math.random() * (canvas.width - 56),
+            y: -40,
+            r: 16,
+          });
+        }
+
+        if (frame % 115 === 0) {
+          const x = 85 + Math.random() * (canvas.width - 170);
+          objects.push({ type: "gate", x, y: -34, w: 94, passed: false });
+        }
+      }
+
+      function updateGame() {
+        if (!running) return;
+
+        frame += 1;
+        speed = Math.min(7.2, speed + 0.0015);
+        score += 1;
+
+        skier.vx *= 0.88;
+        if (keys.left) skier.vx -= 0.38;
+        if (keys.right) skier.vx += 0.38;
+        skier.x += skier.vx;
+        skier.x = Math.max(24, Math.min(canvas.width - 24, skier.x));
+
+        spawnObject();
+        objects.forEach((item) => {
+          item.y += speed;
+          if (item.type === "gate") checkGate(item);
+          if (item.type === "tree" && hitsTree(item)) endGame();
+        });
+
+        for (let i = objects.length - 1; i >= 0; i -= 1) {
+          if (objects[i].y > canvas.height + 50) objects.splice(i, 1);
+        }
+
+        updateHud();
+      }
+
+      function checkGate(gate) {
+        if (gate.passed || gate.y < skier.y) return;
+        const inside = skier.x > gate.x && skier.x < gate.x + gate.w;
+        if (!inside) return;
+        gate.passed = true;
+        gates += 1;
+        score += 25;
+        setMessage("穿过旗门，+25。");
+      }
+
+      function hitsTree(tree) {
+        const dx = skier.x - tree.x;
+        const dy = skier.y + skier.h / 2 - tree.y;
+        return Math.hypot(dx, dy) < tree.r + 10;
+      }
+
+      function endGame() {
+        running = false;
+        gameOver = true;
+        setMessage("摔倒了，点击开始或重新开始再挑战。");
+      }
+
+      function renderGame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawSlope();
+        objects.forEach((item) => {
+          if (item.type === "tree") drawTree(item);
+          if (item.type === "gate") drawGate(item);
+        });
+        drawSkier();
+      }
+
+      function drawSlope() {
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "#dbeafe";
+        ctx.lineWidth = 2;
+        for (let y = (frame * speed) % 46; y < canvas.height; y += 46) {
+          ctx.beginPath();
+          ctx.moveTo(40, y);
+          ctx.lineTo(380, y + 22);
+          ctx.stroke();
+        }
+      }
+
+      function drawTree(tree) {
+        ctx.fillStyle = "#14532d";
+        ctx.beginPath();
+        ctx.moveTo(tree.x, tree.y - 18);
+        ctx.lineTo(tree.x - 16, tree.y + 12);
+        ctx.lineTo(tree.x + 16, tree.y + 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#854d0e";
+        ctx.fillRect(tree.x - 4, tree.y + 10, 8, 14);
+      }
+
+      function drawGate(gate) {
+        const color = gate.passed ? "#10b981" : "#ef4444";
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(gate.x, gate.y);
+        ctx.lineTo(gate.x, gate.y + 34);
+        ctx.moveTo(gate.x + gate.w, gate.y);
+        ctx.lineTo(gate.x + gate.w, gate.y + 34);
+        ctx.stroke();
+      }
+
+      function drawSkier() {
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(skier.x - 15, skier.y + 30);
+        ctx.lineTo(skier.x + 6, skier.y + 48);
+        ctx.moveTo(skier.x + 15, skier.y + 30);
+        ctx.lineTo(skier.x - 6, skier.y + 48);
+        ctx.stroke();
+
+        ctx.fillStyle = "#0284c7";
+        ctx.fillRect(skier.x - 10, skier.y, 20, 28);
+        ctx.fillStyle = "#f59e0b";
+        ctx.beginPath();
+        ctx.arc(skier.x, skier.y - 8, 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function loop() {
+        updateGame();
+        renderGame();
+        requestAnimationFrame(loop);
+      }
+
+      function bindControls() {
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = true;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = true;
+          if (event.code === "Space") startGame();
+        });
+        document.addEventListener("keyup", (event) => {
+          if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") keys.left = false;
+          if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") keys.right = false;
+        });
+
+        bindButton("leftBtn", "left");
+        bindButton("rightBtn", "right");
+      }
+
+      function bindButton(id, side) {
+        const button = document.getElementById(id);
+        button.addEventListener("pointerdown", () => {
+          keys[side] = true;
+        });
+        button.addEventListener("pointerup", () => {
+          keys[side] = false;
+        });
+        button.addEventListener("pointerleave", () => {
+          keys[side] = false;
+        });
+      }
+
+      bindControls();
+      updateHud();
+      renderGame();
+      loop();
+    </script>
+  </body>
+</html>
