@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Rally-X</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-amber-200">Mini Rally-X</h1>
+        <p class="mt-1 text-sm text-zinc-400">穿过迷宫收旗，甩开追车，必要时放烟雾脱身。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-amber-700/60 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">分数</div>
+          <div id="score" class="text-lg font-bold text-amber-200">0</div>
+        </div>
+        <div class="rounded border border-amber-700/60 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">旗帜</div>
+          <div id="flags" class="text-lg font-bold text-amber-200">0</div>
+        </div>
+        <div class="rounded border border-amber-700/60 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">燃料</div>
+          <div id="fuel" class="text-lg font-bold text-amber-200">100</div>
+        </div>
+        <div class="rounded border border-amber-700/60 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">生命</div>
+          <div id="lives" class="text-lg font-bold text-amber-200">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-md border border-zinc-700 bg-zinc-900 p-3 shadow-2xl shadow-amber-950/20">
+      <canvas id="game" width="960" height="640" class="h-auto w-full rounded bg-zinc-950"></canvas>
+    </section>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+      <div class="rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-300">
+        <span class="font-semibold text-amber-200">操作：</span>
+        <span>方向键 / WASD 转向，空格放烟雾，R 重新开始。</span>
+      </div>
+      <button id="restart" class="rounded bg-amber-400 px-5 py-3 text-sm font-bold text-zinc-950 hover:bg-amber-300">
+        重新开始
+      </button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const flagsEl = document.getElementById("flags");
+    const fuelEl = document.getElementById("fuel");
+    const livesEl = document.getElementById("lives");
+    const restartBtn = document.getElementById("restart");
+
+    const tile = 40;
+    const offsetX = 80;
+    const offsetY = 48;
+    const map = [
+      "####################",
+      "#..F....#......F...#",
+      "#.####..#.####.###.#",
+      "#......F#....#.....#",
+      "#.##.######..#.###.#",
+      "#.#......#...#...#.#",
+      "#.#.####.#.#####.#.#",
+      "#...#..F...#.....#.#",
+      "###.#.######.#####.#",
+      "#...#......#.....F.#",
+      "#.#####.##.#####.#.#",
+      "#.....#.#......#...#",
+      "#.###.#.#.####.###.#",
+      "#F....#....F.......#",
+      "####################"
+    ];
+
+    const keys = new Set();
+    const dirs = {
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 }
+    };
+
+    let player;
+    let enemies;
+    let flags;
+    let smoke;
+    let score;
+    let lives;
+    let fuel;
+    let lastTime;
+    let gameOver;
+    let won;
+    let hitPause;
+    let smokeCooldown;
+
+    function resetGame() {
+      player = {
+        x: 1.5,
+        y: 1.5,
+        dir: "right",
+        nextDir: "right",
+        speed: 4.4,
+        invincible: 0
+      };
+      enemies = [
+        { x: 18.5, y: 13.5, dir: "left", speed: 3.25, stun: 0 },
+        { x: 18.5, y: 1.5, dir: "down", speed: 3.05, stun: 0 },
+        { x: 1.5, y: 13.5, dir: "up", speed: 2.95, stun: 0 }
+      ];
+      flags = [];
+      smoke = [];
+      for (let y = 0; y < map.length; y++) {
+        for (let x = 0; x < map[y].length; x++) {
+          if (map[y][x] === "F") flags.push({ x: x + 0.5, y: y + 0.5, taken: false });
+        }
+      }
+      score = 0;
+      lives = 3;
+      fuel = 100;
+      gameOver = false;
+      won = false;
+      hitPause = 0;
+      smokeCooldown = 0;
+      lastTime = performance.now();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      flagsEl.textContent = `${flags.filter((flag) => flag.taken).length}/${flags.length}`;
+      fuelEl.textContent = Math.max(0, Math.ceil(fuel));
+      livesEl.textContent = lives;
+    }
+
+    function tileAt(x, y) {
+      const row = map[Math.floor(y)];
+      if (!row) return "#";
+      return row[Math.floor(x)] || "#";
+    }
+
+    function canMove(entity, dir) {
+      const nx = entity.x + dirs[dir].x * 0.42;
+      const ny = entity.y + dirs[dir].y * 0.42;
+      return tileAt(nx, ny) !== "#";
+    }
+
+    function centered(entity) {
+      return Math.abs(entity.x - Math.round(entity.x - 0.5) - 0.5) < 0.11 &&
+        Math.abs(entity.y - Math.round(entity.y - 0.5) - 0.5) < 0.11;
+    }
+
+    function snapToCenter(entity) {
+      entity.x = Math.round(entity.x - 0.5) + 0.5;
+      entity.y = Math.round(entity.y - 0.5) + 0.5;
+    }
+
+    function setNextDirection(key) {
+      if (key === "ArrowLeft" || key === "a" || key === "A") player.nextDir = "left";
+      if (key === "ArrowRight" || key === "d" || key === "D") player.nextDir = "right";
+      if (key === "ArrowUp" || key === "w" || key === "W") player.nextDir = "up";
+      if (key === "ArrowDown" || key === "s" || key === "S") player.nextDir = "down";
+    }
+
+    function dropSmoke() {
+      if (gameOver || smokeCooldown > 0 || fuel < 10) return;
+      fuel -= 10;
+      smokeCooldown = 1.1;
+      smoke.push({ x: player.x, y: player.y, life: 2.4 });
+    }
+
+    function moveEntity(entity, dt) {
+      if (centered(entity)) {
+        snapToCenter(entity);
+        if (entity.nextDir && canMove(entity, entity.nextDir)) entity.dir = entity.nextDir;
+        if (!canMove(entity, entity.dir)) return;
+      }
+      entity.x += dirs[entity.dir].x * entity.speed * dt;
+      entity.y += dirs[entity.dir].y * entity.speed * dt;
+    }
+
+    function chooseEnemyDirection(enemy) {
+      const options = Object.keys(dirs).filter((dir) => canMove(enemy, dir));
+      const reverse = { left: "right", right: "left", up: "down", down: "up" }[enemy.dir];
+      const filtered = options.length > 1 ? options.filter((dir) => dir !== reverse) : options;
+      let best = filtered[0] || enemy.dir;
+      let bestDist = Infinity;
+      for (const dir of filtered) {
+        const nx = enemy.x + dirs[dir].x;
+        const ny = enemy.y + dirs[dir].y;
+        const dist = Math.abs(nx - player.x) + Math.abs(ny - player.y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = dir;
+        }
+      }
+      enemy.dir = best;
+    }
+
+    function updateEnemies(dt) {
+      for (const enemy of enemies) {
+        if (enemy.stun > 0) {
+          enemy.stun -= dt;
+          continue;
+        }
+        if (centered(enemy)) {
+          snapToCenter(enemy);
+          chooseEnemyDirection(enemy);
+        }
+        moveEntity(enemy, dt);
+        for (const cloud of smoke) {
+          const dist = Math.hypot(enemy.x - cloud.x, enemy.y - cloud.y);
+          if (dist < 0.68) {
+            enemy.stun = 1.35;
+            score += 25;
+          }
+        }
+      }
+    }
+
+    function collectFlags() {
+      for (const flag of flags) {
+        if (!flag.taken && Math.hypot(player.x - flag.x, player.y - flag.y) < 0.55) {
+          flag.taken = true;
+          score += 180;
+        }
+      }
+      if (flags.every((flag) => flag.taken)) {
+        won = true;
+        gameOver = true;
+      }
+    }
+
+    function handleCrash() {
+      if (player.invincible > 0 || gameOver) return;
+      lives -= 1;
+      hitPause = 0.28;
+      player.invincible = 1.7;
+      player.x = 1.5;
+      player.y = 1.5;
+      player.dir = "right";
+      player.nextDir = "right";
+      if (lives <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function updateRallyX(dt) {
+      if (gameOver) {
+        renderRallyX();
+        return;
+      }
+      if (hitPause > 0) {
+        hitPause -= dt;
+        renderRallyX();
+        return;
+      }
+
+      for (const key of keys) setNextDirection(key);
+      smokeCooldown = Math.max(0, smokeCooldown - dt);
+      player.invincible = Math.max(0, player.invincible - dt);
+      fuel -= dt * 3.8;
+      score += Math.floor(dt * 8);
+      if (fuel <= 0) handleCrash();
+
+      moveEntity(player, dt);
+      updateEnemies(dt);
+      collectFlags();
+
+      for (const cloud of smoke) cloud.life -= dt;
+      smoke = smoke.filter((cloud) => cloud.life > 0);
+
+      for (const enemy of enemies) {
+        if (enemy.stun <= 0 && Math.hypot(player.x - enemy.x, player.y - enemy.y) < 0.55) {
+          handleCrash();
+        }
+      }
+
+      updateHud();
+      renderRallyX();
+    }
+
+    function drawCar(entity, color, isPlayer) {
+      const px = offsetX + entity.x * tile;
+      const py = offsetY + entity.y * tile;
+      const angle = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }[entity.dir];
+      const blink = isPlayer && entity.invincible > 0 && Math.floor(entity.invincible * 14) % 2 === 0;
+      if (blink) return;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle);
+      ctx.fillStyle = color;
+      ctx.fillRect(-16, -10, 32, 20);
+      ctx.fillStyle = isPlayer ? "#bae6fd" : "#fecaca";
+      ctx.fillRect(1, -7, 9, 14);
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(-11, -14, 8, 5);
+      ctx.fillRect(-11, 9, 8, 5);
+      ctx.fillRect(8, -14, 8, 5);
+      ctx.fillRect(8, 9, 8, 5);
+      ctx.restore();
+    }
+
+    function renderRallyX() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(offsetX, offsetY, map[0].length * tile, map.length * tile);
+      for (let y = 0; y < map.length; y++) {
+        for (let x = 0; x < map[y].length; x++) {
+          const px = offsetX + x * tile;
+          const py = offsetY + y * tile;
+          if (map[y][x] === "#") {
+            ctx.fillStyle = "#1d4ed8";
+            ctx.fillRect(px + 2, py + 2, tile - 4, tile - 4);
+            ctx.fillStyle = "#38bdf8";
+            ctx.fillRect(px + 7, py + 7, tile - 14, 4);
+          } else {
+            ctx.fillStyle = "#27272a";
+            ctx.fillRect(px + 1, py + 1, tile - 2, tile - 2);
+            ctx.fillStyle = "#3f3f46";
+            ctx.fillRect(px + 18, py + 18, 4, 4);
+          }
+        }
+      }
+
+      for (const flag of flags) {
+        if (flag.taken) continue;
+        const px = offsetX + flag.x * tile;
+        const py = offsetY + flag.y * tile;
+        ctx.strokeStyle = "#f8fafc";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(px - 7, py + 12);
+        ctx.lineTo(px - 7, py - 13);
+        ctx.stroke();
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.moveTo(px - 5, py - 13);
+        ctx.lineTo(px + 15, py - 7);
+        ctx.lineTo(px - 5, py - 1);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      for (const cloud of smoke) {
+        const px = offsetX + cloud.x * tile;
+        const py = offsetY + cloud.y * tile;
+        ctx.globalAlpha = Math.min(0.75, cloud.life / 2.4);
+        ctx.fillStyle = "#d4d4d8";
+        ctx.beginPath();
+        ctx.arc(px - 9, py, 15, 0, Math.PI * 2);
+        ctx.arc(px + 7, py - 5, 16, 0, Math.PI * 2);
+        ctx.arc(px + 13, py + 8, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      drawCar(player, "#facc15", true);
+      for (const enemy of enemies) {
+        drawCar(enemy, enemy.stun > 0 ? "#a1a1aa" : "#ef4444", false);
+      }
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(9, 9, 11, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fef3c7";
+        ctx.font = "700 44px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "旗帜全收" : "巡逻结束", canvas.width / 2, 275);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 315);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      updateRallyX(dt);
+      if (!gameOver) requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === " ") dropSmoke();
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key);
+      setNextDirection(event.key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
