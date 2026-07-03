@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Lady Bug</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-fuchsia-950 text-fuchsia-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-pink-200">Mini Lady Bug</h1>
+        <p class="mt-1 text-sm text-fuchsia-100/75">吃掉花点，穿过旋转门，甩开追逐虫群。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-pink-300/40 bg-fuchsia-900 px-3 py-2">
+          <div class="text-fuchsia-100/75">分数</div>
+          <div id="score" class="text-lg font-bold text-pink-200">0</div>
+        </div>
+        <div class="rounded border border-pink-300/40 bg-fuchsia-900 px-3 py-2">
+          <div class="text-fuchsia-100/75">花点</div>
+          <div id="dots" class="text-lg font-bold text-pink-200">0</div>
+        </div>
+        <div class="rounded border border-pink-300/40 bg-fuchsia-900 px-3 py-2">
+          <div class="text-fuchsia-100/75">生命</div>
+          <div id="lives" class="text-lg font-bold text-pink-200">3</div>
+        </div>
+        <div class="rounded border border-pink-300/40 bg-fuchsia-900 px-3 py-2">
+          <div class="text-fuchsia-100/75">速度</div>
+          <div id="speed" class="text-lg font-bold text-pink-200">1</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-md border border-fuchsia-700 bg-fuchsia-900 p-3 shadow-2xl shadow-fuchsia-950/40">
+      <canvas id="game" width="900" height="620" class="h-auto w-full rounded bg-fuchsia-950"></canvas>
+    </section>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+      <div class="rounded-md border border-fuchsia-700 bg-fuchsia-900 p-3 text-sm text-fuchsia-100">
+        <span class="font-semibold text-pink-200">操作：</span>
+        <span>方向键 / WASD 移动，空格旋转附近的黄色门，R 重新开始。</span>
+      </div>
+      <button id="restart" class="rounded bg-pink-300 px-5 py-3 text-sm font-bold text-fuchsia-950 hover:bg-pink-200">
+        重新开始
+      </button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const dotsEl = document.getElementById("dots");
+    const livesEl = document.getElementById("lives");
+    const speedEl = document.getElementById("speed");
+    const restartBtn = document.getElementById("restart");
+    const tile = 38;
+    const map = [
+      "###############",
+      "#o....#....o..#",
+      "#.###.#.###.#.#",
+      "#...#...#...#.#",
+      "###.#-#.#-###.#",
+      "#...#.#.#.....#",
+      "#.#-#.#.###-#.#",
+      "#.#...#...#.#.#",
+      "#.###-###.#.#.#",
+      "#.....#...#...#",
+      "#.###.#.###.#.#",
+      "#..o....#...o.#",
+      "###############"
+    ];
+    const rows = map.length;
+    const cols = map[0].length;
+    const originX = 165;
+    const originY = 58;
+    const keys = new Set();
+    const dirs = {
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 }
+    };
+
+    let walls;
+    let doors;
+    let dots;
+    let player;
+    let enemies;
+    let score;
+    let lives;
+    let speedLevel;
+    let lastTime;
+    let gameOver;
+    let won;
+    let turnCooldown;
+
+    function resetGame() {
+      walls = new Set();
+      doors = [];
+      dots = [];
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const c = map[y][x];
+          if (c === "#") walls.add(`${x},${y}`);
+          if (c === "-") doors.push({ x, y, open: false });
+          if (c === "." || c === "o") dots.push({ x, y, power: c === "o", eaten: false });
+        }
+      }
+      player = { x: 1, y: 1, dir: "right", nextDir: "right", speed: 5.2, invincible: 0 };
+      enemies = [
+        { x: 13, y: 1, dir: "left", speed: 3.8, weak: 0 },
+        { x: 13, y: 11, dir: "up", speed: 3.6, weak: 0 },
+        { x: 1, y: 11, dir: "right", speed: 3.5, weak: 0 }
+      ];
+      score = 0;
+      lives = 3;
+      speedLevel = 1;
+      lastTime = performance.now();
+      gameOver = false;
+      won = false;
+      turnCooldown = 0;
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      dotsEl.textContent = `${dots.filter((dot) => dot.eaten).length}/${dots.length}`;
+      livesEl.textContent = lives;
+      speedEl.textContent = speedLevel;
+    }
+
+    function cellBlocked(x, y) {
+      if (walls.has(`${x},${y}`)) return true;
+      const door = doors.find((item) => item.x === x && item.y === y);
+      return Boolean(door && !door.open);
+    }
+
+    function canMove(entity, dir) {
+      const nx = Math.round(entity.x) + dirs[dir].x;
+      const ny = Math.round(entity.y) + dirs[dir].y;
+      return nx >= 0 && nx < cols && ny >= 0 && ny < rows && !cellBlocked(nx, ny);
+    }
+
+    function atCenter(entity) {
+      return Math.abs(entity.x - Math.round(entity.x)) < 0.08 && Math.abs(entity.y - Math.round(entity.y)) < 0.08;
+    }
+
+    function setNextDirection(key) {
+      if (key === "ArrowLeft" || key === "a" || key === "A") player.nextDir = "left";
+      if (key === "ArrowRight" || key === "d" || key === "D") player.nextDir = "right";
+      if (key === "ArrowUp" || key === "w" || key === "W") player.nextDir = "up";
+      if (key === "ArrowDown" || key === "s" || key === "S") player.nextDir = "down";
+    }
+
+    function rotateDoor() {
+      if (turnCooldown > 0 || gameOver) return;
+      let best = null;
+      let bestDist = 1.7;
+      for (const door of doors) {
+        const dist = Math.hypot(player.x - door.x, player.y - door.y);
+        if (dist < bestDist) {
+          best = door;
+          bestDist = dist;
+        }
+      }
+      if (best) {
+        best.open = !best.open;
+        turnCooldown = 0.35;
+      }
+    }
+
+    function moveEntity(entity, dt) {
+      if (atCenter(entity)) {
+        entity.x = Math.round(entity.x);
+        entity.y = Math.round(entity.y);
+        if (entity.nextDir && canMove(entity, entity.nextDir)) entity.dir = entity.nextDir;
+        if (!canMove(entity, entity.dir)) return;
+      }
+      entity.x += dirs[entity.dir].x * entity.speed * dt;
+      entity.y += dirs[entity.dir].y * entity.speed * dt;
+    }
+
+    function chooseEnemyDirection(enemy) {
+      const choices = Object.keys(dirs).filter((dir) => canMove(enemy, dir));
+      const reverse = { left: "right", right: "left", up: "down", down: "up" }[enemy.dir];
+      const usable = choices.length > 1 ? choices.filter((dir) => dir !== reverse) : choices;
+      let best = usable[0] || enemy.dir;
+      let bestScore = Infinity;
+      for (const dir of usable) {
+        const nx = Math.round(enemy.x) + dirs[dir].x;
+        const ny = Math.round(enemy.y) + dirs[dir].y;
+        const dist = Math.abs(nx - player.x) + Math.abs(ny - player.y);
+        const value = enemy.weak > 0 ? -dist : dist + Math.random() * 1.1;
+        if (value < bestScore) {
+          bestScore = value;
+          best = dir;
+        }
+      }
+      enemy.dir = best;
+    }
+
+    function eatDots() {
+      for (const dot of dots) {
+        if (!dot.eaten && Math.hypot(player.x - dot.x, player.y - dot.y) < 0.35) {
+          dot.eaten = true;
+          score += dot.power ? 80 : 20;
+          if (dot.power) enemies.forEach((enemy) => { enemy.weak = 6; });
+        }
+      }
+      if (dots.every((dot) => dot.eaten)) {
+        won = true;
+        gameOver = true;
+      }
+    }
+
+    function loseLife() {
+      if (player.invincible > 0 || gameOver) return;
+      lives -= 1;
+      player = { x: 1, y: 1, dir: "right", nextDir: "right", speed: player.speed, invincible: 1.5 };
+      if (lives <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function updateLadyBug(dt) {
+      if (gameOver) {
+        renderLadyBug();
+        return;
+      }
+      for (const key of keys) setNextDirection(key);
+      if (keys.has(" ")) rotateDoor();
+      turnCooldown = Math.max(0, turnCooldown - dt);
+      player.invincible = Math.max(0, player.invincible - dt);
+      speedLevel = 1 + Math.floor(score / 700);
+      player.speed = 5.2 + speedLevel * 0.15;
+      moveEntity(player, dt);
+      eatDots();
+
+      for (const enemy of enemies) {
+        enemy.weak = Math.max(0, enemy.weak - dt);
+        enemy.speed = enemy.weak > 0 ? 3.0 : 3.55 + speedLevel * 0.1;
+        if (atCenter(enemy)) {
+          enemy.x = Math.round(enemy.x);
+          enemy.y = Math.round(enemy.y);
+          chooseEnemyDirection(enemy);
+        }
+        moveEntity(enemy, dt);
+        if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 0.42) {
+          if (enemy.weak > 0) {
+            score += 160;
+            enemy.x = 13;
+            enemy.y = 11;
+            enemy.weak = 0;
+          } else {
+            loseLife();
+          }
+        }
+      }
+
+      updateHud();
+      renderLadyBug();
+    }
+
+    function drawCell(x, y, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(originX + x * tile, originY + y * tile, tile, tile);
+    }
+
+    function drawBoard() {
+      ctx.fillStyle = "#2e1065";
+      ctx.fillRect(originX, originY, cols * tile, rows * tile);
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          if (walls.has(`${x},${y}`)) drawCell(x, y, "#86198f");
+        }
+      }
+      for (const door of doors) {
+        drawCell(door.x, door.y, door.open ? "#facc15" : "#a16207");
+        ctx.fillStyle = "#fef3c7";
+        const px = originX + door.x * tile;
+        const py = originY + door.y * tile;
+        if (door.open) ctx.fillRect(px + 16, py + 4, 6, tile - 8);
+        else ctx.fillRect(px + 5, py + 16, tile - 10, 6);
+      }
+      for (const dot of dots) {
+        if (dot.eaten) continue;
+        const px = originX + dot.x * tile + tile / 2;
+        const py = originY + dot.y * tile + tile / 2;
+        ctx.fillStyle = dot.power ? "#fef08a" : "#fbcfe8";
+        ctx.beginPath();
+        ctx.arc(px, py, dot.power ? 7 : 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawPlayer() {
+      const px = originX + player.x * tile + tile / 2;
+      const py = originY + player.y * tile + tile / 2;
+      const blink = player.invincible > 0 && Math.floor(player.invincible * 16) % 2 === 0;
+      if (blink) return;
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.arc(px, py, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(px, py - 14);
+      ctx.lineTo(px, py + 14);
+      ctx.stroke();
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.arc(px - 5, py - 5, 3, 0, Math.PI * 2);
+      ctx.arc(px + 5, py - 5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawEnemy(enemy) {
+      const px = originX + enemy.x * tile + tile / 2;
+      const py = originY + enemy.y * tile + tile / 2;
+      ctx.fillStyle = enemy.weak > 0 ? "#60a5fa" : "#22c55e";
+      ctx.beginPath();
+      ctx.arc(px, py, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(px - 8, py - 4, 5, 5);
+      ctx.fillRect(px + 3, py - 4, 5, 5);
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px - 14, py);
+      ctx.lineTo(px - 22, py - 9);
+      ctx.moveTo(px + 14, py);
+      ctx.lineTo(px + 22, py - 9);
+      ctx.stroke();
+    }
+
+    function renderLadyBug() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#4a044e");
+      bg.addColorStop(1, "#701a75");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawBoard();
+      drawPlayer();
+      enemies.forEach(drawEnemy);
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(74, 4, 78, 0.82)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fce7f3";
+        ctx.font = "700 42px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "花点全收" : "游戏结束", canvas.width / 2, 275);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 315);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      updateLadyBug(dt);
+      if (!gameOver) requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) event.preventDefault();
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key);
+      setNextDirection(event.key);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key));
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
