@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Circus</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-rose-950 text-rose-50">
+    <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-4 p-4">
+      <section class="w-full rounded-lg border border-rose-700 bg-rose-900/90 p-4 shadow-xl">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold">Mini Circus</h1>
+            <p class="text-sm text-rose-200">左右移动跷板，让演员反弹并戳破全部气球。</p>
+          </div>
+          <div class="flex gap-3 text-sm">
+            <span>得分 <strong id="score">0</strong></span>
+            <span>生命 <strong id="lives">3</strong></span>
+            <span>气球 <strong id="left">18</strong></span>
+          </div>
+        </div>
+
+        <canvas id="game" width="520" height="420" class="w-full rounded-md border border-rose-700 bg-slate-950"></canvas>
+
+        <div class="mt-3 grid grid-cols-3 gap-2">
+          <button id="leftBtn" class="rounded bg-rose-700 px-3 py-2 font-semibold hover:bg-rose-600">左移</button>
+          <button id="launchBtn" class="rounded bg-amber-400 px-3 py-2 font-semibold text-slate-950 hover:bg-amber-300">发射</button>
+          <button id="rightBtn" class="rounded bg-rose-700 px-3 py-2 font-semibold hover:bg-rose-600">右移</button>
+        </div>
+        <button id="restartBtn" class="mt-2 w-full rounded bg-rose-100 px-3 py-2 font-semibold text-slate-950 hover:bg-white">重新开始</button>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const leftEl = document.getElementById("left");
+      const keys = new Set();
+      let board;
+      let acrobat;
+      let balloons;
+      let score;
+      let lives;
+      let running;
+      let message;
+
+      function resetGame() {
+        board = { x: canvas.width / 2 - 56, y: 360, w: 112, h: 12 };
+        acrobat = { x: board.x + board.w / 2, y: board.y - 18, vx: 2.4, vy: -5.2, r: 10, active: false };
+        balloons = [];
+        score = 0;
+        lives = 3;
+        running = true;
+        message = "";
+        buildBalloons();
+        updateHud();
+      }
+
+      function buildBalloons() {
+        const colors = ["#f97316", "#facc15", "#22c55e", "#38bdf8", "#a78bfa", "#fb7185"];
+        for (let row = 0; row < 3; row += 1) {
+          for (let col = 0; col < 6; col += 1) {
+            balloons.push({ x: 84 + col * 70, y: 58 + row * 38, r: 13, color: colors[(row + col) % colors.length] });
+          }
+        }
+      }
+
+      function updateHud() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        leftEl.textContent = balloons.length;
+      }
+
+      function launchAcrobat() {
+        if (!running || acrobat.active) return;
+        acrobat.active = true;
+        acrobat.vx = 2.6;
+        acrobat.vy = -6.8;
+        message = "";
+      }
+
+      function updateBoard() {
+        if (keys.has("ArrowLeft") || keys.has("a")) board.x -= 4.3;
+        if (keys.has("ArrowRight") || keys.has("d")) board.x += 4.3;
+        board.x = Math.max(22, Math.min(canvas.width - board.w - 22, board.x));
+        if (!acrobat.active) {
+          acrobat.x = board.x + board.w / 2;
+          acrobat.y = board.y - 18;
+        }
+      }
+
+      function updateAcrobat() {
+        if (!acrobat.active) return;
+        acrobat.x += acrobat.vx;
+        acrobat.y += acrobat.vy;
+        acrobat.vy += 0.16;
+
+        if (acrobat.x < acrobat.r || acrobat.x > canvas.width - acrobat.r) acrobat.vx *= -1;
+        if (acrobat.y < acrobat.r) acrobat.vy = Math.abs(acrobat.vy);
+
+        const onBoard =
+          acrobat.y + acrobat.r >= board.y &&
+          acrobat.y + acrobat.r <= board.y + board.h + 8 &&
+          acrobat.x > board.x &&
+          acrobat.x < board.x + board.w &&
+          acrobat.vy > 0;
+        if (onBoard) {
+          const offset = (acrobat.x - (board.x + board.w / 2)) / (board.w / 2);
+          acrobat.vx = offset * 4.5;
+          acrobat.vy = -7.2;
+          score += 2;
+        }
+
+        balloons.forEach((balloon) => {
+          if (Math.hypot(acrobat.x - balloon.x, acrobat.y - balloon.y) < acrobat.r + balloon.r) {
+            balloon.hit = true;
+            acrobat.vy = Math.abs(acrobat.vy) * 0.8;
+            score += 10;
+          }
+        });
+        balloons = balloons.filter((balloon) => !balloon.hit);
+
+        if (acrobat.y > canvas.height + 30) loseLife();
+        if (balloons.length === 0) {
+          running = false;
+          message = "演出成功";
+          score += 50;
+        }
+        updateHud();
+      }
+
+      function loseLife() {
+        lives -= 1;
+        acrobat.active = false;
+        acrobat.x = board.x + board.w / 2;
+        acrobat.y = board.y - 18;
+        acrobat.vx = 0;
+        acrobat.vy = 0;
+        if (lives <= 0) {
+          running = false;
+          message = "演出结束";
+        }
+        updateHud();
+      }
+
+      function renderCircus() {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#7f1d1d";
+        ctx.fillRect(0, 326, canvas.width, 94);
+
+        ctx.strokeStyle = "#fda4af";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(30, 326);
+        ctx.lineTo(canvas.width / 2, 28);
+        ctx.lineTo(canvas.width - 30, 326);
+        ctx.stroke();
+
+        balloons.forEach((balloon) => {
+          ctx.fillStyle = balloon.color;
+          ctx.beginPath();
+          ctx.arc(balloon.x, balloon.y, balloon.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#f8fafc";
+          ctx.stroke();
+        });
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(board.x, board.y, board.w, board.h);
+        ctx.fillStyle = "#f43f5e";
+        ctx.beginPath();
+        ctx.arc(board.x + board.w / 2, board.y + 18, 18, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.arc(acrobat.x, acrobat.y, acrobat.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(acrobat.x - 4, acrobat.y - 3, 3, 3);
+        ctx.fillRect(acrobat.x + 3, acrobat.y - 3, 3, 3);
+
+        if (message) {
+          ctx.fillStyle = "rgba(15, 23, 42, 0.82)";
+          ctx.fillRect(92, 154, 336, 88);
+          ctx.fillStyle = "#f8fafc";
+          ctx.font = "700 28px system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(message, canvas.width / 2, 198);
+          ctx.font = "14px system-ui";
+          ctx.fillText("点击重新开始再演一场", canvas.width / 2, 222);
+          ctx.textAlign = "start";
+        }
+      }
+
+      function gameLoop() {
+        if (running) {
+          updateBoard();
+          updateAcrobat();
+        }
+        renderCircus();
+        requestAnimationFrame(gameLoop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (["arrowleft", "arrowright", " ", "a", "d"].includes(key)) event.preventDefault();
+        if (event.key === " ") launchAcrobat();
+        keys.add(key.startsWith("arrow") ? event.key : key);
+      });
+      document.addEventListener("keyup", (event) => {
+        keys.delete(event.key);
+        keys.delete(event.key.toLowerCase());
+      });
+      document.getElementById("leftBtn").addEventListener("pointerdown", () => keys.add("ArrowLeft"));
+      document.getElementById("leftBtn").addEventListener("pointerup", () => keys.delete("ArrowLeft"));
+      document.getElementById("rightBtn").addEventListener("pointerdown", () => keys.add("ArrowRight"));
+      document.getElementById("rightBtn").addEventListener("pointerup", () => keys.delete("ArrowRight"));
+      document.getElementById("launchBtn").addEventListener("click", launchAcrobat);
+      document.getElementById("restartBtn").addEventListener("click", resetGame);
+
+      resetGame();
+      gameLoop();
+    </script>
+  </body>
+</html>
