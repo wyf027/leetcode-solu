@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Barrel Jump</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-4 p-4">
+      <section class="w-full rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-xl">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold">Mini Barrel Jump</h1>
+            <p class="text-sm text-zinc-300">方向键或 A/D 移动，空格跳跃，躲开滚桶到达顶部。</p>
+          </div>
+          <div class="flex gap-3 text-sm">
+            <span>得分 <strong id="score">0</strong></span>
+            <span>生命 <strong id="lives">3</strong></span>
+            <span>层数 <strong id="level">1</strong></span>
+          </div>
+        </div>
+
+        <canvas id="game" width="520" height="420" class="w-full rounded-md border border-zinc-700 bg-slate-950"></canvas>
+
+        <div class="mt-3 grid grid-cols-3 gap-2">
+          <button id="leftBtn" class="rounded bg-zinc-700 px-3 py-2 font-semibold hover:bg-zinc-600">左移</button>
+          <button id="jumpBtn" class="rounded bg-amber-400 px-3 py-2 font-semibold text-zinc-950 hover:bg-amber-300">跳跃</button>
+          <button id="rightBtn" class="rounded bg-zinc-700 px-3 py-2 font-semibold hover:bg-zinc-600">右移</button>
+        </div>
+        <button id="restartBtn" class="mt-2 w-full rounded bg-zinc-100 px-3 py-2 font-semibold text-zinc-950 hover:bg-white">
+          重新开始
+        </button>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const levelEl = document.getElementById("level");
+      const keys = new Set();
+      const platforms = [
+        { x: 20, y: 372, w: 480, h: 12, slope: 0 },
+        { x: 36, y: 304, w: 448, h: 12, slope: -0.02 },
+        { x: 20, y: 236, w: 464, h: 12, slope: 0.02 },
+        { x: 36, y: 168, w: 448, h: 12, slope: -0.02 },
+        { x: 20, y: 100, w: 464, h: 12, slope: 0.02 },
+      ];
+      const ladders = [
+        { x: 430, y: 304, h: 68 },
+        { x: 74, y: 236, h: 68 },
+        { x: 428, y: 168, h: 68 },
+        { x: 72, y: 100, h: 68 },
+      ];
+      let player;
+      let barrels;
+      let score;
+      let lives;
+      let level;
+      let frame;
+      let running;
+      let message;
+
+      function resetGame() {
+        player = { x: 48, y: 342, w: 22, h: 30, vx: 0, vy: 0, grounded: false, climbing: false };
+        barrels = [];
+        score = 0;
+        lives = 3;
+        level = 1;
+        frame = 0;
+        running = true;
+        message = "";
+        updateHud();
+      }
+
+      function updateHud() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        levelEl.textContent = level;
+      }
+
+      function platformAt(x, y) {
+        return platforms.find((platform) => x >= platform.x && x <= platform.x + platform.w && Math.abs(y - platform.y) < 16);
+      }
+
+      function nearestLadder() {
+        return ladders.find((ladder) => Math.abs(player.x - ladder.x) < 22 && player.y + player.h > ladder.y && player.y < ladder.y + ladder.h);
+      }
+
+      function jumpPlayer() {
+        if (!running) return;
+        if (player.grounded || player.climbing) {
+          player.vy = -9.8;
+          player.grounded = false;
+          player.climbing = false;
+        }
+      }
+
+      function spawnBarrel() {
+        if (frame % Math.max(54, 96 - level * 8) !== 0) return;
+        barrels.push({ x: 466, y: 78, r: 10, vx: -2.1 - level * 0.18, platform: 4 });
+      }
+
+      function updatePlayer() {
+        const ladder = nearestLadder();
+        player.climbing = Boolean(ladder && (keys.has("ArrowUp") || keys.has("w") || keys.has("ArrowDown") || keys.has("s")));
+        player.vx = 0;
+        if (keys.has("ArrowLeft") || keys.has("a")) player.vx = -3.1;
+        if (keys.has("ArrowRight") || keys.has("d")) player.vx = 3.1;
+        player.x += player.vx;
+        player.x = Math.max(20, Math.min(canvas.width - 42, player.x));
+
+        if (player.climbing) {
+          if (keys.has("ArrowUp") || keys.has("w")) player.y -= 2.6;
+          if (keys.has("ArrowDown") || keys.has("s")) player.y += 2.6;
+          player.vy = 0;
+        } else {
+          player.vy += 0.45;
+          player.y += player.vy;
+        }
+
+        player.grounded = false;
+        platforms.forEach((platform) => {
+          const feet = player.y + player.h;
+          if (player.x + player.w > platform.x && player.x < platform.x + platform.w && feet >= platform.y - 2 && feet <= platform.y + 12 && player.vy >= 0) {
+            player.y = platform.y - player.h;
+            player.vy = 0;
+            player.grounded = true;
+          }
+        });
+
+        if (player.y > canvas.height) loseLife();
+      }
+
+      function updateBarrels() {
+        spawnBarrel();
+        barrels.forEach((barrel) => {
+          barrel.x += barrel.vx;
+          const current = platforms[barrel.platform];
+          barrel.y = current.y - barrel.r + Math.sin(frame / 8 + barrel.x / 20) * 2;
+          if (barrel.x < current.x + 12 || barrel.x > current.x + current.w - 12) {
+            barrel.platform -= 1;
+            if (barrel.platform < 0) {
+              barrel.dead = true;
+              score += 5;
+              return;
+            }
+            barrel.vx *= -1;
+            barrel.y = platforms[barrel.platform].y - barrel.r;
+          }
+        });
+        barrels = barrels.filter((barrel) => !barrel.dead);
+      }
+
+      function checkCollisions() {
+        barrels.forEach((barrel) => {
+          const hit =
+            player.x < barrel.x + barrel.r &&
+            player.x + player.w > barrel.x - barrel.r &&
+            player.y < barrel.y + barrel.r &&
+            player.y + player.h > barrel.y - barrel.r;
+          if (hit) loseLife();
+          if (!barrel.scored && player.vy < 0 && Math.abs(player.x - barrel.x) < 28 && player.y + player.h < barrel.y) {
+            barrel.scored = true;
+            score += 10;
+          }
+        });
+
+        if (player.y < 76 && player.x < 120) {
+          score += 50;
+          level += 1;
+          if (level > 3) {
+            running = false;
+            message = "抵达终点";
+          } else {
+            player.x = 48;
+            player.y = 342;
+            barrels = [];
+          }
+        }
+        updateHud();
+      }
+
+      function loseLife() {
+        lives -= 1;
+        if (lives <= 0) {
+          running = false;
+          message = "挑战结束";
+        }
+        player.x = 48;
+        player.y = 342;
+        player.vx = 0;
+        player.vy = 0;
+        barrels = [];
+        updateHud();
+      }
+
+      function renderStage() {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#f97316";
+        ctx.fillRect(42, 54, 64, 24);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "12px system-ui";
+        ctx.fillText("GOAL", 56, 70);
+
+        platforms.forEach((platform, index) => {
+          ctx.fillStyle = index % 2 ? "#dc2626" : "#b91c1c";
+          ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+          ctx.fillStyle = "#fca5a5";
+          for (let x = platform.x; x < platform.x + platform.w; x += 28) {
+            ctx.fillRect(x, platform.y + 3, 16, 3);
+          }
+        });
+
+        ladders.forEach((ladder) => {
+          ctx.strokeStyle = "#fde047";
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(ladder.x, ladder.y);
+          ctx.lineTo(ladder.x, ladder.y + ladder.h);
+          ctx.moveTo(ladder.x + 18, ladder.y);
+          ctx.lineTo(ladder.x + 18, ladder.y + ladder.h);
+          ctx.stroke();
+          ctx.lineWidth = 2;
+          for (let y = ladder.y + 8; y < ladder.y + ladder.h; y += 13) {
+            ctx.beginPath();
+            ctx.moveTo(ladder.x, y);
+            ctx.lineTo(ladder.x + 18, y);
+            ctx.stroke();
+          }
+        });
+
+        barrels.forEach((barrel) => {
+          ctx.fillStyle = "#92400e";
+          ctx.beginPath();
+          ctx.arc(barrel.x, barrel.y, barrel.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#fbbf24";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        });
+
+        ctx.fillStyle = "#38bdf8";
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(player.x + 6, player.y + 6, 4, 4);
+        ctx.fillRect(player.x + 14, player.y + 6, 4, 4);
+
+        if (message) {
+          ctx.fillStyle = "rgba(24, 24, 27, 0.84)";
+          ctx.fillRect(90, 158, 340, 92);
+          ctx.fillStyle = "#f8fafc";
+          ctx.font = "700 28px system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(message, canvas.width / 2, 202);
+          ctx.font = "14px system-ui";
+          ctx.fillText("点击重新开始继续挑战", canvas.width / 2, 226);
+          ctx.textAlign = "start";
+        }
+      }
+
+      function gameLoop() {
+        frame += 1;
+        if (running) {
+          updatePlayer();
+          updateBarrels();
+          checkCollisions();
+        }
+        renderStage();
+        requestAnimationFrame(gameLoop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (["arrowup", "arrowdown", "arrowleft", "arrowright", " ", "w", "a", "s", "d"].includes(key)) event.preventDefault();
+        if (event.key === " ") jumpPlayer();
+        keys.add(key.startsWith("arrow") ? event.key : key);
+      });
+
+      document.addEventListener("keyup", (event) => {
+        keys.delete(event.key);
+        keys.delete(event.key.toLowerCase());
+      });
+
+      document.getElementById("leftBtn").addEventListener("pointerdown", () => keys.add("ArrowLeft"));
+      document.getElementById("leftBtn").addEventListener("pointerup", () => keys.delete("ArrowLeft"));
+      document.getElementById("rightBtn").addEventListener("pointerdown", () => keys.add("ArrowRight"));
+      document.getElementById("rightBtn").addEventListener("pointerup", () => keys.delete("ArrowRight"));
+      document.getElementById("jumpBtn").addEventListener("click", jumpPlayer);
+      document.getElementById("restartBtn").addEventListener("click", resetGame);
+
+      resetGame();
+      gameLoop();
+    </script>
+  </body>
+</html>
