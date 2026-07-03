@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Gauntlet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-amber-200">Mini Gauntlet</h1>
+        <p class="text-sm text-stone-300">Fight through the dungeon, collect keys, and escape through the green portal.</p>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <div class="rounded bg-stone-800 px-3 py-2">Score <span id="score" class="font-semibold text-amber-200">0</span></div>
+        <div class="rounded bg-stone-800 px-3 py-2">Keys <span id="keys" class="font-semibold text-sky-200">0</span></div>
+        <div class="rounded bg-stone-800 px-3 py-2">Health <span id="health" class="font-semibold text-emerald-200">100</span></div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-3">
+        <canvas id="game" width="704" height="528" class="aspect-[4/3] w-full rounded bg-stone-950"></canvas>
+      </div>
+      <aside class="rounded border border-stone-700 bg-stone-900 p-4 text-sm text-stone-300">
+        <div class="mb-4">
+          <h2 class="mb-2 font-semibold text-white">Controls</h2>
+          <p>Arrow keys or WASD move.</p>
+          <p>Space fires a bolt.</p>
+          <p>Enter restarts after game over.</p>
+        </div>
+        <button id="restart" class="w-full rounded bg-amber-300 px-4 py-2 font-semibold text-stone-950 hover:bg-amber-200">Restart</button>
+        <div id="status" class="mt-4 rounded bg-stone-950 p-3 text-stone-100">Find two keys before using the exit.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const keysEl = document.getElementById("keys");
+    const healthEl = document.getElementById("health");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restart");
+
+    const tile = 32;
+    const cols = 22;
+    const rows = 16;
+    const keysDown = new Set();
+    const mapTemplate = [
+      "######################",
+      "#P....#......#....K..#",
+      "#.##..#.####.#.####..#",
+      "#..#..#....#.#....#..#",
+      "##.#.####..#...##.#.##",
+      "#....#..#..#####..#..#",
+      "#.####..#.........##.#",
+      "#......###.#####.....#",
+      "#.####.....#...#.###.#",
+      "#.#..#######.#.#...#.#",
+      "#.#..........#...#.#.#",
+      "#.#####.#######.###..#",
+      "#.....#.....K.#......#",
+      "#.###.#####.#.######.#",
+      "#...#.......#......E.#",
+      "######################"
+    ];
+
+    let map;
+    let hero;
+    let monsters;
+    let bolts;
+    let score;
+    let keyCount;
+    let health;
+    let tick;
+    let cooldown;
+    let running;
+    let won;
+    let lastTime;
+
+    function cloneMap() {
+      return mapTemplate.map((line) => line.split(""));
+    }
+
+    function resetGame() {
+      map = cloneMap();
+      hero = { x: 1, y: 1, px: tile + 4, py: tile + 4, dir: { x: 1, y: 0 } };
+      monsters = [
+        { x: 10, y: 5, hp: 2, step: 0 },
+        { x: 17, y: 7, hp: 2, step: 0 },
+        { x: 5, y: 12, hp: 2, step: 0 },
+        { x: 14, y: 10, hp: 2, step: 0 }
+      ];
+      bolts = [];
+      score = 0;
+      keyCount = 0;
+      health = 100;
+      tick = 0;
+      cooldown = 0;
+      running = true;
+      won = false;
+      lastTime = 0;
+      statusEl.textContent = "Find two keys before using the exit.";
+      updateHud();
+      renderGauntlet();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      keysEl.textContent = keyCount;
+      healthEl.textContent = health;
+    }
+
+    function cell(x, y) {
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return "#";
+      return map[y][x];
+    }
+
+    function walkable(x, y) {
+      return cell(x, y) !== "#";
+    }
+
+    function moveHero(dx, dy) {
+      if (!dx && !dy) return;
+      hero.dir = { x: dx, y: dy };
+      const nx = hero.x + dx;
+      const ny = hero.y + dy;
+      if (!walkable(nx, ny)) return;
+      hero.x = nx;
+      hero.y = ny;
+      hero.px = nx * tile + 4;
+      hero.py = ny * tile + 4;
+      const here = cell(nx, ny);
+      if (here === "K") {
+        keyCount++;
+        score += 250;
+        map[ny][nx] = ".";
+        statusEl.textContent = keyCount >= 2 ? "The exit is open." : "Key collected.";
+      } else if (here === "E") {
+        if (keyCount >= 2) {
+          running = false;
+          won = true;
+          score += 1000;
+          statusEl.textContent = "Dungeon cleared. Press Restart to play again.";
+        } else {
+          statusEl.textContent = "The portal needs two keys.";
+        }
+      }
+      updateHud();
+    }
+
+    function updateHero() {
+      if (cooldown > 0) cooldown--;
+      if (tick % 5 !== 0) return;
+      if (keysDown.has("ArrowLeft") || keysDown.has("a")) moveHero(-1, 0);
+      else if (keysDown.has("ArrowRight") || keysDown.has("d")) moveHero(1, 0);
+      else if (keysDown.has("ArrowUp") || keysDown.has("w")) moveHero(0, -1);
+      else if (keysDown.has("ArrowDown") || keysDown.has("s")) moveHero(0, 1);
+    }
+
+    function fireBolt() {
+      if (!running || cooldown > 0) return;
+      bolts.push({ x: hero.x, y: hero.y, dx: hero.dir.x, dy: hero.dir.y, life: 12 });
+      cooldown = 12;
+    }
+
+    function updateBolts() {
+      bolts.forEach((bolt) => {
+        bolt.x += bolt.dx;
+        bolt.y += bolt.dy;
+        bolt.life--;
+      });
+      bolts = bolts.filter((bolt) => walkable(bolt.x, bolt.y) && bolt.life > 0);
+
+      monsters = monsters.filter((monster) => {
+        const hit = bolts.some((bolt) => bolt.x === monster.x && bolt.y === monster.y);
+        if (hit) {
+          monster.hp--;
+          score += 75;
+          updateHud();
+        }
+        if (monster.hp <= 0) {
+          score += 200;
+          updateHud();
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function chooseMonsterStep(monster) {
+      const options = [
+        { x: 1, y: 0 },
+        { x: -1, y: 0 },
+        { x: 0, y: 1 },
+        { x: 0, y: -1 }
+      ].filter((dir) => walkable(monster.x + dir.x, monster.y + dir.y));
+      if (!options.length) return { x: 0, y: 0 };
+      options.sort((a, b) => {
+        const da = Math.abs(monster.x + a.x - hero.x) + Math.abs(monster.y + a.y - hero.y);
+        const db = Math.abs(monster.x + b.x - hero.x) + Math.abs(monster.y + b.y - hero.y);
+        return da - db;
+      });
+      if (Math.random() < 0.72) return options[0];
+      return options[Math.floor(Math.random() * options.length)];
+    }
+
+    function updateMonsters() {
+      if (tick % 18 !== 0) return;
+      monsters.forEach((monster) => {
+        const dir = chooseMonsterStep(monster);
+        monster.x += dir.x;
+        monster.y += dir.y;
+      });
+      if (monsters.some((monster) => monster.x === hero.x && monster.y === hero.y)) {
+        health = Math.max(0, health - 18);
+        statusEl.textContent = "A monster hit you.";
+        updateHud();
+        if (health <= 0) {
+          running = false;
+          statusEl.textContent = "Game over. Press Enter or Restart.";
+        }
+      }
+      if (monsters.length === 0) {
+        statusEl.textContent = keyCount >= 2 ? "All monsters gone. Use the exit." : "All monsters gone. Find the keys.";
+      }
+    }
+
+    function updateGame() {
+      if (!running) return;
+      tick++;
+      updateHero();
+      updateBolts();
+      updateMonsters();
+    }
+
+    function drawCell(x, y, value) {
+      const px = x * tile;
+      const py = y * tile;
+      if (value === "#") {
+        ctx.fillStyle = "#292524";
+        ctx.fillRect(px, py, tile, tile);
+        ctx.strokeStyle = "#57534e";
+        ctx.strokeRect(px + 2, py + 2, tile - 4, tile - 4);
+      } else {
+        ctx.fillStyle = "#0c0a09";
+        ctx.fillRect(px, py, tile, tile);
+        ctx.fillStyle = "#1c1917";
+        ctx.fillRect(px + 4, py + 4, tile - 8, tile - 8);
+        if (value === "K") {
+          ctx.fillStyle = "#facc15";
+          ctx.fillRect(px + 11, py + 8, 9, 16);
+          ctx.fillRect(px + 18, py + 17, 8, 4);
+        } else if (value === "E") {
+          ctx.fillStyle = keyCount >= 2 ? "#22c55e" : "#166534";
+          ctx.beginPath();
+          ctx.arc(px + 16, py + 16, 11, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawHero() {
+      ctx.fillStyle = "#60a5fa";
+      ctx.fillRect(hero.px + 5, hero.py + 5, 16, 20);
+      ctx.fillStyle = "#fef3c7";
+      ctx.beginPath();
+      ctx.arc(hero.px + 13, hero.py + 7, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f97316";
+      ctx.fillRect(hero.px + 12 + hero.dir.x * 8, hero.py + 14 + hero.dir.y * 8, 8, 4);
+    }
+
+    function drawMonsters() {
+      monsters.forEach((monster) => {
+        const px = monster.x * tile + 6;
+        const py = monster.y * tile + 6;
+        ctx.fillStyle = monster.hp > 1 ? "#ef4444" : "#fb7185";
+        ctx.beginPath();
+        ctx.arc(px + 10, py + 10, 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(px + 5, py + 7, 4, 4);
+        ctx.fillRect(px + 13, py + 7, 4, 4);
+      });
+    }
+
+    function drawBolts() {
+      ctx.fillStyle = "#fde68a";
+      bolts.forEach((bolt) => {
+        ctx.fillRect(bolt.x * tile + 12, bolt.y * tile + 12, 8, 8);
+      });
+    }
+
+    function renderGauntlet() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) drawCell(x, y, map[y][x]);
+      }
+      drawBolts();
+      drawMonsters();
+      drawHero();
+
+      if (!running) {
+        ctx.fillStyle = "rgba(12, 10, 9, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = won ? "#bbf7d0" : "#fecaca";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "Dungeon Cleared" : "Game Over", canvas.width / 2, canvas.height / 2);
+        ctx.font = "18px sans-serif";
+        ctx.fillText("Press Enter or Restart", canvas.width / 2, canvas.height / 2 + 34);
+      }
+    }
+
+    function gameLoop(time) {
+      if (!lastTime) lastTime = time;
+      if (time - lastTime > 16) {
+        updateGame();
+        renderGauntlet();
+        lastTime = time;
+      }
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "w", "a", "s", "d", "Enter"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") fireBolt();
+      else if (key === "Enter" && !running) resetGame();
+      else keysDown.add(key);
+    });
+
+    document.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keysDown.delete(key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
