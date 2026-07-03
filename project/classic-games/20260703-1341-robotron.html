@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Robotron</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 px-4 py-8">
+      <section class="w-full max-w-2xl rounded-lg border border-neutral-700 bg-neutral-900 p-4 shadow-2xl">
+        <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold">Mini Robotron</h1>
+            <p class="mt-1 text-sm text-neutral-400">移动、射击、救出人类，并清空追踪机器人。</p>
+          </div>
+          <button
+            id="resetButton"
+            class="rounded bg-cyan-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-cyan-300"
+            type="button"
+          >
+            重新开始
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-neutral-700 bg-neutral-800 p-2">
+            <div class="text-neutral-400">分数</div>
+            <div id="scoreStatus" class="font-semibold">0</div>
+          </div>
+          <div class="rounded border border-neutral-700 bg-neutral-800 p-2">
+            <div class="text-neutral-400">人类</div>
+            <div id="humanStatus" class="font-semibold">0 / 0</div>
+          </div>
+          <div class="rounded border border-neutral-700 bg-neutral-800 p-2">
+            <div class="text-neutral-400">机器人</div>
+            <div id="botStatus" class="font-semibold">0</div>
+          </div>
+        </div>
+
+        <canvas
+          id="gameCanvas"
+          class="mt-4 block w-full rounded border border-neutral-700 bg-neutral-950"
+          width="560"
+          height="420"
+        ></canvas>
+
+        <div id="message" class="mt-3 min-h-6 text-center text-sm font-semibold text-cyan-300"></div>
+
+        <div class="mt-4 grid grid-cols-4 gap-2">
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="left" type="button">左</button>
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="up" type="button">上</button>
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="down" type="button">下</button>
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="right" type="button">右</button>
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="shootLeft" type="button">射左</button>
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="shootUp" type="button">射上</button>
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="shootDown" type="button">射下</button>
+          <button class="actionButton rounded bg-neutral-700 py-2 hover:bg-neutral-600" data-action="shootRight" type="button">射右</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const scoreStatus = document.getElementById("scoreStatus");
+      const humanStatus = document.getElementById("humanStatus");
+      const botStatus = document.getElementById("botStatus");
+      const message = document.getElementById("message");
+      const resetButton = document.getElementById("resetButton");
+
+      const keys = {};
+      const bounds = { left: 20, top: 20, right: canvas.width - 20, bottom: canvas.height - 20 };
+      let player;
+      let bullets;
+      let robots;
+      let humans;
+      let score;
+      let savedHumans;
+      let gameOver;
+      let frameId;
+      let cooldown;
+
+      function resetGame() {
+        player = { x: canvas.width / 2, y: canvas.height / 2, r: 12 };
+        bullets = [];
+        robots = [
+          { x: 70, y: 70, r: 12, speed: 0.85 },
+          { x: 490, y: 70, r: 12, speed: 0.9 },
+          { x: 90, y: 340, r: 12, speed: 0.82 },
+          { x: 470, y: 335, r: 12, speed: 0.95 },
+          { x: 275, y: 65, r: 12, speed: 0.78 },
+        ];
+        humans = [
+          { x: 110, y: 190, r: 9, saved: false },
+          { x: 450, y: 195, r: 9, saved: false },
+          { x: 280, y: 340, r: 9, saved: false },
+        ];
+        score = 0;
+        savedHumans = 0;
+        cooldown = 0;
+        gameOver = false;
+        message.textContent = "WASD/方向键移动，IJKL 射击。";
+        cancelAnimationFrame(frameId);
+        frameId = requestAnimationFrame(gameLoop);
+      }
+
+      function gameLoop() {
+        updatePlayer();
+        updateBullets();
+        updateRobots();
+        checkCollisions();
+        renderArena();
+        updateStatus();
+
+        if (!gameOver) {
+          frameId = requestAnimationFrame(gameLoop);
+        }
+      }
+
+      function updatePlayer() {
+        const speed = 2.8;
+        if (keys.ArrowLeft || keys.a) player.x -= speed;
+        if (keys.ArrowRight || keys.d) player.x += speed;
+        if (keys.ArrowUp || keys.w) player.y -= speed;
+        if (keys.ArrowDown || keys.s) player.y += speed;
+        player.x = clamp(player.x, bounds.left, bounds.right);
+        player.y = clamp(player.y, bounds.top, bounds.bottom);
+        cooldown = Math.max(0, cooldown - 1);
+
+        if (keys.j) shootBullet(-1, 0);
+        if (keys.l) shootBullet(1, 0);
+        if (keys.i) shootBullet(0, -1);
+        if (keys.k) shootBullet(0, 1);
+      }
+
+      function shootBullet(dx, dy) {
+        if (gameOver || cooldown > 0) {
+          return;
+        }
+        bullets.push({ x: player.x, y: player.y, vx: dx * 5.5, vy: dy * 5.5, r: 4 });
+        cooldown = 8;
+      }
+
+      function updateBullets() {
+        bullets = bullets
+          .map((bullet) => ({ ...bullet, x: bullet.x + bullet.vx, y: bullet.y + bullet.vy }))
+          .filter((bullet) => bullet.x > 0 && bullet.x < canvas.width && bullet.y > 0 && bullet.y < canvas.height);
+      }
+
+      function updateRobots() {
+        robots.forEach((robot) => {
+          const angle = Math.atan2(player.y - robot.y, player.x - robot.x);
+          robot.x += Math.cos(angle) * robot.speed;
+          robot.y += Math.sin(angle) * robot.speed;
+        });
+      }
+
+      function checkCollisions() {
+        humans.forEach((human) => {
+          if (!human.saved && distance(player, human) < player.r + human.r) {
+            human.saved = true;
+            savedHumans += 1;
+            score += 200;
+            message.textContent = "救出一名人类。";
+          }
+        });
+
+        robots = robots.filter((robot) => {
+          const hit = bullets.some((bullet) => distance(robot, bullet) < robot.r + bullet.r);
+          if (hit) {
+            score += 100;
+          }
+          return !hit;
+        });
+
+        bullets = bullets.filter((bullet) => !robots.some((robot) => distance(robot, bullet) < robot.r + bullet.r));
+
+        if (robots.some((robot) => distance(robot, player) < robot.r + player.r)) {
+          gameOver = true;
+          message.textContent = "机器人撞上了你。";
+          return;
+        }
+
+        if (robots.length === 0) {
+          gameOver = true;
+          score += savedHumans * 100;
+          message.textContent = "竞技场清空！";
+        }
+      }
+
+      function renderArena() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGrid();
+        humans.forEach(drawHuman);
+        bullets.forEach(drawBullet);
+        robots.forEach(drawRobot);
+        drawPlayer();
+      }
+
+      function drawGrid() {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "#1f2937";
+        for (let x = 40; x < canvas.width; x += 40) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        for (let y = 40; y < canvas.height; y += 40) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      }
+
+      function drawPlayer() {
+        ctx.fillStyle = "#22d3ee";
+        ctx.fillRect(player.x - 12, player.y - 12, 24, 24);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(player.x - 5, player.y - 4, 4, 4);
+        ctx.fillRect(player.x + 2, player.y - 4, 4, 4);
+      }
+
+      function drawRobot(robot) {
+        ctx.fillStyle = "#fb7185";
+        ctx.fillRect(robot.x - 12, robot.y - 12, 24, 24);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(robot.x - 6, robot.y - 5, 5, 5);
+        ctx.fillRect(robot.x + 2, robot.y - 5, 5, 5);
+      }
+
+      function drawHuman(human) {
+        if (human.saved) {
+          return;
+        }
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(human.x, human.y, human.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawBullet(bullet) {
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(bullet.x, bullet.y, bullet.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function distance(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function updateStatus() {
+        scoreStatus.textContent = String(score);
+        humanStatus.textContent = `${savedHumans} / ${humans.length}`;
+        botStatus.textContent = String(robots.length);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        keys[event.key] = true;
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) {
+          event.preventDefault();
+        }
+      });
+
+      document.addEventListener("keyup", (event) => {
+        keys[event.key] = false;
+      });
+
+      document.querySelectorAll(".actionButton").forEach((button) => {
+        button.addEventListener("click", () => {
+          const actions = {
+            left: () => {
+              player.x -= 18;
+            },
+            right: () => {
+              player.x += 18;
+            },
+            up: () => {
+              player.y -= 18;
+            },
+            down: () => {
+              player.y += 18;
+            },
+            shootLeft: () => shootBullet(-1, 0),
+            shootRight: () => shootBullet(1, 0),
+            shootUp: () => shootBullet(0, -1),
+            shootDown: () => shootBullet(0, 1),
+          };
+          actions[button.dataset.action]();
+        });
+      });
+
+      resetButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
