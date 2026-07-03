@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Lode Runner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-5 px-4 py-8">
+      <section class="w-full max-w-3xl rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+        <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold">Mini Lode Runner</h1>
+            <p class="mt-1 text-sm text-zinc-400">收集全部金块后，从右上角出口离开。</p>
+          </div>
+          <button
+            id="resetButton"
+            class="rounded bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-300"
+            type="button"
+          >
+            重新开始
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-zinc-700 bg-zinc-800 p-2">
+            <div class="text-zinc-400">金块</div>
+            <div id="goldStatus" class="font-semibold">0 / 0</div>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-800 p-2">
+            <div class="text-zinc-400">步数</div>
+            <div id="moveStatus" class="font-semibold">0</div>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-800 p-2">
+            <div class="text-zinc-400">状态</div>
+            <div id="stateStatus" class="font-semibold">探索</div>
+          </div>
+        </div>
+
+        <canvas
+          id="gameCanvas"
+          class="mt-4 block w-full rounded border border-zinc-700 bg-zinc-950"
+          width="672"
+          height="448"
+        ></canvas>
+
+        <div id="message" class="mt-3 min-h-6 text-center text-sm font-semibold text-amber-300"></div>
+
+        <div class="mt-4 grid grid-cols-3 gap-2">
+          <span></span>
+          <button class="moveButton rounded bg-zinc-700 py-2 hover:bg-zinc-600" data-dir="up" type="button">上</button>
+          <span></span>
+          <button class="moveButton rounded bg-zinc-700 py-2 hover:bg-zinc-600" data-dir="left" type="button">左</button>
+          <button class="moveButton rounded bg-zinc-700 py-2 hover:bg-zinc-600" data-dir="down" type="button">下</button>
+          <button class="moveButton rounded bg-zinc-700 py-2 hover:bg-zinc-600" data-dir="right" type="button">右</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const levelMap = [
+        "#####################",
+        "#P....H....G....H..E#",
+        "#.####H########.H####",
+        "#....GH......G.H...G#",
+        "####.######H######.##",
+        "#..G....H..H....G...#",
+        "#.######H#####.######",
+        "#....H....K....H....#",
+        "####.############.###",
+        "#G...H....G....H...G#",
+        "#.####H########H#####",
+        "#####################",
+      ];
+
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const goldStatus = document.getElementById("goldStatus");
+      const moveStatus = document.getElementById("moveStatus");
+      const stateStatus = document.getElementById("stateStatus");
+      const message = document.getElementById("message");
+      const resetButton = document.getElementById("resetButton");
+      const tileSize = 32;
+
+      let grid;
+      let player;
+      let guard;
+      let totalGold;
+      let collectedGold;
+      let moves;
+      let gameOver;
+
+      function resetGame() {
+        grid = levelMap.map((row) => row.split(""));
+        totalGold = 0;
+        collectedGold = 0;
+        moves = 0;
+        gameOver = false;
+        message.textContent = "方向键或 WASD 移动，梯子可上下攀爬。";
+
+        for (let y = 0; y < grid.length; y += 1) {
+          for (let x = 0; x < grid[y].length; x += 1) {
+            if (grid[y][x] === "P") {
+              player = { x, y };
+              grid[y][x] = ".";
+            }
+            if (grid[y][x] === "K") {
+              guard = { x, y, dir: -1 };
+              grid[y][x] = ".";
+            }
+            if (grid[y][x] === "G") {
+              totalGold += 1;
+            }
+          }
+        }
+
+        renderGame();
+        updateStatus();
+      }
+
+      function renderGame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < grid.length; y += 1) {
+          for (let x = 0; x < grid[y].length; x += 1) {
+            drawTile(grid[y][x], x, y);
+          }
+        }
+
+        drawRunner(player.x, player.y, "#38bdf8");
+        drawRunner(guard.x, guard.y, "#f43f5e");
+      }
+
+      function drawTile(tile, x, y) {
+        const left = x * tileSize;
+        const top = y * tileSize;
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(left, top, tileSize, tileSize);
+
+        if (tile === "#") {
+          ctx.fillStyle = "#57534e";
+          ctx.fillRect(left + 1, top + 1, tileSize - 2, tileSize - 2);
+          ctx.fillStyle = "#78716c";
+          ctx.fillRect(left + 3, top + 6, tileSize - 6, 3);
+          ctx.fillRect(left + 3, top + 18, tileSize - 6, 3);
+        } else if (tile === "H") {
+          ctx.strokeStyle = "#f59e0b";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(left + 9, top + 4);
+          ctx.lineTo(left + 9, top + tileSize - 4);
+          ctx.moveTo(left + tileSize - 9, top + 4);
+          ctx.lineTo(left + tileSize - 9, top + tileSize - 4);
+          for (let rung = 8; rung < tileSize; rung += 8) {
+            ctx.moveTo(left + 9, top + rung);
+            ctx.lineTo(left + tileSize - 9, top + rung);
+          }
+          ctx.stroke();
+        } else if (tile === "G") {
+          ctx.fillStyle = "#facc15";
+          ctx.beginPath();
+          ctx.arc(left + tileSize / 2, top + tileSize / 2, 8, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (tile === "E") {
+          ctx.fillStyle = collectedGold === totalGold ? "#22c55e" : "#3f3f46";
+          ctx.fillRect(left + 7, top + 5, tileSize - 14, tileSize - 10);
+          ctx.fillStyle = "#09090b";
+          ctx.fillRect(left + 14, top + 13, 4, 8);
+        }
+
+        ctx.strokeStyle = "#18181b";
+        ctx.strokeRect(left, top, tileSize, tileSize);
+      }
+
+      function drawRunner(x, y, color) {
+        const centerX = x * tileSize + tileSize / 2;
+        const centerY = y * tileSize + tileSize / 2;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY - 8, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY - 2);
+        ctx.lineTo(centerX, centerY + 9);
+        ctx.moveTo(centerX - 9, centerY + 1);
+        ctx.lineTo(centerX + 9, centerY + 1);
+        ctx.moveTo(centerX, centerY + 9);
+        ctx.lineTo(centerX - 8, centerY + 15);
+        ctx.moveTo(centerX, centerY + 9);
+        ctx.lineTo(centerX + 8, centerY + 15);
+        ctx.stroke();
+      }
+
+      function movePlayer(dx, dy) {
+        if (gameOver) {
+          return;
+        }
+
+        const nextX = player.x + dx;
+        const nextY = player.y + dy;
+        if (!canMoveTo(nextX, nextY, dx, dy)) {
+          message.textContent = "这里无法通过。";
+          return;
+        }
+
+        player = { x: nextX, y: nextY };
+        moves += 1;
+        collectGold(nextX, nextY);
+        moveGuard();
+        checkGameState();
+        renderGame();
+        updateStatus();
+      }
+
+      function canMoveTo(x, y, dx, dy) {
+        const tile = grid[y]?.[x];
+        if (!tile || tile === "#") {
+          return false;
+        }
+        if (tile === "E" && collectedGold < totalGold) {
+          return false;
+        }
+        if (dy !== 0 && grid[player.y][player.x] !== "H" && tile !== "H") {
+          return false;
+        }
+        return true;
+      }
+
+      function collectGold(x, y) {
+        if (grid[y][x] !== "G") {
+          return;
+        }
+        grid[y][x] = ".";
+        collectedGold += 1;
+        message.textContent = collectedGold === totalGold ? "出口已开启。" : "拿到金块。";
+      }
+
+      function moveGuard() {
+        const targetX = guard.x + guard.dir;
+        if (grid[guard.y][targetX] === "#") {
+          guard.dir *= -1;
+        } else {
+          guard.x = targetX;
+        }
+      }
+
+      function checkGameState() {
+        if (player.x === guard.x && player.y === guard.y) {
+          gameOver = true;
+          stateStatus.textContent = "失败";
+          message.textContent = "被守卫抓住了。";
+          return;
+        }
+
+        if (grid[player.y][player.x] === "E" && collectedGold === totalGold) {
+          gameOver = true;
+          stateStatus.textContent = "完成";
+          message.textContent = "成功逃出矿道！";
+        }
+      }
+
+      function updateStatus() {
+        goldStatus.textContent = `${collectedGold} / ${totalGold}`;
+        moveStatus.textContent = String(moves);
+        if (!gameOver) {
+          stateStatus.textContent = collectedGold === totalGold ? "出口开启" : "探索";
+        }
+      }
+
+      const keyMap = {
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        w: [0, -1],
+        s: [0, 1],
+        a: [-1, 0],
+        d: [1, 0],
+      };
+
+      document.addEventListener("keydown", (event) => {
+        const direction = keyMap[event.key];
+        if (!direction) {
+          return;
+        }
+        event.preventDefault();
+        movePlayer(direction[0], direction[1]);
+      });
+
+      document.querySelectorAll(".moveButton").forEach((button) => {
+        button.addEventListener("click", () => {
+          const directionMap = {
+            up: [0, -1],
+            down: [0, 1],
+            left: [-1, 0],
+            right: [1, 0],
+          };
+          const direction = directionMap[button.dataset.dir];
+          movePlayer(direction[0], direction[1]);
+        });
+      });
+
+      resetButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
