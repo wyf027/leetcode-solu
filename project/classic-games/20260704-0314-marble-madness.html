@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Marble Madness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-emerald-200">Mini Marble Madness</h1>
+          <p class="text-sm text-zinc-400">Roll through the marble maze, collect gems, and avoid the black pits.</p>
+        </div>
+        <div class="flex flex-wrap gap-2 text-sm">
+          <span class="rounded bg-zinc-900 px-3 py-2 ring-1 ring-zinc-700">Score <b id="score">0</b></span>
+          <span class="rounded bg-zinc-900 px-3 py-2 ring-1 ring-zinc-700">Time <b id="time">60</b></span>
+          <span class="rounded bg-zinc-900 px-3 py-2 ring-1 ring-zinc-700">Lives <b id="lives">3</b></span>
+          <span class="rounded bg-zinc-900 px-3 py-2 ring-1 ring-zinc-700">Gems <b id="gems">0</b>/6</span>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+        <div class="overflow-hidden rounded border border-zinc-700 bg-zinc-900 shadow-2xl shadow-emerald-950/30">
+          <canvas id="game" width="760" height="560" class="block h-auto w-full bg-zinc-950"></canvas>
+        </div>
+        <aside class="rounded border border-zinc-700 bg-zinc-900 p-4 text-sm text-zinc-300">
+          <h2 class="mb-2 font-semibold text-emerald-200">Controls</h2>
+          <p>Arrow keys or WASD tilt the board.</p>
+          <p class="mt-2">Enter restarts after a finish or wipeout.</p>
+          <h2 class="mb-2 mt-5 font-semibold text-emerald-200">Goal</h2>
+          <p>Reach the green exit. Gems add score, pits cost lives, and walls bounce the marble.</p>
+          <button
+            id="restart"
+            class="mt-5 w-full rounded bg-emerald-400 px-4 py-2 font-semibold text-zinc-950 transition hover:bg-emerald-300"
+          >
+            Restart
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const timeEl = document.getElementById("time");
+      const livesEl = document.getElementById("lives");
+      const gemsEl = document.getElementById("gems");
+      const restartButton = document.getElementById("restart");
+      const keys = new Set();
+
+      const tile = 40;
+      const offsetX = 60;
+      const offsetY = 58;
+      const maze = [
+        "################",
+        "#S..#......G...#",
+        "#.#.#.####.###.#",
+        "#.#...#..#...#.#",
+        "#.###.#P.###.#.#",
+        "#...#....#...#.#",
+        "###.######.###.#",
+        "#...G....#.....#",
+        "#.#####P.#.###.#",
+        "#.....#....#G..#",
+        "#.###.######.#.#",
+        "#...#....G...#E#",
+        "#P#.####.###...#",
+        "#....G.....P...#",
+        "################"
+      ];
+
+      let marble;
+      let gems;
+      let pits;
+      let score;
+      let lives;
+      let timeLeft;
+      let lastTick;
+      let gameOver;
+      let message;
+
+      function buildMaze() {
+        gems = [];
+        pits = [];
+        for (let row = 0; row < maze.length; row += 1) {
+          for (let col = 0; col < maze[row].length; col += 1) {
+            const cell = maze[row][col];
+            if (cell === "G") gems.push({ x: col, y: row, taken: false });
+            if (cell === "P") pits.push({ x: col, y: row });
+          }
+        }
+      }
+
+      function resetBall() {
+        marble.x = offsetX + tile * 1.5;
+        marble.y = offsetY + tile * 1.5;
+        marble.vx = 0;
+        marble.vy = 0;
+      }
+
+      function resetGame() {
+        buildMaze();
+        marble = { x: 0, y: 0, vx: 0, vy: 0, radius: 13, invincible: 0 };
+        score = 0;
+        lives = 3;
+        timeLeft = 60;
+        lastTick = performance.now();
+        gameOver = false;
+        message = "Tilt gently. Momentum matters.";
+        resetBall();
+        syncHud();
+      }
+
+      function syncHud() {
+        scoreEl.textContent = score;
+        timeEl.textContent = Math.max(0, Math.ceil(timeLeft));
+        livesEl.textContent = lives;
+        gemsEl.textContent = gems.filter((gem) => gem.taken).length;
+      }
+
+      function cellAtPixel(x, y) {
+        const col = Math.floor((x - offsetX) / tile);
+        const row = Math.floor((y - offsetY) / tile);
+        if (row < 0 || row >= maze.length || col < 0 || col >= maze[0].length) return "#";
+        return maze[row][col];
+      }
+
+      function isWallAt(x, y) {
+        return cellAtPixel(x, y) === "#";
+      }
+
+      function bounceAxis(axis) {
+        if (axis === "x") marble.vx *= -0.42;
+        if (axis === "y") marble.vy *= -0.42;
+      }
+
+      function updateMarble(delta) {
+        let ax = 0;
+        let ay = 0;
+        if (keys.has("ArrowLeft") || keys.has("a")) ax -= 0.022;
+        if (keys.has("ArrowRight") || keys.has("d")) ax += 0.022;
+        if (keys.has("ArrowUp") || keys.has("w")) ay -= 0.022;
+        if (keys.has("ArrowDown") || keys.has("s")) ay += 0.022;
+
+        marble.vx = (marble.vx + ax * delta) * 0.986;
+        marble.vy = (marble.vy + ay * delta) * 0.986;
+        marble.vx = Math.max(-5.2, Math.min(5.2, marble.vx));
+        marble.vy = Math.max(-5.2, Math.min(5.2, marble.vy));
+
+        const nextX = marble.x + marble.vx;
+        if (
+          isWallAt(nextX - marble.radius, marble.y) ||
+          isWallAt(nextX + marble.radius, marble.y) ||
+          isWallAt(nextX, marble.y - marble.radius) ||
+          isWallAt(nextX, marble.y + marble.radius)
+        ) {
+          bounceAxis("x");
+        } else {
+          marble.x = nextX;
+        }
+
+        const nextY = marble.y + marble.vy;
+        if (
+          isWallAt(marble.x - marble.radius, nextY) ||
+          isWallAt(marble.x + marble.radius, nextY) ||
+          isWallAt(marble.x, nextY - marble.radius) ||
+          isWallAt(marble.x, nextY + marble.radius)
+        ) {
+          bounceAxis("y");
+        } else {
+          marble.y = nextY;
+        }
+
+        if (marble.invincible > 0) marble.invincible -= 1;
+      }
+
+      function checkObjects() {
+        const col = Math.floor((marble.x - offsetX) / tile);
+        const row = Math.floor((marble.y - offsetY) / tile);
+
+        gems.forEach((gem) => {
+          if (gem.taken || gem.x !== col || gem.y !== row) return;
+          gem.taken = true;
+          score += 150;
+          message = "Gem collected.";
+        });
+
+        const inPit = pits.some((pit) => pit.x === col && pit.y === row);
+        if (inPit && marble.invincible <= 0) {
+          lives -= 1;
+          message = "The marble dropped into a pit.";
+          if (lives <= 0) {
+            gameOver = true;
+            message = "All marbles lost. Press Enter.";
+          } else {
+            marble.invincible = 80;
+            resetBall();
+          }
+        }
+
+        if (cellAtPixel(marble.x, marble.y) === "E") {
+          score += 500 + Math.ceil(timeLeft) * 10;
+          gameOver = true;
+          message = "Exit reached. Press Enter.";
+        }
+      }
+
+      function updateTimer(now) {
+        const elapsed = (now - lastTick) / 1000;
+        lastTick = now;
+        timeLeft -= elapsed;
+        if (timeLeft <= 0) {
+          timeLeft = 0;
+          gameOver = true;
+          message = "Time ran out. Press Enter.";
+        }
+      }
+
+      function drawDiamond(cx, cy, size, color) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - size);
+        ctx.lineTo(cx + size, cy);
+        ctx.lineTo(cx, cy + size);
+        ctx.lineTo(cx - size, cy);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function renderMarbleMadness() {
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (let row = 0; row < maze.length; row += 1) {
+          for (let col = 0; col < maze[row].length; col += 1) {
+            const x = offsetX + col * tile;
+            const y = offsetY + row * tile;
+            const cell = maze[row][col];
+            if (cell === "#") {
+              ctx.fillStyle = "#3f3f46";
+              ctx.fillRect(x, y, tile, tile);
+              ctx.fillStyle = "#52525b";
+              ctx.fillRect(x + 3, y + 3, tile - 6, tile - 6);
+            } else {
+              ctx.fillStyle = (row + col) % 2 === 0 ? "#134e4a" : "#115e59";
+              ctx.fillRect(x, y, tile, tile);
+            }
+            if (cell === "E") {
+              ctx.fillStyle = "#22c55e";
+              ctx.fillRect(x + 7, y + 7, tile - 14, tile - 14);
+            }
+          }
+        }
+
+        pits.forEach((pit) => {
+          const cx = offsetX + pit.x * tile + tile / 2;
+          const cy = offsetY + pit.y * tile + tile / 2;
+          ctx.fillStyle = "#020617";
+          ctx.beginPath();
+          ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#64748b";
+          ctx.stroke();
+        });
+
+        gems.forEach((gem) => {
+          if (gem.taken) return;
+          drawDiamond(offsetX + gem.x * tile + tile / 2, offsetY + gem.y * tile + tile / 2, 12, "#facc15");
+        });
+
+        const shine = ctx.createRadialGradient(marble.x - 5, marble.y - 6, 3, marble.x, marble.y, marble.radius + 4);
+        shine.addColorStop(0, "#f8fafc");
+        shine.addColorStop(0.35, "#67e8f9");
+        shine.addColorStop(1, marble.invincible % 12 < 6 ? "#0e7490" : "#22d3ee");
+        ctx.fillStyle = shine;
+        ctx.beginPath();
+        ctx.arc(marble.x, marble.y, marble.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#cffafe";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(24, 24, 27, 0.78)";
+        ctx.fillRect(18, 18, 390, 42);
+        ctx.fillStyle = "#d4d4d8";
+        ctx.font = "16px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillText(message, 32, 45);
+
+        if (gameOver) {
+          ctx.fillStyle = "rgba(9, 9, 11, 0.78)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#bbf7d0";
+          ctx.font = "bold 40px system-ui, sans-serif";
+          ctx.fillText(message.startsWith("Exit") ? "Course Clear" : "Run Over", canvas.width / 2, 248);
+          ctx.font = "18px system-ui, sans-serif";
+          ctx.fillText("Press Enter or Restart to roll again", canvas.width / 2, 286);
+          ctx.textAlign = "left";
+        }
+      }
+
+      function gameLoop(now) {
+        if (!gameOver) {
+          updateTimer(now);
+          updateMarble(16);
+          checkObjects();
+          syncHud();
+        } else {
+          lastTick = now;
+        }
+        renderMarbleMadness();
+        requestAnimationFrame(gameLoop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "w", "a", "s", "d"].includes(event.key)) {
+          event.preventDefault();
+        }
+        if (event.key === "Enter" && gameOver) resetGame();
+        keys.add(event.key);
+      });
+
+      document.addEventListener("keyup", (event) => {
+        keys.delete(event.key);
+      });
+
+      restartButton.addEventListener("click", resetGame);
+
+      resetGame();
+      requestAnimationFrame(gameLoop);
+    </script>
+  </body>
+</html>
