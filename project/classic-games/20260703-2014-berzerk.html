@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Berzerk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-red-300">Mini Berzerk</h1>
+        <p class="text-sm text-neutral-400">Escape the maze, clear robots, and keep moving.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <span class="rounded bg-neutral-900 px-3 py-2 text-red-100">Score <b id="score">0</b></span>
+        <span class="rounded bg-neutral-900 px-3 py-2 text-sky-100">Lives <b id="lives">3</b></span>
+        <span class="rounded bg-neutral-900 px-3 py-2 text-emerald-100">Room <b id="room">1</b></span>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="720" height="560" class="w-full rounded border border-neutral-800 bg-black shadow-2xl shadow-black"></canvas>
+      <aside class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm text-neutral-300">
+        <h2 class="mb-3 text-lg font-semibold text-neutral-100">Controls</h2>
+        <div class="grid gap-2">
+          <div class="flex items-center justify-between gap-3"><span>Move</span><kbd class="rounded bg-neutral-800 px-2 py-1">Arrow keys</kbd></div>
+          <div class="flex items-center justify-between gap-3"><span>Shoot</span><kbd class="rounded bg-neutral-800 px-2 py-1">Space</kbd></div>
+          <div class="flex items-center justify-between gap-3"><span>Restart</span><kbd class="rounded bg-neutral-800 px-2 py-1">R</kbd></div>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-red-400 px-4 py-2 font-semibold text-neutral-950 hover:bg-red-300">Restart</button>
+        <p class="mt-4 text-xs leading-5 text-neutral-500">Exit through any doorway after surviving the room. Shots travel in your last movement direction.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const roomEl = document.getElementById("room");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const tile = 40;
+    const offsetX = 40;
+    const offsetY = 40;
+    const map = [
+      "################",
+      "#......#.......#",
+      "#.####.#.####..#",
+      "#.#....#....#..#",
+      "#.#.######.#...#",
+      "#...#....#.#.###",
+      "###.#.##.#.#...#",
+      "#...#....#...#.#",
+      "#.##########.#.#",
+      "#......#.....#.#",
+      "#.####.#.#####.#",
+      "#..............#",
+      "################"
+    ];
+    const exits = [
+      { x: 7, y: 0 },
+      { x: 15, y: 5 },
+      { x: 0, y: 7 },
+      { x: 8, y: 12 }
+    ];
+
+    let player;
+    let robots;
+    let shots;
+    let score = 0;
+    let lives = 3;
+    let room = 1;
+    let gameOver = false;
+    let lastTime = 0;
+
+    function resetGame() {
+      score = 0;
+      lives = 3;
+      room = 1;
+      gameOver = false;
+      resetRoom();
+    }
+
+    function resetRoom() {
+      player = { x: 1.5, y: 11.2, dirX: 1, dirY: 0, cooldown: 0, safe: 1 };
+      shots = [];
+      robots = [
+        { x: 13.5, y: 1.4, speed: 1.5, cooldown: 0.1 },
+        { x: 2.5, y: 5.6, speed: 1.35, cooldown: 0.4 },
+        { x: 12.5, y: 9.5, speed: 1.45, cooldown: 0.7 },
+        { x: 6.5, y: 3.5, speed: 1.3, cooldown: 1.0 }
+      ].slice(0, Math.min(4, 2 + room));
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      roomEl.textContent = room;
+    }
+
+    function cellAt(x, y) {
+      const cx = Math.floor(x);
+      const cy = Math.floor(y);
+      if (exits.some((exit) => exit.x === cx && exit.y === cy)) return ".";
+      return map[cy]?.[cx] || "#";
+    }
+
+    function isWall(x, y) {
+      return cellAt(x, y) === "#";
+    }
+
+    function canMoveTo(x, y) {
+      const pad = 0.22;
+      return !isWall(x - pad, y - pad) && !isWall(x + pad, y - pad) && !isWall(x - pad, y + pad) && !isWall(x + pad, y + pad);
+    }
+
+    function tryMove(entity, dx, dy, dt, speed) {
+      const nx = entity.x + dx * speed * dt;
+      const ny = entity.y + dy * speed * dt;
+      if (canMoveTo(nx, entity.y)) entity.x = nx;
+      if (canMoveTo(entity.x, ny)) entity.y = ny;
+    }
+
+    function fireShot() {
+      if (player.cooldown > 0 || gameOver) return;
+      shots.push({
+        x: player.x,
+        y: player.y,
+        dx: player.dirX,
+        dy: player.dirY,
+        life: 0.75
+      });
+      player.cooldown = 0.32;
+    }
+
+    function updatePlayer(dt) {
+      if (gameOver) return;
+      player.cooldown = Math.max(0, player.cooldown - dt);
+      player.safe = Math.max(0, player.safe - dt);
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("KeyW")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("KeyS")) dy += 1;
+      if (dx !== 0 && dy !== 0) {
+        dx *= 0.707;
+        dy *= 0.707;
+      }
+      if (dx !== 0 || dy !== 0) {
+        player.dirX = Math.abs(dx) > Math.abs(dy) ? Math.sign(dx) : 0;
+        player.dirY = Math.abs(dy) >= Math.abs(dx) ? Math.sign(dy) : 0;
+      }
+      tryMove(player, dx, dy, dt, 4.1);
+      if (keys.has("Space")) {
+        fireShot();
+        keys.delete("Space");
+      }
+      const cx = Math.floor(player.x);
+      const cy = Math.floor(player.y);
+      if (exits.some((exit) => exit.x === cx && exit.y === cy)) {
+        room += 1;
+        score += 150;
+        resetRoom();
+      }
+    }
+
+    function updateRobots(dt) {
+      robots.forEach((robot) => {
+        robot.cooldown -= dt;
+        if (robot.cooldown > 0) return;
+        const dx = Math.sign(player.x - robot.x);
+        const dy = Math.sign(player.y - robot.y);
+        const preferX = Math.abs(player.x - robot.x) > Math.abs(player.y - robot.y);
+        if (preferX) tryMove(robot, dx, 0, dt, robot.speed + room * 0.08);
+        else tryMove(robot, 0, dy, dt, robot.speed + room * 0.08);
+        if (Math.random() < 0.02) robot.cooldown = 0.16;
+      });
+      if (player.safe <= 0 && robots.some((robot) => Math.hypot(robot.x - player.x, robot.y - player.y) < 0.55)) {
+        loseLife();
+      }
+    }
+
+    function updateShots(dt) {
+      shots.forEach((shot) => {
+        shot.x += shot.dx * 8.5 * dt;
+        shot.y += shot.dy * 8.5 * dt;
+        shot.life -= dt;
+      });
+      for (let i = shots.length - 1; i >= 0; i -= 1) {
+        const shot = shots[i];
+        if (shot.life <= 0 || isWall(shot.x, shot.y)) {
+          shots.splice(i, 1);
+          continue;
+        }
+        const hit = robots.findIndex((robot) => Math.hypot(robot.x - shot.x, robot.y - shot.y) < 0.45);
+        if (hit >= 0) {
+          robots.splice(hit, 1);
+          shots.splice(i, 1);
+          score += 100;
+          updateHud();
+        }
+      }
+    }
+
+    function loseLife() {
+      lives -= 1;
+      if (lives <= 0) {
+        gameOver = true;
+      } else {
+        player.x = 1.5;
+        player.y = 11.2;
+        player.safe = 1.4;
+        shots = [];
+      }
+      updateHud();
+    }
+
+    function updateBerzerk(dt) {
+      updatePlayer(dt);
+      updateRobots(dt);
+      updateShots(dt);
+    }
+
+    function toScreen(x, y) {
+      return { x: offsetX + x * tile, y: offsetY + y * tile };
+    }
+
+    function drawMap() {
+      ctx.fillStyle = "#050505";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < map.length; y += 1) {
+        for (let x = 0; x < map[y].length; x += 1) {
+          const isExit = exits.some((exit) => exit.x === x && exit.y === y);
+          if (map[y][x] === "#" && !isExit) {
+            const p = toScreen(x, y);
+            ctx.fillStyle = "#1d4ed8";
+            ctx.fillRect(p.x, p.y, tile - 3, tile - 3);
+            ctx.fillStyle = "#60a5fa";
+            ctx.fillRect(p.x + 4, p.y + 4, tile - 11, 4);
+          } else if (isExit) {
+            const p = toScreen(x, y);
+            ctx.fillStyle = "#22c55e";
+            ctx.fillRect(p.x + 8, p.y + 8, tile - 19, tile - 19);
+          }
+        }
+      }
+    }
+
+    function drawActor(x, y, color, label) {
+      const p = toScreen(x, y);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#020617";
+      ctx.font = "bold 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, p.x, p.y + 1);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
+
+    function renderBerzerk() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawMap();
+      shots.forEach((shot) => {
+        const p = toScreen(shot.x, shot.y);
+        ctx.fillStyle = "#fef08a";
+        ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
+      });
+      robots.forEach((robot) => drawActor(robot.x, robot.y, "#ef4444", "R"));
+      if (player.safe <= 0 || Math.floor(player.safe * 10) % 2 === 0) {
+        drawActor(player.x, player.y, "#facc15", "P");
+      }
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fecaca";
+        ctx.font = "bold 32px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("System locked", canvas.width / 2, 245);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("Press R or Restart to reboot", canvas.width / 2, 280);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function gameLoop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      updateBerzerk(dt);
+      renderBerzerk();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(event.code)) event.preventDefault();
+      if (event.code === "KeyR") resetGame();
+      keys.add(event.code);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.code));
+    restartBtn.addEventListener("click", resetGame);
+
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
