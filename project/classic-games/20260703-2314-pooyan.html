@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Pooyan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-rose-200">Mini Pooyan</h1>
+        <p class="mt-1 text-sm text-sky-100/75">移动吊篮，射破气球，别让敌人落到栅栏边。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-rose-300/40 bg-sky-900 px-3 py-2">
+          <div class="text-sky-100/75">分数</div>
+          <div id="score" class="text-lg font-bold text-rose-200">0</div>
+        </div>
+        <div class="rounded border border-rose-300/40 bg-sky-900 px-3 py-2">
+          <div class="text-sky-100/75">波次</div>
+          <div id="wave" class="text-lg font-bold text-rose-200">1</div>
+        </div>
+        <div class="rounded border border-rose-300/40 bg-sky-900 px-3 py-2">
+          <div class="text-sky-100/75">生命</div>
+          <div id="lives" class="text-lg font-bold text-rose-200">3</div>
+        </div>
+        <div class="rounded border border-rose-300/40 bg-sky-900 px-3 py-2">
+          <div class="text-sky-100/75">箭矢</div>
+          <div id="arrows" class="text-lg font-bold text-rose-200">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-md border border-sky-700 bg-sky-900 p-3 shadow-2xl shadow-sky-950/40">
+      <canvas id="game" width="920" height="620" class="h-auto w-full rounded bg-sky-950"></canvas>
+    </section>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+      <div class="rounded-md border border-sky-700 bg-sky-900 p-3 text-sm text-sky-100">
+        <span class="font-semibold text-rose-200">操作：</span>
+        <span>↑/↓ 或 W/S 移动吊篮，空格 / X 发箭，R 重新开始。</span>
+      </div>
+      <button id="restart" class="rounded bg-rose-300 px-5 py-3 text-sm font-bold text-sky-950 hover:bg-rose-200">
+        重新开始
+      </button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const waveEl = document.getElementById("wave");
+    const livesEl = document.getElementById("lives");
+    const arrowsEl = document.getElementById("arrows");
+    const restartBtn = document.getElementById("restart");
+    const keys = new Set();
+
+    let basket;
+    let arrows;
+    let enemies;
+    let puffs;
+    let clouds;
+    let score;
+    let lives;
+    let wave;
+    let spawnTimer;
+    let arrowCooldown;
+    let lastTime;
+    let gameOver;
+    let hitFlash;
+
+    function resetGame() {
+      basket = {
+        x: 118,
+        y: 310,
+        w: 70,
+        h: 54,
+        speed: 330
+      };
+      arrows = [];
+      enemies = [];
+      puffs = [];
+      clouds = Array.from({ length: 10 }, () => ({
+        x: Math.random() * canvas.width,
+        y: 40 + Math.random() * 180,
+        s: 35 + Math.random() * 45
+      }));
+      score = 0;
+      lives = 3;
+      wave = 1;
+      spawnTimer = 0.6;
+      arrowCooldown = 0;
+      lastTime = performance.now();
+      gameOver = false;
+      hitFlash = 0;
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      waveEl.textContent = wave;
+      livesEl.textContent = lives;
+      arrowsEl.textContent = arrows.length;
+    }
+
+    function spawnEnemy() {
+      const laneY = 84 + Math.random() * 360;
+      enemies.push({
+        x: canvas.width + 48,
+        y: laneY,
+        r: 18,
+        balloon: 24 + Math.random() * 8,
+        fall: false,
+        vx: -(78 + wave * 8 + Math.random() * 28),
+        vy: 18 + Math.random() * 22,
+        sway: Math.random() * Math.PI * 2
+      });
+    }
+
+    function shootArrow() {
+      if (gameOver || arrowCooldown > 0) return;
+      arrows.push({
+        x: basket.x + basket.w - 4,
+        y: basket.y + 18,
+        w: 30,
+        h: 5,
+        vx: 610
+      });
+      arrowCooldown = 0.22;
+    }
+
+    function addPuff(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        puffs.push({
+          x,
+          y,
+          vx: -90 + Math.random() * 180,
+          vy: -100 + Math.random() * 120,
+          life: 0.45 + Math.random() * 0.25,
+          color
+        });
+      }
+    }
+
+    function hitBasket(enemy) {
+      const closestX = Math.max(basket.x, Math.min(enemy.x, basket.x + basket.w));
+      const closestY = Math.max(basket.y, Math.min(enemy.y, basket.y + basket.h));
+      return Math.hypot(enemy.x - closestX, enemy.y - closestY) < enemy.r;
+    }
+
+    function loseLife() {
+      lives -= 1;
+      hitFlash = 0.35;
+      addPuff(basket.x + 36, basket.y + 25, "#fecdd3");
+      if (lives <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function updatePooyan(dt) {
+      if (gameOver) {
+        renderPooyan();
+        return;
+      }
+      arrowCooldown = Math.max(0, arrowCooldown - dt);
+      hitFlash = Math.max(0, hitFlash - dt);
+      wave = 1 + Math.floor(score / 900);
+
+      if (keys.has("ArrowUp") || keys.has("w") || keys.has("W")) {
+        basket.y -= basket.speed * dt;
+      }
+      if (keys.has("ArrowDown") || keys.has("s") || keys.has("S")) {
+        basket.y += basket.speed * dt;
+      }
+      basket.y = Math.max(62, Math.min(500, basket.y));
+      if (keys.has(" ") || keys.has("x") || keys.has("X")) shootArrow();
+
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = Math.max(0.48, 1.15 - wave * 0.06) + Math.random() * 0.45;
+      }
+
+      for (const arrow of arrows) arrow.x += arrow.vx * dt;
+
+      for (const enemy of enemies) {
+        enemy.sway += dt * 4;
+        if (!enemy.fall) {
+          enemy.x += enemy.vx * dt;
+          enemy.y += Math.sin(enemy.sway) * 20 * dt;
+        } else {
+          enemy.x += enemy.vx * 0.25 * dt;
+          enemy.y += enemy.vy * dt;
+          enemy.vy += 180 * dt;
+        }
+      }
+
+      for (const arrow of arrows) {
+        for (const enemy of enemies) {
+          if (!enemy.fall && arrow.x < enemy.x + enemy.balloon && arrow.x + arrow.w > enemy.x - enemy.balloon &&
+            arrow.y < enemy.y - 28 + enemy.balloon && arrow.y + arrow.h > enemy.y - 28 - enemy.balloon) {
+            enemy.fall = true;
+            enemy.vy = 60;
+            arrow.x = canvas.width + 100;
+            score += 120;
+            addPuff(enemy.x, enemy.y - 28, "#fda4af");
+          }
+        }
+      }
+
+      for (const enemy of enemies) {
+        if (enemy.fall && hitBasket(enemy)) {
+          enemy.y = canvas.height + 80;
+          loseLife();
+        }
+        if (!enemy.fall && enemy.x < 212) {
+          enemy.fall = true;
+          enemy.vy = 110;
+        }
+        if (enemy.y > 560 && enemy.x < 260) {
+          enemy.y = canvas.height + 80;
+          loseLife();
+        }
+      }
+
+      for (const puff of puffs) {
+        puff.x += puff.vx * dt;
+        puff.y += puff.vy * dt;
+        puff.vy += 150 * dt;
+        puff.life -= dt;
+      }
+
+      arrows = arrows.filter((arrow) => arrow.x < canvas.width + 60);
+      enemies = enemies.filter((enemy) => enemy.y < canvas.height + 70 && enemy.x > -90);
+      puffs = puffs.filter((puff) => puff.life > 0);
+      updateHud();
+      renderPooyan();
+    }
+
+    function renderPooyan() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, "#0c4a6e");
+      sky.addColorStop(0.55, "#0369a1");
+      sky.addColorStop(1, "#134e4a");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      for (const cloud of clouds) {
+        ctx.beginPath();
+        ctx.arc(cloud.x, cloud.y, cloud.s * 0.45, 0, Math.PI * 2);
+        ctx.arc(cloud.x + cloud.s * 0.45, cloud.y + 4, cloud.s * 0.35, 0, Math.PI * 2);
+        ctx.arc(cloud.x - cloud.s * 0.45, cloud.y + 8, cloud.s * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(76, 40, 24, 520);
+      ctx.fillRect(206, 40, 16, 520);
+      ctx.strokeStyle = "#fef3c7";
+      ctx.lineWidth = 3;
+      for (let y = 60; y < 540; y += 34) {
+        ctx.beginPath();
+        ctx.moveTo(92, y);
+        ctx.lineTo(214, y + 18);
+        ctx.moveTo(214, y);
+        ctx.lineTo(92, y + 18);
+        ctx.stroke();
+      }
+
+      const flash = hitFlash > 0 && Math.floor(hitFlash * 20) % 2 === 0;
+      ctx.fillStyle = flash ? "#fecdd3" : "#fef08a";
+      ctx.fillRect(basket.x, basket.y, basket.w, basket.h);
+      ctx.fillStyle = "#92400e";
+      ctx.fillRect(basket.x + 8, basket.y + 10, basket.w - 16, basket.h - 18);
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.arc(basket.x + 37, basket.y + 18, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fef3c7";
+      ctx.beginPath();
+      ctx.moveTo(basket.x + 12, basket.y);
+      ctx.lineTo(basket.x + 34, basket.y - 42);
+      ctx.lineTo(basket.x + 58, basket.y);
+      ctx.stroke();
+
+      ctx.fillStyle = "#fef3c7";
+      for (const arrow of arrows) {
+        ctx.fillRect(arrow.x, arrow.y, arrow.w, arrow.h);
+        ctx.beginPath();
+        ctx.moveTo(arrow.x + arrow.w, arrow.y - 4);
+        ctx.lineTo(arrow.x + arrow.w + 10, arrow.y + 2);
+        ctx.lineTo(arrow.x + arrow.w, arrow.y + 10);
+        ctx.fill();
+      }
+
+      for (const enemy of enemies) {
+        if (!enemy.fall) {
+          ctx.fillStyle = "#fb7185";
+          ctx.beginPath();
+          ctx.ellipse(enemy.x, enemy.y - 30, enemy.balloon * 0.8, enemy.balloon, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#fecdd3";
+          ctx.beginPath();
+          ctx.moveTo(enemy.x, enemy.y - 7);
+          ctx.lineTo(enemy.x, enemy.y + 10);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#7f1d1d";
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y + 20, enemy.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fee2e2";
+        ctx.beginPath();
+        ctx.arc(enemy.x - 6, enemy.y + 16, 3, 0, Math.PI * 2);
+        ctx.arc(enemy.x + 6, enemy.y + 16, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      for (const puff of puffs) {
+        ctx.globalAlpha = Math.max(0, puff.life * 1.8);
+        ctx.fillStyle = puff.color;
+        ctx.beginPath();
+        ctx.arc(puff.x, puff.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(12, 74, 110, 0.82)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#ffe4e6";
+        ctx.font = "700 44px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("防线失守", canvas.width / 2, 275);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 315);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      updatePooyan(dt);
+      if (!gameOver) requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", " "].includes(event.key)) event.preventDefault();
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
