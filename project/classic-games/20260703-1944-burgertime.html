@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini BurgerTime</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-yellow-200">Mini BurgerTime</h1>
+        <p class="text-sm text-stone-400">Walk over ingredients to drop them into the plates while dodging hungry chasers.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <span class="rounded bg-stone-900 px-3 py-2 text-yellow-100">Score <b id="score">0</b></span>
+        <span class="rounded bg-stone-900 px-3 py-2 text-rose-100">Lives <b id="lives">3</b></span>
+        <span class="rounded bg-stone-900 px-3 py-2 text-emerald-100">Burgers <b id="burgers">0</b>/3</span>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="760" height="560" class="w-full rounded border border-stone-800 bg-stone-900 shadow-2xl shadow-black"></canvas>
+      <aside class="rounded border border-stone-800 bg-stone-900 p-4 text-sm text-stone-300">
+        <h2 class="mb-3 text-lg font-semibold text-stone-100">Controls</h2>
+        <div class="grid gap-2">
+          <div class="flex items-center justify-between gap-3"><span>Move</span><kbd class="rounded bg-stone-800 px-2 py-1">Arrow keys</kbd></div>
+          <div class="flex items-center justify-between gap-3"><span>Restart</span><kbd class="rounded bg-stone-800 px-2 py-1">R</kbd></div>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-yellow-300 px-4 py-2 font-semibold text-stone-950 hover:bg-yellow-200">Restart</button>
+        <p class="mt-4 text-xs leading-5 text-stone-500">Each ingredient segment drops once you cross it. Complete all stacks to clear the kitchen.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const burgersEl = document.getElementById("burgers");
+    const restartBtn = document.getElementById("restart");
+
+    const platforms = [82, 170, 258, 346, 434];
+    const ladders = [140, 300, 460, 620];
+    const laneLeft = 66;
+    const laneRight = 694;
+    const keys = new Set();
+    let player;
+    let enemies;
+    let ingredients;
+    let score = 0;
+    let lives = 3;
+    let burgers = 0;
+    let gameOver = false;
+    let won = false;
+    let lastTime = 0;
+
+    function resetGame() {
+      player = { x: 98, y: platforms[4], speed: 185, invincible: 0 };
+      enemies = [
+        { x: 650, y: platforms[0], speed: 98, color: "#ef4444", wait: 0 },
+        { x: 650, y: platforms[2], speed: 88, color: "#a855f7", wait: 0.5 },
+        { x: 92, y: platforms[1], speed: 82, color: "#22c55e", wait: 1.0 }
+      ];
+      ingredients = [];
+      score = 0;
+      lives = 3;
+      burgers = 0;
+      gameOver = false;
+      won = false;
+
+      const stackXs = [210, 380, 550];
+      stackXs.forEach((x, stack) => {
+        platforms.slice(0, 4).forEach((y, layer) => {
+          ingredients.push({
+            x,
+            y,
+            stack,
+            layer,
+            stepped: false,
+            dropping: false,
+            targetY: platforms[Math.min(layer + 1, platforms.length - 1)],
+            color: ["#fbbf24", "#84cc16", "#f97316", "#fde68a"][layer]
+          });
+        });
+      });
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      burgersEl.textContent = burgers;
+    }
+
+    function nearestPlatform(y) {
+      return platforms.reduce((best, py) => Math.abs(py - y) < Math.abs(best - y) ? py : best, platforms[0]);
+    }
+
+    function onLadder(x) {
+      return ladders.some((ladderX) => Math.abs(ladderX - x) < 18);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function updatePlayer(dt) {
+      if (gameOver || won) return;
+      player.invincible = Math.max(0, player.invincible - dt);
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) dx += 1;
+      if (onLadder(player.x)) {
+        if (keys.has("ArrowUp") || keys.has("KeyW")) dy -= 1;
+        if (keys.has("ArrowDown") || keys.has("KeyS")) dy += 1;
+      }
+      player.x = clamp(player.x + dx * player.speed * dt, laneLeft, laneRight);
+      if (dy !== 0) {
+        player.y = clamp(player.y + dy * player.speed * dt, platforms[0], platforms[platforms.length - 1]);
+      } else {
+        player.y = nearestPlatform(player.y);
+      }
+      checkIngredientSteps();
+    }
+
+    function checkIngredientSteps() {
+      ingredients.forEach((part) => {
+        if (!part.stepped && Math.abs(player.y - part.y) < 14 && Math.abs(player.x - part.x) < 58) {
+          part.stepped = true;
+          part.dropping = true;
+          score += 15;
+        }
+      });
+      updateHud();
+    }
+
+    function updateIngredients(dt) {
+      ingredients.forEach((part) => {
+        if (part.dropping) {
+          part.y += 210 * dt;
+          if (part.y >= part.targetY) {
+            part.y = part.targetY;
+            part.dropping = false;
+          }
+        }
+      });
+      const stacks = [0, 1, 2];
+      const completed = stacks.filter((stack) => ingredients.filter((part) => part.stack === stack).every((part) => part.stepped && part.y >= platforms[partformsIndex(part.layer)]));
+      burgers = completed.length;
+      if (burgers === 3 && !won) {
+        won = true;
+        score += 300;
+      }
+      updateHud();
+    }
+
+    function partformsIndex(layer) {
+      return Math.min(layer + 1, platforms.length - 1);
+    }
+
+    function enemyCanClimb(enemy) {
+      return onLadder(enemy.x) && Math.random() < 0.025;
+    }
+
+    function updateEnemies(dt) {
+      enemies.forEach((enemy) => {
+        enemy.wait -= dt;
+        if (enemy.wait > 0 || gameOver || won) return;
+        const sameLane = Math.abs(enemy.y - player.y) < 18;
+        if (sameLane) {
+          enemy.x += Math.sign(player.x - enemy.x) * enemy.speed * dt;
+        } else if (enemyCanClimb(enemy)) {
+          enemy.y += Math.sign(player.y - enemy.y) * enemy.speed * dt;
+        } else {
+          enemy.x += Math.sign(player.x - enemy.x) * enemy.speed * 0.65 * dt;
+        }
+        enemy.x = clamp(enemy.x, laneLeft, laneRight);
+        enemy.y = nearestPlatform(enemy.y);
+        if (Math.hypot(enemy.x - player.x, enemy.y - player.y) < 24 && player.invincible <= 0) {
+          loseLife();
+        }
+      });
+    }
+
+    function loseLife() {
+      lives -= 1;
+      if (lives <= 0) {
+        gameOver = true;
+      } else {
+        player.x = 98;
+        player.y = platforms[4];
+        player.invincible = 1.5;
+        enemies[0].x = 650;
+        enemies[0].y = platforms[0];
+        enemies[1].x = 650;
+        enemies[1].y = platforms[2];
+        enemies[2].x = 92;
+        enemies[2].y = platforms[1];
+      }
+      updateHud();
+    }
+
+    function updateBurgerTime(dt) {
+      updatePlayer(dt);
+      updateIngredients(dt);
+      updateEnemies(dt);
+    }
+
+    function drawKitchen() {
+      ctx.fillStyle = "#1c1917";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      platforms.forEach((y) => {
+        ctx.fillStyle = "#78350f";
+        ctx.fillRect(laneLeft - 18, y + 20, laneRight - laneLeft + 54, 10);
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(laneLeft - 18, y + 16, laneRight - laneLeft + 54, 4);
+      });
+      ladders.forEach((x) => {
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(x - 10, platforms[0] + 22);
+        ctx.lineTo(x - 10, platforms[4] + 22);
+        ctx.moveTo(x + 10, platforms[0] + 22);
+        ctx.lineTo(x + 10, platforms[4] + 22);
+        ctx.stroke();
+        for (let y = platforms[0] + 36; y < platforms[4] + 18; y += 28) {
+          ctx.beginPath();
+          ctx.moveTo(x - 12, y);
+          ctx.lineTo(x + 12, y);
+          ctx.stroke();
+        }
+      });
+      [210, 380, 550].forEach((x) => {
+        ctx.fillStyle = "#e5e7eb";
+        ctx.fillRect(x - 58, platforms[4] + 42, 116, 12);
+      });
+    }
+
+    function drawIngredient(part) {
+      ctx.fillStyle = part.stepped ? part.color : "#e7e5e4";
+      ctx.fillRect(part.x - 50, part.y - 12, 100, 18);
+      ctx.strokeStyle = "#292524";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(part.x - 50, part.y - 12, 100, 18);
+      if (!part.stepped) {
+        ctx.fillStyle = "#78716c";
+        ctx.fillRect(part.x - 44, part.y - 6, 88, 4);
+      }
+    }
+
+    function drawActor(entity, color, label) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(entity.x, entity.y + 2, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#1c1917";
+      ctx.font = "bold 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, entity.x, entity.y + 3);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
+
+    function renderBurgerTime() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawKitchen();
+      ingredients.forEach(drawIngredient);
+      enemies.forEach((enemy) => drawActor(enemy, enemy.color, "!"));
+      if (player.invincible <= 0 || Math.floor(player.invincible * 10) % 2 === 0) {
+        drawActor(player, "#fde047", "C");
+      }
+
+      if (gameOver || won) {
+        ctx.fillStyle = "rgba(28,25,23,0.76)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fef3c7";
+        ctx.font = "bold 32px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "Kitchen cleared" : "Order dropped", canvas.width / 2, 245);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("Press R or Restart to play again", canvas.width / 2, 280);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function gameLoop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      updateBurgerTime(dt);
+      renderBurgerTime();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.code)) event.preventDefault();
+      if (event.code === "KeyR") resetGame();
+      keys.add(event.code);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.code));
+    restartBtn.addEventListener("click", resetGame);
+
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
