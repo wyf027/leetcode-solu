@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Tron Light Cycles</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-4 px-4 py-6">
+      <section class="grid gap-4 rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-xl md:grid-cols-[1fr_220px]">
+        <div>
+          <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold text-white">Mini Tron Light Cycles</h1>
+              <p class="mt-1 text-sm text-slate-400">转向留下光轨，迫使对手撞墙或撞轨迹。</p>
+            </div>
+            <div class="rounded-md border border-slate-800 bg-slate-950 px-4 py-2 text-right">
+              <div class="text-xs uppercase text-slate-500">Wins</div>
+              <div id="wins" class="text-3xl font-bold text-cyan-300">0</div>
+            </div>
+          </div>
+          <canvas id="arena" width="420" height="420" class="mx-auto block w-full max-w-[420px] rounded-md border border-slate-700 bg-slate-950"></canvas>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-md border border-slate-800 bg-slate-950 p-3">
+              <div class="text-xs uppercase text-slate-500">Round</div>
+              <div id="round" class="text-2xl font-bold text-emerald-300">1</div>
+            </div>
+            <div class="rounded-md border border-slate-800 bg-slate-950 p-3">
+              <div class="text-xs uppercase text-slate-500">Speed</div>
+              <div id="speed" class="text-2xl font-bold text-amber-300">1</div>
+            </div>
+          </div>
+          <div id="message" class="min-h-16 rounded-md border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+            使用方向键或 WASD 转向，空格开始。
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <span></span>
+            <button type="button" onclick="turnPlayer('up')" class="rounded-md bg-slate-700 px-3 py-2 font-bold text-white hover:bg-slate-600">上</button>
+            <span></span>
+            <button type="button" onclick="turnPlayer('left')" class="rounded-md bg-cyan-500 px-3 py-2 font-bold text-slate-950 hover:bg-cyan-400">左</button>
+            <button type="button" onclick="startGame()" class="rounded-md bg-amber-400 px-3 py-2 font-bold text-slate-950 hover:bg-amber-300">开始</button>
+            <button type="button" onclick="turnPlayer('right')" class="rounded-md bg-cyan-500 px-3 py-2 font-bold text-slate-950 hover:bg-cyan-400">右</button>
+            <span></span>
+            <button type="button" onclick="turnPlayer('down')" class="rounded-md bg-slate-700 px-3 py-2 font-bold text-white hover:bg-slate-600">下</button>
+            <span></span>
+          </div>
+          <button
+            type="button"
+            onclick="resetMatch()"
+            class="rounded-md border border-slate-700 px-3 py-2 font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
+          >
+            重新开始
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("arena");
+      const ctx = canvas.getContext("2d");
+      const cell = 12;
+      const cols = canvas.width / cell;
+      const rows = canvas.height / cell;
+      const dirs = {
+        up: { x: 0, y: -1 },
+        down: { x: 0, y: 1 },
+        left: { x: -1, y: 0 },
+        right: { x: 1, y: 0 },
+      };
+      let grid = new Set();
+      let player;
+      let rival;
+      let wins = 0;
+      let round = 1;
+      let tick = 0;
+      let running = false;
+      let gameOver = false;
+
+      function setMessage(text) {
+        document.getElementById("message").textContent = text;
+      }
+
+      function updateHud() {
+        document.getElementById("wins").textContent = wins;
+        document.getElementById("round").textContent = round;
+        document.getElementById("speed").textContent = Math.min(5, Math.floor(round / 2) + 1);
+      }
+
+      function startGame() {
+        if (gameOver) setupRound();
+        running = true;
+        setMessage("保持移动，别撞上任何光轨。");
+      }
+
+      function resetMatch() {
+        wins = 0;
+        round = 1;
+        setupRound();
+      }
+
+      function setupRound() {
+        grid = new Set();
+        player = { x: 8, y: 17, dir: "right", color: "#22d3ee" };
+        rival = { x: 26, y: 17, dir: "left", color: "#f472b6" };
+        running = false;
+        gameOver = false;
+        mark(player.x, player.y);
+        mark(rival.x, rival.y);
+        updateHud();
+        setMessage("使用方向键或 WASD 转向，空格开始。");
+        drawArena();
+      }
+
+      function keyOf(x, y) {
+        return x + "," + y;
+      }
+
+      function mark(x, y) {
+        grid.add(keyOf(x, y));
+      }
+
+      function isBlocked(x, y) {
+        return x < 0 || y < 0 || x >= cols || y >= rows || grid.has(keyOf(x, y));
+      }
+
+      function turnPlayer(direction) {
+        if (isOpposite(player.dir, direction)) return;
+        player.dir = direction;
+      }
+
+      function isOpposite(a, b) {
+        return (a === "up" && b === "down") || (a === "down" && b === "up") || (a === "left" && b === "right") || (a === "right" && b === "left");
+      }
+
+      function chooseRivalTurn() {
+        const options = ["up", "right", "down", "left"].filter((direction) => !isOpposite(rival.dir, direction));
+        const open = options.filter((direction) => {
+          const next = dirs[direction];
+          return !isBlocked(rival.x + next.x, rival.y + next.y);
+        });
+        if (!open.length) return;
+        if (Math.random() < 0.7 && open.includes(rival.dir)) return;
+        rival.dir = open[Math.floor(Math.random() * open.length)];
+      }
+
+      function stepBike(bike) {
+        const dir = dirs[bike.dir];
+        bike.x += dir.x;
+        bike.y += dir.y;
+      }
+
+      function updateGame() {
+        if (!running) return;
+
+        tick += 1;
+        const divider = Math.max(3, 8 - Math.floor(round / 2));
+        if (tick % divider !== 0) return;
+
+        chooseRivalTurn();
+        stepBike(player);
+        stepBike(rival);
+
+        const playerCrash = isBlocked(player.x, player.y);
+        const rivalCrash = isBlocked(rival.x, rival.y);
+        if (player.x === rival.x && player.y === rival.y) finishRound("同归于尽，重新开局。", false);
+        else if (playerCrash && rivalCrash) finishRound("双方都撞毁了。", false);
+        else if (playerCrash) finishRound("你撞上光轨了。", false);
+        else if (rivalCrash) finishRound("对手撞毁，你赢下本轮。", true);
+
+        if (!gameOver) {
+          mark(player.x, player.y);
+          mark(rival.x, rival.y);
+        }
+      }
+
+      function finishRound(text, didWin) {
+        running = false;
+        gameOver = true;
+        if (didWin) wins += 1;
+        round += 1;
+        updateHud();
+        setMessage(text);
+      }
+
+      function drawArena() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= canvas.width; x += cell) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= canvas.height; y += cell) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+
+        grid.forEach((key) => {
+          const [x, y] = key.split(",").map(Number);
+          ctx.fillStyle = "#334155";
+          ctx.fillRect(x * cell + 2, y * cell + 2, cell - 4, cell - 4);
+        });
+
+        drawBike(player);
+        drawBike(rival);
+      }
+
+      function drawBike(bike) {
+        ctx.fillStyle = bike.color;
+        ctx.fillRect(bike.x * cell + 1, bike.y * cell + 1, cell - 2, cell - 2);
+      }
+
+      function loop() {
+        updateGame();
+        drawArena();
+        requestAnimationFrame(loop);
+      }
+
+      function bindKeys() {
+        document.addEventListener("keydown", (event) => {
+          const key = event.key.toLowerCase();
+          if (event.code === "Space") startGame();
+          if (key === "w" || event.key === "ArrowUp") turnPlayer("up");
+          if (key === "s" || event.key === "ArrowDown") turnPlayer("down");
+          if (key === "a" || event.key === "ArrowLeft") turnPlayer("left");
+          if (key === "d" || event.key === "ArrowRight") turnPlayer("right");
+        });
+      }
+
+      setupRound();
+      bindKeys();
+      loop();
+    </script>
+  </body>
+</html>
