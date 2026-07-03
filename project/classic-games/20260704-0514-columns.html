@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Columns</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 px-4 py-6">
+    <section class="w-full max-w-3xl rounded-lg border border-cyan-400/30 bg-slate-900/90 p-4 shadow-2xl shadow-cyan-950/40">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-cyan-200">Mini Columns</h1>
+          <p class="text-sm text-slate-400">Match three gems in rows, columns, or diagonals.</p>
+        </div>
+        <button id="restart" class="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200">Restart</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div class="flex justify-center">
+          <div id="board" class="grid rounded-md border-4 border-slate-700 bg-slate-950 p-2 shadow-inner"></div>
+        </div>
+
+        <aside class="space-y-3">
+          <div class="grid grid-cols-3 gap-2 text-center md:grid-cols-1">
+            <div class="rounded-md bg-slate-800 p-3">
+              <div class="text-xs uppercase text-slate-400">Score</div>
+              <div id="score" class="text-xl font-bold text-cyan-200">0</div>
+            </div>
+            <div class="rounded-md bg-slate-800 p-3">
+              <div class="text-xs uppercase text-slate-400">Level</div>
+              <div id="level" class="text-xl font-bold text-emerald-200">1</div>
+            </div>
+            <div class="rounded-md bg-slate-800 p-3">
+              <div class="text-xs uppercase text-slate-400">Clears</div>
+              <div id="clears" class="text-xl font-bold text-fuchsia-200">0</div>
+            </div>
+          </div>
+
+          <div class="rounded-md bg-slate-800 p-3">
+            <div class="mb-2 text-xs uppercase text-slate-400">Next</div>
+            <div id="next" class="mx-auto grid w-12 grid-rows-3 gap-1"></div>
+          </div>
+
+          <div id="message" class="rounded-md border border-slate-700 bg-slate-900 p-3 text-center text-sm text-slate-300">
+            Arrow keys move. Up, W, or Space rotates.
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const rows = 13;
+    const cols = 6;
+    const gems = [
+      "bg-rose-400 shadow-rose-300/50",
+      "bg-amber-300 shadow-amber-200/50",
+      "bg-emerald-400 shadow-emerald-300/50",
+      "bg-cyan-300 shadow-cyan-200/50",
+      "bg-violet-400 shadow-violet-300/50"
+    ];
+    const boardEl = document.getElementById("board");
+    const nextEl = document.getElementById("next");
+    const scoreEl = document.getElementById("score");
+    const levelEl = document.getElementById("level");
+    const clearsEl = document.getElementById("clears");
+    const messageEl = document.getElementById("message");
+    const restartEl = document.getElementById("restart");
+
+    let board;
+    let active;
+    let nextColumn;
+    let score;
+    let level;
+    let clears;
+    let lastTick;
+    let gameOver;
+
+    boardEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 2.75rem))`;
+    boardEl.style.gridTemplateRows = `repeat(${rows}, minmax(0, 2.75rem))`;
+
+    function randomColumn() {
+      return [0, 1, 2].map(() => Math.floor(Math.random() * gems.length));
+    }
+
+    function resetGame() {
+      board = Array.from({ length: rows }, () => Array(cols).fill(null));
+      nextColumn = randomColumn();
+      score = 0;
+      level = 1;
+      clears = 0;
+      lastTick = 0;
+      gameOver = false;
+      spawnColumn();
+      messageEl.textContent = "Arrow keys move. Up, W, or Space rotates.";
+      renderColumns();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function spawnColumn() {
+      active = { col: Math.floor(cols / 2), row: -3, gems: nextColumn };
+      nextColumn = randomColumn();
+      if (!canPlace(active.col, active.row, active.gems)) {
+        gameOver = true;
+        messageEl.textContent = "Game over. Press Restart to play again.";
+      }
+    }
+
+    function canPlace(col, row, columnGems) {
+      return columnGems.every((gem, index) => {
+        const r = row + index;
+        if (col < 0 || col >= cols || r >= rows) return false;
+        return r < 0 || board[r][col] === null;
+      });
+    }
+
+    function moveColumn(dx, dy) {
+      if (gameOver) return false;
+      const nextCol = active.col + dx;
+      const nextRow = active.row + dy;
+      if (canPlace(nextCol, nextRow, active.gems)) {
+        active.col = nextCol;
+        active.row = nextRow;
+        renderColumns();
+        return true;
+      }
+      if (dy > 0) settleColumn();
+      return false;
+    }
+
+    function rotateColumn() {
+      if (gameOver) return;
+      active.gems.unshift(active.gems.pop());
+      renderColumns();
+    }
+
+    function settleColumn() {
+      active.gems.forEach((gem, index) => {
+        const r = active.row + index;
+        if (r >= 0 && r < rows) board[r][active.col] = gem;
+      });
+      resolveMatches();
+      spawnColumn();
+      renderColumns();
+    }
+
+    function resolveMatches() {
+      let chain = 0;
+      while (true) {
+        const matches = findMatches();
+        if (!matches.size) break;
+        chain += 1;
+        matches.forEach((key) => {
+          const [r, c] = key.split(",").map(Number);
+          board[r][c] = null;
+        });
+        clears += matches.size;
+        score += matches.size * 15 * chain;
+        level = Math.floor(clears / 18) + 1;
+        dropGems();
+      }
+    }
+
+    function findMatches() {
+      const found = new Set();
+      const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+      for (let r = 0; r < rows; r += 1) {
+        for (let c = 0; c < cols; c += 1) {
+          const gem = board[r][c];
+          if (gem === null) continue;
+          directions.forEach(([dr, dc]) => {
+            const line = [];
+            let nr = r;
+            let nc = c;
+            while (nr >= 0 && nr < rows && nc >= 0 && nc < cols && board[nr][nc] === gem) {
+              line.push(`${nr},${nc}`);
+              nr += dr;
+              nc += dc;
+            }
+            if (line.length >= 3) line.forEach((key) => found.add(key));
+          });
+        }
+      }
+      return found;
+    }
+
+    function dropGems() {
+      for (let c = 0; c < cols; c += 1) {
+        const stack = [];
+        for (let r = rows - 1; r >= 0; r -= 1) {
+          if (board[r][c] !== null) stack.push(board[r][c]);
+        }
+        for (let r = rows - 1; r >= 0; r -= 1) {
+          board[r][c] = stack[rows - 1 - r] ?? null;
+        }
+      }
+    }
+
+    function cell(gem, ghost = false) {
+      const div = document.createElement("div");
+      div.className = "h-11 w-11 rounded-md border border-slate-800 bg-slate-900";
+      if (gem !== null) {
+        div.className = `h-11 w-11 rounded-md border border-white/20 ${gems[gem]} shadow-lg ${ghost ? "opacity-80" : ""}`;
+      }
+      return div;
+    }
+
+    function renderColumns() {
+      const view = board.map((row) => [...row]);
+      if (active && !gameOver) {
+        active.gems.forEach((gem, index) => {
+          const r = active.row + index;
+          if (r >= 0 && r < rows) view[r][active.col] = gem;
+        });
+      }
+      boardEl.replaceChildren(...view.flatMap((row) => row.map((gem) => cell(gem))));
+      nextEl.replaceChildren(...nextColumn.map((gem) => cell(gem, true)));
+      scoreEl.textContent = score;
+      levelEl.textContent = level;
+      clearsEl.textContent = clears;
+    }
+
+    function gameLoop(time) {
+      if (gameOver) return;
+      const speed = Math.max(170, 720 - level * 55);
+      if (time - lastTick > speed) {
+        moveColumn(0, 1);
+        lastTick = time;
+      }
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft") moveColumn(-1, 0);
+      if (event.key === "ArrowRight") moveColumn(1, 0);
+      if (event.key === "ArrowDown") {
+        score += 1;
+        moveColumn(0, 1);
+      }
+      if (event.key === "ArrowUp" || event.key.toLowerCase() === "w" || event.key === " ") {
+        event.preventDefault();
+        rotateColumn();
+      }
+    });
+
+    restartEl.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
