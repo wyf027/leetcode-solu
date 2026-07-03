@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Pengo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-cyan-950 text-cyan-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-cyan-200">Mini Pengo</h1>
+        <p class="text-sm text-cyan-300/80">Push ice blocks, collect diamonds, and keep the sno-bees away.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <span class="rounded bg-cyan-900 px-3 py-2 text-cyan-100">Score <b id="score">0</b></span>
+        <span class="rounded bg-cyan-900 px-3 py-2 text-rose-100">Lives <b id="lives">3</b></span>
+        <span class="rounded bg-cyan-900 px-3 py-2 text-emerald-100">Round <b id="round">1</b></span>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="680" height="600" class="w-full rounded border border-cyan-800 bg-cyan-950 shadow-2xl shadow-black"></canvas>
+      <aside class="rounded border border-cyan-800 bg-cyan-900/70 p-4 text-sm text-cyan-100">
+        <h2 class="mb-3 text-lg font-semibold text-white">Controls</h2>
+        <div class="grid gap-2">
+          <div class="flex items-center justify-between gap-3"><span>Move / push</span><kbd class="rounded bg-cyan-950 px-2 py-1">Arrow keys</kbd></div>
+          <div class="flex items-center justify-between gap-3"><span>Restart</span><kbd class="rounded bg-cyan-950 px-2 py-1">R</kbd></div>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-cyan-200 px-4 py-2 font-semibold text-cyan-950 hover:bg-white">Restart</button>
+        <p class="mt-4 text-xs leading-5 text-cyan-200/70">Push ice into enemies to score. Collect all diamonds to start the next round.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const roundEl = document.getElementById("round");
+    const restartBtn = document.getElementById("restart");
+
+    const size = 40;
+    const cols = 15;
+    const rows = 13;
+    const offsetX = 40;
+    const offsetY = 36;
+    const keys = new Set();
+    let walls = new Set();
+    let ice = new Set();
+    let diamonds = new Set();
+    let player;
+    let enemies;
+    let slidingBlocks;
+    let score = 0;
+    let lives = 3;
+    let round = 1;
+    let gameOver = false;
+    let lastTime = 0;
+
+    function keyOf(x, y) {
+      return `${x},${y}`;
+    }
+
+    function resetGame() {
+      score = 0;
+      lives = 3;
+      round = 1;
+      gameOver = false;
+      resetRound();
+    }
+
+    function resetRound() {
+      walls = new Set();
+      ice = new Set();
+      diamonds = new Set();
+      slidingBlocks = [];
+      for (let y = 0; y < rows; y += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          if (x === 0 || y === 0 || x === cols - 1 || y === rows - 1 || (x % 4 === 0 && y % 3 === 0)) walls.add(keyOf(x, y));
+          else if ((x + y) % 4 === 0) ice.add(keyOf(x, y));
+        }
+      }
+      [[3, 2], [11, 3], [5, 9], [10, 10]].forEach(([x, y]) => {
+        ice.delete(keyOf(x, y));
+        diamonds.add(keyOf(x, y));
+      });
+      player = { x: 1, y: 1, moveDelay: 0 };
+      enemies = [
+        { x: 13, y: 11, delay: 0, color: "#fb7185" },
+        { x: 13, y: 1, delay: 0.25, color: "#f97316" },
+        { x: 1, y: 11, delay: 0.5, color: "#a78bfa" }
+      ].slice(0, Math.min(3, 1 + round));
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      roundEl.textContent = round;
+    }
+
+    function blocked(x, y) {
+      return walls.has(keyOf(x, y)) || ice.has(keyOf(x, y)) || slidingBlocks.some((block) => block.x === x && block.y === y);
+    }
+
+    function tryMovePlayer(dx, dy) {
+      const nx = player.x + dx;
+      const ny = player.y + dy;
+      const blockKey = keyOf(nx, ny);
+      if (walls.has(blockKey)) return;
+      if (ice.has(blockKey)) {
+        pushIce(nx, ny, dx, dy);
+        return;
+      }
+      if (!blocked(nx, ny)) {
+        player.x = nx;
+        player.y = ny;
+        collectDiamond();
+      }
+    }
+
+    function pushIce(x, y, dx, dy) {
+      const nextX = x + dx;
+      const nextY = y + dy;
+      if (blocked(nextX, nextY)) return;
+      ice.delete(keyOf(x, y));
+      slidingBlocks.push({ x, y, dx, dy, progress: 0 });
+      score += 5;
+      updateHud();
+    }
+
+    function collectDiamond() {
+      const here = keyOf(player.x, player.y);
+      if (diamonds.delete(here)) {
+        score += 100;
+        if (diamonds.size === 0) {
+          round += 1;
+          score += 300;
+          resetRound();
+        }
+        updateHud();
+      }
+    }
+
+    function updatePlayer(dt) {
+      if (gameOver) return;
+      player.moveDelay = Math.max(0, player.moveDelay - dt);
+      if (player.moveDelay > 0) return;
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) dx = -1;
+      else if (keys.has("ArrowRight") || keys.has("KeyD")) dx = 1;
+      else if (keys.has("ArrowUp") || keys.has("KeyW")) dy = -1;
+      else if (keys.has("ArrowDown") || keys.has("KeyS")) dy = 1;
+      if (dx !== 0 || dy !== 0) {
+        tryMovePlayer(dx, dy);
+        player.moveDelay = 0.12;
+      }
+    }
+
+    function updateSlidingBlocks(dt) {
+      for (let i = slidingBlocks.length - 1; i >= 0; i -= 1) {
+        const block = slidingBlocks[i];
+        block.progress += dt * 7;
+        if (block.progress >= 1) {
+          block.x += block.dx;
+          block.y += block.dy;
+          block.progress = 0;
+          const hit = enemies.findIndex((enemy) => enemy.x === block.x && enemy.y === block.y);
+          if (hit >= 0) {
+            enemies.splice(hit, 1);
+            score += 150;
+            updateHud();
+          }
+          const nx = block.x + block.dx;
+          const ny = block.y + block.dy;
+          if (walls.has(keyOf(nx, ny)) || ice.has(keyOf(nx, ny))) {
+            ice.add(keyOf(block.x, block.y));
+            slidingBlocks.splice(i, 1);
+          }
+        }
+      }
+    }
+
+    function nextEnemyStep(enemy) {
+      const options = [
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 },
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 }
+      ].filter((step) => !blocked(enemy.x + step.dx, enemy.y + step.dy));
+      options.sort((a, b) => {
+        const da = Math.abs(player.x - (enemy.x + a.dx)) + Math.abs(player.y - (enemy.y + a.dy));
+        const db = Math.abs(player.x - (enemy.x + b.dx)) + Math.abs(player.y - (enemy.y + b.dy));
+        return da - db;
+      });
+      if (Math.random() < 0.22) return options[Math.floor(Math.random() * options.length)] || { dx: 0, dy: 0 };
+      return options[0] || { dx: 0, dy: 0 };
+    }
+
+    function updateEnemies(dt) {
+      enemies.forEach((enemy) => {
+        enemy.delay -= dt;
+        if (enemy.delay > 0 || gameOver) return;
+        const step = nextEnemyStep(enemy);
+        enemy.x += step.dx;
+        enemy.y += step.dy;
+        enemy.delay = Math.max(0.2, 0.48 - round * 0.035);
+      });
+      if (enemies.some((enemy) => enemy.x === player.x && enemy.y === player.y)) loseLife();
+    }
+
+    function loseLife() {
+      lives -= 1;
+      if (lives <= 0) {
+        gameOver = true;
+      } else {
+        player.x = 1;
+        player.y = 1;
+        player.moveDelay = 0.5;
+      }
+      updateHud();
+    }
+
+    function updatePengo(dt) {
+      updatePlayer(dt);
+      updateSlidingBlocks(dt);
+      updateEnemies(dt);
+    }
+
+    function screen(x, y) {
+      return { x: offsetX + x * size, y: offsetY + y * size };
+    }
+
+    function drawCell(x, y, fill, stroke = "#164e63") {
+      const p = screen(x, y);
+      ctx.fillStyle = fill;
+      ctx.fillRect(p.x, p.y, size - 3, size - 3);
+      ctx.strokeStyle = stroke;
+      ctx.strokeRect(p.x + 1, p.y + 1, size - 5, size - 5);
+    }
+
+    function drawActor(x, y, color, label) {
+      const p = screen(x, y);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(p.x + size / 2 - 2, p.y + size / 2 - 2, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#082f49";
+      ctx.font = "bold 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, p.x + size / 2 - 2, p.y + size / 2 - 1);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
+
+    function renderPengo() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#083344";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < rows; y += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          drawCell(x, y, "#0e7490", "#155e75");
+        }
+      }
+      walls.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        drawCell(x, y, "#0f172a", "#38bdf8");
+      });
+      ice.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        drawCell(x, y, "#bae6fd", "#e0f2fe");
+      });
+      diamonds.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        const p = screen(x, y);
+        ctx.fillStyle = "#fef08a";
+        ctx.beginPath();
+        ctx.moveTo(p.x + 18, p.y + 8);
+        ctx.lineTo(p.x + 30, p.y + 18);
+        ctx.lineTo(p.x + 18, p.y + 31);
+        ctx.lineTo(p.x + 6, p.y + 18);
+        ctx.closePath();
+        ctx.fill();
+      });
+      slidingBlocks.forEach((block) => {
+        drawCell(block.x + block.dx * block.progress, block.y + block.dy * block.progress, "#e0f2fe", "#ffffff");
+      });
+      enemies.forEach((enemy) => drawActor(enemy.x, enemy.y, enemy.color, "S"));
+      drawActor(player.x, player.y, "#facc15", "P");
+      if (gameOver) {
+        ctx.fillStyle = "rgba(8,47,73,0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#e0f2fe";
+        ctx.font = "bold 32px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Frozen out", canvas.width / 2, 255);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("Press R or Restart to play again", canvas.width / 2, 290);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function gameLoop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      updatePengo(dt);
+      renderPengo();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.code)) event.preventDefault();
+      if (event.code === "KeyR") resetGame();
+      keys.add(event.code);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.code));
+    restartBtn.addEventListener("click", resetGame);
+
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
