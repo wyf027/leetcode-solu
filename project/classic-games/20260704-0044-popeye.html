@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Popeye</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-amber-200">Mini Popeye</h1>
+        <p class="text-sm text-sky-100">Catch Olive's hearts, grab spinach, and keep Bluto off the docks.</p>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <div class="rounded bg-sky-900 px-3 py-2">Score <span id="score" class="font-semibold text-amber-200">0</span></div>
+        <div class="rounded bg-sky-900 px-3 py-2">Hearts <span id="hearts" class="font-semibold text-rose-200">0</span></div>
+        <div class="rounded bg-sky-900 px-3 py-2">Lives <span id="lives" class="font-semibold text-emerald-200">3</span></div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-sky-700 bg-sky-900 p-3 shadow-lg shadow-sky-950/40">
+        <canvas id="game" width="704" height="528" class="aspect-[4/3] w-full rounded bg-sky-950"></canvas>
+      </div>
+      <aside class="rounded border border-sky-700 bg-sky-900 p-4 text-sm text-sky-100">
+        <div class="mb-4">
+          <h2 class="mb-2 font-semibold text-white">Controls</h2>
+          <p>Arrow keys or WASD move.</p>
+          <p>Space uses spinach power.</p>
+          <p>Enter restarts after game over.</p>
+        </div>
+        <button id="restart" class="w-full rounded bg-amber-300 px-4 py-2 font-semibold text-sky-950 hover:bg-amber-200">Restart</button>
+        <div id="status" class="mt-4 rounded bg-sky-950 p-3 text-sky-50">Collect 20 hearts before Bluto corners you.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const heartsEl = document.getElementById("hearts");
+    const livesEl = document.getElementById("lives");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restart");
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const keys = new Set();
+    const platforms = [
+      { x: 56, y: 432, w: 592 },
+      { x: 88, y: 344, w: 232 },
+      { x: 384, y: 344, w: 232 },
+      { x: 56, y: 256, w: 248 },
+      { x: 400, y: 256, w: 248 },
+      { x: 128, y: 168, w: 448 },
+      { x: 280, y: 82, w: 144 }
+    ];
+    const ladders = [
+      { x: 140, y: 168, h: 264 },
+      { x: 500, y: 168, h: 264 },
+      { x: 292, y: 82, h: 174 },
+      { x: 420, y: 82, h: 174 }
+    ];
+
+    let popeye;
+    let bluto;
+    let hearts;
+    let spinach;
+    let score;
+    let caught;
+    let lives;
+    let power;
+    let spawnTimer;
+    let tick;
+    let running;
+    let won;
+    let lastTime;
+
+    function makePopeye() {
+      return { x: 92, y: 400, vx: 0, vy: 0, w: 24, h: 32, face: 1, grounded: false };
+    }
+
+    function makeBluto() {
+      return { x: 592, y: 400, vx: -1, vy: 0, w: 30, h: 36, grounded: false, stun: 0 };
+    }
+
+    function resetGame() {
+      popeye = makePopeye();
+      bluto = makeBluto();
+      hearts = [];
+      spinach = null;
+      score = 0;
+      caught = 0;
+      lives = 3;
+      power = 0;
+      spawnTimer = 0;
+      tick = 0;
+      running = true;
+      won = false;
+      lastTime = 0;
+      statusEl.textContent = "Collect 20 hearts before Bluto corners you.";
+      updateHud();
+      renderPopeye();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      heartsEl.textContent = caught;
+      livesEl.textContent = lives;
+    }
+
+    function overlaps(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function platformUnder(actor) {
+      return platforms.find((platform) => {
+        const feet = actor.y + actor.h;
+        return actor.x + actor.w > platform.x && actor.x < platform.x + platform.w && feet <= platform.y + 8 && feet + actor.vy >= platform.y;
+      });
+    }
+
+    function onLadder(actor) {
+      return ladders.find((ladder) => {
+        const center = actor.x + actor.w / 2;
+        return center > ladder.x - 10 && center < ladder.x + 26 && actor.y + actor.h > ladder.y && actor.y < ladder.y + ladder.h;
+      });
+    }
+
+    function applyMovement(actor) {
+      const ladder = onLadder(actor);
+      if (ladder && (actor === bluto || keys.has("ArrowUp") || keys.has("w") || keys.has("ArrowDown") || keys.has("s"))) {
+        actor.vy = 0;
+      } else {
+        actor.vy += 0.42;
+      }
+
+      actor.x += actor.vx;
+      actor.y += actor.vy;
+      actor.x = Math.max(32, Math.min(width - 56, actor.x));
+
+      actor.grounded = false;
+      const landing = platformUnder(actor);
+      if (landing && actor.vy >= 0) {
+        actor.y = landing.y - actor.h;
+        actor.vy = 0;
+        actor.grounded = true;
+      }
+
+      if (actor.y > height + 40) {
+        actor.x = actor === popeye ? 92 : 592;
+        actor.y = 40;
+        actor.vy = 0;
+      }
+    }
+
+    function updatePopeye() {
+      popeye.vx = 0;
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w");
+      const down = keys.has("ArrowDown") || keys.has("s");
+      const ladder = onLadder(popeye);
+
+      if (left) {
+        popeye.vx = -3.3;
+        popeye.face = -1;
+      }
+      if (right) {
+        popeye.vx = 3.3;
+        popeye.face = 1;
+      }
+      if (ladder && up) popeye.vy = -2.8;
+      if (ladder && down) popeye.vy = 2.8;
+
+      applyMovement(popeye);
+      if (power > 0) power--;
+    }
+
+    function chooseBlutoMove() {
+      if (bluto.stun > 0) {
+        bluto.stun--;
+        bluto.vx = 0;
+        return;
+      }
+
+      const sameDeck = Math.abs((bluto.y + bluto.h) - (popeye.y + popeye.h)) < 14;
+      if (sameDeck) {
+        bluto.vx = popeye.x < bluto.x ? -1.7 : 1.7;
+        return;
+      }
+
+      const ladder = onLadder(bluto);
+      if (ladder && Math.random() < 0.55) {
+        bluto.vx = 0;
+        bluto.vy = popeye.y < bluto.y ? -2 : 2;
+        return;
+      }
+
+      bluto.vx = popeye.x < bluto.x ? -1.35 : 1.35;
+    }
+
+    function updateBluto() {
+      chooseBlutoMove();
+      applyMovement(bluto);
+    }
+
+    function spawnHeart() {
+      const lanes = [118, 206, 294, 382];
+      const x = 82 + Math.random() * 540;
+      hearts.push({ x, y: lanes[Math.floor(Math.random() * lanes.length)], w: 18, h: 18, vy: 1.2 + Math.random() * 0.7 });
+    }
+
+    function spawnSpinach() {
+      if (spinach || Math.random() > 0.012) return;
+      const platform = platforms[1 + Math.floor(Math.random() * (platforms.length - 1))];
+      spinach = { x: platform.x + 24 + Math.random() * Math.max(20, platform.w - 60), y: platform.y - 24, w: 18, h: 24 };
+    }
+
+    function updateHearts() {
+      spawnTimer--;
+      if (spawnTimer <= 0) {
+        spawnHeart();
+        spawnTimer = Math.max(20, 58 - caught);
+      }
+
+      hearts.forEach((heart) => {
+        heart.y += heart.vy;
+      });
+
+      hearts = hearts.filter((heart) => {
+        if (overlaps(popeye, heart)) {
+          caught++;
+          score += 100;
+          if (caught >= 20) {
+            running = false;
+            won = true;
+            statusEl.textContent = "Olive is safe. Press Restart to play again.";
+          }
+          updateHud();
+          return false;
+        }
+        return heart.y < height - 26;
+      });
+    }
+
+    function useSpinach() {
+      if (!spinach || !overlaps(popeye, spinach)) return;
+      spinach = null;
+      power = 360;
+      score += 250;
+      statusEl.textContent = "Spinach power is active.";
+      updateHud();
+    }
+
+    function updateSpinach() {
+      spawnSpinach();
+      if (spinach && overlaps(popeye, spinach)) useSpinach();
+    }
+
+    function checkBlutoCollision() {
+      if (!overlaps(popeye, bluto)) return;
+      if (power > 0) {
+        bluto.stun = 140;
+        bluto.x = Math.min(width - 78, bluto.x + 80 * popeye.face);
+        score += 400;
+        statusEl.textContent = "Bluto is stunned.";
+        updateHud();
+        return;
+      }
+
+      lives--;
+      updateHud();
+      if (lives <= 0) {
+        running = false;
+        statusEl.textContent = "Game over. Press Enter or Restart.";
+        return;
+      }
+      statusEl.textContent = "Bluto caught Popeye. Try again.";
+      popeye = makePopeye();
+      bluto = makeBluto();
+      power = 0;
+    }
+
+    function updateGame() {
+      if (!running) return;
+      tick++;
+      updatePopeye();
+      updateBluto();
+      updateHearts();
+      updateSpinach();
+      checkBlutoCollision();
+    }
+
+    function drawPlatforms() {
+      ctx.fillStyle = "#7c2d12";
+      platforms.forEach((platform) => {
+        ctx.fillRect(platform.x, platform.y, platform.w, 12);
+        ctx.fillStyle = "#9a3412";
+        for (let x = platform.x; x < platform.x + platform.w; x += 28) {
+          ctx.fillRect(x, platform.y + 3, 18, 4);
+        }
+        ctx.fillStyle = "#7c2d12";
+      });
+      ctx.strokeStyle = "#fde68a";
+      ctx.lineWidth = 3;
+      ladders.forEach((ladder) => {
+        ctx.beginPath();
+        ctx.moveTo(ladder.x, ladder.y);
+        ctx.lineTo(ladder.x, ladder.y + ladder.h);
+        ctx.moveTo(ladder.x + 18, ladder.y);
+        ctx.lineTo(ladder.x + 18, ladder.y + ladder.h);
+        for (let y = ladder.y + 10; y < ladder.y + ladder.h; y += 22) {
+          ctx.moveTo(ladder.x, y);
+          ctx.lineTo(ladder.x + 18, y);
+        }
+        ctx.stroke();
+      });
+    }
+
+    function drawSailor(actor, shirt, hat) {
+      ctx.fillStyle = shirt;
+      ctx.fillRect(actor.x + 5, actor.y + 12, actor.w - 10, actor.h - 12);
+      ctx.fillStyle = "#fed7aa";
+      ctx.beginPath();
+      ctx.arc(actor.x + actor.w / 2, actor.y + 10, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = hat;
+      ctx.fillRect(actor.x + 5, actor.y + 1, actor.w - 10, 6);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(actor.x + (actor.face || 1) * 7 + actor.w / 2, actor.y + 9, 8, 3);
+    }
+
+    function renderPopeye() {
+      ctx.clearRect(0, 0, width, height);
+      const sky = ctx.createLinearGradient(0, 0, 0, height);
+      sky.addColorStop(0, "#075985");
+      sky.addColorStop(1, "#082f49");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = "#bae6fd";
+      ctx.fillRect(42, 44, 110, 18);
+      ctx.fillRect(548, 66, 104, 18);
+      drawPlatforms();
+
+      hearts.forEach((heart) => {
+        ctx.fillStyle = "#fb7185";
+        ctx.beginPath();
+        ctx.arc(heart.x + 6, heart.y + 7, 6, 0, Math.PI * 2);
+        ctx.arc(heart.x + 12, heart.y + 7, 6, 0, Math.PI * 2);
+        ctx.lineTo(heart.x + 9, heart.y + 18);
+        ctx.fill();
+      });
+
+      if (spinach) {
+        ctx.fillStyle = "#16a34a";
+        ctx.fillRect(spinach.x, spinach.y + 6, spinach.w, spinach.h - 6);
+        ctx.fillStyle = "#bbf7d0";
+        ctx.fillRect(spinach.x + 3, spinach.y + 1, spinach.w - 6, 7);
+      }
+
+      drawSailor(bluto, bluto.stun > 0 ? "#64748b" : "#7f1d1d", "#111827");
+      drawSailor(popeye, power > 0 ? "#22c55e" : "#1d4ed8", "#f8fafc");
+
+      if (power > 0) {
+        ctx.strokeStyle = "#bbf7d0";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(popeye.x + popeye.w / 2, popeye.y + popeye.h / 2, 24 + Math.sin(tick / 5) * 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      if (!running) {
+        ctx.fillStyle = "rgba(8, 47, 73, 0.76)";
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = won ? "#bbf7d0" : "#fecaca";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "Hearts Collected" : "Game Over", width / 2, height / 2);
+        ctx.font = "18px sans-serif";
+        ctx.fillText("Press Enter or Restart", width / 2, height / 2 + 34);
+      }
+    }
+
+    function gameLoop(time) {
+      if (!lastTime) lastTime = time;
+      if (time - lastTime > 16) {
+        updateGame();
+        renderPopeye();
+        lastTime = time;
+      }
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "w", "a", "s", "d", "Enter"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") useSpinach();
+      else if (key === "Enter" && !running) resetGame();
+      else keys.add(key);
+    });
+
+    document.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
