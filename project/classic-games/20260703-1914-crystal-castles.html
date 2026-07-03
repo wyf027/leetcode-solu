@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Crystal Castles</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-cyan-200">Mini Crystal Castles</h1>
+        <p class="text-sm text-slate-400">Collect every crystal in the maze before the sentries catch you.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <span class="rounded bg-slate-900 px-3 py-2 text-cyan-100">Score <b id="score">0</b></span>
+        <span class="rounded bg-slate-900 px-3 py-2 text-rose-100">Lives <b id="lives">3</b></span>
+        <span class="rounded bg-slate-900 px-3 py-2 text-emerald-100">Level <b id="level">1</b></span>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="720" height="560" class="w-full rounded border border-slate-800 bg-slate-900 shadow-2xl shadow-black"></canvas>
+      <aside class="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
+        <h2 class="mb-3 text-lg font-semibold text-slate-100">Controls</h2>
+        <div class="grid gap-2">
+          <div class="flex items-center justify-between gap-3"><span>Move</span><kbd class="rounded bg-slate-800 px-2 py-1">Arrow keys</kbd></div>
+          <div class="flex items-center justify-between gap-3"><span>Restart</span><kbd class="rounded bg-slate-800 px-2 py-1">R</kbd></div>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-cyan-300 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-200">Restart</button>
+        <p class="mt-4 text-xs leading-5 text-slate-500">Purple gates are passable shortcuts. Clear all crystals to raise the sentry speed and start a new castle.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const levelEl = document.getElementById("level");
+    const restartBtn = document.getElementById("restart");
+
+    const tile = 40;
+    const offsetX = 40;
+    const offsetY = 40;
+    const mazeTemplate = [
+      "################",
+      "#....#......#..#",
+      "#.##.#.####.#..#",
+      "#.#..#....#....#",
+      "#.#.####..####.#",
+      "#...#..G.....#.#",
+      "###.#.######.#.#",
+      "#...#....#...#.#",
+      "#.######.#.###.#",
+      "#......#.#.....#",
+      "#.####.#.#####.#",
+      "#....#....G....#",
+      "################"
+    ];
+
+    const keys = new Set();
+    let walls = [];
+    let crystals = new Set();
+    let gates = new Set();
+    let player = { x: 1, y: 1, cooldown: 0 };
+    let sentries = [];
+    let score = 0;
+    let lives = 3;
+    let level = 1;
+    let gameOver = false;
+    let winFlash = 0;
+    let lastTime = 0;
+
+    function keyOf(x, y) {
+      return `${x},${y}`;
+    }
+
+    function isBlocked(x, y) {
+      return walls.includes(keyOf(x, y));
+    }
+
+    function resetCastle(keepStats = false) {
+      walls = [];
+      crystals = new Set();
+      gates = new Set();
+      mazeTemplate.forEach((row, y) => {
+        [...row].forEach((cell, x) => {
+          if (cell === "#") walls.push(keyOf(x, y));
+          if (cell === ".") crystals.add(keyOf(x, y));
+          if (cell === "G") gates.add(keyOf(x, y));
+        });
+      });
+      player = { x: 1, y: 1, cooldown: 0 };
+      sentries = [
+        { x: 14, y: 1, cooldown: 0, color: "#fb7185" },
+        { x: 13, y: 11, cooldown: 0.18, color: "#f97316" },
+        { x: 1, y: 11, cooldown: 0.32, color: "#a78bfa" }
+      ];
+      gameOver = false;
+      winFlash = 0;
+      if (!keepStats) {
+        score = 0;
+        lives = 3;
+        level = 1;
+      }
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      levelEl.textContent = level;
+    }
+
+    function tryMove(entity, dx, dy) {
+      const nx = entity.x + dx;
+      const ny = entity.y + dy;
+      if (!isBlocked(nx, ny)) {
+        entity.x = nx;
+        entity.y = ny;
+      }
+    }
+
+    function movePlayer() {
+      if (player.cooldown > 0 || gameOver) return;
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) dx = -1;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) dx = 1;
+      if (keys.has("ArrowUp") || keys.has("KeyW")) dy = -1;
+      if (keys.has("ArrowDown") || keys.has("KeyS")) dy = 1;
+      if (dx !== 0 && dy !== 0) dy = 0;
+      if (dx !== 0 || dy !== 0) {
+        tryMove(player, dx, dy);
+        player.cooldown = 0.115;
+        const key = keyOf(player.x, player.y);
+        if (crystals.delete(key)) {
+          score += 25;
+          updateHud();
+          if (crystals.size === 0) {
+            score += 250;
+            level += 1;
+            winFlash = 0.7;
+            resetCastle(true);
+          }
+        }
+      }
+    }
+
+    function chooseSentryStep(sentry) {
+      const options = [
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 },
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 }
+      ].filter((step) => !isBlocked(sentry.x + step.dx, sentry.y + step.dy));
+      options.sort((a, b) => {
+        const da = Math.abs(player.x - (sentry.x + a.dx)) + Math.abs(player.y - (sentry.y + a.dy));
+        const db = Math.abs(player.x - (sentry.x + b.dx)) + Math.abs(player.y - (sentry.y + b.dy));
+        return da - db;
+      });
+      const best = options[0] || { dx: 0, dy: 0 };
+      if (Math.random() < 0.22) return options[Math.floor(Math.random() * options.length)] || best;
+      return best;
+    }
+
+    function updateSentries(dt) {
+      sentries.forEach((sentry) => {
+        sentry.cooldown -= dt;
+        if (sentry.cooldown <= 0 && !gameOver) {
+          const step = chooseSentryStep(sentry);
+          tryMove(sentry, step.dx, step.dy);
+          sentry.cooldown = Math.max(0.13, 0.34 - level * 0.025);
+        }
+      });
+    }
+
+    function loseLife() {
+      lives -= 1;
+      if (lives <= 0) {
+        gameOver = true;
+      } else {
+        player.x = 1;
+        player.y = 1;
+        sentries[0].x = 14;
+        sentries[0].y = 1;
+        sentries[1].x = 13;
+        sentries[1].y = 11;
+        sentries[2].x = 1;
+        sentries[2].y = 11;
+      }
+      updateHud();
+    }
+
+    function updateCrystalCastles(dt) {
+      if (winFlash > 0) winFlash -= dt;
+      if (gameOver) return;
+      player.cooldown = Math.max(0, player.cooldown - dt);
+      movePlayer();
+      updateSentries(dt);
+      if (sentries.some((sentry) => sentry.x === player.x && sentry.y === player.y)) {
+        loseLife();
+      }
+    }
+
+    function tileToScreen(x, y) {
+      return { x: offsetX + x * tile, y: offsetY + y * tile };
+    }
+
+    function drawTile(x, y, color, stroke = "#334155") {
+      const p = tileToScreen(x, y);
+      ctx.fillStyle = color;
+      ctx.fillRect(p.x, p.y, tile - 4, tile - 4);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(p.x + 1, p.y + 1, tile - 6, tile - 6);
+    }
+
+    function drawCrystal(x, y) {
+      const p = tileToScreen(x, y);
+      const cx = p.x + tile / 2 - 2;
+      const cy = p.y + tile / 2 - 2;
+      ctx.fillStyle = "#67e8f9";
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 12);
+      ctx.lineTo(cx + 11, cy);
+      ctx.lineTo(cx, cy + 12);
+      ctx.lineTo(cx - 11, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#ecfeff";
+      ctx.stroke();
+    }
+
+    function drawActor(x, y, color, label) {
+      const p = tileToScreen(x, y);
+      const cx = p.x + tile / 2 - 2;
+      const cy = p.y + tile / 2 - 2;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#020617";
+      ctx.font = "bold 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, cx, cy + 1);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
+
+    function renderCrystalCastles() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      mazeTemplate.forEach((row, y) => {
+        [...row].forEach((cell, x) => {
+          if (cell === "#") drawTile(x, y, "#1e293b", "#475569");
+          else drawTile(x, y, gates.has(keyOf(x, y)) ? "#581c87" : "#111827", "#1f2937");
+        });
+      });
+      crystals.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        drawCrystal(x, y);
+      });
+      sentries.forEach((sentry) => drawActor(sentry.x, sentry.y, sentry.color, "!"));
+      drawActor(player.x, player.y, "#facc15", "P");
+
+      if (winFlash > 0) {
+        ctx.fillStyle = `rgba(34, 211, 238, ${Math.min(0.28, winFlash)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      if (gameOver) {
+        ctx.fillStyle = "rgba(2,6,23,0.74)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#cffafe";
+        ctx.font = "bold 32px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Castle closed", canvas.width / 2, 245);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("Press R or Restart to try again", canvas.width / 2, 280);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function gameLoop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      updateCrystalCastles(dt);
+      renderCrystalCastles();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.code)) event.preventDefault();
+      if (event.code === "KeyR") resetCastle(false);
+      keys.add(event.code);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.code));
+    restartBtn.addEventListener("click", () => resetCastle(false));
+
+    resetCastle(false);
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
