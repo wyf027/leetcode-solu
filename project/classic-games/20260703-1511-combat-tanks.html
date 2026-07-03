@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Combat Tanks</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-4 p-4">
+      <section class="w-full rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-xl">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold">Mini Combat Tanks</h1>
+            <p class="text-sm text-slate-300">方向键或 WASD 移动，空格发射，击中敌坦克 5 次获胜。</p>
+          </div>
+          <div class="flex gap-3 text-sm">
+            <span>得分 <strong id="score">0</strong></span>
+            <span>生命 <strong id="lives">3</strong></span>
+            <span>命中 <strong id="hits">0</strong>/5</span>
+          </div>
+        </div>
+
+        <canvas id="game" width="520" height="420" class="w-full rounded-md border border-slate-700 bg-lime-950"></canvas>
+
+        <div class="mt-3 grid grid-cols-3 gap-2">
+          <button id="leftBtn" class="rounded bg-slate-700 px-3 py-2 font-semibold hover:bg-slate-600">左转</button>
+          <button id="fireBtn" class="rounded bg-amber-400 px-3 py-2 font-semibold text-slate-950 hover:bg-amber-300">开火</button>
+          <button id="rightBtn" class="rounded bg-slate-700 px-3 py-2 font-semibold hover:bg-slate-600">右转</button>
+        </div>
+        <div class="mt-2 grid grid-cols-2 gap-2">
+          <button id="forwardBtn" class="rounded bg-emerald-600 px-3 py-2 font-semibold hover:bg-emerald-500">前进</button>
+          <button id="restartBtn" class="rounded bg-slate-100 px-3 py-2 font-semibold text-slate-950 hover:bg-white">
+            重新开始
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const hitsEl = document.getElementById("hits");
+      const keys = new Set();
+      const walls = [
+        { x: 135, y: 80, w: 34, h: 180 },
+        { x: 350, y: 160, w: 36, h: 180 },
+        { x: 210, y: 58, w: 110, h: 30 },
+        { x: 205, y: 324, w: 118, h: 30 },
+      ];
+      let player;
+      let enemy;
+      let bullets;
+      let enemyBullets;
+      let score;
+      let lives;
+      let hits;
+      let frame;
+      let running;
+      let message;
+
+      function resetGame() {
+        player = { x: 68, y: 328, size: 28, angle: 0, cooldown: 0 };
+        enemy = { x: 430, y: 70, size: 28, angle: Math.PI, cooldown: 55, step: 0 };
+        bullets = [];
+        enemyBullets = [];
+        score = 0;
+        lives = 3;
+        hits = 0;
+        frame = 0;
+        running = true;
+        message = "";
+        updateHud();
+      }
+
+      function updateHud() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        hitsEl.textContent = hits;
+      }
+
+      function tankRect(tank) {
+        return { x: tank.x - tank.size / 2, y: tank.y - tank.size / 2, w: tank.size, h: tank.size };
+      }
+
+      function blocked(x, y, size) {
+        const rect = { x: x - size / 2, y: y - size / 2, w: size, h: size };
+        if (rect.x < 12 || rect.y < 12 || rect.x + rect.w > canvas.width - 12 || rect.y + rect.h > canvas.height - 12) return true;
+        return walls.some((wall) => rectanglesOverlap(rect, wall));
+      }
+
+      function moveTank(tank, speed) {
+        const nx = tank.x + Math.cos(tank.angle) * speed;
+        const ny = tank.y + Math.sin(tank.angle) * speed;
+        if (!blocked(nx, ny, tank.size)) {
+          tank.x = nx;
+          tank.y = ny;
+        }
+      }
+
+      function fireBullet(from, list) {
+        if (from.cooldown > 0 || !running) return;
+        list.push({
+          x: from.x + Math.cos(from.angle) * 22,
+          y: from.y + Math.sin(from.angle) * 22,
+          vx: Math.cos(from.angle) * 5.6,
+          vy: Math.sin(from.angle) * 5.6,
+          r: 4,
+        });
+        from.cooldown = 32;
+      }
+
+      function updatePlayer() {
+        if (keys.has("ArrowLeft") || keys.has("a")) player.angle -= 0.075;
+        if (keys.has("ArrowRight") || keys.has("d")) player.angle += 0.075;
+        if (keys.has("ArrowUp") || keys.has("w")) moveTank(player, 2.4);
+        if (keys.has("ArrowDown") || keys.has("s")) moveTank(player, -1.8);
+        if (player.cooldown > 0) player.cooldown -= 1;
+      }
+
+      function updateEnemy() {
+        enemy.step += 1;
+        const targetAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+        const diff = Math.atan2(Math.sin(targetAngle - enemy.angle), Math.cos(targetAngle - enemy.angle));
+        enemy.angle += Math.max(-0.045, Math.min(0.045, diff));
+        moveTank(enemy, 1.1);
+        if (blocked(enemy.x + Math.cos(enemy.angle) * 18, enemy.y + Math.sin(enemy.angle) * 18, enemy.size)) {
+          enemy.angle += Math.PI / 2;
+        }
+        if (enemy.cooldown > 0) enemy.cooldown -= 1;
+        if (Math.abs(diff) < 0.28 && enemy.cooldown <= 0) fireBullet(enemy, enemyBullets);
+      }
+
+      function updateBullets(list) {
+        list.forEach((bullet) => {
+          bullet.x += bullet.vx;
+          bullet.y += bullet.vy;
+          const hitWall = walls.some((wall) =>
+            rectanglesOverlap({ x: bullet.x - bullet.r, y: bullet.y - bullet.r, w: bullet.r * 2, h: bullet.r * 2 }, wall),
+          );
+          if (hitWall || bullet.x < 0 || bullet.y < 0 || bullet.x > canvas.width || bullet.y > canvas.height) {
+            bullet.dead = true;
+          }
+        });
+        return list.filter((bullet) => !bullet.dead);
+      }
+
+      function checkCollisions() {
+        const enemyRect = tankRect(enemy);
+        const playerRect = tankRect(player);
+        bullets.forEach((bullet) => {
+          if (circleHitsRect(bullet, enemyRect)) {
+            bullet.dead = true;
+            hits += 1;
+            score += 20;
+            enemy.x = 395 + Math.random() * 68;
+            enemy.y = 54 + Math.random() * 80;
+            enemy.angle = Math.PI;
+          }
+        });
+        enemyBullets.forEach((bullet) => {
+          if (circleHitsRect(bullet, playerRect)) {
+            bullet.dead = true;
+            lives -= 1;
+            score = Math.max(0, score - 10);
+            player.x = 68;
+            player.y = 328;
+            player.angle = 0;
+          }
+        });
+        bullets = bullets.filter((bullet) => !bullet.dead);
+        enemyBullets = enemyBullets.filter((bullet) => !bullet.dead);
+        if (hits >= 5) {
+          running = false;
+          message = "任务完成";
+          score += 50;
+        }
+        if (lives <= 0) {
+          running = false;
+          message = "坦克失守";
+        }
+        updateHud();
+      }
+
+      function rectanglesOverlap(a, b) {
+        return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      }
+
+      function circleHitsRect(circle, rect) {
+        const nearestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.w));
+        const nearestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.h));
+        return Math.hypot(circle.x - nearestX, circle.y - nearestY) <= circle.r;
+      }
+
+      function renderTank(tank, color) {
+        ctx.save();
+        ctx.translate(tank.x, tank.y);
+        ctx.rotate(tank.angle);
+        ctx.fillStyle = color;
+        ctx.fillRect(-tank.size / 2, -tank.size / 2, tank.size, tank.size);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, -5, 24, 10);
+        ctx.fillStyle = "#e2e8f0";
+        ctx.fillRect(-9, -10, 18, 20);
+        ctx.restore();
+      }
+
+      function renderArena() {
+        ctx.fillStyle = "#365314";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "#84cc16";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+        walls.forEach((wall) => {
+          ctx.fillStyle = "#475569";
+          ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+          ctx.fillStyle = "#64748b";
+          ctx.fillRect(wall.x + 4, wall.y + 4, wall.w - 8, wall.h - 8);
+        });
+        bullets.forEach((bullet) => {
+          ctx.fillStyle = "#facc15";
+          ctx.beginPath();
+          ctx.arc(bullet.x, bullet.y, bullet.r, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        enemyBullets.forEach((bullet) => {
+          ctx.fillStyle = "#fb7185";
+          ctx.beginPath();
+          ctx.arc(bullet.x, bullet.y, bullet.r, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        renderTank(player, "#38bdf8");
+        renderTank(enemy, "#f97316");
+        if (message) {
+          ctx.fillStyle = "rgba(15, 23, 42, 0.82)";
+          ctx.fillRect(90, 160, 340, 92);
+          ctx.fillStyle = "#f8fafc";
+          ctx.font = "700 28px system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(message, canvas.width / 2, 204);
+          ctx.font = "14px system-ui";
+          ctx.fillText("点击重新开始再战一局", canvas.width / 2, 228);
+          ctx.textAlign = "start";
+        }
+      }
+
+      function gameLoop() {
+        frame += 1;
+        if (running) {
+          updatePlayer();
+          updateEnemy();
+          bullets = updateBullets(bullets);
+          enemyBullets = updateBullets(enemyBullets);
+          checkCollisions();
+        }
+        renderArena();
+        requestAnimationFrame(gameLoop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (["arrowup", "arrowdown", "arrowleft", "arrowright", " ", "w", "a", "s", "d"].includes(key)) event.preventDefault();
+        if (event.key === " ") fireBullet(player, bullets);
+        keys.add(key.startsWith("arrow") ? event.key : key);
+      });
+      document.addEventListener("keyup", (event) => {
+        keys.delete(event.key);
+        keys.delete(event.key.toLowerCase());
+      });
+
+      document.getElementById("leftBtn").addEventListener("click", () => {
+        player.angle -= Math.PI / 6;
+      });
+      document.getElementById("rightBtn").addEventListener("click", () => {
+        player.angle += Math.PI / 6;
+      });
+      document.getElementById("forwardBtn").addEventListener("click", () => moveTank(player, 24));
+      document.getElementById("fireBtn").addEventListener("click", () => fireBullet(player, bullets));
+      document.getElementById("restartBtn").addEventListener("click", resetGame);
+
+      resetGame();
+      gameLoop();
+    </script>
+  </body>
+</html>
