@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Mr. Do</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-emerald-200">Mini Mr. Do</h1>
+        <p class="text-sm text-slate-300">Dig tunnels, collect cherries, and bounce the power ball through monsters.</p>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <div class="rounded bg-slate-800 px-3 py-2">Score <span id="score" class="font-semibold text-emerald-200">0</span></div>
+        <div class="rounded bg-slate-800 px-3 py-2">Cherries <span id="cherries" class="font-semibold text-rose-200">0</span></div>
+        <div class="rounded bg-slate-800 px-3 py-2">Lives <span id="lives" class="font-semibold text-amber-200">3</span></div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <canvas id="game" width="704" height="528" class="aspect-[4/3] w-full rounded bg-slate-950"></canvas>
+      </div>
+      <aside class="rounded border border-slate-700 bg-slate-900 p-4 text-sm text-slate-300">
+        <div class="mb-4">
+          <h2 class="mb-2 font-semibold text-slate-100">Controls</h2>
+          <p>Arrow keys or WASD move.</p>
+          <p>Space throws the ball.</p>
+          <p>Enter restarts after game over.</p>
+        </div>
+        <button id="restart" class="w-full rounded bg-emerald-500 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-400">Restart</button>
+        <div id="status" class="mt-4 rounded bg-slate-800 p-3 text-slate-200">Collect all cherries to clear the garden.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const cherriesEl = document.getElementById("cherries");
+    const livesEl = document.getElementById("lives");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restart");
+
+    const tile = 22;
+    const cols = 32;
+    const rows = 24;
+    const keys = new Set();
+    const dirs = [
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 }
+    ];
+
+    let grid;
+    let mrDo;
+    let enemies;
+    let ball;
+    let score;
+    let lives;
+    let cherryCount;
+    let tick;
+    let running;
+    let won;
+    let lastTime;
+
+    function makeGarden() {
+      const next = [];
+      for (let y = 0; y < rows; y++) {
+        const line = [];
+        for (let x = 0; x < cols; x++) {
+          const border = x === 0 || y === 0 || x === cols - 1 || y === rows - 1;
+          const walkway = x === 2 || x === cols - 3 || y === 2 || y === rows - 3;
+          const centerPath = (x > 8 && x < 23 && y === 12) || (y > 6 && y < 18 && x === 16);
+          const cherryPatch = (x + y) % 5 === 0 && x > 3 && y > 3 && x < cols - 4 && y < rows - 4;
+          if (border) line.push("wall");
+          else if (walkway || centerPath) line.push("empty");
+          else if (cherryPatch) line.push("cherry");
+          else line.push("dirt");
+        }
+        next.push(line);
+      }
+      return next;
+    }
+
+    function resetGame() {
+      grid = makeGarden();
+      mrDo = { x: 2, y: 2, px: 2 * tile, py: 2 * tile, dir: { x: 1, y: 0 }, cooldown: 0 };
+      enemies = [
+        { x: cols - 3, y: 2, px: (cols - 3) * tile, py: 2 * tile, step: 0, color: "#fb7185" },
+        { x: cols - 3, y: rows - 3, px: (cols - 3) * tile, py: (rows - 3) * tile, step: 0, color: "#a78bfa" },
+        { x: 2, y: rows - 3, px: 2 * tile, py: (rows - 3) * tile, step: 0, color: "#38bdf8" }
+      ];
+      ball = null;
+      score = 0;
+      lives = 3;
+      tick = 0;
+      running = true;
+      won = false;
+      lastTime = 0;
+      updateCherryCount();
+      statusEl.textContent = "Collect all cherries to clear the garden.";
+      renderMrDo();
+    }
+
+    function updateCherryCount() {
+      cherryCount = 0;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          if (grid[y][x] === "cherry") cherryCount++;
+        }
+      }
+      cherriesEl.textContent = cherryCount;
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+    }
+
+    function tileAt(x, y) {
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return "wall";
+      return grid[y][x];
+    }
+
+    function isOpen(x, y) {
+      const value = tileAt(x, y);
+      return value === "empty" || value === "cherry";
+    }
+
+    function dig(x, y) {
+      const value = tileAt(x, y);
+      if (value === "wall") return false;
+      if (value === "cherry") {
+        score += 50;
+        grid[y][x] = "empty";
+        updateCherryCount();
+        if (cherryCount === 0) {
+          running = false;
+          won = true;
+          statusEl.textContent = "Garden clear. Press Restart for another run.";
+        }
+        return true;
+      }
+      if (value === "dirt") {
+        score += 5;
+        grid[y][x] = "empty";
+        updateCherryCount();
+        return true;
+      }
+      return value === "empty";
+    }
+
+    function wantedDirection() {
+      if (keys.has("ArrowLeft") || keys.has("a")) return { x: -1, y: 0 };
+      if (keys.has("ArrowRight") || keys.has("d")) return { x: 1, y: 0 };
+      if (keys.has("ArrowUp") || keys.has("w")) return { x: 0, y: -1 };
+      if (keys.has("ArrowDown") || keys.has("s")) return { x: 0, y: 1 };
+      return null;
+    }
+
+    function moveActor(actor, dir) {
+      const nx = actor.x + dir.x;
+      const ny = actor.y + dir.y;
+      if (!dig(nx, ny)) return;
+      actor.x = nx;
+      actor.y = ny;
+      actor.px = nx * tile;
+      actor.py = ny * tile;
+    }
+
+    function updateMrDo() {
+      if (mrDo.cooldown > 0) mrDo.cooldown--;
+      const dir = wantedDirection();
+      if (!dir) return;
+      mrDo.dir = dir;
+      if (tick % 5 === 0) moveActor(mrDo, dir);
+    }
+
+    function throwBall() {
+      if (!running || ball || mrDo.cooldown > 0) return;
+      ball = {
+        x: mrDo.x,
+        y: mrDo.y,
+        px: mrDo.px + tile / 2,
+        py: mrDo.py + tile / 2,
+        dir: { ...mrDo.dir },
+        ttl: 38
+      };
+      mrDo.cooldown = 26;
+    }
+
+    function updateBall() {
+      if (!ball) return;
+      ball.ttl--;
+      const nx = ball.x + ball.dir.x;
+      const ny = ball.y + ball.dir.y;
+      if (tileAt(nx, ny) === "wall" || tileAt(nx, ny) === "dirt") {
+        ball.dir.x *= -1;
+        ball.dir.y *= -1;
+      } else {
+        ball.x = nx;
+        ball.y = ny;
+        ball.px = nx * tile + tile / 2;
+        ball.py = ny * tile + tile / 2;
+      }
+      enemies = enemies.filter((enemy) => {
+        if (enemy.x === ball.x && enemy.y === ball.y) {
+          score += 200;
+          updateCherryCount();
+          ball = null;
+          return false;
+        }
+        return true;
+      });
+      if (ball && ball.ttl <= 0) ball = null;
+    }
+
+    function chooseEnemyDirection(enemy) {
+      const options = dirs.filter((dir) => isOpen(enemy.x + dir.x, enemy.y + dir.y));
+      if (!options.length) return { x: 0, y: 0 };
+      options.sort((a, b) => {
+        const da = Math.abs(enemy.x + a.x - mrDo.x) + Math.abs(enemy.y + a.y - mrDo.y);
+        const db = Math.abs(enemy.x + b.x - mrDo.x) + Math.abs(enemy.y + b.y - mrDo.y);
+        return da - db;
+      });
+      if (Math.random() < 0.68) return options[0];
+      return options[Math.floor(Math.random() * options.length)];
+    }
+
+    function updateEnemies() {
+      if (tick % 13 !== 0) return;
+      enemies.forEach((enemy) => {
+        const dir = chooseEnemyDirection(enemy);
+        enemy.x += dir.x;
+        enemy.y += dir.y;
+        enemy.px = enemy.x * tile;
+        enemy.py = enemy.y * tile;
+      });
+    }
+
+    function loseLife() {
+      lives--;
+      updateCherryCount();
+      if (lives <= 0) {
+        running = false;
+        statusEl.textContent = "Game over. Press Enter or Restart.";
+        return;
+      }
+      statusEl.textContent = "Caught. Keep digging.";
+      mrDo.x = 2;
+      mrDo.y = 2;
+      mrDo.px = 2 * tile;
+      mrDo.py = 2 * tile;
+      ball = null;
+      enemies.forEach((enemy, index) => {
+        const starts = [
+          { x: cols - 3, y: 2 },
+          { x: cols - 3, y: rows - 3 },
+          { x: 2, y: rows - 3 }
+        ];
+        enemy.x = starts[index].x;
+        enemy.y = starts[index].y;
+        enemy.px = enemy.x * tile;
+        enemy.py = enemy.y * tile;
+      });
+    }
+
+    function checkCollisions() {
+      if (enemies.some((enemy) => enemy.x === mrDo.x && enemy.y === mrDo.y)) {
+        loseLife();
+      }
+    }
+
+    function updateGame() {
+      if (!running) return;
+      tick++;
+      updateMrDo();
+      updateBall();
+      updateEnemies();
+      checkCollisions();
+    }
+
+    function drawTile(x, y, value) {
+      const px = x * tile;
+      const py = y * tile;
+      if (value === "wall") {
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(px, py, tile, tile);
+        ctx.strokeStyle = "#334155";
+        ctx.strokeRect(px + 1, py + 1, tile - 2, tile - 2);
+      } else if (value === "dirt") {
+        ctx.fillStyle = "#854d0e";
+        ctx.fillRect(px, py, tile, tile);
+        ctx.fillStyle = "#a16207";
+        ctx.fillRect(px + 4, py + 5, 4, 3);
+        ctx.fillRect(px + 13, py + 13, 5, 3);
+      } else {
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(px, py, tile, tile);
+        if (value === "cherry") {
+          ctx.fillStyle = "#fb7185";
+          ctx.beginPath();
+          ctx.arc(px + 9, py + 12, 4, 0, Math.PI * 2);
+          ctx.arc(px + 14, py + 12, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#86efac";
+          ctx.beginPath();
+          ctx.moveTo(px + 11, py + 9);
+          ctx.lineTo(px + 15, py + 5);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawActor(actor, color, eyeColor) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(actor.px + tile / 2, actor.py + tile / 2, tile * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = eyeColor;
+      ctx.fillRect(actor.px + 7, actor.py + 7, 3, 3);
+      ctx.fillRect(actor.px + 13, actor.py + 7, 3, 3);
+    }
+
+    function renderMrDo() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) drawTile(x, y, grid[y][x]);
+      }
+      enemies.forEach((enemy) => drawActor(enemy, enemy.color, "#020617"));
+      drawActor(mrDo, "#facc15", "#0f172a");
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(mrDo.px + 8 + mrDo.dir.x * 4, mrDo.py + 11 + mrDo.dir.y * 4, 6, 4);
+      if (ball) {
+        ctx.fillStyle = "#e0f2fe";
+        ctx.beginPath();
+        ctx.arc(ball.px, ball.py, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (!running) {
+        ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = won ? "#a7f3d0" : "#fecaca";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "Garden Clear" : "Game Over", canvas.width / 2, canvas.height / 2);
+        ctx.font = "18px sans-serif";
+        ctx.fillText("Press Enter or Restart", canvas.width / 2, canvas.height / 2 + 34);
+      }
+    }
+
+    function gameLoop(time) {
+      if (!lastTime) lastTime = time;
+      if (time - lastTime > 55) {
+        updateGame();
+        renderMrDo();
+        lastTime = time;
+      }
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "w", "a", "s", "d", "Enter"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") throwBall();
+      else if (key === "Enter" && !running) resetGame();
+      else keys.add(key);
+    });
+
+    document.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
