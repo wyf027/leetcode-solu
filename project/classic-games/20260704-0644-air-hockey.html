@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Air Hockey</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 px-4 py-6">
+    <section class="w-full rounded-lg border border-cyan-400/30 bg-zinc-900 p-4 shadow-2xl shadow-cyan-950/40">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-cyan-100">Mini Air Hockey</h1>
+          <p class="text-sm text-zinc-400">Move the lower paddle and score seven goals.</p>
+        </div>
+        <button id="restart" class="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-cyan-200">Restart</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_210px]">
+        <canvas id="rink" width="560" height="720" class="mx-auto w-full max-w-[560px] rounded-md border-4 border-cyan-500 bg-zinc-950"></canvas>
+        <aside class="space-y-3">
+          <div class="grid grid-cols-2 gap-2 text-center md:grid-cols-1">
+            <div class="rounded-md bg-zinc-800 p-3">
+              <div class="text-xs uppercase text-zinc-400">Player</div>
+              <div id="playerScore" class="text-2xl font-bold text-cyan-200">0</div>
+            </div>
+            <div class="rounded-md bg-zinc-800 p-3">
+              <div class="text-xs uppercase text-zinc-400">Rival</div>
+              <div id="rivalScore" class="text-2xl font-bold text-rose-200">0</div>
+            </div>
+          </div>
+          <div id="message" class="rounded-md border border-zinc-700 bg-zinc-950 p-3 text-center text-sm text-zinc-300">
+            Use mouse, touch, or arrow keys to guard your goal.
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("rink");
+    const ctx = canvas.getContext("2d");
+    const playerScoreEl = document.getElementById("playerScore");
+    const rivalScoreEl = document.getElementById("rivalScore");
+    const messageEl = document.getElementById("message");
+    const restart = document.getElementById("restart");
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const goalWidth = 170;
+    const paddleRadius = 34;
+    const puckRadius = 14;
+    let player = { x: width / 2, y: height - 96 };
+    let rival = { x: width / 2, y: 96 };
+    let puck = { x: width / 2, y: height / 2, vx: 3.2, vy: 4.2 };
+    let playerScore = 0;
+    let rivalScore = 0;
+    let running = true;
+    let keys = new Set();
+
+    function resetGame() {
+      playerScore = 0;
+      rivalScore = 0;
+      running = true;
+      player = { x: width / 2, y: height - 96 };
+      rival = { x: width / 2, y: 96 };
+      resetPuck(Math.random() > 0.5 ? 1 : -1);
+      messageEl.textContent = "Use mouse, touch, or arrow keys to guard your goal.";
+      renderStats();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function resetPuck(direction) {
+      puck = {
+        x: width / 2,
+        y: height / 2,
+        vx: (Math.random() > 0.5 ? 1 : -1) * 3.2,
+        vy: direction * 4.2
+      };
+    }
+
+    function renderStats() {
+      playerScoreEl.textContent = playerScore;
+      rivalScoreEl.textContent = rivalScore;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function updatePlayer() {
+      if (keys.has("ArrowLeft")) player.x -= 8;
+      if (keys.has("ArrowRight")) player.x += 8;
+      player.x = clamp(player.x, paddleRadius, width - paddleRadius);
+    }
+
+    function updateRival() {
+      const target = puck.y < height * 0.58 ? puck.x : width / 2;
+      rival.x += clamp(target - rival.x, -4.6, 4.6);
+      rival.x = clamp(rival.x, paddleRadius, width - paddleRadius);
+    }
+
+    function hitPaddle(paddle) {
+      const dx = puck.x - paddle.x;
+      const dy = puck.y - paddle.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > paddleRadius + puckRadius) return;
+      const angle = Math.atan2(dy, dx);
+      const speed = Math.min(8.2, Math.hypot(puck.vx, puck.vy) + 0.25);
+      puck.x = paddle.x + Math.cos(angle) * (paddleRadius + puckRadius + 1);
+      puck.y = paddle.y + Math.sin(angle) * (paddleRadius + puckRadius + 1);
+      puck.vx = Math.cos(angle) * speed;
+      puck.vy = Math.sin(angle) * speed;
+    }
+
+    function updatePuck() {
+      puck.x += puck.vx;
+      puck.y += puck.vy;
+      if (puck.x <= puckRadius || puck.x >= width - puckRadius) {
+        puck.vx *= -1;
+        puck.x = clamp(puck.x, puckRadius, width - puckRadius);
+      }
+      const inGoal = puck.x > (width - goalWidth) / 2 && puck.x < (width + goalWidth) / 2;
+      if (puck.y <= puckRadius && !inGoal) {
+        puck.vy *= -1;
+        puck.y = puckRadius;
+      }
+      if (puck.y >= height - puckRadius && !inGoal) {
+        puck.vy *= -1;
+        puck.y = height - puckRadius;
+      }
+      if (puck.y < -puckRadius) {
+        playerScore += 1;
+        messageEl.textContent = "Goal for you.";
+        afterGoal(1);
+      }
+      if (puck.y > height + puckRadius) {
+        rivalScore += 1;
+        messageEl.textContent = "Rival scores.";
+        afterGoal(-1);
+      }
+    }
+
+    function afterGoal(direction) {
+      renderStats();
+      if (playerScore >= 7 || rivalScore >= 7) {
+        running = false;
+        messageEl.textContent = playerScore >= 7 ? "You win. Restart for another match." : "Rival wins. Restart to try again.";
+        return;
+      }
+      resetPuck(direction);
+    }
+
+    function drawRink() {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#082f49";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#67e8f9";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, height / 2);
+      ctx.lineTo(width, height / 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(width / 2, height / 2, 74, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#facc15";
+      ctx.strokeRect((width - goalWidth) / 2, -4, goalWidth, 10);
+      ctx.strokeRect((width - goalWidth) / 2, height - 6, goalWidth, 10);
+    }
+
+    function drawDisc(x, y, radius, fill, stroke) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = stroke;
+      ctx.stroke();
+    }
+
+    function renderGame() {
+      drawRink();
+      drawDisc(rival.x, rival.y, paddleRadius, "#fb7185", "#fecdd3");
+      drawDisc(player.x, player.y, paddleRadius, "#22d3ee", "#cffafe");
+      drawDisc(puck.x, puck.y, puckRadius, "#f8fafc", "#94a3b8");
+    }
+
+    function gameLoop() {
+      if (!running) {
+        renderGame();
+        return;
+      }
+      updatePlayer();
+      updateRival();
+      updatePuck();
+      hitPaddle(player);
+      hitPaddle(rival);
+      renderGame();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function setPlayerFromPointer(event) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = width / rect.width;
+      const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+      player.x = clamp((clientX - rect.left) * scaleX, paddleRadius, width - paddleRadius);
+    }
+
+    canvas.addEventListener("mousemove", setPlayerFromPointer);
+    canvas.addEventListener("touchmove", (event) => {
+      event.preventDefault();
+      setPlayerFromPointer(event);
+    }, { passive: false });
+    document.addEventListener("keydown", (event) => keys.add(event.key));
+    document.addEventListener("keyup", (event) => keys.delete(event.key));
+    restart.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
