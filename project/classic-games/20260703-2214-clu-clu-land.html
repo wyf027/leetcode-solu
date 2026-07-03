@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Clu Clu Land</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-yellow-200">Mini Clu Clu Land</h1>
+        <p class="mt-1 text-sm text-indigo-200/80">抓住桩点转向，翻出隐藏金币，避开巡逻怪。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-yellow-400/40 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-200/80">分数</div>
+          <div id="score" class="text-lg font-bold text-yellow-200">0</div>
+        </div>
+        <div class="rounded border border-yellow-400/40 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-200/80">金币</div>
+          <div id="gold" class="text-lg font-bold text-yellow-200">0</div>
+        </div>
+        <div class="rounded border border-yellow-400/40 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-200/80">生命</div>
+          <div id="lives" class="text-lg font-bold text-yellow-200">3</div>
+        </div>
+        <div class="rounded border border-yellow-400/40 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-200/80">速度</div>
+          <div id="speed" class="text-lg font-bold text-yellow-200">1</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-md border border-indigo-700 bg-indigo-900 p-3 shadow-2xl shadow-indigo-950/40">
+      <canvas id="game" width="920" height="640" class="h-auto w-full rounded bg-indigo-950"></canvas>
+    </section>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+      <div class="rounded-md border border-indigo-700 bg-indigo-900 p-3 text-sm text-indigo-100">
+        <span class="font-semibold text-yellow-200">操作：</span>
+        <span>方向键 / WASD 选择下一个转向，靠近桩点时自动抓桩转弯，R 重新开始。</span>
+      </div>
+      <button id="restart" class="rounded bg-yellow-300 px-5 py-3 text-sm font-bold text-indigo-950 hover:bg-yellow-200">
+        重新开始
+      </button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const goldEl = document.getElementById("gold");
+    const livesEl = document.getElementById("lives");
+    const speedEl = document.getElementById("speed");
+    const restartBtn = document.getElementById("restart");
+
+    const cols = 13;
+    const rows = 9;
+    const gap = 58;
+    const originX = 110;
+    const originY = 88;
+    const dirs = {
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 }
+    };
+    const reverse = { left: "right", right: "left", up: "down", down: "up" };
+    const keys = new Set();
+    const goldPattern = [
+      [2, 1], [5, 1], [9, 1],
+      [1, 3], [4, 3], [7, 3], [11, 3],
+      [3, 5], [6, 5], [9, 5],
+      [2, 7], [5, 7], [8, 7], [11, 7]
+    ];
+
+    let player;
+    let enemies;
+    let gold;
+    let sparks;
+    let score;
+    let lives;
+    let speedLevel;
+    let lastTime;
+    let gameOver;
+    let won;
+    let hitPause;
+
+    function toPixel(pos) {
+      return {
+        x: originX + pos.x * gap,
+        y: originY + pos.y * gap
+      };
+    }
+
+    function clampGrid(entity) {
+      entity.x = Math.max(0, Math.min(cols - 1, entity.x));
+      entity.y = Math.max(0, Math.min(rows - 1, entity.y));
+    }
+
+    function nearestPost(entity) {
+      return {
+        x: Math.round(entity.x),
+        y: Math.round(entity.y)
+      };
+    }
+
+    function atPost(entity) {
+      const post = nearestPost(entity);
+      return Math.abs(entity.x - post.x) < 0.09 && Math.abs(entity.y - post.y) < 0.09;
+    }
+
+    function resetGame() {
+      player = {
+        x: 1,
+        y: 1,
+        dir: "right",
+        nextDir: "right",
+        speed: 2.85,
+        invincible: 0
+      };
+      enemies = [
+        { x: 11, y: 1, dir: "down", speed: 2.05, turnTimer: 0 },
+        { x: 10, y: 7, dir: "left", speed: 2.2, turnTimer: 0 },
+        { x: 2, y: 6, dir: "up", speed: 1.9, turnTimer: 0 }
+      ];
+      gold = goldPattern.map(([x, y]) => ({ x, y, open: false }));
+      sparks = [];
+      score = 0;
+      lives = 3;
+      speedLevel = 1;
+      lastTime = performance.now();
+      gameOver = false;
+      won = false;
+      hitPause = 0;
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      goldEl.textContent = `${gold.filter((coin) => coin.open).length}/${gold.length}`;
+      livesEl.textContent = lives;
+      speedEl.textContent = speedLevel;
+    }
+
+    function setNextDirection(key) {
+      if (key === "ArrowLeft" || key === "a" || key === "A") player.nextDir = "left";
+      if (key === "ArrowRight" || key === "d" || key === "D") player.nextDir = "right";
+      if (key === "ArrowUp" || key === "w" || key === "W") player.nextDir = "up";
+      if (key === "ArrowDown" || key === "s" || key === "S") player.nextDir = "down";
+    }
+
+    function canTravel(entity, dir) {
+      const post = nearestPost(entity);
+      const nx = post.x + dirs[dir].x;
+      const ny = post.y + dirs[dir].y;
+      return nx >= 0 && nx < cols && ny >= 0 && ny < rows;
+    }
+
+    function moveOnGrid(entity, dt) {
+      if (atPost(entity)) {
+        const post = nearestPost(entity);
+        entity.x = post.x;
+        entity.y = post.y;
+        if (entity.nextDir && canTravel(entity, entity.nextDir)) entity.dir = entity.nextDir;
+        if (!canTravel(entity, entity.dir)) entity.dir = reverse[entity.dir];
+      }
+      entity.x += dirs[entity.dir].x * entity.speed * dt;
+      entity.y += dirs[entity.dir].y * entity.speed * dt;
+      clampGrid(entity);
+    }
+
+    function chooseEnemyTurn(enemy) {
+      const options = Object.keys(dirs).filter((dir) => canTravel(enemy, dir));
+      const noReverse = options.filter((dir) => dir !== reverse[enemy.dir]);
+      const choices = noReverse.length ? noReverse : options;
+      let best = choices[0] || enemy.dir;
+      let bestDist = Infinity;
+      for (const dir of choices) {
+        const post = nearestPost(enemy);
+        const nx = post.x + dirs[dir].x;
+        const ny = post.y + dirs[dir].y;
+        const dist = Math.abs(nx - player.x) + Math.abs(ny - player.y);
+        const bias = Math.random() * 1.2;
+        if (dist + bias < bestDist) {
+          bestDist = dist + bias;
+          best = dir;
+        }
+      }
+      enemy.dir = best;
+    }
+
+    function revealGold() {
+      for (const coin of gold) {
+        if (!coin.open && Math.hypot(player.x - coin.x, player.y - coin.y) < 0.34) {
+          coin.open = true;
+          score += 150;
+          const p = toPixel(coin);
+          for (let i = 0; i < 12; i++) {
+            sparks.push({
+              x: p.x,
+              y: p.y,
+              vx: -90 + Math.random() * 180,
+              vy: -90 + Math.random() * 180,
+              life: 0.55
+            });
+          }
+        }
+      }
+      if (gold.every((coin) => coin.open)) {
+        won = true;
+        gameOver = true;
+      }
+    }
+
+    function handleCrash() {
+      if (player.invincible > 0 || gameOver) return;
+      lives -= 1;
+      hitPause = 0.3;
+      player.invincible = 1.8;
+      player.x = 1;
+      player.y = 1;
+      player.dir = "right";
+      player.nextDir = "right";
+      if (lives <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function updateCluCluLand(dt) {
+      if (gameOver) {
+        renderCluCluLand();
+        return;
+      }
+      if (hitPause > 0) {
+        hitPause -= dt;
+        renderCluCluLand();
+        return;
+      }
+
+      for (const key of keys) setNextDirection(key);
+      score += Math.floor(dt * 5);
+      speedLevel = 1 + Math.floor(score / 900);
+      player.speed = 2.85 + speedLevel * 0.12;
+      player.invincible = Math.max(0, player.invincible - dt);
+
+      moveOnGrid(player, dt);
+      revealGold();
+
+      for (const enemy of enemies) {
+        enemy.turnTimer -= dt;
+        if (atPost(enemy)) {
+          const post = nearestPost(enemy);
+          enemy.x = post.x;
+          enemy.y = post.y;
+          if (enemy.turnTimer <= 0) {
+            chooseEnemyTurn(enemy);
+            enemy.turnTimer = 0.2 + Math.random() * 0.35;
+          }
+        }
+        enemy.speed = 1.85 + speedLevel * 0.13;
+        moveOnGrid(enemy, dt);
+        if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 0.42) handleCrash();
+      }
+
+      for (const spark of sparks) {
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+      }
+      sparks = sparks.filter((spark) => spark.life > 0);
+
+      updateHud();
+      renderCluCluLand();
+    }
+
+    function drawGrid() {
+      ctx.strokeStyle = "#6366f1";
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+      for (let y = 0; y < rows; y++) {
+        ctx.beginPath();
+        for (let x = 0; x < cols; x++) {
+          const p = toPixel({ x, y });
+          if (x === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+      for (let x = 0; x < cols; x++) {
+        ctx.beginPath();
+        for (let y = 0; y < rows; y++) {
+          const p = toPixel({ x, y });
+          if (y === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const p = toPixel({ x, y });
+          ctx.fillStyle = "#fef3c7";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#a16207";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawPlayer() {
+      const p = toPixel(player);
+      const blink = player.invincible > 0 && Math.floor(player.invincible * 14) % 2 === 0;
+      if (blink) return;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = "#facc15";
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#1e1b4b";
+      ctx.beginPath();
+      ctx.arc(-7, -5, 4, 0, Math.PI * 2);
+      ctx.arc(7, -5, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#1e1b4b";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 2, 9, 0.2, Math.PI - 0.2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      const p = toPixel(enemy);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = "#fb7185";
+      ctx.beginPath();
+      ctx.arc(0, 0, 17, Math.PI, 0);
+      ctx.lineTo(17, 14);
+      ctx.quadraticCurveTo(9, 7, 0, 14);
+      ctx.quadraticCurveTo(-9, 7, -17, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.arc(-6, -3, 3, 0, Math.PI * 2);
+      ctx.arc(6, -3, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function renderCluCluLand() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#1e1b4b");
+      bg.addColorStop(1, "#312e81");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawGrid();
+
+      for (const coin of gold) {
+        const p = toPixel(coin);
+        if (coin.open) {
+          ctx.fillStyle = "#fde047";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#a16207";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = "#4338ca";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.fillStyle = "#fef08a";
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 1.8);
+        ctx.fillRect(spark.x, spark.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+
+      drawPlayer();
+      for (const enemy of enemies) drawEnemy(enemy);
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(30, 27, 75, 0.82)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fef3c7";
+        ctx.font = "700 42px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "金币全开" : "游戏结束", canvas.width / 2, 285);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 325);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      updateCluCluLand(dt);
+      if (!gameOver) requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key);
+      setNextDirection(event.key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
