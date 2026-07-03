@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Joust</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 px-4 py-8">
+      <section class="w-full max-w-2xl rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+        <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold">Mini Joust</h1>
+            <p class="mt-1 text-sm text-slate-400">扇动翅膀保持高度，抢旗并从上方撞落敌人。</p>
+          </div>
+          <button
+            id="resetButton"
+            class="rounded bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+            type="button"
+          >
+            重新开始
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-700 bg-slate-800 p-2">
+            <div class="text-slate-400">分数</div>
+            <div id="scoreStatus" class="font-semibold">0</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800 p-2">
+            <div class="text-slate-400">生命</div>
+            <div id="lifeStatus" class="font-semibold">3</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800 p-2">
+            <div class="text-slate-400">旗帜</div>
+            <div id="flagStatus" class="font-semibold">0 / 5</div>
+          </div>
+        </div>
+
+        <canvas
+          id="gameCanvas"
+          class="mt-4 block w-full rounded border border-slate-700 bg-slate-950"
+          width="640"
+          height="420"
+        ></canvas>
+
+        <div id="message" class="mt-3 min-h-6 text-center text-sm font-semibold text-sky-300"></div>
+
+        <div class="mt-4 grid grid-cols-3 gap-2">
+          <button class="moveButton rounded bg-slate-700 py-2 hover:bg-slate-600" data-dir="left" type="button">左</button>
+          <button class="moveButton rounded bg-slate-700 py-2 hover:bg-slate-600" data-dir="flap" type="button">扇翼</button>
+          <button class="moveButton rounded bg-slate-700 py-2 hover:bg-slate-600" data-dir="right" type="button">右</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const scoreStatus = document.getElementById("scoreStatus");
+      const lifeStatus = document.getElementById("lifeStatus");
+      const flagStatus = document.getElementById("flagStatus");
+      const message = document.getElementById("message");
+      const resetButton = document.getElementById("resetButton");
+
+      const gravity = 0.22;
+      const platforms = [
+        { x: 60, y: 330, w: 180, h: 14 },
+        { x: 390, y: 330, w: 180, h: 14 },
+        { x: 210, y: 235, w: 220, h: 14 },
+        { x: 70, y: 150, w: 150, h: 14 },
+        { x: 430, y: 150, w: 140, h: 14 },
+      ];
+
+      let player;
+      let enemies;
+      let flag;
+      let score;
+      let lives;
+      let flagsTaken;
+      let gameOver;
+      let frameId;
+      let keys;
+
+      function resetGame() {
+        player = { x: 110, y: 290, vx: 0, vy: 0, r: 14, invincible: 0 };
+        enemies = [
+          { x: 520, y: 290, vx: -1.2, vy: 0, r: 14, alive: true },
+          { x: 320, y: 195, vx: 1.1, vy: 0, r: 14, alive: true },
+        ];
+        flag = spawnFlag();
+        score = 0;
+        lives = 3;
+        flagsTaken = 0;
+        gameOver = false;
+        keys = { left: false, right: false };
+        message.textContent = "空格或上键扇翼，A/D 或方向键左右移动。";
+        updateStatus();
+        cancelAnimationFrame(frameId);
+        frameId = requestAnimationFrame(gameLoop);
+      }
+
+      function gameLoop() {
+        updatePlayer();
+        updateEnemies();
+        checkCollisions();
+        renderScene();
+        updateStatus();
+
+        if (!gameOver) {
+          frameId = requestAnimationFrame(gameLoop);
+        }
+      }
+
+      function updatePlayer() {
+        if (keys.left) {
+          player.vx -= 0.18;
+        }
+        if (keys.right) {
+          player.vx += 0.18;
+        }
+
+        player.vx *= 0.94;
+        player.vx = clamp(player.vx, -3.2, 3.2);
+        player.vy += gravity;
+        player.vy = clamp(player.vy, -5.5, 5.5);
+        player.x += player.vx;
+        player.y += player.vy;
+        player.invincible = Math.max(0, player.invincible - 1);
+
+        wrapActor(player);
+        landOnPlatform(player);
+        if (player.y > canvas.height - 28) {
+          player.y = canvas.height - 28;
+          player.vy = 0;
+        }
+      }
+
+      function flap() {
+        if (gameOver) {
+          return;
+        }
+        player.vy -= 4.2;
+        message.textContent = "保持高度，尽量从上方接触敌人。";
+      }
+
+      function updateEnemies() {
+        enemies.forEach((enemy) => {
+          if (!enemy.alive) {
+            return;
+          }
+          enemy.vy += gravity * 0.8;
+          enemy.x += enemy.vx;
+          enemy.y += enemy.vy;
+          if (Math.random() < 0.018) {
+            enemy.vy -= 3.2;
+          }
+          wrapActor(enemy);
+          landOnPlatform(enemy);
+          if (enemy.y > canvas.height - 28) {
+            enemy.y = canvas.height - 28;
+            enemy.vy = -2.6;
+          }
+        });
+      }
+
+      function landOnPlatform(actor) {
+        platforms.forEach((platform) => {
+          const nextBottom = actor.y + actor.r;
+          const previousBottom = actor.y + actor.r - actor.vy;
+          const insideX = actor.x > platform.x && actor.x < platform.x + platform.w;
+          if (insideX && previousBottom <= platform.y && nextBottom >= platform.y && actor.vy >= 0) {
+            actor.y = platform.y - actor.r;
+            actor.vy = 0;
+          }
+        });
+      }
+
+      function checkCollisions() {
+        if (distance(player, flag) < player.r + 10) {
+          flagsTaken += 1;
+          score += 150;
+          flag = spawnFlag();
+          message.textContent = flagsTaken >= 5 ? "旗帜收齐，继续撞落敌人刷分。" : "抢到旗帜。";
+        }
+
+        enemies.forEach((enemy) => {
+          if (!enemy.alive || distance(player, enemy) >= player.r + enemy.r) {
+            return;
+          }
+          if (player.vy > enemy.vy && player.y < enemy.y - 4) {
+            enemy.alive = false;
+            score += 250;
+            message.textContent = "从上方撞落敌人。";
+            setTimeout(respawnEnemies, 900);
+          } else if (player.invincible === 0) {
+            loseLife();
+          }
+        });
+      }
+
+      function loseLife() {
+        lives -= 1;
+        if (lives <= 0) {
+          gameOver = true;
+          message.textContent = "游戏结束。";
+          return;
+        }
+        player.x = 110;
+        player.y = 290;
+        player.vx = 0;
+        player.vy = 0;
+        player.invincible = 90;
+        message.textContent = "被敌人撞到，短暂无敌。";
+      }
+
+      function respawnEnemies() {
+        if (gameOver) {
+          return;
+        }
+        enemies = enemies.map((enemy, index) => ({
+          x: index === 0 ? 520 : 320,
+          y: index === 0 ? 290 : 195,
+          vx: index === 0 ? -1.2 : 1.1,
+          vy: 0,
+          r: 14,
+          alive: true,
+        }));
+      }
+
+      function spawnFlag() {
+        const spots = [
+          { x: 120, y: 118 },
+          { x: 500, y: 118 },
+          { x: 320, y: 202 },
+          { x: 160, y: 300 },
+          { x: 470, y: 300 },
+        ];
+        return spots[Math.floor(Math.random() * spots.length)];
+      }
+
+      function renderScene() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawBackground();
+        platforms.forEach(drawPlatform);
+        drawFlag(flag);
+        enemies.forEach((enemy) => {
+          if (enemy.alive) {
+            drawRider(enemy, "#fb7185");
+          }
+        });
+        drawRider(player, player.invincible % 12 < 6 ? "#38bdf8" : "#bae6fd");
+      }
+
+      function drawBackground() {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#0f172a";
+        for (let y = 80; y < canvas.height; y += 80) {
+          ctx.fillRect(0, y, canvas.width, 1);
+        }
+      }
+
+      function drawPlatform(platform) {
+        ctx.fillStyle = "#475569";
+        ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillRect(platform.x, platform.y, platform.w, 3);
+      }
+
+      function drawFlag(point) {
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(point.x - 2, point.y - 16, 4, 32);
+        ctx.beginPath();
+        ctx.moveTo(point.x + 2, point.y - 16);
+        ctx.lineTo(point.x + 24, point.y - 8);
+        ctx.lineTo(point.x + 2, point.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function drawRider(actor, color) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(actor.x, actor.y + 5, 20, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(actor.x + 2, actor.y - 10, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(actor.x - 12, actor.y + 2);
+        ctx.lineTo(actor.x - 30, actor.y - 10);
+        ctx.moveTo(actor.x + 12, actor.y + 2);
+        ctx.lineTo(actor.x + 30, actor.y - 10);
+        ctx.stroke();
+      }
+
+      function distance(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      function wrapActor(actor) {
+        if (actor.x < -actor.r) {
+          actor.x = canvas.width + actor.r;
+        }
+        if (actor.x > canvas.width + actor.r) {
+          actor.x = -actor.r;
+        }
+      }
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function updateStatus() {
+        scoreStatus.textContent = String(score);
+        lifeStatus.textContent = String(lives);
+        flagStatus.textContent = `${Math.min(flagsTaken, 5)} / 5`;
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "a") {
+          keys.left = true;
+        }
+        if (event.key === "ArrowRight" || event.key === "d") {
+          keys.right = true;
+        }
+        if (event.key === " " || event.key === "ArrowUp" || event.key === "w") {
+          event.preventDefault();
+          flap();
+        }
+      });
+
+      document.addEventListener("keyup", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "a") {
+          keys.left = false;
+        }
+        if (event.key === "ArrowRight" || event.key === "d") {
+          keys.right = false;
+        }
+      });
+
+      document.querySelectorAll(".moveButton").forEach((button) => {
+        button.addEventListener("mousedown", () => {
+          if (button.dataset.dir === "left") keys.left = true;
+          if (button.dataset.dir === "right") keys.right = true;
+          if (button.dataset.dir === "flap") flap();
+        });
+        button.addEventListener("mouseup", () => {
+          keys.left = false;
+          keys.right = false;
+        });
+        button.addEventListener("mouseleave", () => {
+          keys.left = false;
+          keys.right = false;
+        });
+      });
+
+      resetButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
