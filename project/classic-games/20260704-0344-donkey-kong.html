@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Donkey Kong</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-rose-200">Mini Donkey Kong</h1>
+          <p class="text-sm text-neutral-400">Climb the girders, jump barrels, and reach the rescue platform.</p>
+        </div>
+        <div class="flex flex-wrap gap-2 text-sm">
+          <span class="rounded bg-neutral-900 px-3 py-2 ring-1 ring-neutral-700">Score <b id="score">0</b></span>
+          <span class="rounded bg-neutral-900 px-3 py-2 ring-1 ring-neutral-700">Lives <b id="lives">3</b></span>
+          <span class="rounded bg-neutral-900 px-3 py-2 ring-1 ring-neutral-700">Level <b id="level">1</b></span>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+        <div class="overflow-hidden rounded border border-neutral-700 bg-neutral-900 shadow-2xl shadow-rose-950/30">
+          <canvas id="game" width="800" height="560" class="block h-auto w-full bg-neutral-950"></canvas>
+        </div>
+        <aside class="rounded border border-neutral-700 bg-neutral-900 p-4 text-sm text-neutral-300">
+          <h2 class="mb-2 font-semibold text-rose-200">Controls</h2>
+          <p>Arrow keys or WASD move and climb.</p>
+          <p class="mt-2">Space jumps. Enter restarts after a fall.</p>
+          <h2 class="mb-2 mt-5 font-semibold text-rose-200">Goal</h2>
+          <p>Dodge barrels, use ladders, and reach the heart at the top.</p>
+          <button
+            id="restart"
+            class="mt-5 w-full rounded bg-rose-400 px-4 py-2 font-semibold text-neutral-950 transition hover:bg-rose-300"
+          >
+            Restart
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const levelEl = document.getElementById("level");
+      const restartButton = document.getElementById("restart");
+      const keys = new Set();
+
+      const gravity = 0.42;
+      const platforms = [
+        { x: 56, y: 502, w: 690, slope: -0.04 },
+        { x: 94, y: 416, w: 650, slope: 0.04 },
+        { x: 56, y: 330, w: 650, slope: -0.04 },
+        { x: 94, y: 244, w: 650, slope: 0.04 },
+        { x: 56, y: 158, w: 650, slope: -0.04 },
+        { x: 285, y: 82, w: 230, slope: 0 }
+      ];
+      const ladders = [
+        { x: 650, y1: 416, y2: 502 },
+        { x: 150, y1: 330, y2: 416 },
+        { x: 630, y1: 244, y2: 330 },
+        { x: 165, y1: 158, y2: 244 },
+        { x: 400, y1: 82, y2: 158 }
+      ];
+
+      let hero;
+      let barrels;
+      let score;
+      let lives;
+      let level;
+      let frame;
+      let spawnRate;
+      let gameOver;
+      let message;
+
+      function platformY(platform, x) {
+        return platform.y + (x - platform.x) * platform.slope;
+      }
+
+      function findPlatformUnder(x, y) {
+        return platforms.find((platform) => {
+          const py = platformY(platform, x);
+          return x >= platform.x && x <= platform.x + platform.w && y <= py && y + 18 >= py;
+        });
+      }
+
+      function nearestLadder(x, y) {
+        return ladders.find((ladder) => Math.abs(x - ladder.x) < 24 && y >= ladder.y1 - 14 && y <= ladder.y2 + 18);
+      }
+
+      function resetHero() {
+        hero.x = 95;
+        hero.y = platformY(platforms[0], 95) - 24;
+        hero.vx = 0;
+        hero.vy = 0;
+        hero.onGround = true;
+        hero.climbing = false;
+        hero.invincible = 60;
+      }
+
+      function resetGame() {
+        hero = { x: 95, y: 0, vx: 0, vy: 0, onGround: true, climbing: false, invincible: 0 };
+        barrels = [];
+        score = 0;
+        lives = 3;
+        level = 1;
+        frame = 0;
+        spawnRate = 118;
+        gameOver = false;
+        message = "Reach the heart at the top.";
+        resetHero();
+        syncHud();
+      }
+
+      function syncHud() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        levelEl.textContent = level;
+      }
+
+      function spawnBarrel() {
+        barrels.push({
+          x: 146,
+          y: platformY(platforms[4], 146) - 14,
+          vx: 1.8 + level * 0.2,
+          vy: 0,
+          platform: 4,
+          dropped: false
+        });
+      }
+
+      function damageHero() {
+        if (hero.invincible > 0) return;
+        lives -= 1;
+        message = "A barrel clipped you.";
+        if (lives <= 0) {
+          gameOver = true;
+          message = "No lives left. Press Enter.";
+        } else {
+          resetHero();
+        }
+        syncHud();
+      }
+
+      function updateHero() {
+        const ladder = nearestLadder(hero.x, hero.y + 10);
+        const wantsClimb = keys.has("ArrowUp") || keys.has("w") || keys.has("ArrowDown") || keys.has("s");
+        if (ladder && wantsClimb) {
+          hero.climbing = true;
+          hero.x += (ladder.x - hero.x) * 0.22;
+          hero.vy = 0;
+        }
+        if (hero.climbing) {
+          hero.vx = 0;
+          if (keys.has("ArrowUp") || keys.has("w")) hero.y -= 2.4;
+          if (keys.has("ArrowDown") || keys.has("s")) hero.y += 2.4;
+          if (!nearestLadder(hero.x, hero.y + 10)) hero.climbing = false;
+        } else {
+          hero.vx = 0;
+          if (keys.has("ArrowLeft") || keys.has("a")) hero.vx = -3.1;
+          if (keys.has("ArrowRight") || keys.has("d")) hero.vx = 3.1;
+          if ((keys.has(" ") || keys.has("ArrowUp") || keys.has("w")) && hero.onGround) {
+            hero.vy = -8.4;
+            hero.onGround = false;
+          }
+          hero.vy += gravity;
+        }
+
+        hero.x = Math.max(42, Math.min(canvas.width - 42, hero.x + hero.vx));
+        hero.y += hero.vy;
+
+        const platform = findPlatformUnder(hero.x, hero.y + 20);
+        if (!hero.climbing && platform && hero.vy >= 0) {
+          hero.y = platformY(platform, hero.x) - 20;
+          hero.vy = 0;
+          hero.onGround = true;
+        } else if (!hero.climbing) {
+          hero.onGround = false;
+        }
+
+        if (hero.y > canvas.height + 30) {
+          damageHero();
+        }
+        if (hero.invincible > 0) hero.invincible -= 1;
+
+        if (hero.x > 360 && hero.x < 440 && hero.y < 112) {
+          score += 1000;
+          level += 1;
+          spawnRate = Math.max(62, spawnRate - 12);
+          message = "Rescue reached. Next level.";
+          resetHero();
+          barrels = [];
+          syncHud();
+        }
+      }
+
+      function updateBarrels() {
+        if (frame % spawnRate === 0) spawnBarrel();
+        barrels.forEach((barrel) => {
+          const current = platforms[barrel.platform];
+          barrel.x += barrel.vx;
+          barrel.y = platformY(current, barrel.x) - 14;
+
+          const edgeRight = barrel.vx > 0 && barrel.x > current.x + current.w - 8;
+          const edgeLeft = barrel.vx < 0 && barrel.x < current.x + 8;
+          if ((edgeRight || edgeLeft) && barrel.platform > 0) {
+            barrel.platform -= 1;
+            barrel.vx *= -1;
+            const next = platforms[barrel.platform];
+            barrel.x = Math.max(next.x + 10, Math.min(next.x + next.w - 10, barrel.x));
+            barrel.y = platformY(next, barrel.x) - 14;
+          }
+
+          const dx = barrel.x - hero.x;
+          const dy = barrel.y - hero.y;
+          if (Math.hypot(dx, dy) < 27) {
+            damageHero();
+          }
+        });
+        barrels = barrels.filter((barrel) => barrel.platform >= 0 && barrel.x > 20 && barrel.x < canvas.width - 20);
+      }
+
+      function drawPlatform(platform) {
+        ctx.save();
+        ctx.translate(platform.x, platform.y);
+        ctx.rotate(Math.atan(platform.slope));
+        ctx.fillStyle = "#be123c";
+        ctx.fillRect(0, -8, platform.w, 16);
+        ctx.fillStyle = "#fb7185";
+        for (let x = 0; x < platform.w; x += 34) {
+          ctx.fillRect(x, -11, 18, 5);
+        }
+        ctx.restore();
+      }
+
+      function drawLadder(ladder) {
+        ctx.strokeStyle = "#facc15";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(ladder.x - 12, ladder.y1);
+        ctx.lineTo(ladder.x - 12, ladder.y2);
+        ctx.moveTo(ladder.x + 12, ladder.y1);
+        ctx.lineTo(ladder.x + 12, ladder.y2);
+        ctx.stroke();
+        ctx.lineWidth = 3;
+        for (let y = ladder.y1 + 10; y < ladder.y2; y += 17) {
+          ctx.beginPath();
+          ctx.moveTo(ladder.x - 14, y);
+          ctx.lineTo(ladder.x + 14, y);
+          ctx.stroke();
+        }
+      }
+
+      function drawHero() {
+        if (hero.invincible % 10 > 5) return;
+        ctx.fillStyle = "#38bdf8";
+        ctx.fillRect(hero.x - 10, hero.y - 17, 20, 28);
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(hero.x, hero.y - 24, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(hero.x - 15, hero.y + 8, 11, 8);
+        ctx.fillRect(hero.x + 4, hero.y + 8, 11, 8);
+      }
+
+      function drawBarrel(barrel) {
+        ctx.fillStyle = "#a16207";
+        ctx.beginPath();
+        ctx.arc(barrel.x, barrel.y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#fde68a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(barrel.x, barrel.y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      function renderDonkeyKong() {
+        ctx.fillStyle = "#0a0a0a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#1f2937";
+        for (let i = 0; i < 80; i += 1) {
+          const x = (i * 97 + frame * 0.2) % canvas.width;
+          const y = (i * 53) % canvas.height;
+          ctx.fillRect(x, y, 2, 2);
+        }
+
+        platforms.forEach(drawPlatform);
+        ladders.forEach(drawLadder);
+
+        ctx.fillStyle = "#7f1d1d";
+        ctx.fillRect(88, 105, 78, 50);
+        ctx.fillStyle = "#fca5a5";
+        ctx.fillRect(104, 84, 42, 28);
+        ctx.fillStyle = "#fecdd3";
+        ctx.font = "28px system-ui, sans-serif";
+        ctx.fillText("♥", 388, 70);
+
+        barrels.forEach(drawBarrel);
+        drawHero();
+
+        ctx.fillStyle = "rgba(23, 23, 23, 0.78)";
+        ctx.fillRect(18, 18, 390, 42);
+        ctx.fillStyle = "#e5e5e5";
+        ctx.font = "16px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillText(message, 32, 45);
+
+        if (gameOver) {
+          ctx.fillStyle = "rgba(10, 10, 10, 0.78)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#fecdd3";
+          ctx.font = "bold 40px system-ui, sans-serif";
+          ctx.fillText("Game Over", canvas.width / 2, 248);
+          ctx.font = "18px system-ui, sans-serif";
+          ctx.fillText("Press Enter or Restart to climb again", canvas.width / 2, 286);
+          ctx.textAlign = "left";
+        }
+      }
+
+      function gameLoop() {
+        if (!gameOver) {
+          frame += 1;
+          score += frame % 30 === 0 ? 5 : 0;
+          updateHero();
+          updateBarrels();
+          syncHud();
+        }
+        renderDonkeyKong();
+        requestAnimationFrame(gameLoop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "w", "a", "s", "d"].includes(event.key)) {
+          event.preventDefault();
+        }
+        if (event.key === "Enter" && gameOver) resetGame();
+        keys.add(event.key);
+      });
+
+      document.addEventListener("keyup", (event) => {
+        keys.delete(event.key);
+      });
+
+      restartButton.addEventListener("click", resetGame);
+
+      resetGame();
+      gameLoop();
+    </script>
+  </body>
+</html>
