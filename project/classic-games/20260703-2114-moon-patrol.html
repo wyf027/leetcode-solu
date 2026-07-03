@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Moon Patrol</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-cyan-200">Mini Moon Patrol</h1>
+        <p class="mt-1 text-sm text-slate-400">跳过陨坑，击碎前方岩石，在月面巡逻尽量远。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-cyan-700/60 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">分数</div>
+          <div id="score" class="text-lg font-bold text-cyan-200">0</div>
+        </div>
+        <div class="rounded border border-cyan-700/60 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">生命</div>
+          <div id="lives" class="text-lg font-bold text-cyan-200">3</div>
+        </div>
+        <div class="rounded border border-cyan-700/60 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">速度</div>
+          <div id="speed" class="text-lg font-bold text-cyan-200">1</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-md border border-slate-700 bg-slate-900 p-3 shadow-2xl shadow-cyan-950/30">
+      <canvas id="game" width="960" height="520" class="h-auto w-full rounded bg-slate-950"></canvas>
+    </section>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+      <div class="rounded-md border border-slate-700 bg-slate-900 p-3 text-sm text-slate-300">
+        <span class="font-semibold text-cyan-200">操作：</span>
+        <span>空格 / ↑ 跳跃，X / Ctrl 射击，R 重新开始。</span>
+      </div>
+      <button id="restart" class="rounded bg-cyan-500 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-cyan-300">
+        重新开始
+      </button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const speedEl = document.getElementById("speed");
+    const restartBtn = document.getElementById("restart");
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const groundY = 404;
+    const keys = new Set();
+
+    let rover;
+    let rocks;
+    let craters;
+    let shots;
+    let stars;
+    let dust;
+    let score;
+    let lives;
+    let speedLevel;
+    let worldSpeed;
+    let spawnTimer;
+    let craterTimer;
+    let lastTime;
+    let gameOver;
+    let pausedHit;
+
+    function resetGame() {
+      rover = {
+        x: 135,
+        y: groundY - 42,
+        w: 72,
+        h: 42,
+        vy: 0,
+        onGround: true,
+        cooldown: 0,
+        invincible: 0
+      };
+      rocks = [];
+      craters = [];
+      shots = [];
+      dust = [];
+      stars = Array.from({ length: 72 }, () => ({
+        x: Math.random() * W,
+        y: Math.random() * 230,
+        s: 1 + Math.random() * 2,
+        a: 0.35 + Math.random() * 0.65
+      }));
+      score = 0;
+      lives = 3;
+      speedLevel = 1;
+      worldSpeed = 210;
+      spawnTimer = 0.7;
+      craterTimer = 1.2;
+      lastTime = performance.now();
+      gameOver = false;
+      pausedHit = 0;
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = Math.floor(score);
+      livesEl.textContent = lives;
+      speedEl.textContent = speedLevel;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function jumpRover() {
+      if (!rover.onGround || gameOver) return;
+      rover.vy = -590;
+      rover.onGround = false;
+      makeDust(rover.x + 18, groundY, 8);
+    }
+
+    function fireShot() {
+      if (gameOver || rover.cooldown > 0) return;
+      shots.push({
+        x: rover.x + rover.w - 2,
+        y: rover.y + 12,
+        w: 18,
+        h: 5,
+        vx: 560
+      });
+      rover.cooldown = 0.28;
+    }
+
+    function makeDust(x, y, count) {
+      for (let i = 0; i < count; i++) {
+        dust.push({
+          x,
+          y,
+          vx: -70 - Math.random() * 120,
+          vy: -30 - Math.random() * 60,
+          life: 0.45 + Math.random() * 0.25
+        });
+      }
+    }
+
+    function spawnRock() {
+      const size = 28 + Math.random() * 28;
+      rocks.push({
+        x: W + 20,
+        y: groundY - size,
+        w: size,
+        h: size,
+        r: size / 2,
+        spin: Math.random() * Math.PI,
+        hit: false
+      });
+    }
+
+    function spawnCrater() {
+      const w = 84 + Math.random() * 74;
+      craters.push({
+        x: W + 20,
+        y: groundY + 3,
+        w,
+        h: 32
+      });
+    }
+
+    function handleCrash() {
+      if (rover.invincible > 0 || gameOver) return;
+      lives -= 1;
+      rover.invincible = 1.4;
+      pausedHit = 0.22;
+      makeDust(rover.x + 42, rover.y + 35, 18);
+      if (lives <= 0) {
+        gameOver = true;
+      }
+      updateHud();
+    }
+
+    function updateMoonPatrol(dt) {
+      if (gameOver) {
+        renderMoonPatrol();
+        return;
+      }
+
+      if (pausedHit > 0) {
+        pausedHit -= dt;
+        renderMoonPatrol();
+        return;
+      }
+
+      score += dt * 20;
+      speedLevel = 1 + Math.floor(score / 550);
+      worldSpeed = 210 + speedLevel * 18;
+      rover.cooldown = Math.max(0, rover.cooldown - dt);
+      rover.invincible = Math.max(0, rover.invincible - dt);
+
+      if (keys.has("ArrowUp") || keys.has(" ")) jumpRover();
+      if (keys.has("x") || keys.has("X") || keys.has("Control")) fireShot();
+
+      rover.vy += 1180 * dt;
+      rover.y += rover.vy * dt;
+      if (rover.y >= groundY - rover.h) {
+        rover.y = groundY - rover.h;
+        rover.vy = 0;
+        rover.onGround = true;
+      }
+
+      spawnTimer -= dt;
+      craterTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnRock();
+        spawnTimer = Math.max(0.72, 1.8 - speedLevel * 0.08) + Math.random() * 0.45;
+      }
+      if (craterTimer <= 0) {
+        spawnCrater();
+        craterTimer = Math.max(1.15, 2.35 - speedLevel * 0.07) + Math.random() * 0.55;
+      }
+
+      for (const rock of rocks) {
+        rock.x -= worldSpeed * dt;
+        rock.spin += dt * 4;
+      }
+      for (const crater of craters) {
+        crater.x -= worldSpeed * dt;
+      }
+      for (const shot of shots) {
+        shot.x += shot.vx * dt;
+      }
+      for (const mote of dust) {
+        mote.x += mote.vx * dt;
+        mote.y += mote.vy * dt;
+        mote.vy += 130 * dt;
+        mote.life -= dt;
+      }
+
+      for (const shot of shots) {
+        for (const rock of rocks) {
+          if (!rock.hit && rectsOverlap(shot, rock)) {
+            rock.hit = true;
+            shot.x = W + 100;
+            score += 80;
+            makeDust(rock.x + rock.w / 2, rock.y + rock.h / 2, 14);
+          }
+        }
+      }
+
+      for (const rock of rocks) {
+        if (!rock.hit && rectsOverlap(rover, rock)) handleCrash();
+      }
+
+      const wheelLeft = rover.x + 15;
+      const wheelRight = rover.x + rover.w - 12;
+      const overPit = craters.some((crater) => wheelLeft > crater.x + 6 && wheelRight < crater.x + crater.w - 6);
+      if (rover.onGround && overPit) handleCrash();
+
+      rocks = rocks.filter((rock) => rock.x > -90 && !rock.hit);
+      craters = craters.filter((crater) => crater.x > -170);
+      shots = shots.filter((shot) => shot.x < W + 30);
+      dust = dust.filter((mote) => mote.life > 0);
+      updateHud();
+      renderMoonPatrol();
+    }
+
+    function drawRover() {
+      const blink = rover.invincible > 0 && Math.floor(rover.invincible * 16) % 2 === 0;
+      if (blink) return;
+      ctx.save();
+      ctx.translate(rover.x, rover.y);
+      ctx.fillStyle = "#67e8f9";
+      ctx.fillRect(10, 10, 48, 21);
+      ctx.fillStyle = "#0891b2";
+      ctx.fillRect(24, 0, 30, 14);
+      ctx.fillStyle = "#cffafe";
+      ctx.fillRect(30, 4, 13, 7);
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      ctx.arc(19, 38, 9, 0, Math.PI * 2);
+      ctx.arc(55, 38, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#94a3b8";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(19, 38, 5, 0, Math.PI * 2);
+      ctx.arc(55, 38, 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(58, 15, 10, 5);
+      ctx.restore();
+    }
+
+    function renderMoonPatrol() {
+      ctx.clearRect(0, 0, W, H);
+      const sky = ctx.createLinearGradient(0, 0, 0, groundY);
+      sky.addColorStop(0, "#020617");
+      sky.addColorStop(0.7, "#111827");
+      sky.addColorStop(1, "#1e293b");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, groundY);
+
+      ctx.fillStyle = "#e2e8f0";
+      for (const star of stars) {
+        ctx.globalAlpha = star.a;
+        ctx.fillRect(star.x, star.y, star.s, star.s);
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = "#334155";
+      ctx.beginPath();
+      ctx.arc(800, 90, 45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#475569";
+      ctx.beginPath();
+      ctx.arc(785, 78, 8, 0, Math.PI * 2);
+      ctx.arc(816, 102, 12, 0, Math.PI * 2);
+      ctx.arc(804, 63, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#1f2937";
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(0, 342);
+      for (let x = 0; x <= W; x += 80) {
+        ctx.lineTo(x, 342 + Math.sin((x + score) * 0.012) * 24);
+      }
+      ctx.lineTo(W, groundY);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#475569";
+      ctx.fillRect(0, groundY, W, H - groundY);
+      ctx.fillStyle = "#64748b";
+      for (let x = -120; x < W + 120; x += 48) {
+        const trackX = (x - (score * 5) % 48);
+        ctx.fillRect(trackX, groundY + 55, 24, 4);
+        ctx.fillRect(trackX + 16, groundY + 96, 20, 3);
+      }
+
+      for (const crater of craters) {
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.ellipse(crater.x + crater.w / 2, crater.y + 16, crater.w / 2, crater.h / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(crater.x + crater.w / 2, crater.y + 11, crater.w / 2, 10, 0, 0, Math.PI);
+        ctx.stroke();
+      }
+
+      for (const rock of rocks) {
+        ctx.save();
+        ctx.translate(rock.x + rock.w / 2, rock.y + rock.h / 2);
+        ctx.rotate(rock.spin);
+        ctx.fillStyle = "#a8a29e";
+        ctx.beginPath();
+        ctx.moveTo(-rock.r, -4);
+        ctx.lineTo(-rock.r * 0.35, -rock.r);
+        ctx.lineTo(rock.r * 0.75, -rock.r * 0.55);
+        ctx.lineTo(rock.r, rock.r * 0.15);
+        ctx.lineTo(rock.r * 0.25, rock.r);
+        ctx.lineTo(-rock.r * 0.8, rock.r * 0.55);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.fillStyle = "#fde047";
+      for (const shot of shots) {
+        ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
+      }
+
+      ctx.fillStyle = "#cbd5e1";
+      for (const mote of dust) {
+        ctx.globalAlpha = Math.max(0, mote.life * 1.7);
+        ctx.fillRect(mote.x, mote.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+
+      drawRover();
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(2, 6, 23, 0.76)";
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "700 44px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("巡逻结束", W / 2, 225);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", W / 2, 265);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      updateMoonPatrol(dt);
+      if (!gameOver) requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if ([" ", "ArrowUp", "Control"].includes(event.key)) event.preventDefault();
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
