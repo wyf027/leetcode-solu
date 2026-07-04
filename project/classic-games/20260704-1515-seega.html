@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Seega</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.24em] text-teal-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-semibold text-white">Mini Seega</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-teal-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-200">
+        重开
+      </button>
+    </header>
+
+    <section class="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div class="flex items-center justify-center">
+        <div id="board" class="grid w-full max-w-[34rem] grid-cols-5 gap-2 rounded border border-zinc-700 bg-zinc-900 p-3 shadow-2xl"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">当前玩家</p>
+          <p id="turnLabel" class="mt-1 text-2xl font-bold text-teal-300">黑方</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">黑棋</p>
+            <p id="blackLabel" class="mt-1 text-2xl font-bold text-white">12</p>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">白棋</p>
+            <p id="whiteLabel" class="mt-1 text-2xl font-bold text-amber-300">12</p>
+          </div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">状态</p>
+          <p id="message" class="mt-2 min-h-16 text-base leading-7 text-zinc-100">选择己方棋子，移动到正交相邻空格。移动后夹住对手棋即可吃掉。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const blackLabel = document.getElementById("blackLabel");
+    const whiteLabel = document.getElementById("whiteLabel");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    let board = [];
+    let selected = null;
+    let turn = "black";
+    let winner = null;
+
+    function resetGame() {
+      board = Array.from({ length: size }, (_, r) =>
+        Array.from({ length: size }, (_, c) => {
+          if (r < 2) return "white";
+          if (r > 2) return "black";
+          if (c < 2) return "black";
+          if (c > 2) return "white";
+          return null;
+        })
+      );
+      selected = null;
+      turn = "black";
+      winner = null;
+      message.textContent = "选择己方棋子，移动到正交相邻空格。移动后夹住对手棋即可吃掉。";
+      render();
+    }
+
+    function inBoard(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function opponent(color) {
+      return color === "black" ? "white" : "black";
+    }
+
+    function sideName(color) {
+      return color === "black" ? "黑方" : "白方";
+    }
+
+    function countPieces(color) {
+      return board.flat().filter((cell) => cell === color).length;
+    }
+
+    function legalMovesFrom(r, c) {
+      if (board[r][c] !== turn) return [];
+      return dirs
+        .map(([dr, dc]) => ({ r: r + dr, c: c + dc }))
+        .filter((move) => inBoard(move.r, move.c) && !board[move.r][move.c]);
+    }
+
+    function hasAnyMove(color) {
+      const savedTurn = turn;
+      turn = color;
+      const found = board.some((row, r) => row.some((cell, c) => cell === color && legalMovesFrom(r, c).length));
+      turn = savedTurn;
+      return found;
+    }
+
+    function captureAfterMove(r, c) {
+      const enemy = opponent(turn);
+      const captured = [];
+      dirs.forEach(([dr, dc]) => {
+        const er = r + dr;
+        const ec = c + dc;
+        const br = r + dr * 2;
+        const bc = c + dc * 2;
+        if (!inBoard(er, ec) || board[er][ec] !== enemy) return;
+        if (inBoard(br, bc) && board[br][bc] === turn) captured.push([er, ec]);
+      });
+      captured.forEach(([er, ec]) => {
+        board[er][ec] = null;
+      });
+      return captured.length;
+    }
+
+    function handleCell(r, c) {
+      if (winner) return;
+      if (board[r][c] === turn) {
+        selected = { r, c };
+        message.textContent = "选择一个高亮空格移动。";
+        render();
+        return;
+      }
+      if (!selected) {
+        message.textContent = "请先选择己方棋子。";
+        return;
+      }
+      const legal = legalMovesFrom(selected.r, selected.c).some((move) => move.r === r && move.c === c);
+      if (!legal) {
+        message.textContent = "只能移动到正交相邻空格。";
+        return;
+      }
+      movePiece(selected, { r, c });
+    }
+
+    function movePiece(from, to) {
+      board[to.r][to.c] = turn;
+      board[from.r][from.c] = null;
+      const taken = captureAfterMove(to.r, to.c);
+      selected = null;
+      const enemy = opponent(turn);
+
+      if (countPieces(enemy) === 0 || !hasAnyMove(enemy)) {
+        winner = turn;
+        message.textContent = `${sideName(turn)}获胜。`;
+      } else {
+        message.textContent = taken ? `${sideName(turn)}夹击吃掉 ${taken} 枚棋子。` : `${sideName(turn)}完成移动。`;
+        turn = enemy;
+      }
+      render();
+    }
+
+    function renderPiece(color) {
+      if (!color) return "";
+      const style = color === "black"
+        ? "border-zinc-200 bg-zinc-950"
+        : "border-amber-950 bg-amber-200";
+      return `<span class="mx-auto block h-9 w-9 rounded-full border-2 ${style} shadow"></span>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      const targets = selected ? legalMovesFrom(selected.r, selected.c) : [];
+      turnLabel.textContent = winner ? `${sideName(winner)}胜` : sideName(turn);
+      blackLabel.textContent = String(countPieces("black"));
+      whiteLabel.textContent = String(countPieces("white"));
+
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const target = targets.some((item) => item.r === r && item.c === c);
+          const active = selected && selected.r === r && selected.c === c;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = [
+            "aspect-square rounded border transition focus:outline-none focus:ring-2 focus:ring-teal-300",
+            (r + c) % 2 === 0 ? "border-zinc-700 bg-zinc-800" : "border-zinc-600 bg-zinc-700",
+            target ? "bg-teal-500 hover:bg-teal-400" : "hover:brightness-110",
+            active ? "ring-4 ring-teal-300" : ""
+          ].join(" ");
+          button.innerHTML = renderPiece(board[r][c]);
+          button.setAttribute("aria-label", `row ${r + 1} column ${c + 1}`);
+          button.addEventListener("click", () => handleCell(r, c));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
