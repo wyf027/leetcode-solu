@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Fanorona</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.24em] text-orange-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-semibold text-white">Mini Fanorona</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-orange-200">
+        重开
+      </button>
+    </header>
+
+    <section class="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div class="flex items-center justify-center">
+        <div id="board" class="grid w-full max-w-[34rem] grid-cols-5 gap-2 rounded border border-stone-700 bg-stone-900 p-3 shadow-2xl"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">当前玩家</p>
+          <p id="turnLabel" class="mt-1 text-2xl font-bold text-orange-300">黑方</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-sm text-stone-400">黑棋</p>
+            <p id="blackLabel" class="mt-1 text-2xl font-bold text-white">10</p>
+          </div>
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-sm text-stone-400">白棋</p>
+            <p id="whiteLabel" class="mt-1 text-2xl font-bold text-emerald-300">10</p>
+          </div>
+        </div>
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">状态</p>
+          <p id="message" class="mt-2 min-h-16 text-base leading-7 text-stone-100">选择己方棋子，再移动到相邻空点。靠近或远离方向上的一线敌棋会被吃掉。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const dirs = [
+      [-1, 0], [1, 0], [0, -1], [0, 1],
+      [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const blackLabel = document.getElementById("blackLabel");
+    const whiteLabel = document.getElementById("whiteLabel");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    let board = [];
+    let turn = "black";
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      board = Array.from({ length: size }, (_, r) =>
+        Array.from({ length: size }, (_, c) => {
+          if (r < 2) return "white";
+          if (r > 2) return "black";
+          if (c === 1) return "black";
+          if (c === 3) return "white";
+          return null;
+        })
+      );
+      turn = "black";
+      selected = null;
+      winner = null;
+      message.textContent = "选择己方棋子，再移动到相邻空点。靠近或远离方向上的一线敌棋会被吃掉。";
+      render();
+    }
+
+    function inBoard(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function opponent(color) {
+      return color === "black" ? "white" : "black";
+    }
+
+    function sideName(color) {
+      return color === "black" ? "黑方" : "白方";
+    }
+
+    function countPieces(color) {
+      return board.flat().filter((cell) => cell === color).length;
+    }
+
+    function legalMovesFrom(r, c) {
+      if (board[r][c] !== turn) return [];
+      return dirs
+        .map(([dr, dc]) => ({ r: r + dr, c: c + dc, dr, dc }))
+        .filter((move) => inBoard(move.r, move.c) && !board[move.r][move.c]);
+    }
+
+    function collectLine(r, c, dr, dc, color) {
+      const captured = [];
+      let nr = r + dr;
+      let nc = c + dc;
+      while (inBoard(nr, nc) && board[nr][nc] === color) {
+        captured.push([nr, nc]);
+        nr += dr;
+        nc += dc;
+      }
+      return captured;
+    }
+
+    function captureForMove(from, to) {
+      const enemy = opponent(turn);
+      const approach = collectLine(to.r, to.c, to.dr, to.dc, enemy);
+      const withdraw = collectLine(from.r, from.c, -to.dr, -to.dc, enemy);
+      return approach.length >= withdraw.length ? approach : withdraw;
+    }
+
+    function hasMove(color) {
+      const savedTurn = turn;
+      turn = color;
+      const found = board.some((row, r) => row.some((cell, c) => cell === color && legalMovesFrom(r, c).length));
+      turn = savedTurn;
+      return found;
+    }
+
+    function handleCell(r, c) {
+      if (winner) return;
+      if (board[r][c] === turn) {
+        selected = { r, c };
+        message.textContent = "选择一个高亮空点移动。";
+        render();
+        return;
+      }
+      if (!selected) {
+        message.textContent = "请先选择己方棋子。";
+        return;
+      }
+      const move = legalMovesFrom(selected.r, selected.c).find((item) => item.r === r && item.c === c);
+      if (!move) {
+        message.textContent = "只能移动到相邻空点。";
+        return;
+      }
+      applyMove(selected, move);
+    }
+
+    function applyMove(from, move) {
+      const captures = captureForMove(from, move);
+      board[move.r][move.c] = turn;
+      board[from.r][from.c] = null;
+      captures.forEach(([r, c]) => {
+        board[r][c] = null;
+      });
+      selected = null;
+
+      const enemy = opponent(turn);
+      if (countPieces(enemy) === 0 || !hasMove(enemy)) {
+        winner = turn;
+        message.textContent = `${sideName(turn)}获胜。`;
+      } else {
+        message.textContent = captures.length ? `${sideName(turn)}吃掉 ${captures.length} 枚棋子。` : `${sideName(turn)}完成普通移动。`;
+        turn = enemy;
+      }
+      render();
+    }
+
+    function renderPiece(color) {
+      if (!color) return "";
+      const style = color === "black"
+        ? "border-stone-200 bg-stone-950"
+        : "border-emerald-950 bg-emerald-100";
+      return `<span class="mx-auto block h-9 w-9 rounded-full border-2 ${style} shadow"></span>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      const targets = selected ? legalMovesFrom(selected.r, selected.c) : [];
+      turnLabel.textContent = winner ? `${sideName(winner)}胜` : sideName(turn);
+      blackLabel.textContent = String(countPieces("black"));
+      whiteLabel.textContent = String(countPieces("white"));
+
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const target = targets.some((item) => item.r === r && item.c === c);
+          const active = selected && selected.r === r && selected.c === c;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = [
+            "aspect-square rounded border text-xl font-bold transition focus:outline-none focus:ring-2 focus:ring-orange-300",
+            (r + c) % 2 === 0 ? "border-stone-700 bg-stone-800" : "border-stone-600 bg-stone-700",
+            target ? "bg-orange-500 hover:bg-orange-400" : "hover:brightness-110",
+            active ? "ring-4 ring-orange-300" : ""
+          ].join(" ");
+          button.innerHTML = renderPiece(board[r][c]);
+          button.setAttribute("aria-label", `row ${r + 1} column ${c + 1}`);
+          button.addEventListener("click", () => handleCell(r, c));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
