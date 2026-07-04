@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Shut the Box</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-emerald-950 text-emerald-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-6">
+      <header class="flex flex-col gap-3 rounded-lg border border-emerald-700 bg-emerald-900 p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Shut the Box</h1>
+          <p class="text-sm text-emerald-200">掷骰后选择若干打开的数字，合计等于点数即可关闭它们。</p>
+        </div>
+        <button id="restartButton" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-amber-200">重开</button>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_260px]">
+        <div class="rounded-lg border border-emerald-700 bg-emerald-900 p-4">
+          <div id="tiles" class="grid grid-cols-3 gap-3 sm:grid-cols-6"></div>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="rounded-lg border border-emerald-700 bg-emerald-900 p-4">
+            <div class="text-xs uppercase tracking-wide text-emerald-300">骰子</div>
+            <div class="mt-2 flex gap-3">
+              <div id="dieOne" class="flex h-14 w-14 items-center justify-center rounded bg-emerald-50 text-2xl font-black text-emerald-950">-</div>
+              <div id="dieTwo" class="flex h-14 w-14 items-center justify-center rounded bg-emerald-50 text-2xl font-black text-emerald-950">-</div>
+            </div>
+            <div class="mt-3 text-sm text-emerald-200">目标：<span id="targetText" class="font-bold text-white">0</span></div>
+            <div class="text-sm text-emerald-200">已选：<span id="selectedText" class="font-bold text-white">0</span></div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <button id="rollButton" class="rounded bg-cyan-300 px-3 py-2 text-sm font-bold text-emerald-950 hover:bg-cyan-200">掷骰</button>
+            <button id="closeButton" class="rounded bg-lime-300 px-3 py-2 text-sm font-bold text-emerald-950 hover:bg-lime-200">关闭</button>
+          </div>
+
+          <div class="rounded-lg border border-emerald-700 bg-emerald-900 p-4">
+            <div class="text-xs uppercase tracking-wide text-emerald-300">状态</div>
+            <p id="message" class="mt-2 min-h-16 text-sm text-cyan-100">点击掷骰开始。</p>
+            <div class="mt-3 text-sm text-emerald-200">剩余分：<span id="scoreText" class="font-bold text-white">45</span></div>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      let openTiles = [];
+      let selected = [];
+      let dice = [0, 0];
+      let rolled = false;
+      let gameOver = false;
+
+      const tilesEl = document.getElementById("tiles");
+      const dieOneEl = document.getElementById("dieOne");
+      const dieTwoEl = document.getElementById("dieTwo");
+      const targetText = document.getElementById("targetText");
+      const selectedText = document.getElementById("selectedText");
+      const scoreText = document.getElementById("scoreText");
+      const messageEl = document.getElementById("message");
+      const rollButton = document.getElementById("rollButton");
+      const closeButton = document.getElementById("closeButton");
+      const restartButton = document.getElementById("restartButton");
+
+      function resetGame() {
+        openTiles = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        selected = [];
+        dice = [0, 0];
+        rolled = false;
+        gameOver = false;
+        messageEl.textContent = "点击掷骰开始。";
+        renderGame();
+      }
+
+      function rollDice() {
+        if (gameOver || rolled) return;
+        dice = [randomDie(), randomDie()];
+        rolled = true;
+        selected = [];
+        const target = diceTotal();
+        messageEl.textContent = hasMove(target) ? "选择合计等于骰点的数字。" : `无法组成 ${target}，游戏结束。`;
+        if (!hasMove(target)) gameOver = true;
+        renderGame();
+      }
+
+      function randomDie() {
+        return Math.floor(Math.random() * 6) + 1;
+      }
+
+      function diceTotal() {
+        return dice[0] + dice[1];
+      }
+
+      function selectedTotal() {
+        return selected.reduce((sum, value) => sum + value, 0);
+      }
+
+      function score() {
+        return openTiles.reduce((sum, value) => sum + value, 0);
+      }
+
+      function toggleTile(value) {
+        if (gameOver || !rolled || !openTiles.includes(value)) return;
+        if (selected.includes(value)) {
+          selected = selected.filter((item) => item !== value);
+        } else if (selectedTotal() + value <= diceTotal()) {
+          selected.push(value);
+        } else {
+          messageEl.textContent = "所选数字合计不能超过骰点。";
+        }
+        renderGame();
+      }
+
+      function closeSelected() {
+        if (gameOver || !rolled) return;
+        if (selectedTotal() !== diceTotal()) {
+          messageEl.textContent = "所选数字合计必须等于骰点。";
+          return;
+        }
+        openTiles = openTiles.filter((value) => !selected.includes(value));
+        selected = [];
+        rolled = false;
+        dice = [0, 0];
+        if (openTiles.length === 0) {
+          gameOver = true;
+          messageEl.textContent = "成功关闭所有数字，满分通关。";
+        } else {
+          messageEl.textContent = "关闭成功，继续掷骰。";
+        }
+        renderGame();
+      }
+
+      function hasMove(target) {
+        return canMakeTarget(openTiles, target, 0);
+      }
+
+      function canMakeTarget(values, target, index) {
+        if (target === 0) return true;
+        if (target < 0 || index >= values.length) return false;
+        return canMakeTarget(values, target - values[index], index + 1) || canMakeTarget(values, target, index + 1);
+      }
+
+      function renderGame() {
+        tilesEl.innerHTML = "";
+        for (let value = 1; value <= 9; value += 1) {
+          const isOpen = openTiles.includes(value);
+          const isSelected = selected.includes(value);
+          const button = document.createElement("button");
+          button.className = [
+            "aspect-[4/3] rounded border text-2xl font-black transition",
+            isOpen ? "border-amber-200 bg-amber-100 text-emerald-950 hover:bg-amber-50" : "border-emerald-800 bg-emerald-950 text-emerald-800",
+            isSelected ? "ring-4 ring-cyan-300" : "",
+          ].join(" ");
+          button.disabled = !isOpen || gameOver;
+          button.textContent = String(value);
+          button.addEventListener("click", () => toggleTile(value));
+          tilesEl.appendChild(button);
+        }
+        dieOneEl.textContent = dice[0] ? String(dice[0]) : "-";
+        dieTwoEl.textContent = dice[1] ? String(dice[1]) : "-";
+        targetText.textContent = String(diceTotal());
+        selectedText.textContent = String(selectedTotal());
+        scoreText.textContent = String(score());
+        rollButton.disabled = gameOver || rolled;
+        closeButton.disabled = gameOver || !rolled;
+        rollButton.classList.toggle("opacity-50", rollButton.disabled);
+        closeButton.classList.toggle("opacity-50", closeButton.disabled);
+      }
+
+      rollButton.addEventListener("click", rollDice);
+      closeButton.addEventListener("click", closeSelected);
+      restartButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
