@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Patolli</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.24em] text-lime-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-semibold text-white">Mini Patolli</h1>
+      </div>
+      <div class="flex gap-2">
+        <button id="rollBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-lime-200">
+          掷豆
+        </button>
+        <button id="resetBtn" class="rounded border border-neutral-700 px-4 py-2 text-sm font-semibold text-neutral-100 hover:bg-neutral-800">
+          重开
+        </button>
+      </div>
+    </header>
+
+    <section class="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div class="flex items-center justify-center">
+        <div id="board" class="grid w-full max-w-[38rem] grid-cols-9 gap-1 rounded border border-neutral-700 bg-neutral-900 p-2 shadow-2xl"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">当前玩家</p>
+          <p id="turnLabel" class="mt-1 text-2xl font-bold text-lime-300">红方</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-sm text-neutral-400">豆点</p>
+            <p id="rollLabel" class="mt-1 text-2xl font-bold text-white">-</p>
+          </div>
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-sm text-neutral-400">已完成</p>
+            <p id="homeLabel" class="mt-1 text-2xl font-bold text-emerald-300">0 : 0</p>
+          </div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">状态</p>
+          <p id="message" class="mt-2 min-h-16 text-base leading-7 text-neutral-100">红方先掷豆。掷出点数后选择一枚棋子进入或沿十字赛道前进。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const pathCells = [
+      4, 13, 22, 31, 40, 49, 58, 67, 76,
+      75, 74, 73, 72, 71, 70, 69, 68,
+      59, 50, 41, 32, 23, 14, 5,
+      6, 7, 8, 17, 26, 35, 44, 53, 62,
+      61, 60, 59, 58, 57, 56, 55, 54,
+      45, 36, 27, 18, 9, 0, 1, 2, 3
+    ];
+    const bonusCells = new Set([4, 40, 76, 72, 68, 32, 8, 44, 62, 58, 54, 18, 0]);
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const rollLabel = document.getElementById("rollLabel");
+    const homeLabel = document.getElementById("homeLabel");
+    const message = document.getElementById("message");
+    const rollBtn = document.getElementById("rollBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    let pieces = [];
+    let turn = "red";
+    let beans = [0, 0, 0, 0, 0];
+    let roll = 0;
+    let winner = null;
+
+    function resetGame() {
+      pieces = [];
+      ["red", "blue"].forEach((side) => {
+        for (let i = 1; i <= 3; i++) pieces.push({ id: `${side[0].toUpperCase()}${i}`, side, step: -1, done: false });
+      });
+      turn = "red";
+      beans = [0, 0, 0, 0, 0];
+      roll = 0;
+      winner = null;
+      message.textContent = "红方先掷豆。掷出点数后选择一枚棋子进入或沿十字赛道前进。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "red" ? "红方" : "蓝方";
+    }
+
+    function otherSide(side) {
+      return side === "red" ? "blue" : "red";
+    }
+
+    function boardPos(piece) {
+      if (piece.step < 0 || piece.done) return null;
+      return pathCells[piece.step];
+    }
+
+    function pieceAtCell(cell) {
+      return pieces.find((piece) => !piece.done && boardPos(piece) === cell);
+    }
+
+    function rollBeans() {
+      if (winner) return;
+      beans = Array.from({ length: 5 }, () => (Math.random() < 0.5 ? 0 : 1));
+      roll = beans.reduce((sum, bean) => sum + bean, 0);
+      if (roll === 0) roll = 5;
+      const movable = pieces.some((piece) => piece.side === turn && canMove(piece, roll));
+      if (!movable) {
+        message.textContent = `${sideName(turn)}掷出 ${roll}，没有可走棋子，换对方。`;
+        turn = otherSide(turn);
+        roll = 0;
+      } else {
+        message.textContent = `${sideName(turn)}掷出 ${roll}，请选择一枚棋子。`;
+      }
+      render();
+    }
+
+    function canMove(piece, steps) {
+      if (piece.done || piece.side !== turn || !steps) return false;
+      const targetStep = piece.step + steps;
+      if (targetStep > pathCells.length) return false;
+      if (targetStep === pathCells.length) return true;
+      const targetCell = pathCells[targetStep];
+      const occupant = pieceAtCell(targetCell);
+      return !occupant || occupant.side !== piece.side;
+    }
+
+    function movePiece(piece) {
+      if (!roll) {
+        message.textContent = "请先掷豆。";
+        return;
+      }
+      if (!canMove(piece, roll)) {
+        message.textContent = "这枚棋子不能按当前点数移动。";
+        return;
+      }
+
+      const targetStep = piece.step + roll;
+      if (targetStep === pathCells.length) {
+        piece.done = true;
+        piece.step = targetStep;
+        message.textContent = `${piece.id} 走完全程。`;
+      } else {
+        const targetCell = pathCells[targetStep];
+        const occupant = pieceAtCell(targetCell);
+        if (occupant && occupant.side !== piece.side) occupant.step = -1;
+        piece.step = targetStep;
+        message.textContent = occupant && occupant.side !== piece.side
+          ? `${piece.id} 踢回 ${occupant.id}。`
+          : `${piece.id} 前进 ${roll} 格。`;
+      }
+
+      if (pieces.filter((item) => item.side === piece.side && item.done).length === 3) {
+        winner = piece.side;
+        message.textContent = `${sideName(piece.side)}获胜，三枚棋子全部完成。`;
+      }
+
+      const finalCell = boardPos(piece);
+      const bonus = finalCell !== null && bonusCells.has(finalCell) && !winner;
+      if (bonus) {
+        roll = 0;
+        message.textContent += " 奖励格，再掷一次。";
+      } else if (!winner) {
+        turn = otherSide(turn);
+        roll = 0;
+      }
+      render();
+    }
+
+    function renderPiece(piece) {
+      const colors = piece.side === "red"
+        ? "border-red-100 bg-red-500 text-white"
+        : "border-sky-100 bg-sky-400 text-neutral-950";
+      return `<button class="mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-black shadow ${colors}" data-piece="${piece.id}">${piece.id}</button>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnLabel.textContent = winner ? `${sideName(winner)}胜` : sideName(turn);
+      rollLabel.textContent = roll ? `${roll} (${beans.join("")})` : "-";
+      const redDone = pieces.filter((piece) => piece.side === "red" && piece.done).length;
+      const blueDone = pieces.filter((piece) => piece.side === "blue" && piece.done).length;
+      homeLabel.textContent = `${redDone} : ${blueDone}`;
+
+      for (let cell = 0; cell < 81; cell++) {
+        const isPath = pathCells.includes(cell);
+        const isBonus = bonusCells.has(cell);
+        const piece = pieceAtCell(cell);
+        const div = document.createElement("div");
+        div.className = `relative aspect-square rounded border p-1 text-center ${isPath ? (isBonus ? "border-lime-400 bg-lime-950/70" : "border-neutral-700 bg-neutral-800") : "border-neutral-900 bg-neutral-950"}`;
+        div.innerHTML = `
+          <div class="absolute left-1 top-1 text-[10px] font-semibold text-neutral-500">${isPath ? pathCells.indexOf(cell) + 1 : ""}</div>
+          <div class="flex h-full items-center justify-center">${piece ? renderPiece(piece) : `<span class="text-xs text-neutral-500">${isBonus ? "✣" : ""}</span>`}</div>
+        `;
+        boardEl.appendChild(div);
+      }
+
+      boardEl.querySelectorAll("[data-piece]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const piece = pieces.find((item) => item.id === button.dataset.piece);
+          if (piece.side !== turn) {
+            message.textContent = "请选择当前玩家的棋子。";
+            return;
+          }
+          movePiece(piece);
+        });
+      });
+    }
+
+    rollBtn.addEventListener("click", rollBeans);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
