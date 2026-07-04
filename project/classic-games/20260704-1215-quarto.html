@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Quarto</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-4 py-6">
+      <header class="flex flex-col gap-3 rounded-lg border border-neutral-700 bg-neutral-900 p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Quarto</h1>
+          <p class="text-sm text-neutral-300">放置对手给你的棋子，再为对手选择下一枚棋子。</p>
+        </div>
+        <button id="restartButton" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-cyan-200">重开</button>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_360px]">
+        <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+          <div id="board" class="mx-auto grid aspect-square max-w-[560px] grid-cols-4 gap-2 rounded bg-neutral-800 p-3"></div>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+            <div class="text-xs uppercase tracking-wide text-neutral-400">当前</div>
+            <div id="turnText" class="mt-1 text-xl font-bold">Player A</div>
+            <p id="message" class="mt-3 min-h-16 text-sm text-cyan-100">玩家 A 先为玩家 B 选择一枚棋子。</p>
+          </div>
+          <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+            <div class="mb-3 text-sm text-neutral-300">待选棋子</div>
+            <div id="pieces" class="grid grid-cols-4 gap-2"></div>
+          </div>
+          <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-4 text-sm text-neutral-300">
+            <p>棋子属性：高/矮、圆/方、实/空、亮/暗。</p>
+            <p class="mt-2">任一行、列或对角线的 4 枚棋子共享任意一个属性即获胜。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 4;
+      const players = ["A", "B"];
+      let board = [];
+      let pieces = [];
+      let current = 0;
+      let selectedPiece = null;
+      let winner = null;
+
+      const boardEl = document.getElementById("board");
+      const piecesEl = document.getElementById("pieces");
+      const turnText = document.getElementById("turnText");
+      const messageEl = document.getElementById("message");
+      const restartButton = document.getElementById("restartButton");
+
+      function resetGame() {
+        board = Array.from({ length: size }, () => Array(size).fill(null));
+        pieces = buildPieces();
+        current = 0;
+        selectedPiece = null;
+        winner = null;
+        messageEl.textContent = "玩家 A 先为玩家 B 选择一枚棋子。";
+        renderGame();
+      }
+
+      function buildPieces() {
+        const result = [];
+        for (let tall = 0; tall <= 1; tall += 1) {
+          for (let round = 0; round <= 1; round += 1) {
+            for (let solid = 0; solid <= 1; solid += 1) {
+              for (let light = 0; light <= 1; light += 1) {
+                result.push({ id: `${tall}${round}${solid}${light}`, tall, round, solid, light, used: false });
+              }
+            }
+          }
+        }
+        return result;
+      }
+
+      function selectPiece(pieceId) {
+        if (winner || selectedPiece) return;
+        const piece = pieces.find((item) => item.id === pieceId && !item.used);
+        if (!piece) return;
+        selectedPiece = piece;
+        current = 1 - current;
+        messageEl.textContent = `玩家 ${players[current]} 放置这枚棋子。`;
+        renderGame();
+      }
+
+      function placePiece(row, col) {
+        if (winner || !selectedPiece || board[row][col]) return;
+        board[row][col] = selectedPiece;
+        selectedPiece.used = true;
+        const placedBy = players[current];
+        if (checkWin()) {
+          winner = placedBy;
+          messageEl.textContent = `玩家 ${placedBy} 获胜。`;
+        } else if (pieces.every((piece) => piece.used)) {
+          winner = "draw";
+          messageEl.textContent = "棋盘已满，平局。";
+        } else {
+          selectedPiece = null;
+          messageEl.textContent = `玩家 ${placedBy} 为对手选择下一枚棋子。`;
+        }
+        renderGame();
+      }
+
+      function checkWin() {
+        const lines = [];
+        for (let row = 0; row < size; row += 1) lines.push(board[row]);
+        for (let col = 0; col < size; col += 1) lines.push(board.map((row) => row[col]));
+        lines.push([0, 1, 2, 3].map((index) => board[index][index]));
+        lines.push([0, 1, 2, 3].map((index) => board[index][size - 1 - index]));
+        return lines.some((line) => line.every(Boolean) && sharesAttribute(line));
+      }
+
+      function sharesAttribute(line) {
+        return ["tall", "round", "solid", "light"].some((key) => {
+          const first = line[0][key];
+          return line.every((piece) => piece[key] === first);
+        });
+      }
+
+      function pieceLabel(piece) {
+        return `${piece.tall ? "H" : "S"}${piece.round ? "O" : "Q"}${piece.solid ? "F" : "H"}${piece.light ? "L" : "D"}`;
+      }
+
+      function pieceClasses(piece) {
+        const color = piece.light
+          ? piece.solid
+            ? "border-amber-300 bg-amber-300 text-neutral-950"
+            : "border-amber-300 bg-transparent text-amber-300"
+          : piece.solid
+            ? "border-violet-300 bg-violet-300 text-neutral-950"
+            : "border-violet-300 bg-transparent text-violet-300";
+        return [
+          "flex items-center justify-center border text-xs font-black shadow",
+          piece.tall ? "h-14" : "h-10 self-center",
+          piece.round ? "rounded-full" : "rounded",
+          color,
+        ].join(" ");
+      }
+
+      function renderGame() {
+        boardEl.innerHTML = "";
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const piece = board[row][col];
+            cell.className = [
+              "flex aspect-square items-center justify-center rounded border border-neutral-600 bg-neutral-800 p-2 hover:bg-neutral-700",
+              selectedPiece && !piece && !winner ? "ring-2 ring-cyan-300" : "",
+            ].join(" ");
+            cell.disabled = Boolean(winner);
+            cell.addEventListener("click", () => placePiece(row, col));
+            if (piece) {
+              const marker = document.createElement("div");
+              marker.className = pieceClasses(piece);
+              marker.textContent = pieceLabel(piece);
+              cell.appendChild(marker);
+            }
+            boardEl.appendChild(cell);
+          }
+        }
+
+        piecesEl.innerHTML = "";
+        pieces.forEach((piece) => {
+          const button = document.createElement("button");
+          button.className = [
+            "flex min-h-16 items-center justify-center rounded border border-neutral-700 bg-neutral-800 p-1",
+            piece.used ? "opacity-20" : "hover:bg-neutral-700",
+            selectedPiece && selectedPiece.id === piece.id ? "ring-4 ring-cyan-300" : "",
+          ].join(" ");
+          button.disabled = piece.used || Boolean(winner) || Boolean(selectedPiece);
+          button.addEventListener("click", () => selectPiece(piece.id));
+          const marker = document.createElement("div");
+          marker.className = pieceClasses(piece);
+          marker.textContent = pieceLabel(piece);
+          button.appendChild(marker);
+          piecesEl.appendChild(button);
+        });
+
+        turnText.textContent = winner
+          ? winner === "draw"
+            ? "Draw"
+            : `Player ${winner} wins`
+          : selectedPiece
+            ? `Player ${players[current]} placing`
+            : `Player ${players[current]} choosing`;
+      }
+
+      restartButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
