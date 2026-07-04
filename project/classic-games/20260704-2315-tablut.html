@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Tablut</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-cyan-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Tablut</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[620px] grid-cols-7 gap-1.5"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-cyan-200">守方</p>
+          <p id="statusText" class="mt-2 text-sm leading-6 text-slate-300"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-sm text-slate-400">守方</p>
+            <p id="defenderStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-sm text-slate-400">攻方</p>
+            <p id="attackerStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <p class="font-semibold text-slate-100">规则</p>
+          <p class="mt-2">所有棋子像车一样横竖滑行。守方护送国王到四个角落获胜；攻方从四面围住国王获胜。普通棋子被夹在两枚敌子或王座/角落之间会被吃掉。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const defenderStats = document.getElementById("defenderStats");
+    const attackerStats = document.getElementById("attackerStats");
+    const size = 7;
+    const throne = 24;
+    const corners = [0, 6, 42, 48];
+    let board;
+    let turn;
+    let selected;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array(size * size).fill(null);
+      [3, 17, 21, 27, 45, 31].forEach((index) => board[index] = "A");
+      [10, 22, 23, 25, 26, 38].forEach((index) => board[index] = "D");
+      board[throne] = "K";
+      turn = "D";
+      selected = null;
+      winner = null;
+      message = "守方先走，选择棋子后滑到空格。";
+      render();
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexAt(row, col) {
+      return row * size + col;
+    }
+
+    function sideOf(piece) {
+      if (piece === "A") return "A";
+      if (piece === "D" || piece === "K") return "D";
+      return null;
+    }
+
+    function sideName(side) {
+      return side === "A" ? "攻方" : "守方";
+    }
+
+    function isHostileSquare(index, side) {
+      return corners.includes(index) || (index === throne && board[index] === null) || sideOf(board[index]) === (side === "A" ? "D" : "A");
+    }
+
+    function isRestricted(index, piece) {
+      return piece !== "K" && corners.includes(index);
+    }
+
+    function pathClear(from, to, piece) {
+      const [fromRow, fromCol] = rowCol(from);
+      const [toRow, toCol] = rowCol(to);
+      if (fromRow !== toRow && fromCol !== toCol) return false;
+      if (board[to] !== null || isRestricted(to, piece)) return false;
+      const rowStep = Math.sign(toRow - fromRow);
+      const colStep = Math.sign(toCol - fromCol);
+      let row = fromRow + rowStep;
+      let col = fromCol + colStep;
+      while (row !== toRow || col !== toCol) {
+        if (board[indexAt(row, col)] !== null) return false;
+        row += rowStep;
+        col += colStep;
+      }
+      return true;
+    }
+
+    function legalMovesFrom(index) {
+      const piece = board[index];
+      if (!piece) return [];
+      const moves = [];
+      const [row, col] = rowCol(index);
+      for (let r = row - 1; r >= 0; r -= 1) {
+        const next = indexAt(r, col);
+        if (board[next] !== null || isRestricted(next, piece)) break;
+        moves.push(next);
+      }
+      for (let r = row + 1; r < size; r += 1) {
+        const next = indexAt(r, col);
+        if (board[next] !== null || isRestricted(next, piece)) break;
+        moves.push(next);
+      }
+      for (let c = col - 1; c >= 0; c -= 1) {
+        const next = indexAt(row, c);
+        if (board[next] !== null || isRestricted(next, piece)) break;
+        moves.push(next);
+      }
+      for (let c = col + 1; c < size; c += 1) {
+        const next = indexAt(row, c);
+        if (board[next] !== null || isRestricted(next, piece)) break;
+        moves.push(next);
+      }
+      return moves.filter((to) => pathClear(index, to, piece));
+    }
+
+    function neighbor(index, dr, dc) {
+      const [row, col] = rowCol(index);
+      const nextRow = row + dr;
+      const nextCol = col + dc;
+      if (nextRow < 0 || nextRow >= size || nextCol < 0 || nextCol >= size) return null;
+      return indexAt(nextRow, nextCol);
+    }
+
+    function captureAround(index) {
+      const moverSide = sideOf(board[index]);
+      [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([dr, dc]) => {
+        const target = neighbor(index, dr, dc);
+        const beyond = target === null ? null : neighbor(target, dr, dc);
+        if (target === null || beyond === null) return;
+        const targetPiece = board[target];
+        if (!targetPiece || targetPiece === "K" || sideOf(targetPiece) === moverSide) return;
+        if (isHostileSquare(beyond, moverSide)) board[target] = null;
+      });
+    }
+
+    function kingIndex() {
+      return board.findIndex((piece) => piece === "K");
+    }
+
+    function kingCaptured() {
+      const king = kingIndex();
+      if (king < 0) return true;
+      return [[-1, 0], [1, 0], [0, -1], [0, 1]].every(([dr, dc]) => {
+        const next = neighbor(king, dr, dc);
+        return next !== null && isHostileSquare(next, "A");
+      });
+    }
+
+    function allMoves(side) {
+      return board.flatMap((piece, index) => sideOf(piece) === side ? legalMovesFrom(index).map((to) => [index, to]) : []);
+    }
+
+    function checkWin() {
+      const king = kingIndex();
+      if (corners.includes(king)) {
+        winner = "D";
+        message = "国王抵达角落，守方获胜。";
+      } else if (kingCaptured()) {
+        winner = "A";
+        message = "国王被四面围住，攻方获胜。";
+      } else if (allMoves(turn === "A" ? "D" : "A").length === 0) {
+        winner = turn;
+        message = `${sideName(turn)}让对方无路可走，${sideName(turn)}获胜。`;
+      }
+    }
+
+    function finishTurn() {
+      checkWin();
+      if (!winner) {
+        turn = turn === "A" ? "D" : "A";
+        message = `${sideName(turn)}选择棋子移动。`;
+      }
+      selected = null;
+      render();
+    }
+
+    function movePiece(to) {
+      board[to] = board[selected];
+      board[selected] = null;
+      captureAround(to);
+      finishTurn();
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      const piece = board[index];
+      if (selected === null) {
+        if (sideOf(piece) === turn) {
+          selected = index;
+          message = "选择高亮空格滑行。";
+        } else {
+          message = `请选择${sideName(turn)}棋子。`;
+        }
+        render();
+        return;
+      }
+      if (index === selected) {
+        selected = null;
+        message = "已取消选择。";
+      } else if (sideOf(piece) === turn) {
+        selected = index;
+        message = "已切换棋子。";
+      } else if (legalMovesFrom(selected).includes(index)) {
+        movePiece(index);
+        return;
+      } else {
+        message = "只能横竖滑到高亮空格。";
+      }
+      render();
+    }
+
+    function renderCell(index) {
+      const cell = document.createElement("button");
+      const piece = board[index];
+      const legal = selected !== null && legalMovesFrom(selected).includes(index);
+      cell.type = "button";
+      cell.setAttribute("aria-label", `格子 ${index + 1}`);
+      cell.className = [
+        "aspect-square rounded border text-sm transition",
+        corners.includes(index) ? "border-cyan-300 bg-cyan-950" : index === throne ? "border-amber-300 bg-amber-950" : "border-slate-700 bg-slate-950",
+        selected === index ? "ring-2 ring-cyan-300" : "",
+        legal ? "bg-cyan-900 ring-2 ring-cyan-300" : "",
+        !piece ? "hover:bg-slate-800" : "",
+      ].join(" ");
+      if (piece) {
+        const token = document.createElement("span");
+        token.textContent = piece === "K" ? "王" : piece === "D" ? "守" : "攻";
+        token.className = piece === "A"
+          ? "mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-rose-300 font-bold text-slate-950"
+          : piece === "K"
+            ? "mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-amber-300 font-bold text-slate-950"
+            : "mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-950";
+        cell.appendChild(token);
+      }
+      cell.addEventListener("click", () => handleCell(index));
+      return cell;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((_, index) => boardEl.appendChild(renderCell(index)));
+      turnText.textContent = winner ? `${sideName(winner)}胜利` : sideName(turn);
+      statusText.textContent = message;
+      defenderStats.textContent = `${board.filter((piece) => piece === "D").length} 守子 + 国王`;
+      attackerStats.textContent = `${board.filter((piece) => piece === "A").length} 攻子`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
