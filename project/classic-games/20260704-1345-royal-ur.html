@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Royal Ur</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.24em] text-fuchsia-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-semibold text-white">Mini Royal Ur</h1>
+      </div>
+      <div class="flex gap-2">
+        <button id="rollBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-fuchsia-200">
+          掷骰
+        </button>
+        <button id="resetBtn" class="rounded border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800">
+          重开
+        </button>
+      </div>
+    </header>
+
+    <section class="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div class="flex items-center justify-center">
+        <div id="board" class="grid w-full max-w-3xl grid-cols-8 gap-1 rounded border border-zinc-700 bg-zinc-900 p-2 shadow-2xl"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">当前玩家</p>
+          <p id="turnLabel" class="mt-1 text-2xl font-bold text-fuchsia-300">红方</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">骰点</p>
+            <p id="rollLabel" class="mt-1 text-2xl font-bold text-white">-</p>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">已出局</p>
+            <p id="homeLabel" class="mt-1 text-2xl font-bold text-emerald-300">0 : 0</p>
+          </div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">状态</p>
+          <p id="message" class="mt-2 min-h-16 text-base leading-7 text-zinc-100">红方先掷骰。落到玫瑰格可以再行动，中央玫瑰格安全。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const paths = {
+      red: [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5],
+      blue: [23, 22, 21, 20, 15, 14, 13, 12, 11, 10, 9, 8, 19, 18]
+    };
+    const rosettes = new Set([3, 8, 15, 20]);
+    const safeCenter = new Set([8, 15]);
+    const emptyBoard = Array.from({ length: 24 }, (_, i) => i);
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const rollLabel = document.getElementById("rollLabel");
+    const homeLabel = document.getElementById("homeLabel");
+    const message = document.getElementById("message");
+    const rollBtn = document.getElementById("rollBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    let pieces = [];
+    let turn = "red";
+    let roll = 0;
+    let dice = [0, 0, 0, 0];
+    let winner = null;
+
+    function resetGame() {
+      pieces = [];
+      ["red", "blue"].forEach((side) => {
+        for (let i = 1; i <= 5; i++) {
+          pieces.push({ id: `${side[0].toUpperCase()}${i}`, side, step: -1, finished: false });
+        }
+      });
+      turn = "red";
+      roll = 0;
+      dice = [0, 0, 0, 0];
+      winner = null;
+      message.textContent = "红方先掷骰。落到玫瑰格可以再行动，中央玫瑰格安全。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "red" ? "红方" : "蓝方";
+    }
+
+    function otherSide(side) {
+      return side === "red" ? "blue" : "red";
+    }
+
+    function boardPos(piece) {
+      if (piece.step < 0 || piece.finished) return null;
+      return paths[piece.side][piece.step];
+    }
+
+    function pieceAt(pos) {
+      return pieces.find((piece) => !piece.finished && boardPos(piece) === pos);
+    }
+
+    function rollDice() {
+      if (winner) return;
+      dice = Array.from({ length: 4 }, () => (Math.random() < 0.5 ? 0 : 1));
+      roll = dice.reduce((sum, item) => sum + item, 0);
+      if (roll === 0) {
+        message.textContent = `${sideName(turn)}掷出 0，换对方。`;
+        turn = otherSide(turn);
+        render();
+        return;
+      }
+      if (!pieces.some((piece) => piece.side === turn && canMove(piece, roll))) {
+        message.textContent = `${sideName(turn)}掷出 ${roll}，没有可走棋子。`;
+        turn = otherSide(turn);
+        roll = 0;
+      } else {
+        message.textContent = `${sideName(turn)}掷出 ${roll}，选择一枚棋子。`;
+      }
+      render();
+    }
+
+    function canMove(piece, steps) {
+      if (piece.finished || piece.side !== turn || !steps) return false;
+      const targetStep = piece.step + steps;
+      if (targetStep > paths[piece.side].length) return false;
+      if (targetStep === paths[piece.side].length) return true;
+      const target = paths[piece.side][targetStep];
+      const occupant = pieceAt(target);
+      if (!occupant) return true;
+      if (occupant.side === piece.side) return false;
+      return !safeCenter.has(target);
+    }
+
+    function movePiece(piece) {
+      if (!roll) {
+        message.textContent = "请先掷骰。";
+        return;
+      }
+      if (!canMove(piece, roll)) {
+        message.textContent = "这枚棋子不能按当前点数移动。";
+        return;
+      }
+      const targetStep = piece.step + roll;
+      const path = paths[piece.side];
+
+      if (targetStep === path.length) {
+        piece.finished = true;
+        piece.step = targetStep;
+        message.textContent = `${piece.id} 离开棋盘。`;
+      } else {
+        const target = path[targetStep];
+        const occupant = pieceAt(target);
+        if (occupant && occupant.side !== piece.side) occupant.step = -1;
+        piece.step = targetStep;
+        message.textContent = occupant && occupant.side !== piece.side
+          ? `${piece.id} 吃掉 ${occupant.id}。`
+          : `${piece.id} 前进 ${roll} 步。`;
+      }
+
+      if (pieces.filter((item) => item.side === piece.side && item.finished).length === 5) {
+        winner = piece.side;
+        message.textContent = `${sideName(piece.side)}获胜，五枚棋子全部出局。`;
+      }
+
+      const finalPos = boardPos(piece);
+      const extraTurn = finalPos !== null && rosettes.has(finalPos) && !winner;
+      if (extraTurn) {
+        roll = 0;
+        message.textContent += " 玫瑰格再行动。";
+      } else if (!winner) {
+        turn = otherSide(turn);
+        roll = 0;
+      }
+      render();
+    }
+
+    function renderPiece(piece) {
+      const colors = piece.side === "red"
+        ? "border-rose-100 bg-rose-500 text-white"
+        : "border-cyan-100 bg-cyan-400 text-zinc-950";
+      return `<button class="mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-black shadow ${colors}" data-piece="${piece.id}">${piece.id}</button>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnLabel.textContent = winner ? `${sideName(winner)}胜` : sideName(turn);
+      rollLabel.textContent = roll ? `${roll} (${dice.join("")})` : "-";
+      const redHome = pieces.filter((piece) => piece.side === "red" && piece.finished).length;
+      const blueHome = pieces.filter((piece) => piece.side === "blue" && piece.finished).length;
+      homeLabel.textContent = `${redHome} : ${blueHome}`;
+
+      emptyBoard.forEach((pos) => {
+        const piece = pieceAt(pos);
+        const isRosette = rosettes.has(pos);
+        const cell = document.createElement("div");
+        cell.className = `relative aspect-square rounded border p-1 text-center ${isRosette ? "border-fuchsia-400 bg-fuchsia-950/70" : "border-zinc-700 bg-zinc-800"}`;
+        cell.innerHTML = `
+          <div class="absolute left-1 top-1 text-[10px] font-semibold text-zinc-400">${pos + 1}</div>
+          <div class="flex h-full items-center justify-center">${piece ? renderPiece(piece) : `<span class="text-xs text-zinc-500">${isRosette ? "✦" : ""}</span>`}</div>
+        `;
+        boardEl.appendChild(cell);
+      });
+
+      boardEl.querySelectorAll("[data-piece]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const piece = pieces.find((item) => item.id === button.dataset.piece);
+          if (piece.side !== turn) {
+            message.textContent = "请选择当前玩家的棋子。";
+            return;
+          }
+          movePiece(piece);
+        });
+      });
+    }
+
+    rollBtn.addEventListener("click", rollDice);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
