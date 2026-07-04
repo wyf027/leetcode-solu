@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Teeko</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-indigo-950 text-indigo-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-6">
+      <header class="flex flex-col gap-3 rounded-lg border border-indigo-700 bg-indigo-900 p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Teeko</h1>
+          <p class="text-sm text-indigo-200">双方各 4 子，先形成四连或 2x2 方块者获胜。</p>
+        </div>
+        <button id="restartButton" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-indigo-950 hover:bg-amber-200">重开</button>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_260px]">
+        <div class="rounded-lg border border-indigo-700 bg-indigo-900 p-4">
+          <div id="board" class="mx-auto grid aspect-square max-w-[600px] grid-cols-5 gap-2 rounded bg-indigo-800 p-3"></div>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="rounded-lg border border-indigo-700 bg-indigo-900 p-4">
+            <div class="text-xs uppercase tracking-wide text-indigo-300">当前</div>
+            <div id="turnText" class="mt-1 text-xl font-bold">Red placing</div>
+            <p id="message" class="mt-3 min-h-16 text-sm text-cyan-100">红方先放置棋子。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-lg border border-indigo-700 bg-indigo-900 p-3 text-center">
+              <div class="text-xs text-indigo-300">红方棋子</div>
+              <div id="redCount" class="text-2xl font-bold">0/4</div>
+            </div>
+            <div class="rounded-lg border border-indigo-700 bg-indigo-900 p-3 text-center">
+              <div class="text-xs text-indigo-300">蓝方棋子</div>
+              <div id="blueCount" class="text-2xl font-bold">0/4</div>
+            </div>
+          </div>
+          <div class="rounded-lg border border-indigo-700 bg-indigo-900 p-4 text-sm text-indigo-200">
+            <p>放置阶段：双方轮流在空点放棋，直到各有 4 子。</p>
+            <p class="mt-2">移动阶段：选择己方棋子，再移动到相邻空点。</p>
+            <p class="mt-2">四个同色连成横、竖、斜线，或组成 2x2 方块即获胜。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 5;
+      const maxPieces = 4;
+      const directions = [
+        [-1, -1],
+        [-1, 0],
+        [-1, 1],
+        [0, -1],
+        [0, 1],
+        [1, -1],
+        [1, 0],
+        [1, 1],
+      ];
+
+      let board = [];
+      let current = "red";
+      let selected = null;
+      let winner = null;
+
+      const boardEl = document.getElementById("board");
+      const turnText = document.getElementById("turnText");
+      const messageEl = document.getElementById("message");
+      const redCountEl = document.getElementById("redCount");
+      const blueCountEl = document.getElementById("blueCount");
+      const restartButton = document.getElementById("restartButton");
+
+      function resetGame() {
+        board = Array.from({ length: size }, () => Array(size).fill(null));
+        current = "red";
+        selected = null;
+        winner = null;
+        messageEl.textContent = "红方先放置棋子。";
+        renderBoard();
+      }
+
+      function pieceCount(player) {
+        return board.flat().filter((cell) => cell === player).length;
+      }
+
+      function phase() {
+        return pieceCount("red") < maxPieces || pieceCount("blue") < maxPieces ? "place" : "move";
+      }
+
+      function inside(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function isAdjacent(aRow, aCol, bRow, bCol) {
+        return Math.max(Math.abs(aRow - bRow), Math.abs(aCol - bCol)) === 1;
+      }
+
+      function handleCell(row, col) {
+        if (winner) return;
+        if (phase() === "place") {
+          placePiece(row, col);
+        } else {
+          movePiece(row, col);
+        }
+      }
+
+      function placePiece(row, col) {
+        if (board[row][col]) {
+          messageEl.textContent = "这里已有棋子。";
+          return;
+        }
+        board[row][col] = current;
+        if (checkWin(current)) {
+          winner = current;
+          messageEl.textContent = `${current === "red" ? "红方" : "蓝方"}获胜。`;
+        } else {
+          current = current === "red" ? "blue" : "red";
+          messageEl.textContent = phase() === "place" ? "继续放置棋子。" : "进入移动阶段。";
+        }
+        renderBoard();
+      }
+
+      function movePiece(row, col) {
+        const value = board[row][col];
+        if (!selected) {
+          if (value !== current) {
+            messageEl.textContent = "请选择当前方的棋子。";
+            return;
+          }
+          selected = [row, col];
+          messageEl.textContent = "请选择相邻空点。";
+          renderBoard();
+          return;
+        }
+        if (selected[0] === row && selected[1] === col) {
+          selected = null;
+          messageEl.textContent = "已取消选择。";
+          renderBoard();
+          return;
+        }
+        if (value) {
+          messageEl.textContent = "目标必须是空点。";
+          return;
+        }
+        if (!isAdjacent(selected[0], selected[1], row, col)) {
+          messageEl.textContent = "只能移动到相邻空点。";
+          return;
+        }
+        board[row][col] = current;
+        board[selected[0]][selected[1]] = null;
+        selected = null;
+        if (checkWin(current)) {
+          winner = current;
+          messageEl.textContent = `${current === "red" ? "红方" : "蓝方"}获胜。`;
+        } else {
+          current = current === "red" ? "blue" : "red";
+          messageEl.textContent = "轮到下一方移动。";
+        }
+        renderBoard();
+      }
+
+      function checkWin(player) {
+        return hasLine(player) || hasBox(player);
+      }
+
+      function hasLine(player) {
+        const starts = [];
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) starts.push([row, col]);
+        }
+        return starts.some(([row, col]) =>
+          [
+            [0, 1],
+            [1, 0],
+            [1, 1],
+            [1, -1],
+          ].some(([dr, dc]) => {
+            for (let step = 0; step < maxPieces; step += 1) {
+              const nextRow = row + dr * step;
+              const nextCol = col + dc * step;
+              if (!inside(nextRow, nextCol) || board[nextRow][nextCol] !== player) return false;
+            }
+            return true;
+          }),
+        );
+      }
+
+      function hasBox(player) {
+        for (let row = 0; row < size - 1; row += 1) {
+          for (let col = 0; col < size - 1; col += 1) {
+            if (
+              board[row][col] === player &&
+              board[row + 1][col] === player &&
+              board[row][col + 1] === player &&
+              board[row + 1][col + 1] === player
+            ) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function legalTarget(row, col) {
+        if (!selected || board[row][col]) return false;
+        return directions.some(([dr, dc]) => selected[0] + dr === row && selected[1] + dc === col);
+      }
+
+      function renderBoard() {
+        boardEl.innerHTML = "";
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const value = board[row][col];
+            const isSelected = selected && selected[0] === row && selected[1] === col;
+            const isTarget = legalTarget(row, col);
+            cell.className = [
+              "aspect-square rounded border text-lg font-black transition",
+              "border-indigo-600 bg-indigo-800 hover:bg-indigo-700",
+              value === "red" ? "bg-rose-400 text-indigo-950 hover:bg-rose-300" : "",
+              value === "blue" ? "bg-sky-300 text-indigo-950 hover:bg-sky-200" : "",
+              isSelected ? "ring-4 ring-amber-300" : "",
+              isTarget ? "ring-4 ring-lime-300" : "",
+            ].join(" ");
+            cell.disabled = Boolean(winner);
+            cell.textContent = value ? (value === "red" ? "R" : "B") : "";
+            cell.addEventListener("click", () => handleCell(row, col));
+            boardEl.appendChild(cell);
+          }
+        }
+        turnText.textContent = winner
+          ? `${winner === "red" ? "Red" : "Blue"} wins`
+          : `${current === "red" ? "Red" : "Blue"} ${phase() === "place" ? "placing" : "moving"}`;
+        redCountEl.textContent = `${pieceCount("red")}/${maxPieces}`;
+        blueCountEl.textContent = `${pieceCount("blue")}/${maxPieces}`;
+      }
+
+      restartButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
