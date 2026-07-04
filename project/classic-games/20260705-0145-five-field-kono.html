@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Five Field Kono</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-sky-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Five Field Kono</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-sky-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-sky-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[590px] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-sky-200">蓝方</p>
+          <p id="statusText" class="mt-2 text-sm leading-6 text-neutral-300"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-sm text-neutral-400">蓝方目标</p>
+            <p id="blueStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-sm text-neutral-400">红方目标</p>
+            <p id="redStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+          <p class="font-semibold text-neutral-100">规则</p>
+          <p class="mt-2">双方各 7 子。棋子只能斜向前进一步，不能吃子。蓝方向下进入红方初始阵地，红方向上进入蓝方初始阵地，先让 7 子全部占住目标阵地者获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const blueStats = document.getElementById("blueStats");
+    const redStats = document.getElementById("redStats");
+    const size = 5;
+    const blueStart = [0, 1, 2, 3, 4, 6, 8];
+    const redStart = [20, 21, 22, 23, 24, 16, 18];
+    const blueGoal = [20, 21, 22, 23, 24, 16, 18];
+    const redGoal = [0, 1, 2, 3, 4, 6, 8];
+    let board;
+    let turn;
+    let selected;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array(size * size).fill(null);
+      blueStart.forEach((index) => board[index] = "B");
+      redStart.forEach((index) => board[index] = "R");
+      turn = "B";
+      selected = null;
+      winner = null;
+      message = "选择己方棋子，斜向前进一步。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "B" ? "蓝方" : "红方";
+    }
+
+    function otherSide(side) {
+      return side === "B" ? "R" : "B";
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexAt(row, col) {
+      return row * size + col;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function legalMovesFrom(index) {
+      const piece = board[index];
+      if (!piece) return [];
+      const [row, col] = rowCol(index);
+      const step = piece === "B" ? 1 : -1;
+      return [[row + step, col - 1], [row + step, col + 1]]
+        .filter(([nextRow, nextCol]) => inside(nextRow, nextCol))
+        .map(([nextRow, nextCol]) => indexAt(nextRow, nextCol))
+        .filter((next) => board[next] === null);
+    }
+
+    function allMoves(side) {
+      const moves = [];
+      board.forEach((piece, index) => {
+        if (piece === side) legalMovesFrom(index).forEach((to) => moves.push({ from: index, to }));
+      });
+      return moves;
+    }
+
+    function goalCount(side) {
+      const goal = side === "B" ? blueGoal : redGoal;
+      return goal.filter((index) => board[index] === side).length;
+    }
+
+    function checkWin() {
+      if (goalCount(turn) === 7) {
+        winner = turn;
+        message = `${sideName(turn)}占满目标阵地，${sideName(turn)}获胜。`;
+      } else if (allMoves(otherSide(turn)).length === 0) {
+        winner = turn;
+        message = `${sideName(otherSide(turn))}无路可走，${sideName(turn)}获胜。`;
+      }
+    }
+
+    function finishTurn() {
+      checkWin();
+      if (!winner) {
+        turn = otherSide(turn);
+        selected = null;
+        message = `${sideName(turn)}选择棋子移动。`;
+      }
+      render();
+    }
+
+    function movePiece(index) {
+      if (selected === null) {
+        if (board[index] === turn) {
+          selected = index;
+          message = "选择高亮空格前进。";
+        } else {
+          message = `请选择${sideName(turn)}棋子。`;
+        }
+        render();
+        return;
+      }
+      if (index === selected) {
+        selected = null;
+        message = "已取消选择。";
+      } else if (board[index] === turn) {
+        selected = index;
+        message = "已切换棋子。";
+      } else if (legalMovesFrom(selected).includes(index)) {
+        board[index] = turn;
+        board[selected] = null;
+        selected = null;
+        finishTurn();
+        return;
+      } else {
+        message = "只能斜向前进到高亮空格。";
+      }
+      render();
+    }
+
+    function renderCell(index) {
+      const piece = board[index];
+      const legal = selected !== null && legalMovesFrom(selected).includes(index);
+      const isBlueGoal = blueGoal.includes(index);
+      const isRedGoal = redGoal.includes(index);
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.setAttribute("aria-label", `格子 ${index + 1}`);
+      cell.className = [
+        "aspect-square rounded border text-center transition",
+        selected === index ? "border-sky-300 bg-sky-300/20" : "border-neutral-700 bg-neutral-950",
+        legal ? "ring-2 ring-sky-300" : "",
+        isBlueGoal && !piece ? "bg-sky-950/70" : "",
+        isRedGoal && !piece ? "bg-rose-950/70" : "",
+        !piece ? "hover:bg-neutral-800" : "",
+      ].join(" ");
+      if (piece) {
+        const token = document.createElement("span");
+        token.textContent = piece === "B" ? "蓝" : "红";
+        token.className = piece === "B"
+          ? "mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-sky-300 font-bold text-neutral-950"
+          : "mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-rose-300 font-bold text-neutral-950";
+        cell.appendChild(token);
+      }
+      cell.addEventListener("click", () => movePiece(index));
+      return cell;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((_, index) => boardEl.appendChild(renderCell(index)));
+      turnText.textContent = winner ? `${sideName(winner)}胜利` : sideName(turn);
+      statusText.textContent = message;
+      blueStats.textContent = `${goalCount("B")} / 7`;
+      redStats.textContent = `${goalCount("R")} / 7`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
