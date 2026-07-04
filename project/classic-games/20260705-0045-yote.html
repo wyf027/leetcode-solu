@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Yote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-yellow-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Yote</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-yellow-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-yellow-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[590px] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-yellow-200">黑方</p>
+          <p id="statusText" class="mt-2 text-sm leading-6 text-slate-300"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-sm text-slate-400">黑方</p>
+            <p id="blackStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-sm text-slate-400">白方</p>
+            <p id="whiteStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <p class="font-semibold text-slate-100">规则</p>
+          <p class="mt-2">双方各有 12 子，可放置备用棋或移动己方棋。跳过相邻敌子并落到空格会吃掉它，随后可额外移除一枚敌子。吃光对方或让对方无棋可动即获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const blackStats = document.getElementById("blackStats");
+    const whiteStats = document.getElementById("whiteStats");
+    const size = 5;
+    const totalPieces = 12;
+    let board;
+    let turn;
+    let reserve;
+    let captured;
+    let selected;
+    let bonusRemove;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array(size * size).fill(null);
+      turn = "B";
+      reserve = { B: totalPieces, W: totalPieces };
+      captured = { B: 0, W: 0 };
+      selected = null;
+      bonusRemove = false;
+      winner = null;
+      message = "可以放置备用棋，或选择己方棋移动。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "B" ? "黑方" : "白方";
+    }
+
+    function otherSide(side) {
+      return side === "B" ? "W" : "B";
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexAt(row, col) {
+      return row * size + col;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceCount(side) {
+      return board.filter((piece) => piece === side).length;
+    }
+
+    function directions() {
+      return [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    }
+
+    function legalMovesFrom(index) {
+      const moves = [];
+      const [row, col] = rowCol(index);
+      directions().forEach(([dr, dc]) => {
+        const stepRow = row + dr;
+        const stepCol = col + dc;
+        if (inside(stepRow, stepCol)) {
+          const step = indexAt(stepRow, stepCol);
+          if (board[step] === null) moves.push({ to: step, capture: null });
+        }
+        const midRow = row + dr;
+        const midCol = col + dc;
+        const landRow = row + dr * 2;
+        const landCol = col + dc * 2;
+        if (!inside(midRow, midCol) || !inside(landRow, landCol)) return;
+        const mid = indexAt(midRow, midCol);
+        const land = indexAt(landRow, landCol);
+        if (board[mid] === otherSide(board[index]) && board[land] === null) {
+          moves.push({ to: land, capture: mid });
+        }
+      });
+      return moves;
+    }
+
+    function allMoves(side) {
+      const moves = [];
+      board.forEach((piece, index) => {
+        if (piece === side) legalMovesFrom(index).forEach((move) => moves.push({ from: index, ...move }));
+      });
+      return moves;
+    }
+
+    function canAct(side) {
+      return reserve[side] > 0 || allMoves(side).length > 0;
+    }
+
+    function checkWin() {
+      const rival = otherSide(turn);
+      if (pieceCount(rival) === 0 && reserve[rival] === 0) {
+        winner = turn;
+        message = `${sideName(rival)}无棋可用，${sideName(turn)}获胜。`;
+      } else if (!canAct(rival)) {
+        winner = turn;
+        message = `${sideName(rival)}无棋可动，${sideName(turn)}获胜。`;
+      }
+    }
+
+    function finishTurn() {
+      checkWin();
+      if (!winner) {
+        turn = otherSide(turn);
+        selected = null;
+        bonusRemove = false;
+        message = "可以放置备用棋，或选择己方棋移动。";
+      }
+      render();
+    }
+
+    function placePiece(index) {
+      if (reserve[turn] <= 0) {
+        message = `${sideName(turn)}没有备用棋。`;
+        render();
+        return;
+      }
+      if (board[index] !== null) {
+        message = "请选择空格放置。";
+        render();
+        return;
+      }
+      board[index] = turn;
+      reserve[turn] -= 1;
+      finishTurn();
+    }
+
+    function movePiece(index) {
+      if (selected === null) {
+        if (board[index] === turn) {
+          selected = index;
+          message = "选择高亮空格移动或跳吃。";
+        } else if (board[index] === null) {
+          placePiece(index);
+          return;
+        } else {
+          message = `请选择${sideName(turn)}棋子或空格放置。`;
+        }
+        render();
+        return;
+      }
+      if (index === selected) {
+        selected = null;
+        message = "已取消选择。";
+        render();
+        return;
+      }
+      if (board[index] === turn) {
+        selected = index;
+        message = "已切换棋子。";
+        render();
+        return;
+      }
+      const move = legalMovesFrom(selected).find((item) => item.to === index);
+      if (!move) {
+        message = "只能移动到高亮空格。";
+        render();
+        return;
+      }
+      board[index] = turn;
+      board[selected] = null;
+      selected = null;
+      if (move.capture !== null) {
+        board[move.capture] = null;
+        captured[turn] += 1;
+        bonusRemove = true;
+        message = `${sideName(turn)}跳吃成功，请额外移除一枚敌子。`;
+        render();
+      } else {
+        finishTurn();
+      }
+    }
+
+    function removeBonus(index) {
+      const rival = otherSide(turn);
+      if (board[index] !== rival) {
+        message = `请选择一枚${sideName(rival)}棋子移除。`;
+        render();
+        return;
+      }
+      board[index] = null;
+      captured[turn] += 1;
+      finishTurn();
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      if (bonusRemove) removeBonus(index);
+      else movePiece(index);
+    }
+
+    function renderCell(index) {
+      const piece = board[index];
+      const legal = selected !== null && legalMovesFrom(selected).some((move) => move.to === index);
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.setAttribute("aria-label", `格子 ${index + 1}`);
+      cell.className = [
+        "aspect-square rounded border text-center transition",
+        selected === index ? "border-yellow-300 bg-yellow-300/20" : "border-slate-700 bg-slate-950",
+        legal ? "ring-2 ring-yellow-300" : "",
+        bonusRemove && piece === otherSide(turn) ? "ring-2 ring-red-300" : "",
+        !piece ? "hover:bg-slate-800" : "",
+      ].join(" ");
+      if (piece) {
+        const token = document.createElement("span");
+        token.textContent = piece === "B" ? "黑" : "白";
+        token.className = piece === "B"
+          ? "mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-950"
+          : "mx-auto flex h-10 w-10 items-center justify-center rounded-full border-4 border-slate-100 bg-slate-950 font-bold text-slate-100";
+        cell.appendChild(token);
+      }
+      cell.addEventListener("click", () => handleCell(index));
+      return cell;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((_, index) => boardEl.appendChild(renderCell(index)));
+      turnText.textContent = winner ? `${sideName(winner)}胜利` : sideName(turn);
+      statusText.textContent = message;
+      blackStats.textContent = `${pieceCount("B")} 子 / 备用 ${reserve.B} / 吃 ${captured.B}`;
+      whiteStats.textContent = `${pieceCount("W")} 子 / 备用 ${reserve.W} / 吃 ${captured.W}`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
