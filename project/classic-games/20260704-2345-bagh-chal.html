@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Bagh-Chal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-orange-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Bagh-Chal</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-orange-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[590px] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-orange-200">羊群</p>
+          <p id="statusText" class="mt-2 text-sm leading-6 text-neutral-300"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-sm text-neutral-400">羊群</p>
+            <p id="goatStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-sm text-neutral-400">老虎</p>
+            <p id="tigerStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+          <p class="font-semibold text-neutral-100">规则</p>
+          <p class="mt-2">羊群先逐个布下 20 子，之后才能移动。老虎从四角出发，可移动一格或跳过相邻羊吃掉它。老虎吃掉 5 只羊获胜；羊群困住全部老虎获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const goatStats = document.getElementById("goatStats");
+    const tigerStats = document.getElementById("tigerStats");
+    const size = 5;
+    const goatTotal = 20;
+    const tigerWinCaptures = 5;
+    let board;
+    let turn;
+    let goatsToPlace;
+    let goatsCaptured;
+    let selected;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array(size * size).fill(null);
+      [0, 4, 20, 24].forEach((index) => board[index] = "T");
+      turn = "G";
+      goatsToPlace = goatTotal;
+      goatsCaptured = 0;
+      selected = null;
+      winner = null;
+      message = "羊群先在空格中布子。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "G" ? "羊群" : "老虎";
+    }
+
+    function isPlacementPhase() {
+      return goatsToPlace > 0;
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexAt(row, col) {
+      return row * size + col;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function directions() {
+      return [
+        [-1, 0],
+        [1, 0],
+        [0, -1],
+        [0, 1],
+        [-1, -1],
+        [-1, 1],
+        [1, -1],
+        [1, 1],
+      ];
+    }
+
+    function adjacentMoves(index) {
+      const [row, col] = rowCol(index);
+      return directions()
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([nextRow, nextCol]) => inside(nextRow, nextCol))
+        .map(([nextRow, nextCol]) => indexAt(nextRow, nextCol))
+        .filter((next) => board[next] === null);
+    }
+
+    function goatMoves(index) {
+      if (isPlacementPhase()) return [];
+      return adjacentMoves(index).map((to) => ({ to, capture: null }));
+    }
+
+    function tigerMoves(index) {
+      const [row, col] = rowCol(index);
+      const moves = adjacentMoves(index).map((to) => ({ to, capture: null }));
+      directions().forEach(([dr, dc]) => {
+        const midRow = row + dr;
+        const midCol = col + dc;
+        const landRow = row + dr * 2;
+        const landCol = col + dc * 2;
+        if (!inside(midRow, midCol) || !inside(landRow, landCol)) return;
+        const mid = indexAt(midRow, midCol);
+        const land = indexAt(landRow, landCol);
+        if (board[mid] === "G" && board[land] === null) moves.push({ to: land, capture: mid });
+      });
+      return moves;
+    }
+
+    function legalMovesFrom(index) {
+      if (board[index] === "T") return tigerMoves(index);
+      if (board[index] === "G") return goatMoves(index);
+      return [];
+    }
+
+    function allMoves(side) {
+      const moves = [];
+      board.forEach((piece, index) => {
+        if (piece === side) legalMovesFrom(index).forEach((move) => moves.push({ from: index, ...move }));
+      });
+      return moves;
+    }
+
+    function checkWin() {
+      if (goatsCaptured >= tigerWinCaptures) {
+        winner = "T";
+        message = "老虎吃掉 5 只羊，老虎获胜。";
+      } else if (!isPlacementPhase() && allMoves("T").length === 0) {
+        winner = "G";
+        message = "全部老虎都被困住，羊群获胜。";
+      }
+    }
+
+    function finishTurn() {
+      checkWin();
+      if (!winner) {
+        turn = turn === "G" ? "T" : "G";
+        if (isPlacementPhase() && turn === "G") message = "继续布置羊群。";
+        else message = `选择一枚${sideName(turn)}棋子。`;
+      }
+      selected = null;
+      render();
+    }
+
+    function placeGoat(index) {
+      if (board[index] !== null) {
+        message = "请选择空格放羊。";
+        render();
+        return;
+      }
+      board[index] = "G";
+      goatsToPlace -= 1;
+      finishTurn();
+    }
+
+    function movePiece(index) {
+      if (selected === null) {
+        if (board[index] === turn) {
+          selected = index;
+          message = "选择高亮空格移动。";
+        } else {
+          message = `请选择${sideName(turn)}棋子。`;
+        }
+        render();
+        return;
+      }
+      if (index === selected) {
+        selected = null;
+        message = "已取消选择。";
+        render();
+        return;
+      }
+      if (board[index] === turn) {
+        selected = index;
+        message = "已切换棋子。";
+        render();
+        return;
+      }
+      const move = legalMovesFrom(selected).find((item) => item.to === index);
+      if (!move) {
+        message = "只能走到高亮空格。";
+        render();
+        return;
+      }
+      board[index] = turn;
+      board[selected] = null;
+      if (move.capture !== null) {
+        board[move.capture] = null;
+        goatsCaptured += 1;
+      }
+      finishTurn();
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      if (turn === "G" && isPlacementPhase()) placeGoat(index);
+      else movePiece(index);
+    }
+
+    function renderCell(index) {
+      const piece = board[index];
+      const legal = selected !== null && legalMovesFrom(selected).some((move) => move.to === index);
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.setAttribute("aria-label", `格子 ${index + 1}`);
+      cell.className = [
+        "aspect-square rounded border text-center transition",
+        selected === index ? "border-orange-300 bg-orange-300/20" : "border-neutral-700 bg-neutral-950",
+        legal ? "ring-2 ring-orange-300" : "",
+        !piece ? "hover:bg-neutral-800" : "",
+      ].join(" ");
+      if (piece) {
+        const token = document.createElement("span");
+        token.textContent = piece === "T" ? "虎" : "羊";
+        token.className = piece === "T"
+          ? "mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-orange-300 font-bold text-neutral-950"
+          : "mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 font-bold text-neutral-950";
+        cell.appendChild(token);
+      }
+      cell.addEventListener("click", () => handleCell(index));
+      return cell;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((_, index) => boardEl.appendChild(renderCell(index)));
+      turnText.textContent = winner ? `${sideName(winner)}胜利` : sideName(turn);
+      statusText.textContent = message;
+      goatStats.textContent = `${board.filter((piece) => piece === "G").length} 子 / 待放 ${goatsToPlace}`;
+      tigerStats.textContent = `${board.filter((piece) => piece === "T").length} 子 / 已吃 ${goatsCaptured}`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
