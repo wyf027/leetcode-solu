@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Halma</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
+      <header class="flex flex-col gap-3 rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Halma</h1>
+          <p class="text-sm text-slate-300">轮流移动或跳跃，把所有棋子送进对角营地。</p>
+        </div>
+        <button id="restartButton" class="rounded bg-teal-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-teal-300">重开</button>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_280px]">
+        <div class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+          <div id="board" class="mx-auto grid aspect-square max-w-[640px] grid-cols-8 gap-1 rounded bg-slate-800 p-2"></div>
+        </div>
+
+        <aside class="flex flex-col gap-3">
+          <div class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+            <div class="text-xs uppercase tracking-wide text-slate-400">当前回合</div>
+            <div id="turnText" class="mt-1 text-xl font-bold">Blue</div>
+            <p id="message" class="mt-3 min-h-16 text-sm text-cyan-200">蓝方先走。点击己方棋子，再点击高亮空位。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-lg border border-slate-700 bg-slate-900 p-3 text-center">
+              <div class="text-xs text-slate-400">蓝方入营</div>
+              <div id="blueHome" class="text-2xl font-bold">0/6</div>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-900 p-3 text-center">
+              <div class="text-xs text-slate-400">红方入营</div>
+              <div id="redHome" class="text-2xl font-bold">0/6</div>
+            </div>
+          </div>
+          <div class="rounded-lg border border-slate-700 bg-slate-900 p-4 text-sm text-slate-300">
+            <p>普通移动：向八方向移动一格。</p>
+            <p class="mt-2">跳跃移动：隔着任意棋子跳到后方空位。</p>
+            <p class="mt-2">本迷你版每次只走一步或跳一次，先让 6 枚棋子全部进入对角营地者获胜。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 8;
+      const starts = {
+        blue: [
+          [0, 0],
+          [0, 1],
+          [0, 2],
+          [1, 0],
+          [1, 1],
+          [2, 0],
+        ],
+        red: [
+          [7, 7],
+          [7, 6],
+          [7, 5],
+          [6, 7],
+          [6, 6],
+          [5, 7],
+        ],
+      };
+      const camps = {
+        blue: starts.red.map(([row, col]) => `${row},${col}`),
+        red: starts.blue.map(([row, col]) => `${row},${col}`),
+      };
+      const dirs = [
+        [-1, -1],
+        [-1, 0],
+        [-1, 1],
+        [0, -1],
+        [0, 1],
+        [1, -1],
+        [1, 0],
+        [1, 1],
+      ];
+
+      let board = [];
+      let turn = "blue";
+      let selected = null;
+      let legalTargets = [];
+      let gameOver = false;
+
+      const boardEl = document.getElementById("board");
+      const turnText = document.getElementById("turnText");
+      const messageEl = document.getElementById("message");
+      const blueHome = document.getElementById("blueHome");
+      const redHome = document.getElementById("redHome");
+      const restartButton = document.getElementById("restartButton");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function inside(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function getCell(row, col) {
+        return board[row][col];
+      }
+
+      function setCell(row, col, value) {
+        board[row][col] = value;
+      }
+
+      function resetGame() {
+        board = Array.from({ length: size }, () => Array(size).fill(null));
+        starts.blue.forEach(([row, col]) => setCell(row, col, "blue"));
+        starts.red.forEach(([row, col]) => setCell(row, col, "red"));
+        turn = "blue";
+        selected = null;
+        legalTargets = [];
+        gameOver = false;
+        messageEl.textContent = "蓝方先走。点击己方棋子，再点击高亮空位。";
+        renderBoard();
+      }
+
+      function targetCount(player) {
+        return camps[player].filter((spot) => {
+          const [row, col] = spot.split(",").map(Number);
+          return getCell(row, col) === player;
+        }).length;
+      }
+
+      function findLegalMoves(row, col) {
+        const moves = [];
+        dirs.forEach(([dr, dc]) => {
+          const stepRow = row + dr;
+          const stepCol = col + dc;
+          if (inside(stepRow, stepCol) && !getCell(stepRow, stepCol)) {
+            moves.push([stepRow, stepCol]);
+          }
+          const jumpRow = row + dr * 2;
+          const jumpCol = col + dc * 2;
+          if (
+            inside(stepRow, stepCol) &&
+            inside(jumpRow, jumpCol) &&
+            getCell(stepRow, stepCol) &&
+            !getCell(jumpRow, jumpCol)
+          ) {
+            moves.push([jumpRow, jumpCol]);
+          }
+        });
+        return moves;
+      }
+
+      function hasAnyMove(player) {
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            if (getCell(row, col) === player && findLegalMoves(row, col).length > 0) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function selectCell(row, col) {
+        if (gameOver) return;
+        const value = getCell(row, col);
+        if (selected && legalTargets.some(([targetRow, targetCol]) => targetRow === row && targetCol === col)) {
+          movePiece(row, col);
+          return;
+        }
+        if (value !== turn) {
+          messageEl.textContent = "请选择当前回合的棋子。";
+          return;
+        }
+        selected = [row, col];
+        legalTargets = findLegalMoves(row, col);
+        messageEl.textContent = legalTargets.length > 0 ? "请选择一个高亮目标。" : "这枚棋子暂时不能移动。";
+        renderBoard();
+      }
+
+      function movePiece(row, col) {
+        const [fromRow, fromCol] = selected;
+        setCell(row, col, turn);
+        setCell(fromRow, fromCol, null);
+        selected = null;
+        legalTargets = [];
+        checkGameOver();
+        if (!gameOver) {
+          turn = turn === "blue" ? "red" : "blue";
+          if (!hasAnyMove(turn)) {
+            gameOver = true;
+            messageEl.textContent = `${turn === "blue" ? "红方" : "蓝方"}获胜，对手无棋可走。`;
+          } else {
+            messageEl.textContent = "轮到下一方。";
+          }
+        }
+        renderBoard();
+      }
+
+      function checkGameOver() {
+        if (targetCount("blue") === starts.blue.length) {
+          gameOver = true;
+          messageEl.textContent = "蓝方获胜。";
+        }
+        if (targetCount("red") === starts.red.length) {
+          gameOver = true;
+          messageEl.textContent = "红方获胜。";
+        }
+      }
+
+      function renderBoard() {
+        boardEl.innerHTML = "";
+        const legalSet = new Set(legalTargets.map(([row, col]) => key(row, col)));
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const value = getCell(row, col);
+            const isSelected = selected && selected[0] === row && selected[1] === col;
+            const target = legalSet.has(key(row, col));
+            const blueCamp = camps.red.includes(key(row, col));
+            const redCamp = camps.blue.includes(key(row, col));
+            cell.className = [
+              "aspect-square rounded border text-sm font-bold transition",
+              blueCamp ? "border-blue-700 bg-blue-950" : redCamp ? "border-rose-700 bg-rose-950" : "border-slate-700 bg-slate-800",
+              value === "blue" ? "bg-blue-400 text-slate-950" : "",
+              value === "red" ? "bg-rose-400 text-slate-950" : "",
+              target ? "ring-4 ring-teal-300" : "",
+              isSelected ? "ring-4 ring-yellow-300" : "",
+              !value && !target ? "hover:bg-slate-700" : "",
+            ].join(" ");
+            cell.disabled = gameOver;
+            cell.textContent = value ? (value === "blue" ? "B" : "R") : "";
+            cell.addEventListener("click", () => selectCell(row, col));
+            boardEl.appendChild(cell);
+          }
+        }
+        turnText.textContent = gameOver ? "Game Over" : turn === "blue" ? "Blue" : "Red";
+        blueHome.textContent = `${targetCount("blue")}/${starts.blue.length}`;
+        redHome.textContent = `${targetCount("red")}/${starts.red.length}`;
+      }
+
+      restartButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
