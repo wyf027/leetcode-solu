@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Puluc</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 lg:flex-row lg:items-center">
+    <section class="flex-1">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-3xl font-bold tracking-normal text-cyan-200">Mini Puluc</h1>
+          <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-300">掷四根棒决定步数，双方从两端进入赛道。落到单个对手棋所在格会俘获它，带着俘虏回到己方终点计分。</p>
+        </div>
+        <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-200">重开</button>
+      </div>
+
+      <div class="rounded border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+        <div id="track" class="grid grid-cols-7 gap-2"></div>
+        <div class="mt-5 grid grid-cols-4 gap-2" id="sticks"></div>
+      </div>
+    </section>
+
+    <aside class="w-full rounded border border-slate-700 bg-slate-900 p-4 lg:w-80">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded bg-slate-800 p-3">
+          <div class="text-slate-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-xl font-bold text-cyan-200">蓝方</div>
+        </div>
+        <div class="rounded bg-slate-800 p-3">
+          <div class="text-slate-400">掷棒</div>
+          <div id="rollText" class="mt-1 text-xl font-bold text-cyan-200">-</div>
+        </div>
+        <div class="rounded bg-slate-800 p-3">
+          <div class="text-slate-400">蓝方得分</div>
+          <div id="blueScore" class="mt-1 text-xl font-bold text-cyan-200">0</div>
+        </div>
+        <div class="rounded bg-slate-800 p-3">
+          <div class="text-slate-400">红方得分</div>
+          <div id="redScore" class="mt-1 text-xl font-bold text-rose-200">0</div>
+        </div>
+      </div>
+      <button id="rollBtn" class="mt-4 w-full rounded bg-emerald-300 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-200">掷棒</button>
+      <p id="statusText" class="mt-4 min-h-16 rounded bg-slate-800 p-3 text-sm leading-6 text-slate-200">蓝方掷棒开始。</p>
+    </aside>
+  </main>
+
+  <script>
+    const trackEl = document.getElementById("track");
+    const sticksEl = document.getElementById("sticks");
+    const statusEl = document.getElementById("statusText");
+    const turnEl = document.getElementById("turnText");
+    const rollEl = document.getElementById("rollText");
+    const blueScoreEl = document.getElementById("blueScore");
+    const redScoreEl = document.getElementById("redScore");
+    const rollBtn = document.getElementById("rollBtn");
+    const startCount = 4;
+    let pieces = [];
+    let current = "B";
+    let roll = 0;
+    let sticks = [0, 0, 0, 0];
+    let scores = { B: 0, R: 0 };
+    let winner = null;
+
+    function resetGame() {
+      pieces = [];
+      for (let i = 0; i < startCount; i += 1) {
+        pieces.push({ id: `B${i}`, side: "B", pos: -1, captives: [] });
+        pieces.push({ id: `R${i}`, side: "R", pos: 7, captives: [] });
+      }
+      current = "B";
+      roll = 0;
+      sticks = [0, 0, 0, 0];
+      scores = { B: 0, R: 0 };
+      winner = null;
+      render("蓝方掷棒开始。");
+    }
+
+    function rollSticks() {
+      if (winner) return;
+      sticks = sticks.map(() => Math.random() < 0.5 ? 1 : 0);
+      roll = sticks.reduce((sum, value) => sum + value, 0);
+      if (roll === 0) roll = 5;
+      const movable = legalPieces();
+      if (movable.length === 0) {
+        const skipped = sideName(current);
+        current = current === "B" ? "R" : "B";
+        roll = 0;
+        render(`${skipped}没有可移动棋子，换手。`);
+        return;
+      }
+      render(`${sideName(current)}掷出 ${roll}，请选择一枚可移动棋子。`);
+    }
+
+    function sideName(side) {
+      return side === "B" ? "蓝方" : "红方";
+    }
+
+    function pathPosition(piece, steps) {
+      if (piece.side === "B") return piece.pos + steps;
+      return piece.pos - steps;
+    }
+
+    function isFinished(piece, target) {
+      return piece.side === "B" ? target >= 7 : target <= -1;
+    }
+
+    function legalPieces() {
+      if (!roll || winner) return [];
+      return pieces.filter((piece) => {
+        if (piece.side !== current) return false;
+        const target = pathPosition(piece, roll);
+        if (isFinished(piece, target)) return true;
+        if (target < 0 || target > 6) return false;
+        const stack = pieces.filter((other) => other.pos === target);
+        return stack.every((other) => other.side !== current);
+      });
+    }
+
+    function movePiece(id) {
+      if (!roll || winner) return;
+      const piece = pieces.find((item) => item.id === id);
+      if (!piece || !legalPieces().includes(piece)) return;
+      const target = pathPosition(piece, roll);
+      if (isFinished(piece, target)) {
+        scores[current] += 1 + piece.captives.length;
+        pieces = pieces.filter((item) => item.id !== piece.id && !piece.captives.includes(item.id));
+        finishTurn(`${sideName(current)}带回 ${1 + piece.captives.length} 分。`);
+        return;
+      }
+      const enemies = pieces.filter((other) => other.pos === target && other.side !== current);
+      piece.pos = target;
+      if (enemies.length === 1) {
+        piece.captives.push(enemies[0].id, ...enemies[0].captives);
+        enemies[0].pos = -99;
+        enemies[0].captives = [];
+      }
+      finishTurn(enemies.length === 1 ? `${sideName(current)}俘获一枚对手棋。` : `${sideName(current)}前进到第 ${target + 1} 格。`);
+    }
+
+    function finishTurn(message) {
+      if (scores[current] >= 5 || pieces.filter((piece) => piece.side !== current && piece.pos > -99).length === 0) {
+        winner = current;
+        roll = 0;
+        render(`${sideName(current)}获胜。`);
+        return;
+      }
+      current = current === "B" ? "R" : "B";
+      roll = 0;
+      render(`${message} ${sideName(current)}继续掷棒。`);
+    }
+
+    function pieceButton(piece, legal) {
+      const color = piece.side === "B" ? "bg-cyan-300 text-slate-950" : "bg-rose-300 text-slate-950";
+      const disabled = !legal.includes(piece);
+      const captives = piece.captives.length ? `<span class="ml-1 text-[10px]">+${piece.captives.length}</span>` : "";
+      return `<button type="button" ${disabled ? "disabled" : `onclick="movePiece('${piece.id}')"`} class="rounded px-2 py-1 text-xs font-bold ${color} ${disabled ? "opacity-60" : "ring-2 ring-emerald-200"}">${piece.side}${captives}</button>`;
+    }
+
+    function render(message) {
+      const legal = legalPieces();
+      trackEl.innerHTML = Array.from({ length: 7 }, (_, index) => {
+        const stack = pieces.filter((piece) => piece.pos === index);
+        return `<div class="flex min-h-28 flex-col items-center justify-between rounded border border-slate-700 bg-slate-800 p-2">
+          <div class="text-xs text-slate-400">${index + 1}</div>
+          <div class="flex flex-wrap justify-center gap-1">${stack.map((piece) => pieceButton(piece, legal)).join("")}</div>
+        </div>`;
+      }).join("");
+      sticksEl.innerHTML = sticks.map((value) => `<div class="rounded ${value ? "bg-cyan-200" : "bg-slate-700"} py-3 text-center text-sm font-bold text-slate-950">${value ? "正" : "背"}</div>`).join("");
+      turnEl.textContent = sideName(current);
+      turnEl.className = `mt-1 text-xl font-bold ${current === "B" ? "text-cyan-200" : "text-rose-200"}`;
+      rollEl.textContent = roll ? String(roll) : "-";
+      blueScoreEl.textContent = String(scores.B);
+      redScoreEl.textContent = String(scores.R);
+      rollBtn.disabled = Boolean(roll || winner);
+      rollBtn.className = `mt-4 w-full rounded px-4 py-3 text-sm font-bold text-slate-950 ${roll || winner ? "bg-slate-500" : "bg-emerald-300 hover:bg-emerald-200"}`;
+      statusEl.textContent = winner ? `${sideName(winner)}获胜。` : message;
+    }
+
+    rollBtn.addEventListener("click", rollSticks);
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
