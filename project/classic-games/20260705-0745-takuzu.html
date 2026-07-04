@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Takuzu</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Takuzu</h1>
+        <p class="text-sm text-slate-400">点击空格循环空、0、1；每行每列各两个 0/1，不能出现三个连续相同数字。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-300">重开</button>
+    </header>
+
+    <section class="grid grid-cols-3 gap-3">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">已填</div>
+        <div id="filledCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">错误</div>
+        <div id="errorCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">状态</div>
+        <div id="stateLabel" class="text-2xl font-semibold">进行</div>
+      </div>
+    </section>
+
+    <section class="rounded border border-slate-700 bg-slate-900 p-4">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">4 x 4 棋盘</h2>
+        <span id="message" class="text-sm text-sky-300">补全二进制棋盘。</span>
+      </div>
+      <div id="board" class="mx-auto grid max-w-md grid-cols-4 gap-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const filledCountEl = document.getElementById("filledCount");
+    const errorCountEl = document.getElementById("errorCount");
+    const stateLabelEl = document.getElementById("stateLabel");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 4;
+    const givens = [
+      [1, null, null, 0],
+      [null, 0, null, null],
+      [null, null, 1, null],
+      [0, null, null, 1]
+    ];
+    let board = [];
+    let solved = false;
+
+    function resetGame() {
+      board = givens.map((row) => row.slice());
+      solved = false;
+      setMessage("补全二进制棋盘。");
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function isGiven(row, col) {
+      return givens[row][col] !== null;
+    }
+
+    function cycleCell(row, col) {
+      if (solved || isGiven(row, col)) return;
+      const value = board[row][col];
+      board[row][col] = value === null ? 0 : value === 0 ? 1 : null;
+      const errors = getErrors();
+      if (isComplete() && errors.length === 0) {
+        solved = true;
+        setMessage("完成。");
+      } else if (errors.length) {
+        setMessage("当前有数量或连续规则错误。");
+      } else {
+        setMessage("继续填写。");
+      }
+      render();
+    }
+
+    function isComplete() {
+      return board.flat().every((value) => value !== null);
+    }
+
+    function hasTriple(values) {
+      for (let i = 0; i <= values.length - 3; i += 1) {
+        if (values[i] !== null && values[i] === values[i + 1] && values[i] === values[i + 2]) return true;
+      }
+      return false;
+    }
+
+    function tooMany(values, digit) {
+      return values.filter((value) => value === digit).length > size / 2;
+    }
+
+    function invalidComplete(values) {
+      if (values.some((value) => value === null)) return false;
+      return values.filter((value) => value === 0).length !== size / 2 ||
+        values.filter((value) => value === 1).length !== size / 2;
+    }
+
+    function getLineErrors(values) {
+      return hasTriple(values) || tooMany(values, 0) || tooMany(values, 1) || invalidComplete(values);
+    }
+
+    function getErrors() {
+      const errors = [];
+      for (let index = 0; index < size; index += 1) {
+        const rowValues = board[index];
+        const colValues = board.map((row) => row[index]);
+        if (getLineErrors(rowValues)) errors.push(`r${index}`);
+        if (getLineErrors(colValues)) errors.push(`c${index}`);
+      }
+      return errors;
+    }
+
+    function isCellError(row, col) {
+      const errors = getErrors();
+      return errors.includes(`r${row}`) || errors.includes(`c${col}`);
+    }
+
+    function renderCell(row, col) {
+      const button = document.createElement("button");
+      const value = board[row][col];
+      button.type = "button";
+      button.className = "aspect-square rounded border border-slate-700 bg-slate-800 text-4xl font-semibold hover:border-sky-300 disabled:cursor-not-allowed";
+      if ((row + col) % 2 === 0) button.classList.add("bg-slate-700");
+      if (isGiven(row, col)) button.classList.add("text-amber-300");
+      if (value !== null && !isGiven(row, col)) button.classList.add("text-sky-300");
+      if (value !== null && isCellError(row, col)) button.classList.add("ring-4", "ring-red-400");
+      if (solved) button.classList.add("ring-4", "ring-emerald-300");
+      button.textContent = value === null ? "" : value;
+      button.disabled = isGiven(row, col);
+      button.addEventListener("click", () => cycleCell(row, col));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          boardEl.appendChild(renderCell(row, col));
+        }
+      }
+      filledCountEl.textContent = board.flat().filter((value) => value !== null).length;
+      errorCountEl.textContent = getErrors().length;
+      stateLabelEl.textContent = solved ? "完成" : "进行";
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
