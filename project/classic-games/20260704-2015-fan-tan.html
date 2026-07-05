@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Fan-Tan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-amber-200">Mini Fan-Tan</h1>
+        <p class="mt-1 max-w-3xl text-sm leading-6 text-emerald-100">从 7 开始接龙，同花色只能向两端连续延展。你和电脑轮流出牌；无牌可出会自动跳过，先出完手牌获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-amber-200">重开</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-emerald-700 bg-emerald-900 p-4 shadow-2xl">
+        <div id="table" class="grid gap-3"></div>
+      </div>
+
+      <aside class="rounded border border-emerald-700 bg-emerald-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="rounded bg-emerald-800 p-3">
+            <div class="text-emerald-200">当前回合</div>
+            <div id="turnText" class="mt-1 text-xl font-bold text-amber-200">玩家</div>
+          </div>
+          <div class="rounded bg-emerald-800 p-3">
+            <div class="text-emerald-200">电脑手牌</div>
+            <div id="botCount" class="mt-1 text-xl font-bold text-amber-200">26</div>
+          </div>
+          <div class="rounded bg-emerald-800 p-3">
+            <div class="text-emerald-200">玩家手牌</div>
+            <div id="playerCount" class="mt-1 text-xl font-bold text-amber-200">26</div>
+          </div>
+          <div class="rounded bg-emerald-800 p-3">
+            <div class="text-emerald-200">跳过次数</div>
+            <div id="passCount" class="mt-1 text-xl font-bold text-amber-200">0</div>
+          </div>
+        </div>
+        <p id="statusText" class="mt-4 min-h-20 rounded bg-emerald-800 p-3 text-sm leading-6 text-emerald-50">请选择可出的牌。</p>
+      </aside>
+    </section>
+
+    <section class="rounded border border-emerald-700 bg-emerald-900 p-4">
+      <h2 class="mb-3 text-sm font-bold text-emerald-100">玩家手牌</h2>
+      <div id="hand" class="flex flex-wrap gap-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const suits = [
+      { key: "S", label: "黑桃", icon: "♠", red: false },
+      { key: "H", label: "红桃", icon: "♥", red: true },
+      { key: "D", label: "方片", icon: "♦", red: true },
+      { key: "C", label: "梅花", icon: "♣", red: false }
+    ];
+    const ranks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+    const rankText = { 1: "A", 11: "J", 12: "Q", 13: "K" };
+    const tableEl = document.getElementById("table");
+    const handEl = document.getElementById("hand");
+    const turnEl = document.getElementById("turnText");
+    const playerCountEl = document.getElementById("playerCount");
+    const botCountEl = document.getElementById("botCount");
+    const passCountEl = document.getElementById("passCount");
+    const statusEl = document.getElementById("statusText");
+    let table = {};
+    let player = [];
+    let bot = [];
+    let turn = "P";
+    let passes = 0;
+    let winner = null;
+
+    function resetGame() {
+      const deck = [];
+      for (const suit of suits) {
+        table[suit.key] = new Set();
+        for (const rank of ranks) deck.push({ suit: suit.key, rank });
+      }
+      deck.sort(() => Math.random() - 0.5);
+      player = sortHand(deck.slice(0, 26));
+      bot = sortHand(deck.slice(26));
+      turn = "P";
+      passes = 0;
+      winner = null;
+      render("请选择可出的牌。");
+    }
+
+    function sortHand(cards) {
+      const suitOrder = Object.fromEntries(suits.map((suit, index) => [suit.key, index]));
+      return cards.slice().sort((a, b) => suitOrder[a.suit] - suitOrder[b.suit] || a.rank - b.rank);
+    }
+
+    function canPlay(card) {
+      const row = table[card.suit];
+      if (row.size === 0) return card.rank === 7;
+      const values = [...row];
+      return card.rank === Math.min(...values) - 1 || card.rank === Math.max(...values) + 1;
+    }
+
+    function playableCards(hand) {
+      return hand.filter(canPlay);
+    }
+
+    function playCard(owner, index) {
+      if (winner || turn !== owner) return;
+      const hand = owner === "P" ? player : bot;
+      const card = hand[index];
+      if (!card || !canPlay(card)) return;
+      table[card.suit].add(card.rank);
+      hand.splice(index, 1);
+      passes = 0;
+      if (hand.length === 0) {
+        winner = owner;
+        render(`${owner === "P" ? "玩家" : "电脑"}出完手牌并获胜。`);
+        return;
+      }
+      turn = owner === "P" ? "B" : "P";
+      render(`${cardName(card)} 已出。`);
+      if (turn === "B") setTimeout(botMove, 450);
+    }
+
+    function botMove() {
+      if (winner || turn !== "B") return;
+      const playable = playableCards(bot);
+      if (!playable.length) {
+        passes += 1;
+        turn = "P";
+        render("电脑无牌可出，跳过。");
+        return;
+      }
+      const choice = playable.sort((a, b) => Math.abs(a.rank - 7) - Math.abs(b.rank - 7))[0];
+      playCard("B", bot.findIndex((card) => card.suit === choice.suit && card.rank === choice.rank));
+    }
+
+    function passIfNeeded() {
+      if (winner || turn !== "P" || playableCards(player).length) return;
+      passes += 1;
+      turn = "B";
+      render("玩家无牌可出，自动跳过。");
+      setTimeout(botMove, 450);
+    }
+
+    function cardName(card) {
+      const suit = suits.find((item) => item.key === card.suit);
+      return `${suit.icon}${rankText[card.rank] || card.rank}`;
+    }
+
+    function cardButton(card, index, enabled) {
+      const suit = suits.find((item) => item.key === card.suit);
+      const color = suit.red ? "text-rose-600" : "text-slate-950";
+      return `<button type="button" ${enabled ? `onclick="playCard('P', ${index})"` : "disabled"}
+        class="h-16 w-12 rounded bg-stone-100 text-sm font-black shadow ${color} ${enabled ? "ring-4 ring-amber-300 hover:-translate-y-1" : "opacity-55"}">
+        <div>${suit.icon}</div><div>${rankText[card.rank] || card.rank}</div>
+      </button>`;
+    }
+
+    function render(message) {
+      tableEl.innerHTML = suits.map((suit) => {
+        const played = table[suit.key];
+        return `<div class="grid grid-cols-[70px_1fr] items-center gap-3 rounded bg-emerald-800 p-3">
+          <div class="font-bold ${suit.red ? "text-rose-200" : "text-emerald-50"}">${suit.icon} ${suit.label}</div>
+          <div class="grid grid-cols-13 gap-1">${ranks.map((rank) => {
+            const shown = played.has(rank);
+            return `<div class="flex h-10 items-center justify-center rounded text-xs font-bold ${shown ? "bg-stone-100 text-emerald-950" : "bg-emerald-950 text-emerald-700"}">${shown ? (rankText[rank] || rank) : ""}</div>`;
+          }).join("")}</div>
+        </div>`;
+      }).join("");
+      handEl.innerHTML = player.map((card, index) => cardButton(card, index, turn === "P" && canPlay(card) && !winner)).join("");
+      turnEl.textContent = winner ? (winner === "P" ? "玩家获胜" : "电脑获胜") : (turn === "P" ? "玩家" : "电脑");
+      playerCountEl.textContent = String(player.length);
+      botCountEl.textContent = String(bot.length);
+      passCountEl.textContent = String(passes);
+      statusEl.textContent = winner ? message : `${message} ${turn === "P" && playableCards(player).length === 0 ? "玩家当前无牌可出。" : ""}`;
+      setTimeout(passIfNeeded, 100);
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
