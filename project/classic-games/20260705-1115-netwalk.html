@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini NetWalk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-cyan-950 text-cyan-50">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-cyan-800 bg-cyan-900 p-5 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini NetWalk</h1>
+          <p class="mt-1 text-sm text-cyan-100">点击方块旋转线路，让所有终端都连到左上角服务器。</p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 text-sm font-semibold text-cyan-950 hover:bg-lime-200">重开</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_14rem]">
+        <div class="rounded-lg border border-cyan-800 bg-cyan-950 p-3">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-4 grid-rows-4 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-cyan-800 bg-cyan-800 p-4">
+          <div class="text-sm font-semibold text-cyan-50">状态</div>
+          <div id="status" class="mt-3 rounded-md border border-cyan-700 bg-cyan-950 px-3 py-2 text-sm text-cyan-100">旋转线路，避免断口和孤岛。</div>
+          <div class="mt-4 text-sm font-semibold text-cyan-50">规则</div>
+          <ul class="mt-2 space-y-2 text-sm text-cyan-100">
+            <li>每块线路可点击旋转 90 度。</li>
+            <li>相邻方块的连接口必须互相对齐。</li>
+            <li>所有线路必须从服务器连成一张网。</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const base = [
+      ["rd", "lr", "ld", "d"],
+      ["ud", "rd", "lu", "ud"],
+      ["ur", "lu", "rd", "lu"],
+      ["r", "lr", "lu", "u"]
+    ];
+    const startRotations = [
+      [1, 2, 3, 0],
+      [2, 1, 0, 3],
+      [1, 2, 1, 3],
+      [0, 2, 3, 2]
+    ];
+    const rotations = startRotations.map((row) => row.slice());
+    const board = document.getElementById("board");
+    const status = document.getElementById("status");
+    const resetBtn = document.getElementById("resetBtn");
+    const dirs = {
+      u: [-1, 0],
+      r: [0, 1],
+      d: [1, 0],
+      l: [0, -1]
+    };
+    const order = ["u", "r", "d", "l"];
+    const opposite = { u: "d", r: "l", d: "u", l: "r" };
+
+    function rotatePorts(ports, turns) {
+      return [...ports].map((port) => order[(order.indexOf(port) + turns) % 4]);
+    }
+
+    function portsAt(r, c) {
+      return rotatePorts(base[r][c], rotations[r][c]);
+    }
+
+    function hasPort(r, c, dir) {
+      return portsAt(r, c).includes(dir);
+    }
+
+    function portErrors() {
+      let errors = 0;
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          for (const dir of portsAt(r, c)) {
+            const [dr, dc] = dirs[dir];
+            const nr = r + dr;
+            const nc = c + dc;
+            if (nr < 0 || nr >= size || nc < 0 || nc >= size || !hasPort(nr, nc, opposite[dir])) errors++;
+          }
+        }
+      }
+      return errors;
+    }
+
+    function connectedCells() {
+      const seen = new Set(["0,0"]);
+      const queue = [[0, 0]];
+      while (queue.length) {
+        const [r, c] = queue.shift();
+        for (const dir of portsAt(r, c)) {
+          const [dr, dc] = dirs[dir];
+          const nr = r + dr;
+          const nc = c + dc;
+          if (nr < 0 || nr >= size || nc < 0 || nc >= size) continue;
+          if (!hasPort(nr, nc, opposite[dir])) continue;
+          const key = `${nr},${nc}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            queue.push([nr, nc]);
+          }
+        }
+      }
+      return seen;
+    }
+
+    function solved() {
+      return portErrors() === 0 && connectedCells().size === size * size;
+    }
+
+    function lineClass(dir) {
+      if (dir === "u") return "left-1/2 top-0 h-1/2 w-2 -translate-x-1/2";
+      if (dir === "d") return "bottom-0 left-1/2 h-1/2 w-2 -translate-x-1/2";
+      if (dir === "l") return "left-0 top-1/2 h-2 w-1/2 -translate-y-1/2";
+      return "right-0 top-1/2 h-2 w-1/2 -translate-y-1/2";
+    }
+
+    function render() {
+      board.innerHTML = "";
+      const connected = connectedCells();
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const key = `${r},${c}`;
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = [
+            "relative rounded-md border bg-cyan-950 transition hover:bg-cyan-900",
+            connected.has(key) ? "border-lime-300 shadow-[0_0_18px_rgba(190,242,100,.35)]" : "border-cyan-700"
+          ].join(" ");
+          cell.title = r === 0 && c === 0 ? "服务器" : "旋转线路";
+          for (const dir of portsAt(r, c)) {
+            const line = document.createElement("div");
+            line.className = `absolute rounded bg-lime-300 ${lineClass(dir)}`;
+            cell.appendChild(line);
+          }
+          const hub = document.createElement("div");
+          hub.className = [
+            "absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-xs font-bold",
+            r === 0 && c === 0 ? "bg-fuchsia-300 text-cyan-950" : "bg-cyan-700 text-cyan-50"
+          ].join(" ");
+          hub.textContent = r === 0 && c === 0 ? "S" : "";
+          cell.appendChild(hub);
+          cell.addEventListener("click", () => {
+            rotations[r][c] = (rotations[r][c] + 1) % 4;
+            render();
+          });
+          board.appendChild(cell);
+        }
+      }
+
+      const errors = portErrors();
+      const linked = connected.size;
+      if (solved()) {
+        status.textContent = "完成！所有线路无断口，并且都连到服务器。";
+        status.className = "mt-3 rounded-md border border-lime-400 bg-lime-950 px-3 py-2 text-sm text-lime-100";
+      } else if (errors) {
+        status.textContent = `还有 ${errors} 个端口没有正确接上。`;
+        status.className = "mt-3 rounded-md border border-amber-400 bg-amber-950 px-3 py-2 text-sm text-amber-100";
+      } else {
+        status.textContent = `端口已对齐，当前连通 ${linked} / ${size * size} 个方块。`;
+        status.className = "mt-3 rounded-md border border-cyan-700 bg-cyan-950 px-3 py-2 text-sm text-cyan-100";
+      }
+    }
+
+    resetBtn.addEventListener("click", () => {
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) rotations[r][c] = startRotations[r][c];
+      }
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
