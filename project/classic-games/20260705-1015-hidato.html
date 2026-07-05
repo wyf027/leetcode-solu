@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Hidato</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-stone-700 bg-stone-900 p-5 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Hidato</h1>
+          <p class="mt-1 text-sm text-stone-300">填入缺失数字，让 1 到 16 每一步都走到相邻格。</p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-teal-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-teal-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_14rem]">
+        <div class="rounded-lg border border-stone-700 bg-stone-950 p-3">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-4 grid-rows-4 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-stone-700 bg-stone-800 p-4">
+          <div class="text-sm font-semibold text-stone-200">状态</div>
+          <div id="status" class="mt-3 rounded-md border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-300">点击空格循环可用数字。</div>
+          <div class="mt-4 text-sm font-semibold text-stone-200">规则</div>
+          <ul class="mt-2 space-y-2 text-sm text-stone-300">
+            <li>每个数字 1-16 只能出现一次。</li>
+            <li>连续数字必须在八方向相邻格。</li>
+            <li>固定数字不能修改。</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const solution = [
+      [1, 2, 3, 4],
+      [8, 7, 6, 5],
+      [9, 10, 11, 12],
+      [16, 15, 14, 13]
+    ];
+    const givens = [
+      [1, 0, 0, 4],
+      [0, 7, 0, 0],
+      [9, 0, 11, 0],
+      [16, 0, 0, 13]
+    ];
+    const grid = givens.map((row) => row.slice());
+    const board = document.getElementById("board");
+    const status = document.getElementById("status");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function missingNumbers() {
+      const used = new Set(grid.flat().filter(Boolean));
+      const values = [];
+      for (let n = 1; n <= 16; n++) {
+        if (!used.has(n)) values.push(n);
+      }
+      return values;
+    }
+
+    function findNumber(value) {
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          if (grid[r][c] === value) return { r, c };
+        }
+      }
+      return null;
+    }
+
+    function adjacent(a, b) {
+      return Math.max(Math.abs(a.r - b.r), Math.abs(a.c - b.c)) === 1;
+    }
+
+    function duplicateValues() {
+      const seen = new Set();
+      const dupes = new Set();
+      for (const value of grid.flat()) {
+        if (!value) continue;
+        if (seen.has(value)) dupes.add(value);
+        seen.add(value);
+      }
+      return dupes;
+    }
+
+    function brokenLinks() {
+      let broken = 0;
+      for (let n = 1; n < 16; n++) {
+        const a = findNumber(n);
+        const b = findNumber(n + 1);
+        if (a && b && !adjacent(a, b)) broken++;
+      }
+      return broken;
+    }
+
+    function solved() {
+      return grid.flat().every(Boolean) && duplicateValues().size === 0 && brokenLinks() === 0;
+    }
+
+    function nextValue(current) {
+      const options = missingNumbers();
+      if (current) options.unshift(0);
+      if (!current) return options[0] || 0;
+      const index = options.indexOf(current);
+      return options[(index + 1) % options.length] || 0;
+    }
+
+    function relatedToBroken(value) {
+      if (!value) return false;
+      const here = findNumber(value);
+      if (!here) return false;
+      for (const otherValue of [value - 1, value + 1]) {
+        if (otherValue < 1 || otherValue > 16) continue;
+        const there = findNumber(otherValue);
+        if (there && !adjacent(here, there)) return true;
+      }
+      return false;
+    }
+
+    function render() {
+      board.innerHTML = "";
+      const dupes = duplicateValues();
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          const value = grid[r][c];
+          const fixed = givens[r][c] !== 0;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.disabled = fixed;
+          button.textContent = value || "";
+          button.className = [
+            "flex items-center justify-center rounded-md border text-2xl font-bold transition",
+            fixed ? "border-teal-300 bg-teal-300 text-stone-950" : "border-stone-700 bg-stone-900 hover:bg-stone-800",
+            dupes.has(value) || relatedToBroken(value) ? "ring-2 ring-rose-500" : "",
+            value && !fixed ? "text-teal-100" : "text-stone-100"
+          ].join(" ");
+          button.addEventListener("click", () => {
+            grid[r][c] = nextValue(grid[r][c]);
+            render();
+          });
+          board.appendChild(button);
+        }
+      }
+
+      const missing = missingNumbers().length;
+      const dupesCount = duplicateValues().size;
+      const broken = brokenLinks();
+      if (solved()) {
+        status.textContent = "完成！所有数字唯一，并且 1 到 16 连成相邻路径。";
+        status.className = "mt-3 rounded-md border border-emerald-500 bg-emerald-950 px-3 py-2 text-sm text-emerald-200";
+      } else if (dupesCount) {
+        status.textContent = `有 ${dupesCount} 个重复数字，需要替换。`;
+        status.className = "mt-3 rounded-md border border-rose-500 bg-rose-950 px-3 py-2 text-sm text-rose-200";
+      } else if (broken) {
+        status.textContent = `有 ${broken} 处连续数字不相邻。`;
+        status.className = "mt-3 rounded-md border border-amber-500 bg-amber-950 px-3 py-2 text-sm text-amber-200";
+      } else {
+        status.textContent = missing ? `还缺 ${missing} 个数字。` : "数字已填满，检查路径。";
+        status.className = "mt-3 rounded-md border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-300";
+      }
+    }
+
+    resetBtn.addEventListener("click", () => {
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) grid[r][c] = givens[r][c];
+      }
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
