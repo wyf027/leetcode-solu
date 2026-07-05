@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Kakuro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-8">
+      <section class="w-full rounded border border-zinc-700 bg-zinc-900 p-5 shadow-2xl shadow-cyan-950/40">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-cyan-300">Cross sums</p>
+            <h1 class="mt-1 text-3xl font-bold text-white">Mini Kakuro</h1>
+          </div>
+          <button id="resetBtn" class="rounded bg-cyan-400 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-cyan-300">
+            重开
+          </button>
+        </div>
+
+        <div id="board" class="mx-auto mt-6 grid w-full max-w-[390px] grid-cols-5 gap-1"></div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+          <div class="rounded border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-zinc-400">已填写</p>
+            <p id="filledCount" class="text-xl font-bold text-cyan-200">0</p>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-zinc-400">线索错误</p>
+            <p id="errorCount" class="text-xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-zinc-400">完成</p>
+            <p id="doneStatus" class="text-xl font-bold text-emerald-200">否</p>
+          </div>
+        </div>
+
+        <p id="message" class="mt-5 min-h-7 text-center text-sm font-semibold text-zinc-300">
+          点击白格循环输入 1-9。每条连续白格的数字和必须等于旁边线索，且同一条内不能重复。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const size = 5;
+      const clues = {
+        "0,1": { down: 4 },
+        "0,2": { down: 6 },
+        "0,3": { down: 4 },
+        "0,4": { down: 3 },
+        "1,0": { across: 7 },
+        "2,0": { across: 10 },
+        "3,0": { across: 6 },
+        "4,0": { across: 4 },
+      };
+      const cells = [
+        ["block", "clue", "clue", "clue", "clue"],
+        ["clue", "play", "play", "play", "play"],
+        ["clue", "play", "play", "play", "play"],
+        ["clue", "play", "play", "play", "play"],
+        ["clue", "play", "play", "play", "play"],
+      ];
+      const solution = [
+        [0, 0, 0, 0, 0],
+        [0, 1, 2, 3, 1],
+        [0, 2, 3, 1, 4],
+        [0, 3, 1, 4, 2],
+        [0, 4, 0, 0, 0],
+      ];
+      const values = new Map();
+      const board = document.getElementById("board");
+      const filledCount = document.getElementById("filledCount");
+      const errorCount = document.getElementById("errorCount");
+      const doneStatus = document.getElementById("doneStatus");
+      const message = document.getElementById("message");
+      const resetBtn = document.getElementById("resetBtn");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function isPlay(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size && cells[row][col] === "play";
+      }
+
+      function runFrom(row, col, direction) {
+        const spots = [];
+        const delta = direction === "across" ? [0, 1] : [1, 0];
+        let r = row + delta[0];
+        let c = col + delta[1];
+        while (isPlay(r, c)) {
+          spots.push(key(r, c));
+          r += delta[0];
+          c += delta[1];
+        }
+        return spots;
+      }
+
+      function clueReport() {
+        const bad = new Set();
+        Object.entries(clues).forEach(([spot, clue]) => {
+          const [row, col] = spot.split(",").map(Number);
+          Object.entries(clue).forEach(([direction, target]) => {
+            const run = runFrom(row, col, direction);
+            const nums = run.map((cell) => values.get(cell)).filter(Boolean);
+            const sum = nums.reduce((total, item) => total + item, 0);
+            const duplicate = new Set(nums).size !== nums.length;
+            const complete = nums.length === run.length;
+            if (duplicate || sum > target || (complete && sum !== target)) {
+              bad.add(spot);
+              run.forEach((cell) => bad.add(cell));
+            }
+          });
+        });
+        return bad;
+      }
+
+      function solved(bad) {
+        if (bad.size || values.size !== 16) return false;
+        for (let row = 1; row < size; row += 1) {
+          for (let col = 1; col < size; col += 1) {
+            if (values.get(key(row, col)) !== solution[row][col]) return false;
+          }
+        }
+        return true;
+      }
+
+      function clueText(row, col) {
+        const clue = clues[key(row, col)] || {};
+        const down = clue.down ? `↓${clue.down}` : "";
+        const across = clue.across ? `→${clue.across}` : "";
+        return [down, across].filter(Boolean).join(" ");
+      }
+
+      function render() {
+        const bad = clueReport();
+        const complete = solved(bad);
+        board.innerHTML = "";
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const spot = key(row, col);
+            const type = cells[row][col];
+            if (type === "play") {
+              const value = values.get(spot) || "";
+              const button = document.createElement("button");
+              button.type = "button";
+              button.textContent = value;
+              button.ariaLabel = value ? `当前数字 ${value}` : "空格";
+              button.className =
+                "aspect-square rounded border text-2xl font-black transition focus:outline-none focus:ring-2 focus:ring-cyan-300 " +
+                (bad.has(spot)
+                  ? "border-rose-300 bg-rose-500 text-white"
+                  : value
+                    ? "border-cyan-200 bg-cyan-100 text-cyan-950"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700");
+              button.addEventListener("click", () => {
+                const next = value === "" ? 1 : value === 9 ? "" : value + 1;
+                next ? values.set(spot, next) : values.delete(spot);
+                render();
+              });
+              board.appendChild(button);
+            } else {
+              const div = document.createElement("div");
+              div.className =
+                "flex aspect-square items-center justify-center rounded border text-[11px] font-bold leading-tight " +
+                (type === "block"
+                  ? "border-zinc-950 bg-zinc-950"
+                  : bad.has(spot)
+                    ? "border-rose-300 bg-rose-950 text-rose-100"
+                    : "border-zinc-800 bg-zinc-950 text-zinc-100");
+              div.textContent = clueText(row, col);
+              board.appendChild(div);
+            }
+          }
+        }
+        filledCount.textContent = values.size;
+        errorCount.textContent = bad.size;
+        doneStatus.textContent = complete ? "是" : "否";
+        if (complete) {
+          message.textContent = "完成！所有横向和纵向线索都匹配。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-emerald-300";
+        } else if (bad.size) {
+          message.textContent = "红色线索或格子存在超和、重复或完成后总和不匹配。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-rose-300";
+        } else {
+          message.textContent = "继续填写空格，让每条横向与纵向线索成立。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-zinc-300";
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        values.clear();
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
