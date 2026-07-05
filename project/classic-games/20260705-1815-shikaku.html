@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Shikaku</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-emerald-300">Classic Logic Puzzle</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Shikaku</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="resetBtn" class="rounded-md bg-emerald-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-emerald-200">
+            重新开始
+          </button>
+          <button id="undoBtn" class="rounded-md border border-stone-600 px-4 py-2 text-sm font-semibold text-stone-100 hover:bg-stone-800">
+            撤销
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-lg border border-stone-800 bg-stone-900/80 p-4 shadow-2xl shadow-black/30">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[32rem] grid-cols-5 overflow-hidden rounded-md border-4 border-stone-100"></div>
+        </div>
+
+        <aside class="space-y-4">
+          <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+            <h2 class="text-lg font-semibold text-white">目标</h2>
+            <p class="mt-2 text-sm leading-6 text-stone-300">
+              将棋盘分成矩形。每个矩形必须只包含一个数字，且矩形面积等于该数字。点击两个格子作为矩形对角。
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+            <h2 class="text-lg font-semibold text-white">检查</h2>
+            <ul class="mt-3 space-y-2 text-sm">
+              <li id="coverStatus" class="rounded-md bg-stone-800 px-3 py-2 text-stone-300">覆盖：等待划分</li>
+              <li id="shapeStatus" class="rounded-md bg-stone-800 px-3 py-2 text-stone-300">矩形：等待检查</li>
+              <li id="numberStatus" class="rounded-md bg-stone-800 px-3 py-2 text-stone-300">数字：等待检查</li>
+            </ul>
+          </div>
+
+          <div id="message" class="rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-4 text-sm leading-6 text-emerald-100">
+            点击两个格子来创建一个矩形。
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const board = document.getElementById("board");
+      const resetBtn = document.getElementById("resetBtn");
+      const undoBtn = document.getElementById("undoBtn");
+      const message = document.getElementById("message");
+      const coverStatus = document.getElementById("coverStatus");
+      const shapeStatus = document.getElementById("shapeStatus");
+      const numberStatus = document.getElementById("numberStatus");
+
+      const size = 5;
+      const clues = {
+        "0,0": 4,
+        "0,3": 3,
+        "1,4": 4,
+        "2,1": 6,
+        "3,3": 4,
+        "4,0": 4,
+      };
+      const palette = ["bg-emerald-400/35", "bg-sky-400/35", "bg-amber-300/40", "bg-rose-400/35", "bg-violet-400/35", "bg-teal-300/40", "bg-lime-300/35"];
+      const rectangles = [];
+      const cells = [];
+      let selected = null;
+
+      function keyOf(row, col) {
+        return `${row},${col}`;
+      }
+
+      function normalizeRect(a, b) {
+        const r1 = Math.min(a.row, b.row);
+        const r2 = Math.max(a.row, b.row);
+        const c1 = Math.min(a.col, b.col);
+        const c2 = Math.max(a.col, b.col);
+        return { r1, r2, c1, c2, color: rectangles.length % palette.length };
+      }
+
+      function rectCells(rect) {
+        const keys = [];
+        for (let row = rect.r1; row <= rect.r2; row += 1) {
+          for (let col = rect.c1; col <= rect.c2; col += 1) keys.push(keyOf(row, col));
+        }
+        return keys;
+      }
+
+      function areaOf(rect) {
+        return (rect.r2 - rect.r1 + 1) * (rect.c2 - rect.c1 + 1);
+      }
+
+      function coverageReport() {
+        const owner = new Map();
+        const overlaps = new Set();
+        rectangles.forEach((rect, index) => {
+          rectCells(rect).forEach((key) => {
+            if (owner.has(key)) overlaps.add(key);
+            owner.set(key, index);
+          });
+        });
+        const missing = [];
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const key = keyOf(row, col);
+            if (!owner.has(key)) missing.push(key);
+          }
+        }
+        return { owner, overlaps, missing, complete: missing.length === 0 && overlaps.size === 0 };
+      }
+
+      function shapeReport() {
+        const bad = [];
+        rectangles.forEach((rect, index) => {
+          const found = rectCells(rect).filter((key) => clues[key]);
+          const area = areaOf(rect);
+          if (found.length !== 1 || clues[found[0]] !== area) bad.push(index);
+        });
+        return { bad, clear: bad.length === 0 && rectangles.length > 0 };
+      }
+
+      function numberReport() {
+        const covered = new Map();
+        rectangles.forEach((rect, index) => rectCells(rect).forEach((key) => covered.set(key, index)));
+        const uncoveredClues = Object.keys(clues).filter((key) => !covered.has(key));
+        const duplicateClues = rectangles
+          .map((rect, index) => ({ index, clues: rectCells(rect).filter((key) => clues[key]) }))
+          .filter((item) => item.clues.length > 1)
+          .map((item) => item.index);
+        return { uncoveredClues, duplicateClues, clear: uncoveredClues.length === 0 && duplicateClues.length === 0 };
+      }
+
+      function setStatus(element, label, state) {
+        element.className = "rounded-md px-3 py-2 text-sm";
+        if (state === "ok") element.classList.add("bg-emerald-500/15", "text-emerald-200");
+        if (state === "warn") element.classList.add("bg-amber-500/15", "text-amber-200");
+        if (state === "bad") element.classList.add("bg-rose-500/15", "text-rose-200");
+        element.textContent = label;
+      }
+
+      function render() {
+        const coverage = coverageReport();
+        const shapes = shapeReport();
+        const numbers = numberReport();
+        cells.forEach((cell) => {
+          const key = cell.dataset.key;
+          const index = coverage.owner.get(key);
+          cell.className = "relative flex aspect-square items-center justify-center border border-stone-700 text-xl font-bold text-stone-950 transition hover:brightness-95 focus:outline-none focus:ring-4 focus:ring-emerald-300";
+          cell.classList.add(index === undefined ? "bg-stone-200" : palette[rectangles[index].color]);
+          cell.classList.toggle("ring-4", coverage.overlaps.has(key) || numbers.uncoveredClues.includes(key));
+          cell.classList.toggle("ring-rose-400", coverage.overlaps.has(key) || numbers.uncoveredClues.includes(key));
+          cell.classList.toggle("outline", selected && selected.key === key);
+          cell.classList.toggle("outline-4", selected && selected.key === key);
+          cell.classList.toggle("outline-emerald-500", selected && selected.key === key);
+          cell.textContent = clues[key] || "";
+        });
+
+        setStatus(coverStatus, coverage.complete ? "覆盖：完整无重叠" : coverage.overlaps.size ? "覆盖：存在重叠" : `覆盖：剩余 ${coverage.missing.length} 格`, coverage.complete ? "ok" : coverage.overlaps.size ? "bad" : "warn");
+        setStatus(shapeStatus, shapes.clear ? "矩形：面积匹配" : shapes.bad.length ? "矩形：面积或数字错误" : "矩形：等待划分", shapes.clear ? "ok" : shapes.bad.length ? "bad" : "warn");
+        setStatus(numberStatus, numbers.clear ? "数字：全部使用一次" : numbers.duplicateClues.length ? "数字：同矩形数字过多" : "数字：尚未全部覆盖", numbers.clear ? "ok" : numbers.duplicateClues.length ? "bad" : "warn");
+
+        const solved = coverage.complete && shapes.clear && numbers.clear && rectangles.length === Object.keys(clues).length;
+        message.textContent = solved ? "完成！每个矩形都只含一个数字且面积匹配。" : selected ? "再点击一个格子作为对角。" : `已创建 ${rectangles.length} 个矩形。`;
+      }
+
+      function buildBoard() {
+        board.innerHTML = "";
+        cells.length = 0;
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            cell.type = "button";
+            cell.dataset.key = keyOf(row, col);
+            cell.addEventListener("click", () => {
+              const point = { row, col, key: keyOf(row, col) };
+              if (!selected) {
+                selected = point;
+              } else {
+                rectangles.push(normalizeRect(selected, point));
+                selected = null;
+              }
+              render();
+            });
+            board.appendChild(cell);
+            cells.push(cell);
+          }
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        rectangles.length = 0;
+        selected = null;
+        render();
+      });
+
+      undoBtn.addEventListener("click", () => {
+        if (selected) selected = null;
+        else rectangles.pop();
+        render();
+      });
+
+      buildBoard();
+      render();
+    </script>
+  </body>
+</html>
