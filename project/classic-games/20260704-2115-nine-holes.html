@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Nine Holes</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 lg:flex-row lg:items-center">
+    <section class="flex-1">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-3xl font-bold tracking-normal text-orange-200">Mini Nine Holes</h1>
+          <p class="mt-1 max-w-2xl text-sm leading-6 text-stone-300">九孔棋。双方先各放三枚棋子，再沿线移动到相邻空孔。任意横、竖、斜三连即获胜。</p>
+        </div>
+        <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-orange-200">重开</button>
+      </div>
+
+      <div class="relative mx-auto aspect-square w-full max-w-[560px] rounded border border-stone-700 bg-stone-900 shadow-2xl">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          <g stroke="#78716c" stroke-width="1.4">
+            <line x1="20" y1="20" x2="80" y2="20" />
+            <line x1="20" y1="50" x2="80" y2="50" />
+            <line x1="20" y1="80" x2="80" y2="80" />
+            <line x1="20" y1="20" x2="20" y2="80" />
+            <line x1="50" y1="20" x2="50" y2="80" />
+            <line x1="80" y1="20" x2="80" y2="80" />
+            <line x1="20" y1="20" x2="80" y2="80" />
+            <line x1="80" y1="20" x2="20" y2="80" />
+          </g>
+        </svg>
+        <div id="board" class="absolute inset-0"></div>
+      </div>
+    </section>
+
+    <aside class="w-full rounded border border-stone-700 bg-stone-900 p-4 lg:w-80">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded bg-stone-800 p-3">
+          <div class="text-stone-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-xl font-bold text-orange-200">黑方</div>
+        </div>
+        <div class="rounded bg-stone-800 p-3">
+          <div class="text-stone-400">阶段</div>
+          <div id="phaseText" class="mt-1 text-xl font-bold text-orange-200">落子</div>
+        </div>
+        <div class="rounded bg-stone-800 p-3">
+          <div class="text-stone-400">黑方待放</div>
+          <div id="blackReserve" class="mt-1 text-xl font-bold text-orange-200">3</div>
+        </div>
+        <div class="rounded bg-stone-800 p-3">
+          <div class="text-stone-400">白方待放</div>
+          <div id="whiteReserve" class="mt-1 text-xl font-bold text-orange-200">3</div>
+        </div>
+      </div>
+      <p id="statusText" class="mt-4 min-h-20 rounded bg-stone-800 p-3 text-sm leading-6 text-stone-200">黑方选择空孔落子。</p>
+    </aside>
+  </main>
+
+  <script>
+    const points = [
+      { x: 20, y: 20 }, { x: 50, y: 20 }, { x: 80, y: 20 },
+      { x: 20, y: 50 }, { x: 50, y: 50 }, { x: 80, y: 50 },
+      { x: 20, y: 80 }, { x: 50, y: 80 }, { x: 80, y: 80 }
+    ];
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+    const adjacent = {
+      0: [1, 3, 4], 1: [0, 2, 4], 2: [1, 5, 4],
+      3: [0, 6, 4], 4: [0, 1, 2, 3, 5, 6, 7, 8], 5: [2, 8, 4],
+      6: [3, 7, 4], 7: [6, 8, 4], 8: [5, 7, 4]
+    };
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turnText");
+    const phaseEl = document.getElementById("phaseText");
+    const blackReserveEl = document.getElementById("blackReserve");
+    const whiteReserveEl = document.getElementById("whiteReserve");
+    const statusEl = document.getElementById("statusText");
+    let cells = [];
+    let current = "B";
+    let reserve = { B: 3, W: 3 };
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      cells = Array(9).fill("");
+      current = "B";
+      reserve = { B: 3, W: 3 };
+      selected = null;
+      winner = null;
+      render("黑方选择空孔落子。");
+    }
+
+    function isPlacementPhase() {
+      return reserve.B > 0 || reserve.W > 0;
+    }
+
+    function legalMovesFrom(index) {
+      if (winner || isPlacementPhase() || cells[index] !== current) return [];
+      return adjacent[index].filter((target) => !cells[target]);
+    }
+
+    function hasAnyMove(side) {
+      const saved = current;
+      current = side;
+      const result = cells.some((piece, index) => piece === side && legalMovesFrom(index).length > 0);
+      current = saved;
+      return result;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+      if (isPlacementPhase()) {
+        placePiece(index);
+        return;
+      }
+      if (selected !== null && legalMovesFrom(selected).includes(index)) {
+        movePiece(selected, index);
+        return;
+      }
+      if (cells[index] === current && legalMovesFrom(index).length) {
+        selected = index;
+        render(`${sideName(current)}已选中棋子。`);
+      } else {
+        selected = null;
+        render(`${sideName(current)}请选择可移动棋子。`);
+      }
+    }
+
+    function placePiece(index) {
+      if (cells[index] || reserve[current] === 0) return;
+      cells[index] = current;
+      reserve[current] -= 1;
+      finishTurn();
+    }
+
+    function movePiece(from, to) {
+      cells[to] = cells[from];
+      cells[from] = "";
+      selected = null;
+      finishTurn();
+    }
+
+    function finishTurn() {
+      if (checkWinner(current)) {
+        winner = current;
+        render(`${sideName(current)}三连获胜。`);
+        return;
+      }
+      current = current === "B" ? "W" : "B";
+      if (!isPlacementPhase() && !hasAnyMove(current)) {
+        winner = current === "B" ? "W" : "B";
+        render(`${sideName(winner)}获胜，对手无合法移动。`);
+        return;
+      }
+      render(isPlacementPhase() ? `${sideName(current)}选择空孔落子。` : `${sideName(current)}移动一枚棋子。`);
+    }
+
+    function checkWinner(side) {
+      return lines.some((line) => line.every((index) => cells[index] === side));
+    }
+
+    function sideName(side) {
+      return side === "B" ? "黑方" : "白方";
+    }
+
+    function pointClasses(piece) {
+      if (piece === "B") return "bg-stone-950 text-orange-200 ring-2 ring-orange-300";
+      if (piece === "W") return "bg-stone-100 text-stone-950 ring-2 ring-stone-300";
+      return "bg-stone-800 text-transparent ring-2 ring-stone-600";
+    }
+
+    function render(message) {
+      const legal = selected === null ? [] : legalMovesFrom(selected);
+      boardEl.innerHTML = points.map((point, index) => {
+        const piece = cells[index];
+        const isSelected = selected === index;
+        const isLegal = legal.includes(index);
+        return `<button type="button" onclick="handlePoint(${index})" aria-label="hole ${index + 1}"
+          class="absolute flex h-[15%] w-[15%] items-center justify-center rounded-full text-lg font-black transition ${pointClasses(piece)}
+          ${isSelected ? "scale-110 outline outline-4 outline-sky-300" : ""}
+          ${isLegal ? "outline outline-4 outline-emerald-300" : "hover:scale-105"}"
+          style="left:${point.x}%; top:${point.y}%; transform:translate(-50%, -50%);">${piece || (isLegal ? "·" : "")}</button>`;
+      }).join("");
+      turnEl.textContent = winner ? sideName(winner) : sideName(current);
+      phaseEl.textContent = isPlacementPhase() ? "落子" : "移动";
+      blackReserveEl.textContent = String(reserve.B);
+      whiteReserveEl.textContent = String(reserve.W);
+      statusEl.textContent = winner ? `${sideName(winner)}获胜。` : message;
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
