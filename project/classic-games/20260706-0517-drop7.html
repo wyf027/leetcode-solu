@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Drop7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.24em] text-orange-300">Classic Games</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Drop7</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div id="score" class="text-xl font-bold text-orange-200">0</div>
+            <div class="text-zinc-400">score</div>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div id="nextTile" class="text-xl font-bold text-cyan-200">1</div>
+            <div class="text-zinc-400">next</div>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div id="turns" class="text-xl font-bold text-emerald-200">0</div>
+            <div class="text-zinc-400">turns</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <div id="columnButtons" class="mb-2 grid grid-cols-7 gap-1"></div>
+          <div id="board" class="grid aspect-square w-full max-w-[34rem] grid-cols-7 gap-1 rounded bg-zinc-950 p-2"></div>
+          <p id="status" class="mt-4 min-h-6 text-sm font-medium text-zinc-300">Drop the next number into a column.</p>
+        </div>
+
+        <aside class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-400">Rules</h2>
+          <p class="mt-3 text-sm leading-6 text-zinc-400">
+            A tile clears when its number equals the size of its connected horizontal or vertical run.
+          </p>
+          <button id="newGameBtn" class="mt-5 w-full rounded bg-orange-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-orange-300">New Game</button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 7;
+      const boardEl = document.getElementById("board");
+      const columnButtons = document.getElementById("columnButtons");
+      const scoreEl = document.getElementById("score");
+      const nextTileEl = document.getElementById("nextTile");
+      const turnsEl = document.getElementById("turns");
+      const statusEl = document.getElementById("status");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      let board = [];
+      let nextTile = 1;
+      let score = 0;
+      let turns = 0;
+      let gameOver = false;
+
+      function randomTile() {
+        return Math.ceil(Math.random() * 7);
+      }
+
+      function cell(row, col) {
+        return row * size + col;
+      }
+
+      function newGame() {
+        board = Array(size * size).fill(null);
+        nextTile = randomTile();
+        score = 0;
+        turns = 0;
+        gameOver = false;
+        statusEl.textContent = "Drop the next number into a column.";
+        statusEl.className = "mt-4 min-h-6 text-sm font-medium text-zinc-300";
+        render();
+      }
+
+      function dropInColumn(col) {
+        if (gameOver) return;
+        for (let row = size - 1; row >= 0; row -= 1) {
+          if (board[cell(row, col)] === null) {
+            board[cell(row, col)] = nextTile;
+            turns += 1;
+            nextTile = randomTile();
+            resolveClears();
+            if (board.every((value) => value !== null)) {
+              gameOver = true;
+              statusEl.textContent = "Board full. Start a new game.";
+              statusEl.className = "mt-4 min-h-6 text-sm font-medium text-amber-300";
+            }
+            render();
+            return;
+          }
+        }
+        statusEl.textContent = "That column is full.";
+        statusEl.className = "mt-4 min-h-6 text-sm font-medium text-amber-300";
+      }
+
+      function runLength(row, col, dr, dc) {
+        let length = 1;
+        for (const direction of [-1, 1]) {
+          let nr = row + dr * direction;
+          let nc = col + dc * direction;
+          while (nr >= 0 && nr < size && nc >= 0 && nc < size && board[cell(nr, nc)] !== null) {
+            length += 1;
+            nr += dr * direction;
+            nc += dc * direction;
+          }
+        }
+        return length;
+      }
+
+      function findClears() {
+        const clears = new Set();
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const value = board[cell(row, col)];
+            if (value === null) continue;
+            if (runLength(row, col, 0, 1) === value || runLength(row, col, 1, 0) === value) {
+              clears.add(cell(row, col));
+            }
+          }
+        }
+        return clears;
+      }
+
+      function compactBoard() {
+        for (let col = 0; col < size; col += 1) {
+          const values = [];
+          for (let row = size - 1; row >= 0; row -= 1) {
+            const value = board[cell(row, col)];
+            if (value !== null) values.push(value);
+          }
+          for (let row = size - 1; row >= 0; row -= 1) {
+            board[cell(row, col)] = values[size - 1 - row] ?? null;
+          }
+        }
+      }
+
+      function resolveClears() {
+        let chain = 0;
+        while (true) {
+          const clears = findClears();
+          if (!clears.size) break;
+          chain += 1;
+          clears.forEach((index) => {
+            board[index] = null;
+          });
+          score += clears.size * 10 * chain;
+          compactBoard();
+          statusEl.textContent = `Cleared ${clears.size} tile${clears.size === 1 ? "" : "s"}.`;
+          statusEl.className = "mt-4 min-h-6 text-sm font-medium text-emerald-300";
+        }
+      }
+
+      function renderBoard() {
+        boardEl.innerHTML = "";
+        board.forEach((value) => {
+          const square = document.createElement("div");
+          square.className = [
+            "flex aspect-square items-center justify-center rounded border text-lg font-black",
+            value === null ? "border-zinc-800 bg-zinc-900 text-zinc-600" : "border-orange-200 bg-orange-300 text-zinc-950",
+          ].join(" ");
+          square.textContent = value ?? "";
+          boardEl.appendChild(square);
+        });
+      }
+
+      function renderColumns() {
+        columnButtons.innerHTML = "";
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.disabled = gameOver;
+          button.className = "rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-sm font-semibold hover:bg-zinc-800 disabled:text-zinc-600";
+          button.textContent = `Drop ${col + 1}`;
+          button.addEventListener("click", () => dropInColumn(col));
+          columnButtons.appendChild(button);
+        }
+      }
+
+      function render() {
+        renderBoard();
+        renderColumns();
+        scoreEl.textContent = score;
+        nextTileEl.textContent = nextTile;
+        turnsEl.textContent = turns;
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
