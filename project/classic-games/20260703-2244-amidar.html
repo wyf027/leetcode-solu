@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Amidar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-lime-200">Mini Amidar</h1>
+        <p class="mt-1 text-sm text-emerald-100/75">沿网格描边，封闭矩形区域，避开巡逻敌人。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-lime-400/40 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-100/75">分数</div>
+          <div id="score" class="text-lg font-bold text-lime-200">0</div>
+        </div>
+        <div class="rounded border border-lime-400/40 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-100/75">占区</div>
+          <div id="claimed" class="text-lg font-bold text-lime-200">0</div>
+        </div>
+        <div class="rounded border border-lime-400/40 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-100/75">生命</div>
+          <div id="lives" class="text-lg font-bold text-lime-200">3</div>
+        </div>
+        <div class="rounded border border-lime-400/40 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-100/75">速度</div>
+          <div id="speed" class="text-lg font-bold text-lime-200">1</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-md border border-emerald-700 bg-emerald-900 p-3 shadow-2xl shadow-emerald-950/40">
+      <canvas id="game" width="920" height="640" class="h-auto w-full rounded bg-emerald-950"></canvas>
+    </section>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+      <div class="rounded-md border border-emerald-700 bg-emerald-900 p-3 text-sm text-emerald-100">
+        <span class="font-semibold text-lime-200">操作：</span>
+        <span>方向键 / WASD 沿线移动，走完一个小矩形即可占区，R 重新开始。</span>
+      </div>
+      <button id="restart" class="rounded bg-lime-300 px-5 py-3 text-sm font-bold text-emerald-950 hover:bg-lime-200">
+        重新开始
+      </button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const claimedEl = document.getElementById("claimed");
+    const livesEl = document.getElementById("lives");
+    const speedEl = document.getElementById("speed");
+    const restartBtn = document.getElementById("restart");
+
+    const cols = 10;
+    const rows = 7;
+    const cell = 70;
+    const originX = 110;
+    const originY = 80;
+    const dirs = {
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 }
+    };
+    const reverse = { left: "right", right: "left", up: "down", down: "up" };
+    const keys = new Set();
+
+    let player;
+    let enemies;
+    let claimed;
+    let hEdges;
+    let vEdges;
+    let score;
+    let lives;
+    let speedLevel;
+    let lastTime;
+    let gameOver;
+    let won;
+    let hitPause;
+    let flashes;
+
+    function edgeKey(a, b) {
+      return `${a.x},${a.y}-${b.x},${b.y}`;
+    }
+
+    function addEdge(a, b) {
+      if (a.x === b.x) {
+        const y = Math.min(a.y, b.y);
+        vEdges.add(`${a.x},${y}`);
+      } else {
+        const x = Math.min(a.x, b.x);
+        hEdges.add(`${x},${a.y}`);
+      }
+    }
+
+    function hasCellBox(x, y) {
+      return hEdges.has(`${x},${y}`) &&
+        hEdges.has(`${x},${y + 1}`) &&
+        vEdges.has(`${x},${y}`) &&
+        vEdges.has(`${x + 1},${y}`);
+    }
+
+    function toPixel(pos) {
+      return {
+        x: originX + pos.x * cell,
+        y: originY + pos.y * cell
+      };
+    }
+
+    function atNode(entity) {
+      return Math.abs(entity.x - Math.round(entity.x)) < 0.08 &&
+        Math.abs(entity.y - Math.round(entity.y)) < 0.08;
+    }
+
+    function clampNode(entity) {
+      entity.x = Math.max(0, Math.min(cols - 1, entity.x));
+      entity.y = Math.max(0, Math.min(rows - 1, entity.y));
+    }
+
+    function canMove(entity, dir) {
+      const nx = Math.round(entity.x) + dirs[dir].x;
+      const ny = Math.round(entity.y) + dirs[dir].y;
+      return nx >= 0 && nx < cols && ny >= 0 && ny < rows;
+    }
+
+    function resetGame() {
+      player = {
+        x: 0,
+        y: 0,
+        dir: "right",
+        nextDir: "right",
+        speed: 2.9,
+        invincible: 0,
+        lastNode: { x: 0, y: 0 }
+      };
+      enemies = [
+        { x: 9, y: 0, dir: "down", speed: 2.05, wait: 0 },
+        { x: 9, y: 6, dir: "left", speed: 2.18, wait: 0 },
+        { x: 0, y: 6, dir: "up", speed: 1.95, wait: 0 }
+      ];
+      claimed = new Set();
+      hEdges = new Set();
+      vEdges = new Set();
+      flashes = [];
+      score = 0;
+      lives = 3;
+      speedLevel = 1;
+      lastTime = performance.now();
+      gameOver = false;
+      won = false;
+      hitPause = 0;
+      drawBorderEdges();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function drawBorderEdges() {
+      for (let x = 0; x < cols - 1; x++) {
+        hEdges.add(`${x},0`);
+        hEdges.add(`${x},${rows - 1}`);
+      }
+      for (let y = 0; y < rows - 1; y++) {
+        vEdges.add(`0,${y}`);
+        vEdges.add(`${cols - 1},${y}`);
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      claimedEl.textContent = `${claimed.size}/${(cols - 1) * (rows - 1)}`;
+      livesEl.textContent = lives;
+      speedEl.textContent = speedLevel;
+    }
+
+    function setNextDirection(key) {
+      if (key === "ArrowLeft" || key === "a" || key === "A") player.nextDir = "left";
+      if (key === "ArrowRight" || key === "d" || key === "D") player.nextDir = "right";
+      if (key === "ArrowUp" || key === "w" || key === "W") player.nextDir = "up";
+      if (key === "ArrowDown" || key === "s" || key === "S") player.nextDir = "down";
+    }
+
+    function claimClosedCells() {
+      let gained = 0;
+      for (let y = 0; y < rows - 1; y++) {
+        for (let x = 0; x < cols - 1; x++) {
+          const key = `${x},${y}`;
+          if (!claimed.has(key) && hasCellBox(x, y)) {
+            claimed.add(key);
+            gained += 1;
+            flashes.push({ x, y, life: 0.45 });
+          }
+        }
+      }
+      if (gained > 0) score += gained * 120;
+      if (claimed.size >= (cols - 1) * (rows - 1)) {
+        won = true;
+        gameOver = true;
+      }
+    }
+
+    function moveEntity(entity, dt) {
+      if (atNode(entity)) {
+        const node = { x: Math.round(entity.x), y: Math.round(entity.y) };
+        entity.x = node.x;
+        entity.y = node.y;
+        if (entity.nextDir && canMove(entity, entity.nextDir)) entity.dir = entity.nextDir;
+        if (!canMove(entity, entity.dir)) entity.dir = reverse[entity.dir];
+        if (entity === player && (node.x !== player.lastNode.x || node.y !== player.lastNode.y)) {
+          addEdge(player.lastNode, node);
+          player.lastNode = node;
+          claimClosedCells();
+        }
+      }
+      entity.x += dirs[entity.dir].x * entity.speed * dt;
+      entity.y += dirs[entity.dir].y * entity.speed * dt;
+      clampNode(entity);
+    }
+
+    function chooseEnemyDirection(enemy) {
+      const choices = Object.keys(dirs).filter((dir) => canMove(enemy, dir));
+      const useful = choices.filter((dir) => dir !== reverse[enemy.dir]);
+      const options = useful.length ? useful : choices;
+      let best = options[0] || enemy.dir;
+      let bestDist = Infinity;
+      for (const dir of options) {
+        const nx = Math.round(enemy.x) + dirs[dir].x;
+        const ny = Math.round(enemy.y) + dirs[dir].y;
+        const dist = Math.abs(nx - player.x) + Math.abs(ny - player.y) + Math.random() * 1.4;
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = dir;
+        }
+      }
+      enemy.dir = best;
+    }
+
+    function handleCrash() {
+      if (player.invincible > 0 || gameOver) return;
+      lives -= 1;
+      hitPause = 0.28;
+      player.invincible = 1.65;
+      player.x = 0;
+      player.y = 0;
+      player.dir = "right";
+      player.nextDir = "right";
+      player.lastNode = { x: 0, y: 0 };
+      if (lives <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function updateAmidar(dt) {
+      if (gameOver) {
+        renderAmidar();
+        return;
+      }
+      if (hitPause > 0) {
+        hitPause -= dt;
+        renderAmidar();
+        return;
+      }
+      for (const key of keys) setNextDirection(key);
+      score += Math.floor(dt * 4);
+      speedLevel = 1 + Math.floor(score / 1100);
+      player.speed = 2.9 + speedLevel * 0.12;
+      player.invincible = Math.max(0, player.invincible - dt);
+
+      moveEntity(player, dt);
+      for (const enemy of enemies) {
+        if (atNode(enemy)) {
+          enemy.x = Math.round(enemy.x);
+          enemy.y = Math.round(enemy.y);
+          enemy.wait -= dt;
+          if (enemy.wait <= 0) {
+            chooseEnemyDirection(enemy);
+            enemy.wait = 0.15 + Math.random() * 0.35;
+          }
+        }
+        enemy.speed = 1.95 + speedLevel * 0.14;
+        moveEntity(enemy, dt);
+        if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < 0.35) handleCrash();
+      }
+
+      for (const flash of flashes) flash.life -= dt;
+      flashes = flashes.filter((flash) => flash.life > 0);
+      updateHud();
+      renderAmidar();
+    }
+
+    function drawBoard() {
+      ctx.fillStyle = "#052e2b";
+      ctx.fillRect(64, 34, 792, 548);
+      for (const key of claimed) {
+        const [x, y] = key.split(",").map(Number);
+        const p = toPixel({ x, y });
+        ctx.fillStyle = "#0f766e";
+        ctx.fillRect(p.x + 5, p.y + 5, cell - 10, cell - 10);
+      }
+      for (const flash of flashes) {
+        const p = toPixel(flash);
+        ctx.globalAlpha = Math.max(0, flash.life * 2);
+        ctx.fillStyle = "#bef264";
+        ctx.fillRect(p.x + 8, p.y + 8, cell - 16, cell - 16);
+        ctx.globalAlpha = 1;
+      }
+
+      ctx.strokeStyle = "#115e59";
+      ctx.lineWidth = 3;
+      for (let y = 0; y < rows; y++) {
+        ctx.beginPath();
+        for (let x = 0; x < cols; x++) {
+          const p = toPixel({ x, y });
+          if (x === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+      for (let x = 0; x < cols; x++) {
+        ctx.beginPath();
+        for (let y = 0; y < rows; y++) {
+          const p = toPixel({ x, y });
+          if (y === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#d9f99d";
+      ctx.lineWidth = 7;
+      ctx.lineCap = "round";
+      for (const key of hEdges) {
+        const [x, y] = key.split(",").map(Number);
+        const a = toPixel({ x, y });
+        const b = toPixel({ x: x + 1, y });
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      for (const key of vEdges) {
+        const [x, y] = key.split(",").map(Number);
+        const a = toPixel({ x, y });
+        const b = toPixel({ x, y: y + 1 });
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#ccfbf1";
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const p = toPixel({ x, y });
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawPlayer() {
+      const p = toPixel(player);
+      const blink = player.invincible > 0 && Math.floor(player.invincible * 14) % 2 === 0;
+      if (blink) return;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = "#facc15";
+      ctx.beginPath();
+      ctx.arc(0, 0, 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#064e3b";
+      ctx.fillRect(-7, -5, 5, 5);
+      ctx.fillRect(3, -5, 5, 5);
+      ctx.fillRect(-9, 6, 18, 4);
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy, index) {
+      const p = toPixel(enemy);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = ["#fb7185", "#60a5fa", "#f97316"][index % 3];
+      ctx.beginPath();
+      ctx.roundRect(-17, -15, 34, 30, 8);
+      ctx.fill();
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.arc(-6, -3, 3, 0, Math.PI * 2);
+      ctx.arc(6, -3, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function renderAmidar() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#022c22");
+      bg.addColorStop(1, "#064e3b");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawBoard();
+      drawPlayer();
+      enemies.forEach(drawEnemy);
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(2, 44, 34, 0.82)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#ecfccb";
+        ctx.font = "700 42px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "全部占领" : "游戏结束", canvas.width / 2, 285);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 325);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      updateAmidar(dt);
+      if (!gameOver) requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key);
+      setNextDirection(event.key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
