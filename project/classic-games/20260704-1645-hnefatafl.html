@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Hnefatafl</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-center">
+      <section class="w-full max-w-xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal text-emerald-100">Mini Hnefatafl</h1>
+            <p class="mt-1 text-sm text-slate-300">守方护送国王到角落，攻方围捕国王。</p>
+          </div>
+          <button id="reset" class="rounded bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">
+            重新开始
+          </button>
+        </div>
+        <div class="aspect-square rounded border border-emerald-800 bg-stone-800 p-2 shadow-2xl shadow-black/40">
+          <div id="board" class="grid h-full w-full grid-cols-7 grid-rows-7 gap-1"></div>
+        </div>
+      </section>
+
+      <aside class="w-full max-w-sm rounded border border-slate-700 bg-slate-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs uppercase text-slate-400">当前回合</div>
+            <div id="turn" class="mt-1 text-xl font-bold text-emerald-200">攻方</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs uppercase text-slate-400">棋子</div>
+            <div id="pieces" class="mt-1 text-xl font-bold text-emerald-200">8 : 5</div>
+          </div>
+        </div>
+        <div id="status" class="mt-4 rounded bg-slate-800 p-3 text-sm leading-6 text-slate-200">
+          攻方先行，选择棋子后沿直线移动。
+        </div>
+        <div class="mt-4 space-y-2 text-sm text-slate-300">
+          <div class="rounded border border-slate-700 p-2">所有棋子沿横竖方向移动任意空格。</div>
+          <div class="rounded border border-slate-700 p-2">夹住普通棋子即可捕获；角落与王座也可协助夹击。</div>
+          <div class="rounded border border-slate-700 p-2">国王到达角落守方胜；国王四面被围攻方胜。</div>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const size = 7;
+      const empty = "";
+      const attackers = "A";
+      const defenders = "D";
+      const king = "K";
+      const throne = { row: 3, col: 3 };
+      const corners = [
+        [0, 0],
+        [0, 6],
+        [6, 0],
+        [6, 6],
+      ];
+      const dirs = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+
+      let board = [];
+      let current = attackers;
+      let selected = null;
+      let moves = [];
+      let winner = null;
+
+      const boardEl = document.getElementById("board");
+      const turnEl = document.getElementById("turn");
+      const piecesEl = document.getElementById("pieces");
+      const statusEl = document.getElementById("status");
+
+      function resetGame() {
+        board = Array.from({ length: size }, () => Array(size).fill(empty));
+        [
+          [0, 3],
+          [1, 3],
+          [3, 0],
+          [3, 1],
+          [3, 5],
+          [3, 6],
+          [5, 3],
+          [6, 3],
+        ].forEach(([row, col]) => (board[row][col] = attackers));
+        [
+          [2, 3],
+          [3, 2],
+          [3, 4],
+          [4, 3],
+        ].forEach(([row, col]) => (board[row][col] = defenders));
+        board[3][3] = king;
+        current = attackers;
+        selected = null;
+        moves = [];
+        winner = null;
+        statusEl.textContent = "攻方先行，选择棋子后沿直线移动。";
+        render();
+      }
+
+      function inside(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function isCorner(row, col) {
+        return corners.some(([cornerRow, cornerCol]) => cornerRow === row && cornerCol === col);
+      }
+
+      function isThrone(row, col) {
+        return row === throne.row && col === throne.col;
+      }
+
+      function sideOf(piece) {
+        return piece === attackers ? attackers : defenders;
+      }
+
+      function canOccupy(row, col, piece) {
+        if (board[row][col] !== empty) return false;
+        if (isCorner(row, col)) return piece === king;
+        if (isThrone(row, col)) return piece === king;
+        return true;
+      }
+
+      function legalMovesFrom(row, col) {
+        const piece = board[row][col];
+        const result = [];
+        for (const [dr, dc] of dirs) {
+          let nextRow = row + dr;
+          let nextCol = col + dc;
+          while (inside(nextRow, nextCol) && canOccupy(nextRow, nextCol, piece)) {
+            result.push({ row: nextRow, col: nextCol });
+            nextRow += dr;
+            nextCol += dc;
+          }
+        }
+        return result;
+      }
+
+      function hostileTo(row, col, enemySide) {
+        if (!inside(row, col)) return false;
+        const piece = board[row][col];
+        if (piece && sideOf(piece) !== enemySide) return true;
+        return isCorner(row, col) || isThrone(row, col);
+      }
+
+      function captureAround(row, col) {
+        const movedSide = sideOf(board[row][col]);
+        for (const [dr, dc] of dirs) {
+          const enemyRow = row + dr;
+          const enemyCol = col + dc;
+          const braceRow = row + dr * 2;
+          const braceCol = col + dc * 2;
+          const target = inside(enemyRow, enemyCol) ? board[enemyRow][enemyCol] : empty;
+          if (!target || sideOf(target) === movedSide || target === king) continue;
+          if (hostileTo(braceRow, braceCol, sideOf(target))) {
+            board[enemyRow][enemyCol] = empty;
+          }
+        }
+      }
+
+      function findKing() {
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            if (board[row][col] === king) return { row, col };
+          }
+        }
+        return null;
+      }
+
+      function isKingCaptured() {
+        const pos = findKing();
+        if (!pos) return true;
+        return dirs.every(([dr, dc]) => hostileTo(pos.row + dr, pos.col + dc, defenders));
+      }
+
+      function checkWinner(row, col) {
+        if (board[row][col] === king && isCorner(row, col)) {
+          winner = defenders;
+          statusEl.textContent = "守方获胜，国王抵达角落。";
+          return;
+        }
+        if (isKingCaptured()) {
+          winner = attackers;
+          statusEl.textContent = "攻方获胜，国王已被围捕。";
+        }
+      }
+
+      function selectPiece(row, col) {
+        selected = { row, col };
+        moves = legalMovesFrom(row, col);
+        statusEl.textContent = moves.length ? "选择高亮位置移动。" : "这枚棋子暂无可用走法。";
+        render();
+      }
+
+      function movePiece(row, col) {
+        if (!selected || winner) return;
+        const piece = board[selected.row][selected.col];
+        board[selected.row][selected.col] = empty;
+        board[row][col] = piece;
+        selected = null;
+        moves = [];
+        captureAround(row, col);
+        checkWinner(row, col);
+        if (!winner) {
+          current = current === attackers ? defenders : attackers;
+          statusEl.textContent = `${current === attackers ? "攻方" : "守方"}行动。`;
+        }
+        render();
+      }
+
+      function handleCell(row, col) {
+        const move = moves.find((item) => item.row === row && item.col === col);
+        if (move) {
+          movePiece(row, col);
+          return;
+        }
+        const piece = board[row][col];
+        if (piece && sideOf(piece) === current && !winner) {
+          selectPiece(row, col);
+          return;
+        }
+        selected = null;
+        moves = [];
+        statusEl.textContent = winner ? statusEl.textContent : "请选择当前阵营的棋子。";
+        render();
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        const attackCount = board.flat().filter((piece) => piece === attackers).length;
+        const guardCount = board.flat().filter((piece) => piece === defenders || piece === king).length;
+        turnEl.textContent = winner ? `${winner === attackers ? "攻方" : "守方"}胜利` : current === attackers ? "攻方" : "守方";
+        piecesEl.textContent = `${attackCount} : ${guardCount}`;
+
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const piece = board[row][col];
+            const isMove = moves.some((item) => item.row === row && item.col === col);
+            const isSelected = selected && selected.row === row && selected.col === col;
+            cell.type = "button";
+            cell.className = [
+              "relative flex items-center justify-center rounded border text-xl font-black transition",
+              isCorner(row, col) ? "border-emerald-900 bg-emerald-200" : isThrone(row, col) ? "border-amber-900 bg-amber-200" : "border-stone-600 bg-stone-300",
+              isMove ? "ring-4 ring-lime-500" : "",
+              isSelected ? "ring-4 ring-cyan-500" : "",
+            ].join(" ");
+            cell.setAttribute("aria-label", `row ${row + 1} col ${col + 1}`);
+            cell.addEventListener("click", () => handleCell(row, col));
+
+            if (piece) {
+              const disk = document.createElement("span");
+              disk.className =
+                piece === attackers
+                  ? "flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-slate-100 shadow"
+                  : piece === king
+                    ? "flex h-9 w-9 items-center justify-center rounded-full bg-amber-400 text-slate-950 shadow"
+                    : "flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-950 shadow";
+              disk.textContent = piece === king ? "K" : "●";
+              cell.appendChild(disk);
+            } else if (isMove) {
+              const dot = document.createElement("span");
+              dot.className = "h-3 w-3 rounded-full bg-lime-600";
+              cell.appendChild(dot);
+            }
+
+            boardEl.appendChild(cell);
+          }
+        }
+      }
+
+      document.getElementById("reset").addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
