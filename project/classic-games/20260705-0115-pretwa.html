@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Pretwa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-teal-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Pretwa</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-teal-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-teal-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-stone-800 bg-stone-900 p-4">
+        <div class="mx-auto grid max-w-3xl gap-3">
+          <div id="topRow" class="grid grid-cols-6 gap-2"></div>
+          <div id="bottomRow" class="grid grid-cols-6 gap-2"></div>
+        </div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-teal-200">南方</p>
+          <p id="statusText" class="mt-2 text-sm leading-6 text-stone-300"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-sm text-stone-400">南方</p>
+            <p id="southStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-sm text-stone-400">北方</p>
+            <p id="northStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <p class="font-semibold text-stone-100">规则</p>
+          <p class="mt-2">点击己方非空坑，逆时针逐坑播种。最后一粒落在己方空坑时，吃掉对面坑中的棋子和最后一粒。某方无棋可播时结束，得分高者胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const topRow = document.getElementById("topRow");
+    const bottomRow = document.getElementById("bottomRow");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const southStats = document.getElementById("southStats");
+    const northStats = document.getElementById("northStats");
+    const pitsPerSide = 6;
+    const startSeeds = 4;
+    let pits;
+    let scores;
+    let turn;
+    let winner;
+    let message;
+
+    function resetGame() {
+      pits = Array(pitsPerSide * 2).fill(startSeeds);
+      scores = { S: 0, N: 0 };
+      turn = "S";
+      winner = null;
+      message = "南方先播种。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "S" ? "南方" : "北方";
+    }
+
+    function otherSide(side) {
+      return side === "S" ? "N" : "S";
+    }
+
+    function sideRange(side) {
+      return side === "S" ? [0, 5] : [6, 11];
+    }
+
+    function isOwnPit(index, side) {
+      const [first, last] = sideRange(side);
+      return index >= first && index <= last;
+    }
+
+    function oppositePit(index) {
+      return 11 - index;
+    }
+
+    function nextPit(index) {
+      return (index + 1) % pits.length;
+    }
+
+    function sideSeeds(side) {
+      const [first, last] = sideRange(side);
+      return pits.slice(first, last + 1).reduce((sum, value) => sum + value, 0);
+    }
+
+    function legalPits(side) {
+      const [first, last] = sideRange(side);
+      const choices = [];
+      for (let index = first; index <= last; index += 1) {
+        if (pits[index] > 0) choices.push(index);
+      }
+      return choices;
+    }
+
+    function checkGameOver() {
+      if (sideSeeds("S") > 0 && sideSeeds("N") > 0) return false;
+      scores.S += sideSeeds("S");
+      scores.N += sideSeeds("N");
+      pits = pits.map(() => 0);
+      winner = scores.S === scores.N ? "T" : scores.S > scores.N ? "S" : "N";
+      message = winner === "T" ? "平局。" : `${sideName(winner)}获胜。`;
+      return true;
+    }
+
+    function finishTurn() {
+      if (checkGameOver()) {
+        render();
+        return;
+      }
+      turn = otherSide(turn);
+      if (legalPits(turn).length === 0) checkGameOver();
+      else message = `${sideName(turn)}选择一个非空坑播种。`;
+      render();
+    }
+
+    function sowFrom(index) {
+      if (winner) return;
+      if (!isOwnPit(index, turn) || pits[index] === 0) {
+        message = `请选择${sideName(turn)}的非空坑。`;
+        render();
+        return;
+      }
+      let seeds = pits[index];
+      pits[index] = 0;
+      let cursor = index;
+      while (seeds > 0) {
+        cursor = nextPit(cursor);
+        pits[cursor] += 1;
+        seeds -= 1;
+      }
+      const opposite = oppositePit(cursor);
+      if (isOwnPit(cursor, turn) && pits[cursor] === 1 && pits[opposite] > 0) {
+        const gained = pits[cursor] + pits[opposite];
+        pits[cursor] = 0;
+        pits[opposite] = 0;
+        scores[turn] += gained;
+        message = `${sideName(turn)}捕获 ${gained} 枚棋子。`;
+      } else {
+        message = `${sideName(turn)}完成播种。`;
+      }
+      finishTurn();
+    }
+
+    function renderPit(index) {
+      const pit = document.createElement("button");
+      pit.type = "button";
+      pit.setAttribute("aria-label", `坑 ${index + 1}`);
+      pit.className = [
+        "flex aspect-square min-h-20 flex-col items-center justify-center rounded border transition",
+        isOwnPit(index, turn) && pits[index] > 0 && !winner ? "border-teal-300 bg-teal-950 hover:bg-teal-900" : "border-stone-700 bg-stone-950",
+      ].join(" ");
+      const count = document.createElement("span");
+      count.className = "text-2xl font-bold";
+      count.textContent = pits[index];
+      const label = document.createElement("span");
+      label.className = "mt-1 text-xs text-stone-400";
+      label.textContent = index < 6 ? `南 ${index + 1}` : `北 ${12 - index}`;
+      pit.append(count, label);
+      pit.addEventListener("click", () => sowFrom(index));
+      return pit;
+    }
+
+    function render() {
+      topRow.innerHTML = "";
+      bottomRow.innerHTML = "";
+      for (let index = 11; index >= 6; index -= 1) topRow.appendChild(renderPit(index));
+      for (let index = 0; index < 6; index += 1) bottomRow.appendChild(renderPit(index));
+      turnText.textContent = winner ? (winner === "T" ? "平局" : `${sideName(winner)}胜利`) : sideName(turn);
+      statusText.textContent = message;
+      southStats.textContent = `得分 ${scores.S} / 坑内 ${sideSeeds("S")}`;
+      northStats.textContent = `得分 ${scores.N} / 坑内 ${sideSeeds("N")}`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
