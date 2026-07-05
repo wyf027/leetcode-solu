@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Alquerque</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-center">
+      <section class="w-full max-w-xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal text-rose-100">Mini Alquerque</h1>
+            <p class="mt-1 text-sm text-neutral-300">移动或跳吃棋子，吃光对手获胜。</p>
+          </div>
+          <button id="reset" class="rounded bg-rose-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-rose-300">
+            重新开始
+          </button>
+        </div>
+
+        <div class="relative aspect-square rounded border border-rose-800 bg-stone-800 p-3 shadow-2xl shadow-black/40">
+          <div class="absolute inset-8 border-2 border-stone-500"></div>
+          <div class="absolute inset-16 border-2 border-stone-500"></div>
+          <div class="absolute left-1/2 top-8 h-[calc(100%-4rem)] w-0.5 -translate-x-1/2 bg-stone-500"></div>
+          <div class="absolute left-8 top-1/2 h-0.5 w-[calc(100%-4rem)] -translate-y-1/2 bg-stone-500"></div>
+          <div id="board" class="relative grid h-full w-full grid-cols-5 grid-rows-5 gap-2"></div>
+        </div>
+      </section>
+
+      <aside class="w-full max-w-sm rounded border border-neutral-700 bg-neutral-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-neutral-800 p-3">
+            <div class="text-xs uppercase text-neutral-400">当前回合</div>
+            <div id="turn" class="mt-1 text-xl font-bold text-rose-200">白方</div>
+          </div>
+          <div class="rounded bg-neutral-800 p-3">
+            <div class="text-xs uppercase text-neutral-400">棋子</div>
+            <div id="pieces" class="mt-1 text-xl font-bold text-rose-200">12 : 12</div>
+          </div>
+        </div>
+        <div id="status" class="mt-4 rounded bg-neutral-800 p-3 text-sm leading-6 text-neutral-200">
+          白方先行，选择棋子后移动或跳吃。
+        </div>
+        <div class="mt-4 space-y-2 text-sm text-neutral-300">
+          <div class="rounded border border-neutral-700 p-2">相邻空点可移动，横竖斜方向均可。</div>
+          <div class="rounded border border-neutral-700 p-2">隔着一枚对手棋跳到空点即可吃子。</div>
+          <div class="rounded border border-neutral-700 p-2">本迷你版一次只处理一步跳吃。</div>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const size = 5;
+      const empty = "";
+      const players = {
+        W: { label: "白方", disk: "bg-neutral-100 text-neutral-950 border-neutral-300" },
+        B: { label: "黑方", disk: "bg-neutral-950 text-neutral-100 border-neutral-700" },
+      };
+      const directions = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+        [1, 1],
+        [1, -1],
+        [-1, 1],
+        [-1, -1],
+      ];
+
+      let board = [];
+      let current = "W";
+      let selected = null;
+      let moves = [];
+      let winner = null;
+
+      const boardEl = document.getElementById("board");
+      const turnEl = document.getElementById("turn");
+      const piecesEl = document.getElementById("pieces");
+      const statusEl = document.getElementById("status");
+
+      function resetGame() {
+        board = Array.from({ length: size }, (_, row) =>
+          Array.from({ length: size }, (_, col) => {
+            if (row < 2) return "B";
+            if (row > 2) return "W";
+            if (col < 2) return "B";
+            if (col > 2) return "W";
+            return empty;
+          }),
+        );
+        current = "W";
+        selected = null;
+        moves = [];
+        winner = null;
+        statusEl.textContent = "白方先行，选择棋子后移动或跳吃。";
+        render();
+      }
+
+      function inside(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function opponentOf(player) {
+        return player === "W" ? "B" : "W";
+      }
+
+      function countPieces(player) {
+        return board.flat().filter((piece) => piece === player).length;
+      }
+
+      function legalMovesFrom(row, col) {
+        const result = [];
+        const opponent = opponentOf(current);
+        for (const [dr, dc] of directions) {
+          const stepRow = row + dr;
+          const stepCol = col + dc;
+          const jumpRow = row + dr * 2;
+          const jumpCol = col + dc * 2;
+
+          if (inside(stepRow, stepCol) && board[stepRow][stepCol] === empty) {
+            result.push({ row: stepRow, col: stepCol, capture: null });
+          }
+
+          if (
+            inside(jumpRow, jumpCol) &&
+            board[stepRow]?.[stepCol] === opponent &&
+            board[jumpRow][jumpCol] === empty
+          ) {
+            result.push({ row: jumpRow, col: jumpCol, capture: { row: stepRow, col: stepCol } });
+          }
+        }
+        return result;
+      }
+
+      function hasAnyMove(player) {
+        const saved = current;
+        current = player;
+        const any = board.some((row, rowIndex) =>
+          row.some((piece, colIndex) => piece === player && legalMovesFrom(rowIndex, colIndex).length > 0),
+        );
+        current = saved;
+        return any;
+      }
+
+      function selectPiece(row, col) {
+        selected = { row, col };
+        moves = legalMovesFrom(row, col);
+        statusEl.textContent = moves.length ? "选择高亮位置移动。" : "这枚棋子暂无可用走法。";
+        render();
+      }
+
+      function applyMove(move) {
+        if (!selected) return;
+        board[move.row][move.col] = current;
+        board[selected.row][selected.col] = empty;
+        if (move.capture) board[move.capture.row][move.capture.col] = empty;
+
+        const opponent = opponentOf(current);
+        const capturedText = move.capture ? `${players[current].label}吃掉一枚棋子。` : "";
+        selected = null;
+        moves = [];
+
+        if (countPieces(opponent) === 0 || !hasAnyMove(opponent)) {
+          winner = current;
+          statusEl.textContent = `${players[current].label}获胜。`;
+        } else {
+          current = opponent;
+          statusEl.textContent = `${capturedText}${players[current].label}行动。`;
+        }
+        render();
+      }
+
+      function handleCell(row, col) {
+        if (winner) return;
+        const move = moves.find((item) => item.row === row && item.col === col);
+        if (move) {
+          applyMove(move);
+          return;
+        }
+        if (board[row][col] === current) {
+          selectPiece(row, col);
+          return;
+        }
+        selected = null;
+        moves = [];
+        statusEl.textContent = "请选择当前回合的棋子。";
+        render();
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        const whiteCount = countPieces("W");
+        const blackCount = countPieces("B");
+        turnEl.textContent = winner ? `${players[winner].label}胜利` : players[current].label;
+        piecesEl.textContent = `${whiteCount} : ${blackCount}`;
+
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const piece = board[row][col];
+            const isSelected = selected && selected.row === row && selected.col === col;
+            const move = moves.find((item) => item.row === row && item.col === col);
+            cell.type = "button";
+            cell.className = [
+              "relative flex items-center justify-center rounded-full border-2 bg-stone-300 transition hover:bg-stone-200",
+              isSelected ? "ring-4 ring-rose-500" : "",
+              move && move.capture ? "ring-4 ring-red-500" : "",
+              move && !move.capture ? "ring-4 ring-lime-500" : "",
+            ].join(" ");
+            cell.setAttribute("aria-label", `row ${row + 1} col ${col + 1}`);
+            cell.addEventListener("click", () => handleCell(row, col));
+
+            if (piece) {
+              const disk = document.createElement("span");
+              disk.className = `flex h-9 w-9 items-center justify-center rounded-full border-2 shadow ${players[piece].disk}`;
+              disk.textContent = "●";
+              cell.appendChild(disk);
+            } else if (move) {
+              const dot = document.createElement("span");
+              dot.className = `h-3 w-3 rounded-full ${move.capture ? "bg-red-600" : "bg-lime-600"}`;
+              cell.appendChild(dot);
+            }
+
+            boardEl.appendChild(cell);
+          }
+        }
+      }
+
+      document.getElementById("reset").addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
