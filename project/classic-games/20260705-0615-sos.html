@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini SOS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini SOS</h1>
+        <p class="text-sm text-slate-400">选择 S 或 O 落子，横竖斜组成 SOS 得分；电脑会自动回应。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-orange-300">重开</button>
+    </header>
+
+    <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">回合</div>
+        <div id="turnLabel" class="text-2xl font-semibold">你</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">你的分</div>
+        <div id="playerScore" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">电脑分</div>
+        <div id="botScore" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">字母</div>
+        <div id="letterLabel" class="text-2xl font-semibold">S</div>
+      </div>
+    </section>
+
+    <section class="rounded border border-slate-700 bg-slate-900 p-4">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">4 x 4 棋盘</h2>
+        <div class="flex gap-2">
+          <button id="chooseS" class="rounded bg-orange-400 px-4 py-2 text-sm font-semibold text-slate-950">S</button>
+          <button id="chooseO" class="rounded border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100">O</button>
+        </div>
+      </div>
+      <div id="board" class="mx-auto grid max-w-md grid-cols-4 gap-2"></div>
+      <p id="message" class="mt-4 min-h-6 text-sm text-orange-300">选择字母后点击空格。</p>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabelEl = document.getElementById("turnLabel");
+    const playerScoreEl = document.getElementById("playerScore");
+    const botScoreEl = document.getElementById("botScore");
+    const letterLabelEl = document.getElementById("letterLabel");
+    const messageEl = document.getElementById("message");
+    const chooseSBtn = document.getElementById("chooseS");
+    const chooseOBtn = document.getElementById("chooseO");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 4;
+    const directions = [
+      [0, 1], [1, 0], [1, 1], [1, -1]
+    ];
+    let board = [];
+    let playerScore = 0;
+    let botScore = 0;
+    let selectedLetter = "S";
+    let botThinking = false;
+    let gameOver = false;
+    let scoredCells = [];
+    let botTurnTimer = null;
+
+    function clearPendingBotTurn() {
+      if (botTurnTimer !== null) {
+        window.clearTimeout(botTurnTimer);
+        botTurnTimer = null;
+      }
+    }
+
+    function scheduleBotTurn() {
+      clearPendingBotTurn();
+      botTurnTimer = window.setTimeout(() => {
+        botTurnTimer = null;
+        botTurn();
+      }, 450);
+    }
+
+    function resetGame() {
+      clearPendingBotTurn();
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      playerScore = 0;
+      botScore = 0;
+      selectedLetter = "S";
+      botThinking = false;
+      gameOver = false;
+      scoredCells = [];
+      setMessage("选择字母后点击空格。");
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function setLetter(letter) {
+      if (botThinking || gameOver) return;
+      selectedLetter = letter;
+      render();
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function getTriples() {
+      const triples = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          directions.forEach(([dr, dc]) => {
+            const cells = [
+              { row, col },
+              { row: row + dr, col: col + dc },
+              { row: row + dr * 2, col: col + dc * 2 }
+            ];
+            if (cells.every((cell) => inside(cell.row, cell.col))) triples.push(cells);
+          });
+        }
+      }
+      return triples;
+    }
+
+    function countSosFor(cellsChanged) {
+      const key = (cell) => `${cell.row},${cell.col}`;
+      const changed = new Set(cellsChanged.map(key));
+      let count = 0;
+      scoredCells = [];
+      getTriples().forEach((cells) => {
+        const word = cells.map((cell) => board[cell.row][cell.col]).join("");
+        if (word === "SOS" && cells.some((cell) => changed.has(key(cell)))) {
+          count += 1;
+          scoredCells.push(...cells.map(key));
+        }
+      });
+      return count;
+    }
+
+    function playHuman(row, col) {
+      if (botThinking || gameOver || board[row][col]) return;
+      board[row][col] = selectedLetter;
+      const gained = countSosFor([{ row, col }]);
+      playerScore += gained;
+      setMessage(gained ? `你得到 ${gained} 分。` : "没有形成 SOS。");
+      if (checkGameOver()) {
+        render();
+        return;
+      }
+      botThinking = true;
+      render();
+      scheduleBotTurn();
+    }
+
+    function findBestBotMove() {
+      let best = null;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col]) continue;
+          ["S", "O"].forEach((letter) => {
+            board[row][col] = letter;
+            const score = countSosFor([{ row, col }]);
+            board[row][col] = "";
+            if (!best || score > best.score) best = { row, col, letter, score };
+          });
+        }
+      }
+      return best;
+    }
+
+    function botTurn() {
+      botTurnTimer = null;
+      if (gameOver || !botThinking) return;
+      const move = findBestBotMove();
+      if (!move) {
+        botThinking = false;
+        checkGameOver();
+        render();
+        return;
+      }
+      board[move.row][move.col] = move.letter;
+      const gained = countSosFor([{ row: move.row, col: move.col }]);
+      botScore += gained;
+      botThinking = false;
+      setMessage(gained ? `电脑用 ${move.letter} 得到 ${gained} 分。` : `电脑放下 ${move.letter}。`);
+      checkGameOver();
+      render();
+    }
+
+    function checkGameOver() {
+      if (board.flat().some((cell) => cell === "")) return false;
+      clearPendingBotTurn();
+      gameOver = true;
+      const result = playerScore === botScore ? "平局。" : playerScore > botScore ? "你赢了。" : "电脑赢了。";
+      setMessage(`棋盘已满，${result}`);
+      return true;
+    }
+
+    function renderCell(row, col) {
+      const button = document.createElement("button");
+      const value = board[row][col];
+      button.type = "button";
+      button.className = "aspect-square rounded border border-slate-700 bg-slate-800 text-4xl font-semibold hover:border-orange-300";
+      if ((row + col) % 2 === 0) button.classList.add("bg-slate-700");
+      if (scoredCells.includes(`${row},${col}`)) button.classList.add("ring-4", "ring-orange-300");
+      button.textContent = value;
+      button.disabled = botThinking || gameOver || Boolean(value);
+      button.addEventListener("click", () => playHuman(row, col));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          boardEl.appendChild(renderCell(row, col));
+        }
+      }
+      turnLabelEl.textContent = gameOver ? "结束" : botThinking ? "电脑" : "你";
+      playerScoreEl.textContent = playerScore;
+      botScoreEl.textContent = botScore;
+      letterLabelEl.textContent = selectedLetter;
+      chooseSBtn.className = selectedLetter === "S"
+        ? "rounded bg-orange-400 px-4 py-2 text-sm font-semibold text-slate-950"
+        : "rounded border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100";
+      chooseOBtn.className = selectedLetter === "O"
+        ? "rounded bg-orange-400 px-4 py-2 text-sm font-semibold text-slate-950"
+        : "rounded border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100";
+    }
+
+    chooseSBtn.addEventListener("click", () => setLetter("S"));
+    chooseOBtn.addEventListener("click", () => setLetter("O"));
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
