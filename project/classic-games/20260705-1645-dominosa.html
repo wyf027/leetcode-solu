@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Dominosa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-8">
+      <section class="w-full rounded border border-stone-700 bg-stone-900 p-5 shadow-2xl shadow-lime-950/40">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Domino puzzle</p>
+            <h1 class="mt-1 text-3xl font-bold text-white">Mini Dominosa</h1>
+          </div>
+          <button id="resetBtn" class="rounded bg-lime-400 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-lime-300">
+            重开
+          </button>
+        </div>
+
+        <div id="board" class="mx-auto mt-6 grid w-full max-w-[390px] grid-cols-4 gap-1"></div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+          <div class="rounded border border-stone-700 bg-stone-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-stone-400">已覆盖</p>
+            <p id="coveredCount" class="text-xl font-bold text-lime-200">0</p>
+          </div>
+          <div class="rounded border border-stone-700 bg-stone-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-stone-400">重复骨牌</p>
+            <p id="duplicateCount" class="text-xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded border border-stone-700 bg-stone-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-stone-400">完成</p>
+            <p id="doneStatus" class="text-xl font-bold text-emerald-200">否</p>
+          </div>
+        </div>
+
+        <p id="message" class="mt-5 min-h-7 text-center text-sm font-semibold text-stone-300">
+          先点一个格子，再点相邻格子放置骨牌。每种点数组合只能使用一次。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const rows = 4;
+      const cols = 4;
+      const grid = [
+        [0, 1, 1, 3],
+        [0, 2, 2, 3],
+        [1, 2, 0, 3],
+        [1, 0, 2, 3],
+      ];
+      const solution = new Set(["0,0|1,0", "0,1|0,2", "0,3|1,3", "1,1|1,2", "2,0|3,0", "2,1|3,1", "2,2|3,2", "2,3|3,3"]);
+      const pairs = new Set();
+      let selected = null;
+      const board = document.getElementById("board");
+      const coveredCount = document.getElementById("coveredCount");
+      const duplicateCount = document.getElementById("duplicateCount");
+      const doneStatus = document.getElementById("doneStatus");
+      const message = document.getElementById("message");
+      const resetBtn = document.getElementById("resetBtn");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function pairKey(a, b) {
+        return [a, b].sort().join("|");
+      }
+
+      function dotPair(pair) {
+        const nums = pair.split("|").map((cell) => {
+          const [row, col] = cell.split(",").map(Number);
+          return grid[row][col];
+        });
+        return nums.sort((a, b) => a - b).join("-");
+      }
+
+      function adjacent(a, b) {
+        const [ar, ac] = a.split(",").map(Number);
+        const [br, bc] = b.split(",").map(Number);
+        return Math.abs(ar - br) + Math.abs(ac - bc) === 1;
+      }
+
+      function pairForCell(cell) {
+        return [...pairs].find((pair) => pair.split("|").includes(cell));
+      }
+
+      function coveredCells() {
+        return new Set([...pairs].flatMap((pair) => pair.split("|")));
+      }
+
+      function duplicatePairs() {
+        const seen = new Map();
+        const bad = new Set();
+        pairs.forEach((pair) => {
+          const dots = dotPair(pair);
+          if (seen.has(dots)) {
+            bad.add(pair);
+            bad.add(seen.get(dots));
+          } else {
+            seen.set(dots, pair);
+          }
+        });
+        return bad;
+      }
+
+      function solved(bad) {
+        if (bad.size || pairs.size !== 8) return false;
+        return [...solution].every((pair) => pairs.has(pair));
+      }
+
+      function handleCell(cell) {
+        const existing = pairForCell(cell);
+        if (existing) {
+          pairs.delete(existing);
+          selected = null;
+          render();
+          return;
+        }
+        if (!selected) {
+          selected = cell;
+          render();
+          return;
+        }
+        if (selected === cell) {
+          selected = null;
+          render();
+          return;
+        }
+        if (!adjacent(selected, cell) || pairForCell(selected)) {
+          selected = cell;
+          render();
+          return;
+        }
+        pairs.add(pairKey(selected, cell));
+        selected = null;
+        render();
+      }
+
+      function render() {
+        const badPairs = duplicatePairs();
+        const covered = coveredCells();
+        const complete = solved(badPairs);
+        board.innerHTML = "";
+        for (let row = 0; row < rows; row += 1) {
+          for (let col = 0; col < cols; col += 1) {
+            const cell = key(row, col);
+            const pair = pairForCell(cell);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = grid[row][col];
+            button.ariaLabel = pair ? "移除骨牌" : "选择格子";
+            button.className =
+              "aspect-square rounded border text-2xl font-black transition focus:outline-none focus:ring-2 focus:ring-lime-300 " +
+              (pair && badPairs.has(pair)
+                ? "border-rose-300 bg-rose-500 text-white"
+                : selected === cell
+                  ? "border-lime-200 bg-lime-200 text-stone-950 ring-2 ring-white"
+                  : pair
+                    ? "border-lime-300 bg-lime-700 text-white"
+                    : "border-stone-700 bg-stone-800 text-stone-100 hover:bg-stone-700");
+            button.addEventListener("click", () => handleCell(cell));
+            board.appendChild(button);
+          }
+        }
+        coveredCount.textContent = `${covered.size}/16`;
+        duplicateCount.textContent = badPairs.size;
+        doneStatus.textContent = complete ? "是" : "否";
+        if (complete) {
+          message.textContent = "完成！棋盘完全覆盖，且每种点数组合只使用一次。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-emerald-300";
+        } else if (badPairs.size) {
+          message.textContent = "红色骨牌的点数组合重复了，需要换一种覆盖方式。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-rose-300";
+        } else {
+          message.textContent = selected ? "再点一个相邻空格来放置骨牌。" : "继续覆盖所有格子。点击已放骨牌可移除。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-stone-300";
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        pairs.clear();
+        selected = null;
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
