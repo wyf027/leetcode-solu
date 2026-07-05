@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Halatafl</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-fuchsia-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Halatafl</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-fuchsia-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[590px] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-fuchsia-200">狐</p>
+          <p id="statusText" class="mt-2 text-sm leading-6 text-zinc-300"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">鹅群</p>
+            <p id="gooseStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">狐</p>
+            <p id="foxStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <p class="font-semibold text-zinc-100">规则</p>
+          <p class="mt-2">狐可向八方向移动一格，也可跳过相邻鹅吃掉它。鹅只能向下、左右或斜向下移动一格。鹅困住狐获胜；狐吃到只剩 5 只鹅获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const gooseStats = document.getElementById("gooseStats");
+    const foxStats = document.getElementById("foxStats");
+    const size = 5;
+    let board;
+    let turn;
+    let selected;
+    let captured;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array(size * size).fill(null);
+      [0, 1, 2, 3, 4, 5, 6, 8, 9, 12, 15, 19, 20].forEach((index) => board[index] = "G");
+      board[22] = "F";
+      turn = "F";
+      selected = null;
+      captured = 0;
+      winner = null;
+      message = "狐先移动或跳吃。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "F" ? "狐" : "鹅群";
+    }
+
+    function otherSide(side) {
+      return side === "F" ? "G" : "F";
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexAt(row, col) {
+      return row * size + col;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function directionsFor(piece) {
+      if (piece === "F") return [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+      return [[0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+    }
+
+    function legalMovesFrom(index) {
+      const piece = board[index];
+      if (!piece) return [];
+      const [row, col] = rowCol(index);
+      const moves = [];
+      directionsFor(piece).forEach(([dr, dc]) => {
+        const stepRow = row + dr;
+        const stepCol = col + dc;
+        if (inside(stepRow, stepCol)) {
+          const step = indexAt(stepRow, stepCol);
+          if (board[step] === null) moves.push({ to: step, capture: null });
+        }
+        if (piece !== "F") return;
+        const midRow = row + dr;
+        const midCol = col + dc;
+        const landRow = row + dr * 2;
+        const landCol = col + dc * 2;
+        if (!inside(midRow, midCol) || !inside(landRow, landCol)) return;
+        const mid = indexAt(midRow, midCol);
+        const land = indexAt(landRow, landCol);
+        if (board[mid] === "G" && board[land] === null) moves.push({ to: land, capture: mid });
+      });
+      return moves;
+    }
+
+    function allMoves(side) {
+      const moves = [];
+      board.forEach((piece, index) => {
+        if (piece === side) legalMovesFrom(index).forEach((move) => moves.push({ from: index, ...move }));
+      });
+      return moves;
+    }
+
+    function gooseCount() {
+      return board.filter((piece) => piece === "G").length;
+    }
+
+    function checkWin() {
+      if (gooseCount() <= 5) {
+        winner = "F";
+        message = "鹅只剩 5 只，狐获胜。";
+      } else if (allMoves("F").length === 0) {
+        winner = "G";
+        message = "狐无路可走，鹅群获胜。";
+      } else if (turn === "G" && allMoves("G").length === 0) {
+        winner = "F";
+        message = "鹅群无棋可动，狐获胜。";
+      }
+    }
+
+    function finishTurn() {
+      checkWin();
+      if (!winner) {
+        turn = otherSide(turn);
+        selected = null;
+        message = `${sideName(turn)}选择棋子移动。`;
+      }
+      render();
+    }
+
+    function movePiece(index) {
+      if (selected === null) {
+        if (board[index] === turn) {
+          selected = index;
+          message = "选择高亮空格。";
+        } else {
+          message = `请选择${sideName(turn)}棋子。`;
+        }
+        render();
+        return;
+      }
+      if (index === selected) {
+        selected = null;
+        message = "已取消选择。";
+        render();
+        return;
+      }
+      if (board[index] === turn) {
+        selected = index;
+        message = "已切换棋子。";
+        render();
+        return;
+      }
+      const move = legalMovesFrom(selected).find((item) => item.to === index);
+      if (!move) {
+        message = "只能移动到高亮空格。";
+        render();
+        return;
+      }
+      board[index] = turn;
+      board[selected] = null;
+      if (move.capture !== null) {
+        board[move.capture] = null;
+        captured += 1;
+      }
+      finishTurn();
+    }
+
+    function renderCell(index) {
+      const piece = board[index];
+      const legal = selected !== null && legalMovesFrom(selected).some((move) => move.to === index);
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.setAttribute("aria-label", `格子 ${index + 1}`);
+      cell.className = [
+        "aspect-square rounded border text-center transition",
+        selected === index ? "border-fuchsia-300 bg-fuchsia-300/20" : "border-zinc-700 bg-zinc-950",
+        legal ? "ring-2 ring-fuchsia-300" : "",
+        !piece ? "hover:bg-zinc-800" : "",
+      ].join(" ");
+      if (piece) {
+        const token = document.createElement("span");
+        token.textContent = piece === "F" ? "狐" : "鹅";
+        token.className = piece === "F"
+          ? "mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-fuchsia-300 font-bold text-zinc-950"
+          : "mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 font-bold text-zinc-950";
+        cell.appendChild(token);
+      }
+      cell.addEventListener("click", () => movePiece(index));
+      return cell;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((_, index) => boardEl.appendChild(renderCell(index)));
+      turnText.textContent = winner ? `${sideName(winner)}胜利` : sideName(turn);
+      statusText.textContent = message;
+      gooseStats.textContent = `${gooseCount()} 只`;
+      foxStats.textContent = `已吃 ${captured}`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
