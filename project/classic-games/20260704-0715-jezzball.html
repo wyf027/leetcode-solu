@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini JezzBall</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-5 px-4 py-6">
+    <section class="w-full rounded-lg border border-violet-300/30 bg-indigo-900/90 p-4 shadow-2xl shadow-indigo-950/50">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-violet-100">Mini JezzBall</h1>
+          <p class="text-sm text-indigo-100/80">Build walls, trap the balls, and claim enough space.</p>
+        </div>
+        <button id="restart" class="rounded-md bg-violet-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-violet-200">Restart</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_220px]">
+        <div class="flex justify-center">
+          <canvas id="arena" width="640" height="480" class="w-full max-w-[640px] rounded-md border-4 border-violet-400 bg-slate-950"></canvas>
+        </div>
+        <aside class="space-y-3">
+          <div class="grid grid-cols-2 gap-2 text-center lg:grid-cols-1">
+            <div class="rounded-md bg-indigo-950/80 p-3">
+              <div class="text-xs uppercase text-indigo-200/70">Level</div>
+              <div id="level" class="text-xl font-bold text-violet-200">1</div>
+            </div>
+            <div class="rounded-md bg-indigo-950/80 p-3">
+              <div class="text-xs uppercase text-indigo-200/70">Claimed</div>
+              <div id="claimed" class="text-xl font-bold text-emerald-200">0%</div>
+            </div>
+            <div class="rounded-md bg-indigo-950/80 p-3">
+              <div class="text-xs uppercase text-indigo-200/70">Lives</div>
+              <div id="lives" class="text-xl font-bold text-rose-200">3</div>
+            </div>
+            <div class="rounded-md bg-indigo-950/80 p-3">
+              <div class="text-xs uppercase text-indigo-200/70">Mode</div>
+              <div id="mode" class="text-xl font-bold text-cyan-200">V</div>
+            </div>
+          </div>
+          <div id="message" class="rounded-md border border-indigo-700 bg-indigo-950 p-3 text-center text-sm text-indigo-100/80">
+            Click to build. Press Space to switch wall direction.
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("arena");
+    const ctx = canvas.getContext("2d");
+    const levelEl = document.getElementById("level");
+    const claimedEl = document.getElementById("claimed");
+    const livesEl = document.getElementById("lives");
+    const modeEl = document.getElementById("mode");
+    const messageEl = document.getElementById("message");
+    const restart = document.getElementById("restart");
+
+    const cell = 20;
+    const cols = canvas.width / cell;
+    const rows = canvas.height / cell;
+    let grid = [];
+    let balls = [];
+    let builders = [];
+    let vertical = true;
+    let level = 1;
+    let lives = 3;
+    let running = true;
+
+    function resetGame() {
+      level = 1;
+      lives = 3;
+      running = true;
+      startLevel();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function startLevel() {
+      grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+      for (let r = 0; r < rows; r += 1) {
+        for (let c = 0; c < cols; c += 1) {
+          if (r === 0 || c === 0 || r === rows - 1 || c === cols - 1) grid[r][c] = 1;
+        }
+      }
+      builders = [];
+      balls = Array.from({ length: Math.min(5, level + 1) }, (_, index) => ({
+        x: 120 + index * 70,
+        y: 120 + (index % 2) * 110,
+        vx: (index % 2 ? -1 : 1) * (2 + level * 0.2),
+        vy: (index % 3 ? 1 : -1) * (2.1 + level * 0.16)
+      }));
+      messageEl.textContent = "Click to build. Press Space to switch wall direction.";
+      renderStats();
+    }
+
+    function renderStats() {
+      levelEl.textContent = level;
+      livesEl.textContent = lives;
+      modeEl.textContent = vertical ? "V" : "H";
+      claimedEl.textContent = `${claimedPercent()}%`;
+    }
+
+    function claimedPercent() {
+      const filled = grid.flat().filter(Boolean).length;
+      return Math.round((filled / (rows * cols)) * 100);
+    }
+
+    function isWallAt(x, y) {
+      const c = Math.floor(x / cell);
+      const r = Math.floor(y / cell);
+      return grid[r] && grid[r][c] === 1;
+    }
+
+    function buildWall(col, row) {
+      if (!running || grid[row][col] === 1 || builders.length) return;
+      builders.push({ col, row, dc: vertical ? 0 : -1, dr: vertical ? -1 : 0, active: true });
+      builders.push({ col, row, dc: vertical ? 0 : 1, dr: vertical ? 1 : 0, active: true });
+      grid[row][col] = 2;
+    }
+
+    function updateBuilders() {
+      if (!builders.length) return;
+      builders.forEach((builder) => {
+        if (!builder.active) return;
+        const nextCol = builder.col + builder.dc;
+        const nextRow = builder.row + builder.dr;
+        if (grid[nextRow][nextCol] === 1) {
+          builder.active = false;
+          return;
+        }
+        builder.col = nextCol;
+        builder.row = nextRow;
+        grid[nextRow][nextCol] = 2;
+      });
+      if (balls.some((ball) => grid[Math.floor(ball.y / cell)]?.[Math.floor(ball.x / cell)] === 2)) {
+        loseLife();
+        return;
+      }
+      if (builders.every((builder) => !builder.active)) {
+        grid = grid.map((row) => row.map((value) => value === 2 ? 1 : value));
+        builders = [];
+        claimEmptyAreas();
+      }
+    }
+
+    function claimEmptyAreas() {
+      const ballCells = new Set(balls.map((ball) => `${Math.floor(ball.y / cell)},${Math.floor(ball.x / cell)}`));
+      const seen = new Set();
+      for (let r = 1; r < rows - 1; r += 1) {
+        for (let c = 1; c < cols - 1; c += 1) {
+          const key = `${r},${c}`;
+          if (grid[r][c] || seen.has(key)) continue;
+          const area = floodArea(r, c, seen);
+          const hasBall = area.some(([ar, ac]) => ballCells.has(`${ar},${ac}`));
+          if (!hasBall) area.forEach(([ar, ac]) => {
+            grid[ar][ac] = 1;
+          });
+        }
+      }
+      if (claimedPercent() >= 75) {
+        level += 1;
+        messageEl.textContent = "Area claimed. Next level.";
+        startLevel();
+      }
+    }
+
+    function floodArea(row, col, seen) {
+      const queue = [[row, col]];
+      const area = [];
+      seen.add(`${row},${col}`);
+      while (queue.length) {
+        const [r, c] = queue.shift();
+        area.push([r, c]);
+        [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dr, dc]) => {
+          const nr = r + dr;
+          const nc = c + dc;
+          const key = `${nr},${nc}`;
+          if (nr <= 0 || nr >= rows - 1 || nc <= 0 || nc >= cols - 1 || grid[nr][nc] || seen.has(key)) return;
+          seen.add(key);
+          queue.push([nr, nc]);
+        });
+      }
+      return area;
+    }
+
+    function loseLife() {
+      lives -= 1;
+      builders = [];
+      grid = grid.map((row) => row.map((value) => value === 2 ? 0 : value));
+      if (lives <= 0) {
+        running = false;
+        messageEl.textContent = "Game over. Restart to try again.";
+      } else {
+        messageEl.textContent = "A ball hit your wall. Try a safer cut.";
+      }
+      renderStats();
+    }
+
+    function updateBalls() {
+      balls.forEach((ball) => {
+        ball.x += ball.vx;
+        if (isWallAt(ball.x, ball.y)) {
+          ball.x -= ball.vx;
+          ball.vx *= -1;
+        }
+        ball.y += ball.vy;
+        if (isWallAt(ball.x, ball.y)) {
+          ball.y -= ball.vy;
+          ball.vy *= -1;
+        }
+      });
+    }
+
+    function drawGrid() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let r = 0; r < rows; r += 1) {
+        for (let c = 0; c < cols; c += 1) {
+          if (!grid[r][c]) continue;
+          ctx.fillStyle = grid[r][c] === 1 ? "#7c3aed" : "#22d3ee";
+          ctx.fillRect(c * cell, r * cell, cell - 1, cell - 1);
+        }
+      }
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 1;
+      for (let c = 0; c <= cols; c += 1) {
+        ctx.beginPath();
+        ctx.moveTo(c * cell, 0);
+        ctx.lineTo(c * cell, canvas.height);
+        ctx.stroke();
+      }
+      for (let r = 0; r <= rows; r += 1) {
+        ctx.beginPath();
+        ctx.moveTo(0, r * cell);
+        ctx.lineTo(canvas.width, r * cell);
+        ctx.stroke();
+      }
+    }
+
+    function renderGame() {
+      drawGrid();
+      balls.forEach((ball) => {
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = "#facc15";
+        ctx.fill();
+        ctx.strokeStyle = "#fef3c7";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      });
+      renderStats();
+    }
+
+    function gameLoop() {
+      if (running) {
+        updateBuilders();
+        updateBalls();
+      }
+      renderGame();
+      requestAnimationFrame(gameLoop);
+    }
+
+    canvas.addEventListener("click", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const col = Math.floor(((event.clientX - rect.left) / rect.width) * cols);
+      const row = Math.floor(((event.clientY - rect.top) / rect.height) * rows);
+      buildWall(col, row);
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === " ") {
+        event.preventDefault();
+        vertical = !vertical;
+        renderStats();
+      }
+    });
+
+    restart.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
