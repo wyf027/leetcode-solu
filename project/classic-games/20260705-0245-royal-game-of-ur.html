@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Royal Game of Ur</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-indigo-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-amber-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Royal Game of Ur</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-amber-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+        <div id="board" class="mx-auto grid max-w-3xl grid-cols-8 gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+          <p class="text-sm text-indigo-300">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-amber-200">蓝方</p>
+          <p id="statusText" class="mt-2 text-sm leading-6 text-indigo-100"></p>
+          <button id="rollBtn" class="mt-4 w-full rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-amber-200">
+            投掷四枚骰
+          </button>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+            <p class="text-sm text-indigo-300">蓝方</p>
+            <p id="blueStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+            <p class="text-sm text-indigo-300">红方</p>
+            <p id="redStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4 text-sm leading-6 text-indigo-100">
+          <p class="font-semibold text-white">规则</p>
+          <p class="mt-2">每方 5 枚棋。掷出 1-4 前进，0 则换手。玫瑰格额外回合且不能被吃。先让 5 枚棋走出终点者获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const rollBtn = document.getElementById("rollBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const blueStats = document.getElementById("blueStats");
+    const redStats = document.getElementById("redStats");
+    const piecesPerSide = 5;
+    const rosettes = new Set([3, 7, 13]);
+    const paths = {
+      B: ["b0", "b1", "b2", "bR", "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "b3", "b4"],
+      R: ["r0", "r1", "r2", "rR", "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "r4", "r5"],
+    };
+    let pieces;
+    let turn;
+    let roll;
+    let winner;
+    let message;
+
+    function resetGame() {
+      pieces = {
+        B: Array(piecesPerSide).fill(-1),
+        R: Array(piecesPerSide).fill(-1),
+      };
+      turn = "B";
+      roll = null;
+      winner = null;
+      message = "投掷四枚骰开始。";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "B" ? "蓝方" : "红方";
+    }
+
+    function otherSide(side) {
+      return side === "B" ? "R" : "B";
+    }
+
+    function finishedCount(side) {
+      return pieces[side].filter((position) => position >= paths[side].length).length;
+    }
+
+    function cellFor(side, position) {
+      if (position < 0 || position >= paths[side].length) return null;
+      return paths[side][position];
+    }
+
+    function pieceAtCell(cell) {
+      for (const side of ["B", "R"]) {
+        const index = pieces[side].findIndex((position) => cellFor(side, position) === cell);
+        if (index >= 0) return { side, index, position: pieces[side][index] };
+      }
+      return null;
+    }
+
+    function isLegalMove(pieceIndex) {
+      if (roll === null || roll === 0) return false;
+      const from = pieces[turn][pieceIndex];
+      if (from >= paths[turn].length) return false;
+      const to = from + roll;
+      if (to > paths[turn].length) return false;
+      if (to === paths[turn].length) return true;
+      const targetCell = cellFor(turn, to);
+      const occupant = pieceAtCell(targetCell);
+      if (!occupant) return true;
+      if (occupant.side === turn) return false;
+      return !rosettes.has(to);
+    }
+
+    function legalMoveIndexes() {
+      return pieces[turn].map((_, index) => index).filter(isLegalMove);
+    }
+
+    function castDice() {
+      if (winner || roll !== null) return;
+      roll = Array.from({ length: 4 }, () => Math.random() < 0.5 ? 0 : 1).reduce((sum, value) => sum + value, 0);
+      const choices = legalMoveIndexes();
+      if (roll === 0 || choices.length === 0) {
+        message = `掷出 ${roll}，无法行动，换手。`;
+        roll = null;
+        turn = otherSide(turn);
+      } else {
+        message = `掷出 ${roll}，选择一枚高亮棋子。`;
+      }
+      render();
+    }
+
+    function movePiece(pieceIndex) {
+      if (!isLegalMove(pieceIndex)) {
+        message = "请选择可行动的高亮棋子。";
+        render();
+        return;
+      }
+      const from = pieces[turn][pieceIndex];
+      const to = from + roll;
+      let extraTurn = false;
+      if (to === paths[turn].length) {
+        pieces[turn][pieceIndex] = to;
+        message = `${sideName(turn)}一枚棋到达终点。`;
+      } else {
+        const targetCell = cellFor(turn, to);
+        const occupant = pieceAtCell(targetCell);
+        if (occupant && occupant.side !== turn) pieces[occupant.side][occupant.index] = -1;
+        pieces[turn][pieceIndex] = to;
+        extraTurn = rosettes.has(to);
+        message = extraTurn ? "落在玫瑰格，额外回合。" : "完成移动。";
+      }
+      if (finishedCount(turn) === piecesPerSide) {
+        winner = turn;
+        message = `${sideName(turn)}全部出盘，${sideName(turn)}获胜。`;
+      } else if (!extraTurn) {
+        turn = otherSide(turn);
+      }
+      roll = null;
+      render();
+    }
+
+    function makeCell(id, label, pathIndex) {
+      const occupant = pieceAtCell(id);
+      const cell = document.createElement("div");
+      cell.className = [
+        "flex aspect-square flex-col items-center justify-center rounded border text-xs",
+        pathIndex !== null && rosettes.has(pathIndex) ? "border-amber-300 bg-amber-950" : "border-indigo-700 bg-indigo-950",
+      ].join(" ");
+      if (occupant) {
+        const token = document.createElement("button");
+        token.type = "button";
+        token.textContent = occupant.side === "B" ? "蓝" : "红";
+        token.className = [
+          "flex h-10 w-10 items-center justify-center rounded-full font-bold",
+          occupant.side === "B" ? "bg-sky-300 text-indigo-950" : "bg-rose-300 text-indigo-950",
+          occupant.side === turn && isLegalMove(occupant.index) ? "ring-2 ring-amber-300" : "",
+        ].join(" ");
+        token.addEventListener("click", () => movePiece(occupant.index));
+        cell.appendChild(token);
+      } else {
+        const text = document.createElement("span");
+        text.className = "text-indigo-300";
+        text.textContent = label;
+        cell.appendChild(text);
+      }
+      return cell;
+    }
+
+    function render() {
+      const layout = [
+        ["b0", "b1", "b2", "bR", "b3", "b4", "offB", "homeB"],
+        ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"],
+        ["r0", "r1", "r2", "rR", "r4", "r5", "offR", "homeR"],
+      ];
+      boardEl.innerHTML = "";
+      layout.flat().forEach((id) => {
+        if (id === "offB" || id === "offR") {
+          const side = id === "offB" ? "B" : "R";
+          const cell = document.createElement("div");
+          cell.className = "flex aspect-square flex-col items-center justify-center rounded border border-indigo-700 bg-indigo-900 text-xs";
+          cell.textContent = `未入 ${pieces[side].filter((position) => position < 0).length}`;
+          boardEl.appendChild(cell);
+        } else if (id === "homeB" || id === "homeR") {
+          const side = id === "homeB" ? "B" : "R";
+          const cell = document.createElement("div");
+          cell.className = "flex aspect-square flex-col items-center justify-center rounded border border-emerald-300 bg-emerald-950 text-xs";
+          cell.textContent = `终点 ${finishedCount(side)}`;
+          boardEl.appendChild(cell);
+        } else {
+          const pathIndex = paths.B.indexOf(id) >= 0 ? paths.B.indexOf(id) : paths.R.indexOf(id);
+          boardEl.appendChild(makeCell(id, id.toUpperCase(), pathIndex));
+        }
+      });
+      turnText.textContent = winner ? `${sideName(winner)}胜利` : sideName(turn);
+      statusText.textContent = roll === null ? message : `${message} 当前点数：${roll}`;
+      blueStats.textContent = `终点 ${finishedCount("B")} / 未入 ${pieces.B.filter((position) => position < 0).length}`;
+      redStats.textContent = `终点 ${finishedCount("R")} / 未入 ${pieces.R.filter((position) => position < 0).length}`;
+      rollBtn.disabled = winner || roll !== null;
+      rollBtn.classList.toggle("opacity-50", rollBtn.disabled);
+    }
+
+    rollBtn.addEventListener("click", castDice);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
