@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Fillomino</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-8">
+      <section class="w-full rounded border border-neutral-700 bg-neutral-900 p-5 shadow-2xl shadow-indigo-950/40">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-indigo-300">Polyomino puzzle</p>
+            <h1 class="mt-1 text-3xl font-bold text-white">Mini Fillomino</h1>
+          </div>
+          <button id="resetBtn" class="rounded bg-indigo-400 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-indigo-300">
+            重开
+          </button>
+        </div>
+
+        <div id="board" class="mx-auto mt-6 grid w-full max-w-[390px] grid-cols-5 gap-1"></div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+          <div class="rounded border border-neutral-700 bg-neutral-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-neutral-400">已填写</p>
+            <p id="filledCount" class="text-xl font-bold text-indigo-200">0</p>
+          </div>
+          <div class="rounded border border-neutral-700 bg-neutral-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-neutral-400">区域错误</p>
+            <p id="errorCount" class="text-xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded border border-neutral-700 bg-neutral-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-neutral-400">完成</p>
+            <p id="doneStatus" class="text-xl font-bold text-emerald-200">否</p>
+          </div>
+        </div>
+
+        <p id="message" class="mt-5 min-h-7 text-center text-sm font-semibold text-neutral-300">
+          点击空格循环填入 1-4。每个相同数字连通区域的格数必须等于该数字。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const size = 5;
+      const givens = new Map([
+        ["0,0", 2],
+        ["0,3", 3],
+        ["1,2", 4],
+        ["2,0", 3],
+        ["2,4", 2],
+        ["3,1", 1],
+        ["4,2", 4],
+        ["4,4", 2],
+      ]);
+      const solution = [
+        [2, 2, 3, 3, 3],
+        [3, 4, 4, 4, 2],
+        [3, 4, 1, 2, 2],
+        [3, 1, 4, 4, 2],
+        [1, 4, 4, 4, 2],
+      ];
+      const values = new Map(givens);
+      const board = document.getElementById("board");
+      const filledCount = document.getElementById("filledCount");
+      const errorCount = document.getElementById("errorCount");
+      const doneStatus = document.getElementById("doneStatus");
+      const message = document.getElementById("message");
+      const resetBtn = document.getElementById("resetBtn");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function neighbors(row, col) {
+        return [
+          [row - 1, col],
+          [row + 1, col],
+          [row, col - 1],
+          [row, col + 1],
+        ].filter(([r, c]) => r >= 0 && r < size && c >= 0 && c < size);
+      }
+
+      function flood(start, number) {
+        const seen = new Set([start]);
+        const queue = [start];
+        while (queue.length) {
+          const [row, col] = queue.shift().split(",").map(Number);
+          neighbors(row, col).forEach(([r, c]) => {
+            const spot = key(r, c);
+            if (!seen.has(spot) && values.get(spot) === number) {
+              seen.add(spot);
+              queue.push(spot);
+            }
+          });
+        }
+        return seen;
+      }
+
+      function regionReport() {
+        const visited = new Set();
+        const bad = new Set();
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const spot = key(row, col);
+            const number = values.get(spot);
+            if (!number || visited.has(spot)) continue;
+            const region = flood(spot, number);
+            region.forEach((cell) => visited.add(cell));
+            if (region.size !== number) region.forEach((cell) => bad.add(cell));
+          }
+        }
+        return bad;
+      }
+
+      function solved(bad) {
+        if (bad.size || values.size !== size * size) return false;
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            if (values.get(key(row, col)) !== solution[row][col]) return false;
+          }
+        }
+        return true;
+      }
+
+      function cellClass(number, bad, given) {
+        if (bad) return "border-rose-300 bg-rose-500 text-white";
+        if (given) return "border-indigo-200 bg-indigo-100 text-neutral-950";
+        if (!number) return "border-neutral-700 bg-neutral-800 text-neutral-500 hover:bg-neutral-700";
+        const palette = {
+          1: "border-emerald-300 bg-emerald-100 text-emerald-950",
+          2: "border-sky-300 bg-sky-100 text-sky-950",
+          3: "border-amber-300 bg-amber-100 text-amber-950",
+          4: "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-950",
+        };
+        return palette[number];
+      }
+
+      function render() {
+        const bad = regionReport();
+        const complete = solved(bad);
+        board.innerHTML = "";
+
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const spot = key(row, col);
+            const number = values.get(spot) || "";
+            const given = givens.has(spot);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = number;
+            button.className = `aspect-square rounded border text-2xl font-black transition focus:outline-none focus:ring-2 focus:ring-indigo-300 ${cellClass(number, bad.has(spot), given)}`;
+            if (given) {
+              button.disabled = true;
+              button.ariaLabel = `固定数字 ${number}`;
+            } else {
+              button.ariaLabel = number ? `当前数字 ${number}` : "空格";
+              button.addEventListener("click", () => {
+                const next = number === "" ? 1 : number === 4 ? "" : number + 1;
+                next ? values.set(spot, next) : values.delete(spot);
+                render();
+              });
+            }
+            board.appendChild(button);
+          }
+        }
+
+        filledCount.textContent = values.size;
+        errorCount.textContent = bad.size;
+        doneStatus.textContent = complete ? "是" : "否";
+
+        if (complete) {
+          message.textContent = "完成！每个连通区域的大小都匹配区域内数字。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-emerald-300";
+        } else if (bad.size) {
+          message.textContent = "红色区域大小和数字不一致，继续调整。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-rose-300";
+        } else {
+          message.textContent = "继续填满棋盘，避免相邻同数字组成错误大小的区域。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-neutral-300";
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        values.clear();
+        givens.forEach((value, spot) => values.set(spot, value));
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
