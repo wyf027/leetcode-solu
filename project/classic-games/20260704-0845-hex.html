@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Hex</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-5 px-4 py-6">
+    <section class="w-full rounded-lg border border-sky-400/30 bg-slate-900 p-4 shadow-2xl shadow-sky-950/50">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-sky-100">Mini Hex</h1>
+          <p class="text-sm text-slate-400">Connect your blue sides before the rival connects red sides.</p>
+        </div>
+        <button id="restart" class="rounded-md bg-sky-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-200">Restart</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_220px]">
+        <div class="overflow-auto rounded-md bg-slate-950 p-4">
+          <div class="mb-2 flex justify-center text-sm font-semibold text-rose-200">Rival goal</div>
+          <div id="board" class="mx-auto min-w-[560px]"></div>
+          <div class="mt-2 flex justify-center text-sm font-semibold text-rose-200">Rival goal</div>
+        </div>
+
+        <aside class="space-y-3">
+          <div class="grid grid-cols-2 gap-2 text-center lg:grid-cols-1">
+            <div class="rounded-md bg-slate-800 p-3">
+              <div class="text-xs uppercase text-slate-400">Turn</div>
+              <div id="turn" class="text-xl font-bold text-sky-200">Blue</div>
+            </div>
+            <div class="rounded-md bg-slate-800 p-3">
+              <div class="text-xs uppercase text-slate-400">Moves</div>
+              <div id="moves" class="text-xl font-bold text-amber-200">0</div>
+            </div>
+          </div>
+          <div class="rounded-md bg-slate-800 p-3 text-center text-sm font-semibold text-sky-200">
+            Your goal: connect left to right.
+          </div>
+          <div id="message" class="rounded-md border border-slate-700 bg-slate-950 p-3 text-center text-sm text-slate-300">
+            Click an empty hex to place a blue stone.
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const movesEl = document.getElementById("moves");
+    const messageEl = document.getElementById("message");
+    const restartEl = document.getElementById("restart");
+
+    let board;
+    let current;
+    let moves;
+    let gameOver;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(0));
+      current = 1;
+      moves = 0;
+      gameOver = false;
+      messageEl.textContent = "Click an empty hex to place a blue stone.";
+      renderBoard();
+    }
+
+    function neighbors(row, col) {
+      return [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0]]
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([r, c]) => r >= 0 && r < size && c >= 0 && c < size);
+    }
+
+    function placeStone(row, col, player) {
+      if (gameOver || board[row][col] !== 0) return false;
+      board[row][col] = player;
+      moves += 1;
+      if (checkWinner(player)) {
+        gameOver = true;
+        messageEl.textContent = player === 1 ? "Blue connects left to right. You win." : "Red connects top to bottom. Rival wins.";
+      } else if (moves === size * size) {
+        gameOver = true;
+        messageEl.textContent = "The board is full.";
+      }
+      return true;
+    }
+
+    function playerMove(row, col) {
+      if (current !== 1 || !placeStone(row, col, 1)) return;
+      current = 2;
+      renderBoard();
+      if (!gameOver) {
+        setTimeout(() => {
+          computerMove();
+          current = 1;
+          renderBoard();
+        }, 180);
+      }
+    }
+
+    function computerMove() {
+      const move = bestComputerMove();
+      if (move) placeStone(move.row, move.col, 2);
+    }
+
+    function bestComputerMove() {
+      const empty = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === 0) empty.push({ row, col });
+        }
+      }
+      const winning = empty.find((move) => wouldWin(move.row, move.col, 2));
+      if (winning) return winning;
+      const blocking = empty.find((move) => wouldWin(move.row, move.col, 1));
+      if (blocking) return blocking;
+      empty.sort((a, b) => scoreHex(b.row, b.col) - scoreHex(a.row, a.col));
+      return empty[0];
+    }
+
+    function wouldWin(row, col, player) {
+      board[row][col] = player;
+      const result = checkWinner(player);
+      board[row][col] = 0;
+      return result;
+    }
+
+    function scoreHex(row, col) {
+      let score = 12 - Math.abs(3 - col) - Math.abs(3 - row);
+      neighbors(row, col).forEach(([r, c]) => {
+        if (board[r][c] === 2) score += 5;
+        if (board[r][c] === 1) score += 3;
+      });
+      return score;
+    }
+
+    function checkWinner(player) {
+      const queue = [];
+      const seen = new Set();
+      if (player === 1) {
+        for (let row = 0; row < size; row += 1) {
+          if (board[row][0] === 1) queue.push([row, 0]);
+        }
+      } else {
+        for (let col = 0; col < size; col += 1) {
+          if (board[0][col] === 2) queue.push([0, col]);
+        }
+      }
+      while (queue.length) {
+        const [row, col] = queue.shift();
+        const key = `${row},${col}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if ((player === 1 && col === size - 1) || (player === 2 && row === size - 1)) return true;
+        neighbors(row, col).forEach(([r, c]) => {
+          if (board[r][c] === player) queue.push([r, c]);
+        });
+      }
+      return false;
+    }
+
+    function renderBoard() {
+      turnEl.textContent = gameOver ? "Done" : current === 1 ? "Blue" : "Red";
+      movesEl.textContent = moves;
+      const rows = [];
+      for (let row = 0; row < size; row += 1) {
+        const line = document.createElement("div");
+        line.className = "flex h-16";
+        line.style.marginLeft = `${row * 34}px`;
+        for (let col = 0; col < size; col += 1) {
+          const value = board[row][col];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.disabled = gameOver || value !== 0 || current !== 1;
+          cell.className = "relative -ml-2 h-16 w-16 transition hover:scale-105 disabled:hover:scale-100";
+          const hex = document.createElement("span");
+          hex.className = [
+            "absolute inset-1 flex items-center justify-center border-2 text-xs font-bold",
+            "[clip-path:polygon(25%_5%,75%_5%,100%_50%,75%_95%,25%_95%,0_50%)]",
+            value === 1 ? "border-sky-100 bg-sky-500" : "",
+            value === 2 ? "border-rose-100 bg-rose-500" : "",
+            value === 0 ? "border-slate-500 bg-slate-800 hover:bg-slate-700" : ""
+          ].join(" ");
+          cell.appendChild(hex);
+          cell.addEventListener("click", () => playerMove(row, col));
+          line.appendChild(cell);
+        }
+        rows.push(line);
+      }
+      boardEl.replaceChildren(...rows);
+    }
+
+    restartEl.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
