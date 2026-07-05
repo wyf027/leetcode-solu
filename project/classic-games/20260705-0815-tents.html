@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Tents</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Tents</h1>
+        <p class="text-sm text-emerald-200/80">给每棵树配一个相邻帐篷；帐篷不能互相接触，行列数量要匹配提示。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-amber-200">重开</button>
+    </header>
+
+    <section class="grid grid-cols-3 gap-3">
+      <div class="rounded border border-emerald-700 bg-emerald-900 p-3">
+        <div class="text-xs uppercase text-emerald-300/80">帐篷</div>
+        <div id="tentCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-emerald-700 bg-emerald-900 p-3">
+        <div class="text-xs uppercase text-emerald-300/80">错误</div>
+        <div id="errorCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-emerald-700 bg-emerald-900 p-3">
+        <div class="text-xs uppercase text-emerald-300/80">状态</div>
+        <div id="stateLabel" class="text-2xl font-semibold">进行</div>
+      </div>
+    </section>
+
+    <section class="rounded border border-emerald-700 bg-emerald-900 p-4">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">5 x 5 营地</h2>
+        <span id="message" class="text-sm text-amber-200">点击空格放置或移除帐篷。</span>
+      </div>
+      <div id="board" class="mx-auto grid max-w-md grid-cols-6 gap-1"></div>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const tentCountEl = document.getElementById("tentCount");
+    const errorCountEl = document.getElementById("errorCount");
+    const stateLabelEl = document.getElementById("stateLabel");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const trees = [[0, 1], [1, 4], [3, 0], [4, 3]];
+    const rowClues = [1, 1, 0, 1, 1];
+    const colClues = [1, 1, 0, 1, 1];
+    let tents = [];
+    let solved = false;
+
+    function resetGame() {
+      tents = [];
+      solved = false;
+      setMessage("点击空格放置或移除帐篷。");
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function isTree(row, col) {
+      return trees.some(([r, c]) => r === row && c === col);
+    }
+
+    function isTent(row, col) {
+      return tents.includes(key(row, col));
+    }
+
+    function toggleTent(row, col) {
+      if (solved || isTree(row, col)) return;
+      const cellKey = key(row, col);
+      tents = isTent(row, col) ? tents.filter((item) => item !== cellKey) : [...tents, cellKey];
+      const errors = getErrors();
+      if (tents.length === trees.length && errors.length === 0) {
+        solved = true;
+        setMessage("完成。");
+      } else if (errors.length) {
+        setMessage("有提示、贴树或相邻规则错误。");
+      } else {
+        setMessage("继续放置帐篷。");
+      }
+      render();
+    }
+
+    function neighbors(row, col, diagonal) {
+      const dirs = diagonal
+        ? [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]
+        : [[-1, 0], [0, -1], [0, 1], [1, 0]];
+      return dirs
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([r, c]) => r >= 0 && r < size && c >= 0 && c < size);
+    }
+
+    function hasAdjacentTree(row, col) {
+      return neighbors(row, col, false).some(([r, c]) => isTree(r, c));
+    }
+
+    function hasAdjacentTent(row, col) {
+      return neighbors(row, col, true).some(([r, c]) => isTent(r, c));
+    }
+
+    function countRow(row) {
+      return tents.filter((item) => Number(item.split(",")[0]) === row).length;
+    }
+
+    function countCol(col) {
+      return tents.filter((item) => Number(item.split(",")[1]) === col).length;
+    }
+
+    function getErrors() {
+      const errors = [];
+      for (let index = 0; index < size; index += 1) {
+        if (countRow(index) > rowClues[index]) errors.push(`r${index}`);
+        if (countCol(index) > colClues[index]) errors.push(`c${index}`);
+      }
+      if (tents.length === trees.length) {
+        for (let index = 0; index < size; index += 1) {
+          if (countRow(index) !== rowClues[index]) errors.push(`r${index}`);
+          if (countCol(index) !== colClues[index]) errors.push(`c${index}`);
+        }
+      }
+      tents.forEach((item) => {
+        const [row, col] = item.split(",").map(Number);
+        if (!hasAdjacentTree(row, col)) errors.push(item);
+        if (hasAdjacentTent(row, col)) errors.push(item);
+      });
+      return errors;
+    }
+
+    function isCellError(row, col) {
+      const errors = getErrors();
+      return errors.includes(key(row, col)) || errors.includes(`r${row}`) || errors.includes(`c${col}`);
+    }
+
+    function renderHeader(text) {
+      const div = document.createElement("div");
+      div.className = "flex aspect-square items-center justify-center rounded bg-emerald-800 text-sm font-semibold text-amber-200";
+      div.textContent = text;
+      return div;
+    }
+
+    function renderCell(row, col) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "aspect-square rounded border border-emerald-700 bg-emerald-800 text-2xl font-semibold hover:border-amber-200";
+      if ((row + col) % 2 === 0) button.classList.add("bg-emerald-700");
+      if (isTree(row, col)) button.classList.add("text-lime-300");
+      if (isTent(row, col)) button.classList.add("text-amber-200");
+      if (isCellError(row, col)) button.classList.add("ring-4", "ring-red-400");
+      if (solved && isTent(row, col)) button.classList.add("ring-4", "ring-amber-200");
+      button.textContent = isTree(row, col) ? "♣" : isTent(row, col) ? "▲" : "";
+      button.disabled = isTree(row, col);
+      button.addEventListener("click", () => toggleTent(row, col));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      boardEl.appendChild(renderHeader(""));
+      colClues.forEach((clue) => boardEl.appendChild(renderHeader(clue)));
+      for (let row = 0; row < size; row += 1) {
+        boardEl.appendChild(renderHeader(rowClues[row]));
+        for (let col = 0; col < size; col += 1) {
+          boardEl.appendChild(renderCell(row, col));
+        }
+      }
+      tentCountEl.textContent = tents.length;
+      errorCountEl.textContent = getErrors().length;
+      stateLabelEl.textContent = solved ? "完成" : "进行";
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
