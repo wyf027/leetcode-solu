@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Picaria</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 lg:flex-row lg:items-center">
+    <section class="flex-1">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-3xl font-bold tracking-normal text-yellow-200">Mini Picaria</h1>
+          <p class="mt-1 max-w-2xl text-sm leading-6 text-sky-100">祖尼三子棋。双方先各放三枚棋子，再沿线移动到相邻空点，率先横、竖、斜三连获胜。</p>
+        </div>
+        <button id="resetBtn" class="rounded bg-yellow-300 px-4 py-2 text-sm font-bold text-sky-950 hover:bg-yellow-200">重开</button>
+      </div>
+
+      <div class="relative mx-auto aspect-square w-full max-w-[560px] rounded border border-sky-700 bg-sky-900 shadow-2xl">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          <g stroke="#7dd3fc" stroke-width="1.25">
+            <line x1="18" y1="18" x2="82" y2="18" />
+            <line x1="18" y1="50" x2="82" y2="50" />
+            <line x1="18" y1="82" x2="82" y2="82" />
+            <line x1="18" y1="18" x2="18" y2="82" />
+            <line x1="50" y1="18" x2="50" y2="82" />
+            <line x1="82" y1="18" x2="82" y2="82" />
+            <line x1="18" y1="18" x2="82" y2="82" />
+            <line x1="82" y1="18" x2="18" y2="82" />
+          </g>
+        </svg>
+        <div id="board" class="absolute inset-0"></div>
+      </div>
+    </section>
+
+    <aside class="w-full rounded border border-sky-700 bg-sky-900 p-4 lg:w-80">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded bg-sky-800 p-3">
+          <div class="text-sky-200">当前回合</div>
+          <div id="turnText" class="mt-1 text-xl font-bold text-yellow-200">日方</div>
+        </div>
+        <div class="rounded bg-sky-800 p-3">
+          <div class="text-sky-200">阶段</div>
+          <div id="phaseText" class="mt-1 text-xl font-bold text-yellow-200">落子</div>
+        </div>
+        <div class="rounded bg-sky-800 p-3">
+          <div class="text-sky-200">日方待放</div>
+          <div id="sunReserve" class="mt-1 text-xl font-bold text-yellow-200">3</div>
+        </div>
+        <div class="rounded bg-sky-800 p-3">
+          <div class="text-sky-200">月方待放</div>
+          <div id="moonReserve" class="mt-1 text-xl font-bold text-yellow-200">3</div>
+        </div>
+      </div>
+      <p id="statusText" class="mt-4 min-h-20 rounded bg-sky-800 p-3 text-sm leading-6 text-sky-50">日方选择空点落子。</p>
+    </aside>
+  </main>
+
+  <script>
+    const points = [
+      { x: 18, y: 18 }, { x: 50, y: 18 }, { x: 82, y: 18 },
+      { x: 18, y: 50 }, { x: 50, y: 50 }, { x: 82, y: 50 },
+      { x: 18, y: 82 }, { x: 50, y: 82 }, { x: 82, y: 82 }
+    ];
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+    const adjacent = {
+      0: [1, 3, 4], 1: [0, 2, 4], 2: [1, 5, 4],
+      3: [0, 6, 4], 4: [0, 1, 2, 3, 5, 6, 7, 8], 5: [2, 8, 4],
+      6: [3, 7, 4], 7: [6, 8, 4], 8: [5, 7, 4]
+    };
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turnText");
+    const phaseEl = document.getElementById("phaseText");
+    const sunReserveEl = document.getElementById("sunReserve");
+    const moonReserveEl = document.getElementById("moonReserve");
+    const statusEl = document.getElementById("statusText");
+    let cells = [];
+    let current = "S";
+    let reserve = { S: 3, M: 3 };
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      cells = Array(9).fill("");
+      current = "S";
+      reserve = { S: 3, M: 3 };
+      selected = null;
+      winner = null;
+      render("日方选择空点落子。");
+    }
+
+    function isPlacementPhase() {
+      return reserve.S > 0 || reserve.M > 0;
+    }
+
+    function legalMovesFrom(index) {
+      if (winner || isPlacementPhase() || cells[index] !== current) return [];
+      return adjacent[index].filter((target) => !cells[target]);
+    }
+
+    function hasAnyMove(side) {
+      const saved = current;
+      current = side;
+      const result = cells.some((piece, index) => piece === side && legalMovesFrom(index).length > 0);
+      current = saved;
+      return result;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+      if (isPlacementPhase()) {
+        placePiece(index);
+        return;
+      }
+      if (selected !== null && legalMovesFrom(selected).includes(index)) {
+        movePiece(selected, index);
+        return;
+      }
+      if (cells[index] === current && legalMovesFrom(index).length) {
+        selected = index;
+        render(`${sideName(current)}已选中棋子。`);
+      } else {
+        selected = null;
+        render(`${sideName(current)}请选择可移动棋子。`);
+      }
+    }
+
+    function placePiece(index) {
+      if (cells[index] || reserve[current] === 0) return;
+      cells[index] = current;
+      reserve[current] -= 1;
+      finishTurn();
+    }
+
+    function movePiece(from, to) {
+      cells[to] = cells[from];
+      cells[from] = "";
+      selected = null;
+      finishTurn();
+    }
+
+    function finishTurn() {
+      if (checkWinner(current)) {
+        winner = current;
+        render(`${sideName(current)}三连获胜。`);
+        return;
+      }
+      current = current === "S" ? "M" : "S";
+      if (!isPlacementPhase() && !hasAnyMove(current)) {
+        winner = current === "S" ? "M" : "S";
+        render(`${sideName(winner)}获胜，对手无合法移动。`);
+        return;
+      }
+      render(isPlacementPhase() ? `${sideName(current)}选择空点落子。` : `${sideName(current)}移动一枚棋子。`);
+    }
+
+    function checkWinner(side) {
+      return lines.some((line) => line.every((index) => cells[index] === side));
+    }
+
+    function sideName(side) {
+      return side === "S" ? "日方" : "月方";
+    }
+
+    function pointClasses(piece) {
+      if (piece === "S") return "bg-yellow-300 text-sky-950 ring-2 ring-yellow-100";
+      if (piece === "M") return "bg-slate-100 text-sky-950 ring-2 ring-slate-300";
+      return "bg-sky-800 text-transparent ring-2 ring-sky-500";
+    }
+
+    function render(message) {
+      const legal = selected === null ? [] : legalMovesFrom(selected);
+      boardEl.innerHTML = points.map((point, index) => {
+        const piece = cells[index];
+        const isSelected = selected === index;
+        const isLegal = legal.includes(index);
+        return `<button type="button" onclick="handlePoint(${index})" aria-label="point ${index + 1}"
+          class="absolute flex h-[15%] w-[15%] items-center justify-center rounded-full text-lg font-black transition ${pointClasses(piece)}
+          ${isSelected ? "scale-110 outline outline-4 outline-white" : ""}
+          ${isLegal ? "outline outline-4 outline-emerald-300" : "hover:scale-105"}"
+          style="left:${point.x}%; top:${point.y}%; transform:translate(-50%, -50%);">${piece || (isLegal ? "·" : "")}</button>`;
+      }).join("");
+      turnEl.textContent = winner ? sideName(winner) : sideName(current);
+      phaseEl.textContent = isPlacementPhase() ? "落子" : "移动";
+      sunReserveEl.textContent = String(reserve.S);
+      moonReserveEl.textContent = String(reserve.M);
+      statusEl.textContent = winner ? `${sideName(winner)}获胜。` : message;
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
