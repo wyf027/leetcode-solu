@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Dara</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-amber-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Dara</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[560px] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold text-amber-200">黑方</p>
+          <p id="phaseText" class="mt-2 text-sm leading-6 text-zinc-300"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">黑方</p>
+            <p id="blackStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-sm text-zinc-400">白方</p>
+            <p id="whiteStats" class="mt-1 text-lg font-semibold"></p>
+          </div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <p class="font-semibold text-zinc-100">规则</p>
+          <p class="mt-2">双方先各放 12 子，随后只能上下左右移动一格。形成横向或纵向连续三子时，可吃掉一枚对方棋子。移动阶段少于 3 子的一方落败。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const phaseText = document.getElementById("phaseText");
+    const blackStats = document.getElementById("blackStats");
+    const whiteStats = document.getElementById("whiteStats");
+    const resetBtn = document.getElementById("resetBtn");
+    const size = 5;
+    const totalPieces = 12;
+    let board;
+    let turn;
+    let reserve;
+    let selected;
+    let captureMode;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array(size * size).fill(null);
+      turn = "B";
+      reserve = { B: totalPieces, W: totalPieces };
+      selected = null;
+      captureMode = false;
+      winner = null;
+      message = "先在空格中放置棋子。";
+      render();
+    }
+
+    function isPlacementPhase() {
+      return reserve.B > 0 || reserve.W > 0;
+    }
+
+    function sideName(side) {
+      return side === "B" ? "黑方" : "白方";
+    }
+
+    function otherSide(side) {
+      return side === "B" ? "W" : "B";
+    }
+
+    function pieceCount(side) {
+      return board.filter((cell) => cell === side).length;
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexAt(row, col) {
+      return row * size + col;
+    }
+
+    function legalMovesFrom(index) {
+      const [row, col] = rowCol(index);
+      return [
+        [row - 1, col],
+        [row + 1, col],
+        [row, col - 1],
+        [row, col + 1],
+      ]
+        .filter(([nextRow, nextCol]) => nextRow >= 0 && nextRow < size && nextCol >= 0 && nextCol < size)
+        .map(([nextRow, nextCol]) => indexAt(nextRow, nextCol))
+        .filter((next) => board[next] === null);
+    }
+
+    function formedLine(side) {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col <= size - 3; col += 1) {
+          if ([0, 1, 2].every((offset) => board[indexAt(row, col + offset)] === side)) return true;
+        }
+      }
+      for (let col = 0; col < size; col += 1) {
+        for (let row = 0; row <= size - 3; row += 1) {
+          if ([0, 1, 2].every((offset) => board[indexAt(row + offset, col)] === side)) return true;
+        }
+      }
+      return false;
+    }
+
+    function hasAnyMove(side) {
+      return board.some((cell, index) => cell === side && legalMovesFrom(index).length > 0);
+    }
+
+    function enterCaptureMode() {
+      const rival = otherSide(turn);
+      if (pieceCount(rival) === 0) {
+        finishTurn();
+        return;
+      }
+      captureMode = true;
+      selected = null;
+      message = `${sideName(turn)}成三，请选择一枚${sideName(rival)}棋子移除。`;
+    }
+
+    function capturePiece(index) {
+      const rival = otherSide(turn);
+      if (board[index] !== rival) {
+        message = `只能移除${sideName(rival)}棋子。`;
+        render();
+        return;
+      }
+      board[index] = null;
+      captureMode = false;
+      finishTurn();
+    }
+
+    function finishTurn() {
+      const rival = otherSide(turn);
+      if (!isPlacementPhase() && pieceCount(rival) < 3) {
+        winner = turn;
+        message = `${sideName(turn)}获胜。`;
+      } else if (!isPlacementPhase() && !hasAnyMove(rival)) {
+        winner = turn;
+        message = `${sideName(rival)}无路可走，${sideName(turn)}获胜。`;
+      } else {
+        turn = rival;
+        selected = null;
+        message = isPlacementPhase() ? "继续放置棋子。" : "选择一枚己方棋子移动。";
+      }
+      render();
+    }
+
+    function placePiece(index) {
+      if (reserve[turn] <= 0) {
+        message = `${sideName(turn)}已经放完棋子。`;
+        render();
+        return;
+      }
+      if (board[index] !== null) {
+        message = "请选择空格落子。";
+        render();
+        return;
+      }
+      board[index] = turn;
+      reserve[turn] -= 1;
+      if (formedLine(turn)) enterCaptureMode();
+      else finishTurn();
+    }
+
+    function movePiece(index) {
+      if (selected === null) {
+        if (board[index] === turn) {
+          selected = index;
+          message = "选择相邻空格移动。";
+        } else {
+          message = `请选择${sideName(turn)}棋子。`;
+        }
+        render();
+        return;
+      }
+      if (index === selected) {
+        selected = null;
+        message = "已取消选择。";
+      } else if (board[index] === turn) {
+        selected = index;
+        message = "已切换棋子。";
+      } else if (legalMovesFrom(selected).includes(index)) {
+        board[index] = turn;
+        board[selected] = null;
+        selected = null;
+        if (formedLine(turn)) enterCaptureMode();
+        else finishTurn();
+        return;
+      } else {
+        message = "只能上下左右移动到相邻空格。";
+      }
+      render();
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      if (captureMode) {
+        capturePiece(index);
+      } else if (isPlacementPhase()) {
+        placePiece(index);
+      } else {
+        movePiece(index);
+      }
+    }
+
+    function renderCell(index) {
+      const cell = document.createElement("button");
+      const value = board[index];
+      const legalTarget = selected !== null && legalMovesFrom(selected).includes(index);
+      cell.type = "button";
+      cell.setAttribute("aria-label", `格子 ${index + 1}`);
+      cell.className = [
+        "aspect-square rounded border text-lg font-bold transition",
+        selected === index ? "border-amber-300 bg-amber-300/20" : "border-zinc-700 bg-zinc-950",
+        legalTarget ? "ring-2 ring-emerald-300" : "",
+        captureMode && value === otherSide(turn) ? "ring-2 ring-red-300" : "",
+        !value ? "hover:bg-zinc-800" : "",
+      ].join(" ");
+      if (value) {
+        const disc = document.createElement("span");
+        disc.className = value === "B"
+          ? "mx-auto block h-10 w-10 rounded-full bg-zinc-100 shadow"
+          : "mx-auto block h-10 w-10 rounded-full border-4 border-zinc-100 bg-zinc-950 shadow";
+        cell.appendChild(disc);
+      }
+      cell.addEventListener("click", () => handleCell(index));
+      return cell;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((_, index) => boardEl.appendChild(renderCell(index)));
+      turnText.textContent = winner ? `${sideName(winner)}胜利` : sideName(turn);
+      phaseText.textContent = message;
+      blackStats.textContent = `${pieceCount("B")} 子 / 备用 ${reserve.B}`;
+      whiteStats.textContent = `${pieceCount("W")} 子 / 备用 ${reserve.W}`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
