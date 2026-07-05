@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Latrunculi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 lg:flex-row lg:items-center">
+    <section class="flex-1">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-3xl font-bold tracking-normal text-lime-200">Mini Latrunculi</h1>
+          <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-300">古罗马夹击棋。棋子沿横竖直线移动到空格，若移动后把对手棋夹在己方两枚棋子之间，即可俘获。</p>
+        </div>
+        <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-lime-200">重开</button>
+      </div>
+
+      <div id="board" class="mx-auto grid aspect-square w-full max-w-[560px] grid-cols-6 gap-1 rounded border border-zinc-700 bg-zinc-800 p-2 shadow-2xl"></div>
+    </section>
+
+    <aside class="w-full rounded border border-zinc-700 bg-zinc-900 p-4 lg:w-80">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded bg-zinc-800 p-3">
+          <div class="text-zinc-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-xl font-bold text-lime-200">金方</div>
+        </div>
+        <div class="rounded bg-zinc-800 p-3">
+          <div class="text-zinc-400">回合数</div>
+          <div id="moveText" class="mt-1 text-xl font-bold text-lime-200">0</div>
+        </div>
+        <div class="rounded bg-zinc-800 p-3">
+          <div class="text-zinc-400">金方棋子</div>
+          <div id="goldCount" class="mt-1 text-xl font-bold text-amber-200">12</div>
+        </div>
+        <div class="rounded bg-zinc-800 p-3">
+          <div class="text-zinc-400">银方棋子</div>
+          <div id="silverCount" class="mt-1 text-xl font-bold text-sky-200">12</div>
+        </div>
+      </div>
+      <p id="statusText" class="mt-4 min-h-16 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200">请选择金方棋子。</p>
+    </aside>
+  </main>
+
+  <script>
+    const size = 6;
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("statusText");
+    const turnEl = document.getElementById("turnText");
+    const moveEl = document.getElementById("moveText");
+    const goldEl = document.getElementById("goldCount");
+    const silverEl = document.getElementById("silverCount");
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let board = [];
+    let current = "G";
+    let selected = null;
+    let moves = 0;
+    let winner = null;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      for (let c = 0; c < size; c += 1) {
+        board[0][c] = "S";
+        board[1][c] = "S";
+        board[4][c] = "G";
+        board[5][c] = "G";
+      }
+      current = "G";
+      selected = null;
+      moves = 0;
+      winner = null;
+      render("请选择金方棋子。");
+    }
+
+    function inBoard(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function countPieces(side) {
+      return board.flat().filter((piece) => piece === side).length;
+    }
+
+    function legalMovesFrom(r, c) {
+      if (winner || board[r][c] !== current) return [];
+      const movesList = [];
+      for (const [dr, dc] of dirs) {
+        let nr = r + dr;
+        let nc = c + dc;
+        while (inBoard(nr, nc) && !board[nr][nc]) {
+          movesList.push([nr, nc]);
+          nr += dr;
+          nc += dc;
+        }
+      }
+      return movesList;
+    }
+
+    function hasAnyMove(side) {
+      const saved = current;
+      current = side;
+      const result = board.some((row, r) => row.some((piece, c) => piece === side && legalMovesFrom(r, c).length > 0));
+      current = saved;
+      return result;
+    }
+
+    function sameCell(a, r, c) {
+      return a && a[0] === r && a[1] === c;
+    }
+
+    function handleCell(r, c) {
+      if (winner) return;
+      if (selected && legalMovesFrom(selected[0], selected[1]).some((move) => sameCell(move, r, c))) {
+        movePiece(selected[0], selected[1], r, c);
+        return;
+      }
+      if (board[r][c] === current && legalMovesFrom(r, c).length) {
+        selected = [r, c];
+        render(`${sideName(current)}已选中棋子。`);
+      } else {
+        selected = null;
+        render(`${sideName(current)}请选择可移动棋子。`);
+      }
+    }
+
+    function movePiece(fr, fc, tr, tc) {
+      board[tr][tc] = board[fr][fc];
+      board[fr][fc] = "";
+      const captured = captureFrom(tr, tc);
+      selected = null;
+      moves += 1;
+      const opponent = current === "G" ? "S" : "G";
+      if (countPieces(opponent) === 0 || !hasAnyMove(opponent)) {
+        winner = current;
+        render(`${sideName(current)}获胜。`);
+        return;
+      }
+      current = opponent;
+      render(captured ? `俘获 ${captured} 枚棋子，${sideName(current)}行动。` : `${sideName(current)}行动。`);
+    }
+
+    function captureFrom(r, c) {
+      const side = board[r][c];
+      const rival = side === "G" ? "S" : "G";
+      let captured = 0;
+      for (const [dr, dc] of dirs) {
+        const mr = r + dr;
+        const mc = c + dc;
+        const br = r + dr * 2;
+        const bc = c + dc * 2;
+        if (inBoard(mr, mc) && inBoard(br, bc) && board[mr][mc] === rival && board[br][bc] === side) {
+          board[mr][mc] = "";
+          captured += 1;
+        }
+      }
+      return captured;
+    }
+
+    function sideName(side) {
+      return side === "G" ? "金方" : "银方";
+    }
+
+    function pieceClasses(piece) {
+      if (piece === "G") return "bg-amber-300 text-zinc-950 shadow";
+      if (piece === "S") return "bg-sky-200 text-zinc-950 shadow";
+      return "bg-zinc-700 text-transparent";
+    }
+
+    function render(message) {
+      const legal = selected ? legalMovesFrom(selected[0], selected[1]) : [];
+      boardEl.innerHTML = board.map((row, r) => row.map((piece, c) => {
+        const isSelected = selected && selected[0] === r && selected[1] === c;
+        const isLegal = legal.some((move) => sameCell(move, r, c));
+        return `<button type="button" onclick="handleCell(${r}, ${c})" aria-label="cell ${r + 1}-${c + 1}"
+          class="flex aspect-square items-center justify-center rounded text-lg font-bold transition ${pieceClasses(piece)}
+          ${isSelected ? "outline outline-4 outline-lime-200" : ""}
+          ${isLegal ? "outline outline-4 outline-emerald-300" : "hover:brightness-110"}">${piece || (isLegal ? "·" : "")}</button>`;
+      }).join("")).join("");
+      turnEl.textContent = sideName(current);
+      turnEl.className = `mt-1 text-xl font-bold ${current === "G" ? "text-amber-200" : "text-sky-200"}`;
+      moveEl.textContent = String(moves);
+      goldEl.textContent = String(countPieces("G"));
+      silverEl.textContent = String(countPieces("S"));
+      statusEl.textContent = winner ? `${sideName(winner)}获胜。` : message;
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
