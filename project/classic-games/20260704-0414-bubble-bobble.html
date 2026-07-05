@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Bubble Bobble</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-sky-950 text-sky-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-pink-200">Mini Bubble Bobble</h1>
+          <p class="text-sm text-sky-200/80">Trap monsters in bubbles, pop them, and collect the fruit.</p>
+        </div>
+        <div class="flex flex-wrap gap-2 text-sm">
+          <span class="rounded bg-sky-900 px-3 py-2 ring-1 ring-sky-700">Score <b id="score">0</b></span>
+          <span class="rounded bg-sky-900 px-3 py-2 ring-1 ring-sky-700">Lives <b id="lives">3</b></span>
+          <span class="rounded bg-sky-900 px-3 py-2 ring-1 ring-sky-700">Wave <b id="wave">1</b></span>
+          <span class="rounded bg-sky-900 px-3 py-2 ring-1 ring-sky-700">Fruit <b id="fruit">0</b></span>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+        <div class="overflow-hidden rounded border border-sky-700 bg-sky-900 shadow-2xl shadow-pink-950/30">
+          <canvas id="game" width="800" height="560" class="block h-auto w-full bg-sky-950"></canvas>
+        </div>
+        <aside class="rounded border border-sky-700 bg-sky-900 p-4 text-sm text-sky-100/85">
+          <h2 class="mb-2 font-semibold text-pink-200">Controls</h2>
+          <p>Arrow keys or WASD move.</p>
+          <p class="mt-2">Space blows a bubble. Jump with Up or W.</p>
+          <p class="mt-2">Enter restarts after game over.</p>
+          <h2 class="mb-2 mt-5 font-semibold text-pink-200">Goal</h2>
+          <p>Bubble every monster, then collect fruit before the next wave.</p>
+          <button
+            id="restart"
+            class="mt-5 w-full rounded bg-pink-300 px-4 py-2 font-semibold text-sky-950 transition hover:bg-pink-200"
+          >
+            Restart
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+      const livesEl = document.getElementById("lives");
+      const waveEl = document.getElementById("wave");
+      const fruitEl = document.getElementById("fruit");
+      const restartButton = document.getElementById("restart");
+      const keys = new Set();
+
+      const gravity = 0.42;
+      const platforms = [
+        { x: 46, y: 500, w: 708 },
+        { x: 96, y: 392, w: 230 },
+        { x: 474, y: 392, w: 230 },
+        { x: 190, y: 286, w: 420 },
+        { x: 76, y: 184, w: 240 },
+        { x: 484, y: 184, w: 240 }
+      ];
+
+      let hero;
+      let monsters;
+      let bubbles;
+      let fruits;
+      let score;
+      let lives;
+      let wave;
+      let frame;
+      let gameOver;
+      let message;
+
+      function resetHero() {
+        hero.x = 96;
+        hero.y = 468;
+        hero.vx = 0;
+        hero.vy = 0;
+        hero.facing = 1;
+        hero.onGround = false;
+        hero.cooldown = 0;
+        hero.invincible = 90;
+      }
+
+      function makeMonster(x, y, direction) {
+        return {
+          x,
+          y,
+          vx: direction * (1.15 + wave * 0.12),
+          vy: 0,
+          trapped: false,
+          popTimer: 0
+        };
+      }
+
+      function spawnWave() {
+        monsters = [
+          makeMonster(650, 360, -1),
+          makeMonster(220, 254, 1),
+          makeMonster(570, 152, -1)
+        ];
+        if (wave > 1) monsters.push(makeMonster(160, 152, 1));
+        if (wave > 2) monsters.push(makeMonster(620, 468, -1));
+        bubbles = [];
+        fruits = [];
+        message = "Trap monsters in bubbles.";
+      }
+
+      function resetGame() {
+        hero = { x: 96, y: 468, vx: 0, vy: 0, facing: 1, onGround: false, cooldown: 0, invincible: 0 };
+        score = 0;
+        lives = 3;
+        wave = 1;
+        frame = 0;
+        gameOver = false;
+        resetHero();
+        spawnWave();
+        syncHud();
+      }
+
+      function syncHud() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+        waveEl.textContent = wave;
+        fruitEl.textContent = fruits.length;
+      }
+
+      function platformUnder(entity) {
+        return platforms.find((platform) => {
+          const withinX = entity.x > platform.x - 12 && entity.x < platform.x + platform.w + 12;
+          const crossingY = entity.y <= platform.y - 22 && entity.y + entity.vy >= platform.y - 22;
+          return withinX && crossingY;
+        });
+      }
+
+      function blowBubble() {
+        if (hero.cooldown > 0 || gameOver) return;
+        bubbles.push({
+          x: hero.x + hero.facing * 22,
+          y: hero.y - 12,
+          vx: hero.facing * 3.3,
+          vy: -0.35,
+          r: 13,
+          age: 0,
+          trapped: null
+        });
+        hero.cooldown = 24;
+      }
+
+      function updateHero() {
+        hero.vx = 0;
+        if (keys.has("ArrowLeft") || keys.has("a")) {
+          hero.vx = -3.1;
+          hero.facing = -1;
+        }
+        if (keys.has("ArrowRight") || keys.has("d")) {
+          hero.vx = 3.1;
+          hero.facing = 1;
+        }
+        if ((keys.has("ArrowUp") || keys.has("w")) && hero.onGround) {
+          hero.vy = -9.4;
+          hero.onGround = false;
+        }
+        if (keys.has(" ")) blowBubble();
+
+        hero.vy += gravity;
+        hero.x += hero.vx;
+        hero.y += hero.vy;
+        hero.x = Math.max(28, Math.min(canvas.width - 28, hero.x));
+        if (hero.x <= 28 || hero.x >= canvas.width - 28) hero.vx = 0;
+
+        const floor = platformUnder(hero);
+        if (floor && hero.vy >= 0) {
+          hero.y = floor.y - 22;
+          hero.vy = 0;
+          hero.onGround = true;
+        } else {
+          hero.onGround = false;
+        }
+        if (hero.y > canvas.height + 30) loseLife();
+        if (hero.cooldown > 0) hero.cooldown -= 1;
+        if (hero.invincible > 0) hero.invincible -= 1;
+      }
+
+      function updateMonsters() {
+        monsters.forEach((monster) => {
+          if (monster.trapped) {
+            monster.y -= 0.65;
+            monster.x += Math.sin(frame / 16 + monster.x) * 0.35;
+            monster.popTimer += 1;
+            if (monster.popTimer > 360) {
+              monster.trapped = false;
+              monster.popTimer = 0;
+              monster.vx = monster.x < hero.x ? 1.5 : -1.5;
+            }
+            return;
+          }
+
+          monster.vy += gravity;
+          monster.x += monster.vx;
+          monster.y += monster.vy;
+          if (monster.x < 30 || monster.x > canvas.width - 30) monster.vx *= -1;
+          const floor = platformUnder(monster);
+          if (floor && monster.vy >= 0) {
+            monster.y = floor.y - 22;
+            monster.vy = 0;
+            const atEdge = monster.x < floor.x + 18 || monster.x > floor.x + floor.w - 18;
+            if (atEdge) monster.vx *= -1;
+            if (Math.random() < 0.004 + wave * 0.001) monster.vy = -8;
+          }
+          if (Math.hypot(monster.x - hero.x, monster.y - hero.y) < 28 && hero.invincible <= 0) {
+            loseLife();
+          }
+        });
+      }
+
+      function updateBubbles() {
+        bubbles.forEach((bubble) => {
+          bubble.age += 1;
+          bubble.x += bubble.vx;
+          bubble.y += bubble.vy;
+          bubble.vx *= 0.986;
+          bubble.vy -= 0.015;
+          bubble.y = Math.max(58, bubble.y);
+
+          if (!bubble.trapped) {
+            monsters.forEach((monster) => {
+              if (monster.trapped) return;
+              if (Math.hypot(monster.x - bubble.x, monster.y - bubble.y) < bubble.r + 13) {
+                monster.trapped = true;
+                monster.popTimer = 0;
+                bubble.trapped = monster;
+                bubble.vx = 0;
+                bubble.vy = -0.7;
+                score += 80;
+                message = "Monster trapped. Pop it.";
+              }
+            });
+          } else {
+            bubble.x = bubble.trapped.x;
+            bubble.y = bubble.trapped.y;
+          }
+
+          if (bubble.trapped && Math.hypot(hero.x - bubble.x, hero.y - bubble.y) < 31) {
+            popBubble(bubble);
+          }
+        });
+        bubbles = bubbles.filter((bubble) => bubble.age < 520 && bubble.y > 40 && bubble.trapped !== "popped");
+      }
+
+      function popBubble(bubble) {
+        if (!bubble.trapped || bubble.trapped === "popped") return;
+        const monster = bubble.trapped;
+        score += 180;
+        fruits.push({ x: monster.x, y: monster.y, age: 0 });
+        monsters = monsters.filter((item) => item !== monster);
+        bubble.trapped = "popped";
+        message = "Pop! Fruit dropped.";
+      }
+
+      function updateFruit() {
+        fruits.forEach((fruit) => {
+          fruit.age += 1;
+          fruit.y += Math.sin(fruit.age / 10) * 0.08;
+        });
+        fruits = fruits.filter((fruit) => {
+          if (Math.hypot(fruit.x - hero.x, fruit.y - hero.y) < 28) {
+            score += 300;
+            message = "Fruit collected.";
+            return false;
+          }
+          return fruit.age < 720;
+        });
+      }
+
+      function loseLife() {
+        if (hero.invincible > 0) return;
+        lives -= 1;
+        message = "Ouch. Stay clear of monsters.";
+        if (lives <= 0) {
+          gameOver = true;
+          message = "Game over. Press Enter.";
+        } else {
+          resetHero();
+        }
+      }
+
+      function checkWaveClear() {
+        if (monsters.length === 0 && fruits.length === 0) {
+          wave += 1;
+          score += 500;
+          resetHero();
+          spawnWave();
+        }
+      }
+
+      function drawPlatform(platform) {
+        ctx.fillStyle = "#0f766e";
+        ctx.fillRect(platform.x, platform.y, platform.w, 14);
+        ctx.fillStyle = "#5eead4";
+        for (let x = platform.x + 8; x < platform.x + platform.w; x += 32) {
+          ctx.fillRect(x, platform.y + 3, 14, 4);
+        }
+      }
+
+      function drawHero() {
+        if (hero.invincible % 10 > 5) return;
+        ctx.fillStyle = "#86efac";
+        ctx.beginPath();
+        ctx.roundRect(hero.x - 15, hero.y - 24, 30, 34, 10);
+        ctx.fill();
+        ctx.fillStyle = "#052e16";
+        ctx.fillRect(hero.x + hero.facing * 4, hero.y - 15, 5, 5);
+        ctx.fillStyle = "#f9a8d4";
+        ctx.fillRect(hero.x - 10, hero.y + 9, 8, 8);
+        ctx.fillRect(hero.x + 2, hero.y + 9, 8, 8);
+      }
+
+      function drawMonster(monster) {
+        if (monster.trapped) {
+          ctx.fillStyle = "rgba(186, 230, 253, 0.35)";
+          ctx.strokeStyle = "#bae6fd";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(monster.x, monster.y - 8, 23, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.fillStyle = monster.trapped ? "#fef3c7" : "#f97316";
+        ctx.beginPath();
+        ctx.roundRect(monster.x - 13, monster.y - 22, 26, 28, 8);
+        ctx.fill();
+        ctx.fillStyle = "#431407";
+        ctx.fillRect(monster.x - 7, monster.y - 13, 4, 4);
+        ctx.fillRect(monster.x + 3, monster.y - 13, 4, 4);
+      }
+
+      function drawBubble(bubble) {
+        ctx.strokeStyle = bubble.trapped ? "#f0abfc" : "#bae6fd";
+        ctx.fillStyle = bubble.trapped ? "rgba(240, 171, 252, 0.18)" : "rgba(186, 230, 253, 0.18)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(bubble.x, bubble.y, bubble.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      function drawFruit(fruit) {
+        ctx.fillStyle = "#fb7185";
+        ctx.beginPath();
+        ctx.arc(fruit.x, fruit.y - 8, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#4ade80";
+        ctx.fillRect(fruit.x + 1, fruit.y - 22, 4, 10);
+      }
+
+      function renderBubbleBobble() {
+        ctx.fillStyle = "#082f49";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "rgba(186, 230, 253, 0.18)";
+        for (let i = 0; i < 36; i += 1) {
+          const x = (i * 83 + frame * 0.25) % canvas.width;
+          const y = 44 + ((i * 47) % 430);
+          ctx.beginPath();
+          ctx.arc(x, y, 3 + (i % 4), 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        platforms.forEach(drawPlatform);
+        fruits.forEach(drawFruit);
+        bubbles.forEach(drawBubble);
+        monsters.forEach(drawMonster);
+        drawHero();
+
+        ctx.fillStyle = "rgba(12, 74, 110, 0.76)";
+        ctx.fillRect(18, 18, 390, 42);
+        ctx.fillStyle = "#e0f2fe";
+        ctx.font = "16px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillText(message, 32, 45);
+
+        if (gameOver) {
+          ctx.fillStyle = "rgba(8, 47, 73, 0.78)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#fbcfe8";
+          ctx.font = "bold 40px system-ui, sans-serif";
+          ctx.fillText("Game Over", canvas.width / 2, 248);
+          ctx.font = "18px system-ui, sans-serif";
+          ctx.fillText("Press Enter or Restart to bubble again", canvas.width / 2, 286);
+          ctx.textAlign = "left";
+        }
+      }
+
+      function gameLoop() {
+        if (!gameOver) {
+          frame += 1;
+          updateHero();
+          updateMonsters();
+          updateBubbles();
+          updateFruit();
+          checkWaveClear();
+          syncHud();
+        }
+        renderBubbleBobble();
+        requestAnimationFrame(gameLoop);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "w", "a", "s", "d"].includes(event.key)) {
+          event.preventDefault();
+        }
+        if (event.key === "Enter" && gameOver) resetGame();
+        keys.add(event.key);
+      });
+
+      document.addEventListener("keyup", (event) => {
+        keys.delete(event.key);
+      });
+
+      restartButton.addEventListener("click", resetGame);
+
+      resetGame();
+      gameLoop();
+    </script>
+  </body>
+</html>
