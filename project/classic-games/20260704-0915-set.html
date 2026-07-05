@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Set</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
+      <header class="flex flex-col gap-3 rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-bold tracking-wide">Mini Set</h1>
+          <p class="text-sm text-slate-300">选择 3 张牌；每个属性都必须全相同或全不同。</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-700 bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">分数</div>
+            <div id="score" class="text-lg font-bold">0</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Set</div>
+            <div id="setsFound" class="text-lg font-bold">0</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">牌堆</div>
+            <div id="deckCount" class="text-lg font-bold">0</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-900 p-3">
+        <p id="message" class="min-h-6 text-sm font-medium text-cyan-200">找到一个 Set 开始。</p>
+        <div class="flex flex-wrap gap-2">
+          <button id="dealButton" class="rounded bg-cyan-500 px-3 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400">补 3 张</button>
+          <button id="hintButton" class="rounded bg-amber-400 px-3 py-2 text-sm font-bold text-slate-950 hover:bg-amber-300">提示</button>
+          <button id="restartButton" class="rounded bg-slate-700 px-3 py-2 text-sm font-bold text-white hover:bg-slate-600">重开</button>
+        </div>
+      </section>
+
+      <section id="board" class="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"></section>
+    </main>
+
+    <script>
+      const colors = ["red", "green", "purple"];
+      const shapes = ["diamond", "oval", "wave"];
+      const counts = [1, 2, 3];
+      const fills = ["solid", "open", "striped"];
+      const colorClass = {
+        red: "border-rose-500 text-rose-400",
+        green: "border-emerald-500 text-emerald-400",
+        purple: "border-violet-500 text-violet-400",
+      };
+      const symbols = {
+        diamond: "DIA",
+        oval: "OVAL",
+        wave: "WAVE",
+      };
+
+      let deck = [];
+      let table = [];
+      let selected = [];
+      let score = 0;
+      let setsFound = 0;
+
+      const boardEl = document.getElementById("board");
+      const messageEl = document.getElementById("message");
+      const scoreEl = document.getElementById("score");
+      const setsFoundEl = document.getElementById("setsFound");
+      const deckCountEl = document.getElementById("deckCount");
+      const dealButton = document.getElementById("dealButton");
+      const hintButton = document.getElementById("hintButton");
+      const restartButton = document.getElementById("restartButton");
+
+      function buildDeck() {
+        const cards = [];
+        colors.forEach((color) => {
+          shapes.forEach((shape) => {
+            counts.forEach((count) => {
+              fills.forEach((fill) => {
+                cards.push({ color, shape, count, fill });
+              });
+            });
+          });
+        });
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function resetGame() {
+        deck = buildDeck();
+        table = deck.splice(0, 12);
+        selected = [];
+        score = 0;
+        setsFound = 0;
+        messageEl.textContent = "找到一个 Set 开始。";
+        renderCards();
+      }
+
+      function attrIsValid(cards, key) {
+        const values = new Set(cards.map((card) => card[key]));
+        return values.size === 1 || values.size === 3;
+      }
+
+      function isSet(cards) {
+        return ["color", "shape", "count", "fill"].every((key) => attrIsValid(cards, key));
+      }
+
+      function makePip(card) {
+        const pip = document.createElement("span");
+        pip.className = [
+          "flex h-9 min-w-14 items-center justify-center rounded-full border-2 px-2 text-xs font-black",
+          colorClass[card.color],
+          card.fill === "solid" ? "bg-current text-slate-950" : "",
+          card.fill === "open" ? "bg-transparent" : "",
+          card.fill === "striped" ? "bg-slate-800 underline decoration-2 underline-offset-4" : "",
+        ].join(" ");
+        pip.textContent = symbols[card.shape];
+        return pip;
+      }
+
+      function renderCards() {
+        boardEl.innerHTML = "";
+        table.forEach((card, index) => {
+          const active = selected.includes(index);
+          const button = document.createElement("button");
+          button.className = [
+            "min-h-36 rounded-lg border bg-slate-100 p-3 text-slate-900 shadow transition",
+            "hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-cyan-300",
+            active ? "border-cyan-400 ring-4 ring-cyan-400" : "border-slate-300",
+          ].join(" ");
+          button.setAttribute("aria-label", `card ${index + 1}`);
+          button.addEventListener("click", () => toggleCard(index));
+
+          const stack = document.createElement("div");
+          stack.className = "flex h-full flex-col items-center justify-center gap-2";
+          for (let i = 0; i < card.count; i += 1) {
+            stack.appendChild(makePip(card));
+          }
+          button.appendChild(stack);
+          boardEl.appendChild(button);
+        });
+        scoreEl.textContent = String(score);
+        setsFoundEl.textContent = String(setsFound);
+        deckCountEl.textContent = String(deck.length);
+        dealButton.disabled = deck.length === 0;
+        dealButton.classList.toggle("opacity-50", deck.length === 0);
+      }
+
+      function toggleCard(index) {
+        if (selected.includes(index)) {
+          selected = selected.filter((item) => item !== index);
+        } else if (selected.length < 3) {
+          selected.push(index);
+        }
+        if (selected.length === 3) {
+          checkSelection();
+        } else {
+          messageEl.textContent = `已选择 ${selected.length} 张。`;
+          renderCards();
+        }
+      }
+
+      function checkSelection() {
+        const cards = selected.map((index) => table[index]);
+        if (isSet(cards)) {
+          score += 10;
+          setsFound += 1;
+          messageEl.textContent = "正确，找到一个 Set。";
+          selected.sort((a, b) => b - a).forEach((index) => {
+            if (deck.length > 0 && table.length <= 12) {
+              table[index] = deck.shift();
+            } else {
+              table.splice(index, 1);
+            }
+          });
+          selected = [];
+          ensurePlayableTable();
+        } else {
+          score = Math.max(0, score - 2);
+          messageEl.textContent = "这 3 张不是 Set。";
+          selected = [];
+        }
+        renderCards();
+        if (deck.length === 0 && !findSet()) {
+          messageEl.textContent = "牌桌上没有 Set，游戏结束。";
+        }
+      }
+
+      function dealCards() {
+        if (deck.length === 0) return;
+        table.push(...deck.splice(0, 3));
+        selected = [];
+        messageEl.textContent = "已补 3 张牌。";
+        renderCards();
+      }
+
+      function findSet() {
+        for (let a = 0; a < table.length - 2; a += 1) {
+          for (let b = a + 1; b < table.length - 1; b += 1) {
+            for (let c = b + 1; c < table.length; c += 1) {
+              if (isSet([table[a], table[b], table[c]])) {
+                return [a, b, c];
+              }
+            }
+          }
+        }
+        return null;
+      }
+
+      function showHint() {
+        const found = findSet();
+        if (!found) {
+          messageEl.textContent = deck.length > 0 ? "当前没有 Set，可以补牌。" : "没有 Set 了。";
+          return;
+        }
+        selected = [found[0]];
+        messageEl.textContent = `提示：第 ${found[0] + 1} 张属于某个 Set。`;
+        renderCards();
+      }
+
+      function ensurePlayableTable() {
+        while (!findSet() && deck.length > 0 && table.length < 21) {
+          table.push(...deck.splice(0, 3));
+        }
+      }
+
+      dealButton.addEventListener("click", dealCards);
+      hintButton.addEventListener("click", showHint);
+      restartButton.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
