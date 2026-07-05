@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Hitori</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-8">
+      <section class="w-full rounded border border-slate-700 bg-slate-900 p-5 shadow-2xl shadow-violet-950/40">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-violet-300">Logic puzzle</p>
+            <h1 class="mt-1 text-3xl font-bold text-white">Mini Hitori</h1>
+          </div>
+          <button id="resetBtn" class="rounded bg-violet-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-violet-300">
+            重开
+          </button>
+        </div>
+
+        <div id="board" class="mx-auto mt-6 grid w-full max-w-[390px] grid-cols-5 gap-1"></div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+          <div class="rounded border border-slate-700 bg-slate-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-slate-400">重复白格</p>
+            <p id="duplicateCount" class="text-xl font-bold text-amber-300">0</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-slate-400">相邻黑格</p>
+            <p id="adjacentCount" class="text-xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-slate-400">白格连通</p>
+            <p id="connectStatus" class="text-xl font-bold text-violet-200">否</p>
+          </div>
+        </div>
+
+        <p id="message" class="mt-5 min-h-7 text-center text-sm font-semibold text-slate-300">
+          点击数字切换黑格。保留的白格在每行每列不能重复，且所有白格必须连通。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const grid = [
+        [1, 3, 4, 2, 3],
+        [2, 4, 1, 3, 4],
+        [3, 1, 2, 4, 2],
+        [4, 2, 3, 1, 1],
+        [1, 4, 2, 3, 2],
+      ];
+      const solution = new Set(["0,4", "1,1", "2,4", "3,4", "4,0"]);
+      const shaded = new Set();
+      const board = document.getElementById("board");
+      const duplicateCount = document.getElementById("duplicateCount");
+      const adjacentCount = document.getElementById("adjacentCount");
+      const connectStatus = document.getElementById("connectStatus");
+      const message = document.getElementById("message");
+      const resetBtn = document.getElementById("resetBtn");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function neighbors(row, col) {
+        return [
+          [row - 1, col],
+          [row + 1, col],
+          [row, col - 1],
+          [row, col + 1],
+        ].filter(([r, c]) => r >= 0 && r < 5 && c >= 0 && c < 5);
+      }
+
+      function duplicateWhites() {
+        const bad = new Set();
+        for (let row = 0; row < 5; row += 1) {
+          const seen = new Map();
+          for (let col = 0; col < 5; col += 1) {
+            const spot = key(row, col);
+            if (shaded.has(spot)) continue;
+            const value = grid[row][col];
+            seen.has(value) ? seen.get(value).push(spot) : seen.set(value, [spot]);
+          }
+          seen.forEach((cells) => {
+            if (cells.length > 1) cells.forEach((cell) => bad.add(cell));
+          });
+        }
+        for (let col = 0; col < 5; col += 1) {
+          const seen = new Map();
+          for (let row = 0; row < 5; row += 1) {
+            const spot = key(row, col);
+            if (shaded.has(spot)) continue;
+            const value = grid[row][col];
+            seen.has(value) ? seen.get(value).push(spot) : seen.set(value, [spot]);
+          }
+          seen.forEach((cells) => {
+            if (cells.length > 1) cells.forEach((cell) => bad.add(cell));
+          });
+        }
+        return bad;
+      }
+
+      function adjacentShades() {
+        const bad = new Set();
+        shaded.forEach((spot) => {
+          const [row, col] = spot.split(",").map(Number);
+          neighbors(row, col).forEach(([r, c]) => {
+            const next = key(r, c);
+            if (shaded.has(next)) {
+              bad.add(spot);
+              bad.add(next);
+            }
+          });
+        });
+        return bad;
+      }
+
+      function whiteConnected() {
+        const whites = [];
+        for (let row = 0; row < 5; row += 1) {
+          for (let col = 0; col < 5; col += 1) {
+            const spot = key(row, col);
+            if (!shaded.has(spot)) whites.push(spot);
+          }
+        }
+        if (!whites.length) return false;
+        const seen = new Set([whites[0]]);
+        const queue = [whites[0]];
+        while (queue.length) {
+          const [row, col] = queue.shift().split(",").map(Number);
+          neighbors(row, col).forEach(([r, c]) => {
+            const next = key(r, c);
+            if (!shaded.has(next) && !seen.has(next)) {
+              seen.add(next);
+              queue.push(next);
+            }
+          });
+        }
+        return seen.size === whites.length;
+      }
+
+      function solved(duplicates, adjacent, connected) {
+        if (duplicates.size || adjacent.size || !connected) return false;
+        if (shaded.size !== solution.size) return false;
+        return [...solution].every((cell) => shaded.has(cell));
+      }
+
+      function render() {
+        const duplicates = duplicateWhites();
+        const adjacent = adjacentShades();
+        const connected = whiteConnected();
+        const complete = solved(duplicates, adjacent, connected);
+        board.innerHTML = "";
+
+        grid.forEach((row, r) => {
+          row.forEach((value, c) => {
+            const spot = key(r, c);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = value;
+            button.ariaLabel = shaded.has(spot) ? "恢复白格" : "涂黑格";
+            button.className =
+              "aspect-square rounded border text-2xl font-black transition focus:outline-none focus:ring-2 focus:ring-violet-300 ";
+            if (adjacent.has(spot)) {
+              button.className += "border-rose-300 bg-rose-500 text-white";
+            } else if (shaded.has(spot)) {
+              button.className += "border-slate-950 bg-slate-950 text-slate-500";
+            } else if (duplicates.has(spot)) {
+              button.className += "border-amber-300 bg-amber-100 text-amber-950";
+            } else {
+              button.className += "border-violet-200 bg-white text-slate-950 hover:bg-violet-100";
+            }
+            button.addEventListener("click", () => {
+              shaded.has(spot) ? shaded.delete(spot) : shaded.add(spot);
+              render();
+            });
+            board.appendChild(button);
+          });
+        });
+
+        duplicateCount.textContent = duplicates.size;
+        adjacentCount.textContent = adjacent.size;
+        connectStatus.textContent = connected ? "是" : "否";
+
+        if (complete) {
+          message.textContent = "完成！白格无重复、全部连通，黑格也没有相邻。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-emerald-300";
+        } else if (adjacent.size) {
+          message.textContent = "红色黑格相邻，Hitori 规则不允许。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-rose-300";
+        } else if (duplicates.size) {
+          message.textContent = "黄色白格在同一行或列重复，需要涂黑其中一些。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-amber-300";
+        } else {
+          message.textContent = connected ? "继续寻找正确的黑格组合。" : "白格被切断了，需要恢复连通。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-slate-300";
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        shaded.clear();
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
