@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Tablanette</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Tablanette</h1>
+        <p class="text-sm text-slate-400">点选手牌。若点数匹配桌面牌，就收走全部同点数牌；否则留在桌面。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-300">重开</button>
+    </header>
+
+    <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">牌堆</div>
+        <div id="deckCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">你的得分</div>
+        <div id="playerScore" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">电脑得分</div>
+        <div id="botScore" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">回合</div>
+        <div id="turnLabel" class="text-2xl font-semibold">你</div>
+      </div>
+    </section>
+
+    <section class="rounded border border-slate-700 bg-slate-900 p-4">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">桌面牌</h2>
+        <span id="message" class="text-sm text-amber-300">选择一张手牌开始。</span>
+      </div>
+      <div id="tableCards" class="grid min-h-28 grid-cols-4 gap-2 sm:grid-cols-8"></div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-2">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <h2 class="mb-3 text-lg font-semibold">你的手牌</h2>
+        <div id="playerHand" class="grid min-h-28 grid-cols-4 gap-2"></div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <h2 class="mb-3 text-lg font-semibold">电脑手牌</h2>
+        <div id="botHand" class="grid min-h-28 grid-cols-4 gap-2"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const tableCardsEl = document.getElementById("tableCards");
+    const playerHandEl = document.getElementById("playerHand");
+    const botHandEl = document.getElementById("botHand");
+    const deckCountEl = document.getElementById("deckCount");
+    const playerScoreEl = document.getElementById("playerScore");
+    const botScoreEl = document.getElementById("botScore");
+    const turnLabelEl = document.getElementById("turnLabel");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let deck = [];
+    let tableCards = [];
+    let playerHand = [];
+    let botHand = [];
+    let playerPile = [];
+    let botPile = [];
+    let isPlayerTurn = true;
+    let gameOver = false;
+    let botTurnTimer = null;
+
+    function buildDeck() {
+      const suits = ["♠", "♥", "♦", "♣"];
+      const cards = [];
+      suits.forEach((suit) => {
+        for (let rank = 1; rank <= 10; rank += 1) {
+          cards.push({ rank, suit, id: `${suit}-${rank}-${cards.length}` });
+        }
+      });
+      return cards.sort(() => Math.random() - 0.5);
+    }
+
+    function clearPendingBotTurn() {
+      if (botTurnTimer !== null) {
+        window.clearTimeout(botTurnTimer);
+        botTurnTimer = null;
+      }
+    }
+
+    function scheduleBotTurn() {
+      clearPendingBotTurn();
+      botTurnTimer = window.setTimeout(() => {
+        botTurnTimer = null;
+        botTurn();
+      }, 500);
+    }
+
+    function resetGame() {
+      clearPendingBotTurn();
+      deck = buildDeck();
+      tableCards = [];
+      playerHand = [];
+      botHand = [];
+      playerPile = [];
+      botPile = [];
+      isPlayerTurn = true;
+      gameOver = false;
+      dealInitial();
+      messageEl.textContent = "选择一张手牌开始。";
+      render();
+    }
+
+    function dealInitial() {
+      tableCards = deck.splice(0, 4);
+      playerHand = deck.splice(0, 4);
+      botHand = deck.splice(0, 4);
+    }
+
+    function captureMatches(card, pile) {
+      const matches = tableCards.filter((tableCard) => tableCard.rank === card.rank);
+      if (matches.length === 0) {
+        tableCards.push(card);
+        return false;
+      }
+      tableCards = tableCards.filter((tableCard) => tableCard.rank !== card.rank);
+      pile.push(card, ...matches);
+      return true;
+    }
+
+    function playCard(index) {
+      if (!isPlayerTurn || gameOver) return;
+      const card = playerHand.splice(index, 1)[0];
+      const captured = captureMatches(card, playerPile);
+      messageEl.textContent = captured ? `你用 ${label(card)} 收牌。` : `你打出 ${label(card)}。`;
+      drawUp(playerHand);
+      isPlayerTurn = false;
+      render();
+      if (!checkGameOver()) {
+        scheduleBotTurn();
+      }
+    }
+
+    function botTurn() {
+      botTurnTimer = null;
+      if (gameOver) return;
+      let index = botHand.findIndex((card) => tableCards.some((tableCard) => tableCard.rank === card.rank));
+      if (index < 0) index = 0;
+      const card = botHand.splice(index, 1)[0];
+      const captured = captureMatches(card, botPile);
+      messageEl.textContent = captured ? `电脑用 ${label(card)} 收牌。` : `电脑打出 ${label(card)}。`;
+      drawUp(botHand);
+      isPlayerTurn = true;
+      checkGameOver();
+      render();
+    }
+
+    function drawUp(hand) {
+      while (hand.length < 4 && deck.length > 0) {
+        hand.push(deck.shift());
+      }
+    }
+
+    function checkGameOver() {
+      if (deck.length || playerHand.length || botHand.length) return false;
+      if (tableCards.length) {
+        const target = playerPile.length >= botPile.length ? playerPile : botPile;
+        target.push(...tableCards);
+        tableCards = [];
+      }
+      gameOver = true;
+      const result = playerPile.length === botPile.length
+        ? "平局。"
+        : playerPile.length > botPile.length
+          ? "你赢了。"
+          : "电脑赢了。";
+      messageEl.textContent = `游戏结束：${result}`;
+      return true;
+    }
+
+    function label(card) {
+      const names = { 1: "A", 10: "10" };
+      return `${names[card.rank] || card.rank}${card.suit}`;
+    }
+
+    function cardButton(card, onClick, disabled) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "aspect-[3/4] rounded border border-slate-600 bg-slate-800 text-lg font-semibold shadow hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-60";
+      button.textContent = label(card);
+      button.disabled = disabled;
+      if (onClick) button.addEventListener("click", onClick);
+      if (card.suit === "♥" || card.suit === "♦") button.classList.add("text-rose-300");
+      return button;
+    }
+
+    function renderCards(container, cards, clickHandler, hidden) {
+      container.innerHTML = "";
+      cards.forEach((card, index) => {
+        if (hidden) {
+          const back = document.createElement("div");
+          back.className = "flex aspect-[3/4] items-center justify-center rounded border border-slate-600 bg-slate-800 text-sm text-slate-400";
+          back.textContent = "牌";
+          container.appendChild(back);
+        } else {
+          container.appendChild(cardButton(card, clickHandler ? () => clickHandler(index) : null, !clickHandler));
+        }
+      });
+    }
+
+    function render() {
+      renderCards(tableCardsEl, tableCards, null, false);
+      renderCards(playerHandEl, playerHand, playCard, !isPlayerTurn || gameOver);
+      renderCards(botHandEl, botHand, null, !gameOver);
+      deckCountEl.textContent = deck.length;
+      playerScoreEl.textContent = playerPile.length;
+      botScoreEl.textContent = botPile.length;
+      turnLabelEl.textContent = gameOver ? "结束" : isPlayerTurn ? "你" : "电脑";
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
