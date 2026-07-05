@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Mu Torere</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:items-center">
+    <section class="flex-1">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-3xl font-bold tracking-normal text-amber-200">Mini Mu Torere</h1>
+          <p class="mt-1 max-w-xl text-sm leading-6 text-stone-300">移动己方棋子到相邻空点。只有当中心为空，或外环移动点旁边有对手棋时，外环棋子才能进中心。堵住对手即获胜。</p>
+        </div>
+        <button id="resetBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-amber-300">重开</button>
+      </div>
+
+      <div class="relative mx-auto aspect-square w-full max-w-[560px] rounded border border-stone-700 bg-stone-900 shadow-2xl">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="36" fill="none" stroke="#57534e" stroke-width="1.6" />
+          <g stroke="#57534e" stroke-width="1.2">
+            <line x1="50" y1="14" x2="50" y2="50" />
+            <line x1="75.5" y1="24.5" x2="50" y2="50" />
+            <line x1="86" y1="50" x2="50" y2="50" />
+            <line x1="75.5" y1="75.5" x2="50" y2="50" />
+            <line x1="50" y1="86" x2="50" y2="50" />
+            <line x1="24.5" y1="75.5" x2="50" y2="50" />
+            <line x1="14" y1="50" x2="50" y2="50" />
+            <line x1="24.5" y1="24.5" x2="50" y2="50" />
+          </g>
+        </svg>
+        <div id="board" class="absolute inset-0"></div>
+      </div>
+    </section>
+
+    <aside class="w-full rounded border border-stone-700 bg-stone-900 p-4 md:w-72">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded bg-stone-800 p-3">
+          <div class="text-stone-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-xl font-bold text-amber-200">黑方</div>
+        </div>
+        <div class="rounded bg-stone-800 p-3">
+          <div class="text-stone-400">步数</div>
+          <div id="moveText" class="mt-1 text-xl font-bold text-amber-200">0</div>
+        </div>
+      </div>
+      <div class="mt-4 rounded bg-stone-800 p-3">
+        <div class="text-sm text-stone-400">状态</div>
+        <p id="statusText" class="mt-2 min-h-12 text-sm leading-6 text-stone-200">请选择黑方棋子。</p>
+      </div>
+      <div class="mt-4 space-y-2 text-sm text-stone-300">
+        <div class="flex items-center gap-2"><span class="h-4 w-4 rounded-full bg-stone-100"></span>白方棋子</div>
+        <div class="flex items-center gap-2"><span class="h-4 w-4 rounded-full bg-stone-950 ring-2 ring-amber-300"></span>黑方棋子</div>
+        <div class="flex items-center gap-2"><span class="h-4 w-4 rounded-full border-2 border-emerald-300"></span>可移动位置</div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const points = [
+      { x: 50, y: 14 },
+      { x: 75.5, y: 24.5 },
+      { x: 86, y: 50 },
+      { x: 75.5, y: 75.5 },
+      { x: 50, y: 86 },
+      { x: 24.5, y: 75.5 },
+      { x: 14, y: 50 },
+      { x: 24.5, y: 24.5 },
+      { x: 50, y: 50 }
+    ];
+    const center = 8;
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("statusText");
+    const turnEl = document.getElementById("turnText");
+    const moveEl = document.getElementById("moveText");
+    let cells = [];
+    let current = "B";
+    let selected = null;
+    let moves = 0;
+    let winner = null;
+
+    function resetGame() {
+      cells = ["B", "B", "B", "B", "W", "W", "W", "W", ""];
+      current = "B";
+      selected = null;
+      moves = 0;
+      winner = null;
+      render();
+    }
+
+    function neighbors(index) {
+      if (index === center) return [0, 1, 2, 3, 4, 5, 6, 7];
+      return [(index + 7) % 8, (index + 1) % 8, center];
+    }
+
+    function canMoveToCenter(from) {
+      if (cells[center]) return false;
+      const rival = current === "B" ? "W" : "B";
+      return cells[(from + 7) % 8] === rival || cells[(from + 1) % 8] === rival;
+    }
+
+    function legalMovesFrom(index, side = current) {
+      if (cells[index] !== side || winner) return [];
+      return neighbors(index).filter((target) => {
+        if (cells[target]) return false;
+        if (target !== center) return true;
+        const rival = side === "B" ? "W" : "B";
+        return cells[(index + 7) % 8] === rival || cells[(index + 1) % 8] === rival;
+      });
+    }
+
+    function hasAnyMove(side) {
+      return cells.some((piece, index) => piece === side && legalMovesFrom(index, side).length > 0);
+    }
+
+    function selectCell(index) {
+      if (winner) return;
+      if (selected !== null && legalMovesFrom(selected).includes(index)) {
+        movePiece(selected, index);
+        return;
+      }
+      if (cells[index] === current && legalMovesFrom(index).length > 0) {
+        selected = index;
+      } else {
+        selected = null;
+      }
+      render();
+    }
+
+    function movePiece(from, to) {
+      cells[to] = cells[from];
+      cells[from] = "";
+      selected = null;
+      moves += 1;
+      current = current === "B" ? "W" : "B";
+      checkWinner();
+      render();
+    }
+
+    function checkWinner() {
+      if (!hasAnyMove(current)) {
+        winner = current === "B" ? "W" : "B";
+      }
+    }
+
+    function pieceClasses(piece) {
+      if (piece === "B") return "bg-stone-950 text-amber-200 ring-2 ring-amber-300";
+      if (piece === "W") return "bg-stone-100 text-stone-950 ring-2 ring-stone-300";
+      return "bg-stone-800/80 text-transparent ring-2 ring-stone-600";
+    }
+
+    function render() {
+      const legal = selected === null ? [] : legalMovesFrom(selected);
+      boardEl.innerHTML = points.map((point, index) => {
+        const piece = cells[index];
+        const isSelected = selected === index;
+        const isLegal = legal.includes(index);
+        const label = piece || (isLegal ? "·" : "");
+        const size = index === center ? 18 : 15;
+        return `<button type="button" aria-label="point ${index + 1}" onclick="selectCell(${index})"
+          class="absolute flex items-center justify-center rounded-full text-lg font-bold transition ${pieceClasses(piece)}
+          ${isSelected ? "scale-110 outline outline-4 outline-sky-300" : ""}
+          ${isLegal ? "outline outline-4 outline-emerald-300" : "hover:scale-105"}"
+          style="left:${point.x}%; top:${point.y}%; width:${size}%; height:${size}%; transform:translate(-50%, -50%);">${label}</button>`;
+      }).join("");
+      turnEl.textContent = current === "B" ? "黑方" : "白方";
+      moveEl.textContent = String(moves);
+      if (winner) {
+        statusEl.textContent = `${winner === "B" ? "黑方" : "白方"}获胜，对手已无合法移动。`;
+      } else if (selected !== null) {
+        statusEl.textContent = `已选中棋子，可移动到 ${legal.length} 个位置。`;
+      } else {
+        statusEl.textContent = `请选择${current === "B" ? "黑方" : "白方"}棋子。`;
+      }
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
