@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Thermometers</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-8">
+      <section class="w-full rounded border border-slate-700 bg-slate-900 p-5 shadow-2xl shadow-red-950/40">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-red-300">Logic puzzle</p>
+            <h1 class="mt-1 text-3xl font-bold text-white">Mini Thermometers</h1>
+          </div>
+          <button id="resetBtn" class="rounded bg-red-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-red-300">
+            重开
+          </button>
+        </div>
+
+        <div class="mt-5 grid grid-cols-[1fr_auto] gap-2">
+          <div id="board" class="grid grid-cols-5 gap-1"></div>
+          <div id="rowTargets" class="grid grid-rows-5 gap-1"></div>
+          <div id="colTargets" class="col-span-1 grid grid-cols-5 gap-1"></div>
+        </div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+          <div class="rounded border border-slate-700 bg-slate-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-slate-400">已填充</p>
+            <p id="filledCount" class="text-xl font-bold text-red-200">0</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-slate-400">温度计错误</p>
+            <p id="thermoErrors" class="text-xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-slate-400">目标错误</p>
+            <p id="targetErrors" class="text-xl font-bold text-amber-300">0</p>
+          </div>
+        </div>
+
+        <p id="message" class="mt-5 min-h-7 text-center text-sm font-semibold text-slate-300">
+          点击格子填充水银。每支温度计必须从球泡开始连续填充，行列数量要匹配边缘目标。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const size = 5;
+      const thermometers = [
+        ["0,0", "0,1", "0,2"],
+        ["0,3", "1,3", "2,3"],
+        ["0,4", "1,4"],
+        ["1,0", "2,0", "3,0"],
+        ["1,1", "1,2"],
+        ["2,1", "3,1", "4,1"],
+        ["2,2", "3,2"],
+        ["3,3", "3,4", "4,4"],
+        ["4,0"],
+        ["4,2", "4,3"],
+      ];
+      const rowTargetsData = [2, 3, 2, 3, 2];
+      const colTargetsData = [2, 3, 2, 3, 2];
+      const solution = new Set(["0,0", "0,1", "1,0", "1,1", "1,3", "2,0", "2,1", "3,1", "3,3", "3,4", "4,2", "4,3"]);
+      const filled = new Set();
+      const board = document.getElementById("board");
+      const rowTargets = document.getElementById("rowTargets");
+      const colTargets = document.getElementById("colTargets");
+      const filledCount = document.getElementById("filledCount");
+      const thermoErrors = document.getElementById("thermoErrors");
+      const targetErrors = document.getElementById("targetErrors");
+      const message = document.getElementById("message");
+      const resetBtn = document.getElementById("resetBtn");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function thermoIndex(cell) {
+        return thermometers.findIndex((tube) => tube.includes(cell));
+      }
+
+      function thermometerReport() {
+        const bad = new Set();
+        thermometers.forEach((tube) => {
+          let seenGap = false;
+          tube.forEach((cell) => {
+            if (!filled.has(cell)) {
+              seenGap = true;
+            } else if (seenGap) {
+              tube.forEach((item) => bad.add(item));
+            }
+          });
+        });
+        return bad;
+      }
+
+      function lineCounts() {
+        const rows = Array(size).fill(0);
+        const cols = Array(size).fill(0);
+        filled.forEach((cell) => {
+          const [row, col] = cell.split(",").map(Number);
+          rows[row] += 1;
+          cols[col] += 1;
+        });
+        return { rows, cols };
+      }
+
+      function targetReport() {
+        const { rows, cols } = lineCounts();
+        const badRows = new Set();
+        const badCols = new Set();
+        rows.forEach((count, row) => {
+          if (count !== rowTargetsData[row]) badRows.add(row);
+        });
+        cols.forEach((count, col) => {
+          if (count !== colTargetsData[col]) badCols.add(col);
+        });
+        return { badRows, badCols, rows, cols };
+      }
+
+      function solved(thermoBad, targets) {
+        if (thermoBad.size || targets.badRows.size || targets.badCols.size) return false;
+        if (filled.size !== solution.size) return false;
+        return [...solution].every((cell) => filled.has(cell));
+      }
+
+      function renderTargets(targets) {
+        rowTargets.innerHTML = "";
+        colTargets.innerHTML = "";
+        rowTargetsData.forEach((target, row) => {
+          const div = document.createElement("div");
+          div.className = `flex aspect-square h-full min-h-12 items-center justify-center rounded border text-sm font-black ${
+            targets.badRows.has(row) ? "border-amber-300 bg-amber-100 text-amber-950" : "border-slate-700 bg-slate-950 text-slate-100"
+          }`;
+          div.textContent = target;
+          rowTargets.appendChild(div);
+        });
+        colTargetsData.forEach((target, col) => {
+          const div = document.createElement("div");
+          div.className = `flex aspect-square items-center justify-center rounded border text-sm font-black ${
+            targets.badCols.has(col) ? "border-amber-300 bg-amber-100 text-amber-950" : "border-slate-700 bg-slate-950 text-slate-100"
+          }`;
+          div.textContent = target;
+          colTargets.appendChild(div);
+        });
+      }
+
+      function render() {
+        const thermoBad = thermometerReport();
+        const targets = targetReport();
+        const complete = solved(thermoBad, targets);
+        board.innerHTML = "";
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = key(row, col);
+            const button = document.createElement("button");
+            button.type = "button";
+            const bulb = thermometers[thermoIndex(cell)][0] === cell;
+            button.textContent = bulb ? "●" : "";
+            button.ariaLabel = filled.has(cell) ? "清空格子" : "填充格子";
+            button.className =
+              "aspect-square rounded border text-xl font-black transition focus:outline-none focus:ring-2 focus:ring-red-300 " +
+              (thermoBad.has(cell)
+                ? "border-rose-300 bg-rose-500 text-white"
+                : filled.has(cell)
+                  ? "border-red-300 bg-red-300 text-red-950"
+                  : "border-slate-700 bg-slate-800 text-slate-500 hover:bg-slate-700");
+            button.addEventListener("click", () => {
+              filled.has(cell) ? filled.delete(cell) : filled.add(cell);
+              render();
+            });
+            board.appendChild(button);
+          }
+        }
+        renderTargets(targets);
+        filledCount.textContent = filled.size;
+        thermoErrors.textContent = thermoBad.size;
+        targetErrors.textContent = targets.badRows.size + targets.badCols.size;
+        if (complete) {
+          message.textContent = "完成！所有温度计连续填充，行列目标也全部匹配。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-emerald-300";
+        } else if (thermoBad.size) {
+          message.textContent = "红色温度计出现断填，必须从球泡连续填充。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-rose-300";
+        } else {
+          message.textContent = "调整填充数量，让每行每列匹配边缘目标。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-slate-300";
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        filled.clear();
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
