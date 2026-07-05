@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Hearts</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-rose-950 text-rose-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-rose-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.24em] text-pink-200">Classic Games</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Hearts</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-rose-800 bg-rose-900 px-4 py-2">
+            <div id="score" class="text-xl font-bold text-pink-100">0</div>
+            <div class="text-rose-300">points</div>
+          </div>
+          <div class="rounded border border-rose-800 bg-rose-900 px-4 py-2">
+            <div id="tricks" class="text-xl font-bold text-amber-100">0/8</div>
+            <div class="text-rose-300">tricks</div>
+          </div>
+          <div class="rounded border border-rose-800 bg-rose-900 px-4 py-2">
+            <div id="leadSuit" class="text-xl font-bold text-sky-100">-</div>
+            <div class="text-rose-300">lead</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+        <div class="rounded border border-rose-800 bg-rose-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-[0.18em] text-rose-300">Trick</h2>
+          <div id="trickArea" class="mt-3 grid min-h-28 grid-cols-2 gap-3 sm:grid-cols-4"></div>
+          <h2 class="mt-5 text-sm font-semibold uppercase tracking-[0.18em] text-rose-300">Your Hand</h2>
+          <div id="hand" class="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-8"></div>
+          <p id="status" class="mt-4 min-h-6 text-sm font-medium text-rose-100">Play a card. Follow suit when you can. Hearts score against you.</p>
+        </div>
+
+        <aside class="rounded border border-rose-800 bg-rose-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-[0.18em] text-rose-300">Round</h2>
+          <div id="roundLog" class="mt-3 min-h-48 rounded bg-rose-950 p-3 text-sm leading-6 text-rose-200"></div>
+          <button id="newGameBtn" class="mt-5 w-full rounded bg-pink-200 px-4 py-2 font-semibold text-rose-950 hover:bg-pink-100">New Game</button>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♣", "♦", "♠", "♥"];
+      const ranks = [2, 3, 4, 5, 6, 7, 8, 9];
+      const players = ["You", "North", "East", "West"];
+      const handEl = document.getElementById("hand");
+      const trickArea = document.getElementById("trickArea");
+      const scoreEl = document.getElementById("score");
+      const tricksEl = document.getElementById("tricks");
+      const leadSuitEl = document.getElementById("leadSuit");
+      const statusEl = document.getElementById("status");
+      const roundLog = document.getElementById("roundLog");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      let hands = [];
+      let trick = [];
+      let score = 0;
+      let trickCount = 0;
+      let leadSuit = null;
+      let currentPlayer = 0;
+      let log = [];
+
+      function makeDeck() {
+        return suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank })));
+      }
+
+      function shuffle(values) {
+        const copy = [...values];
+        for (let index = copy.length - 1; index > 0; index -= 1) {
+          const swap = Math.floor(Math.random() * (index + 1));
+          [copy[index], copy[swap]] = [copy[swap], copy[index]];
+        }
+        return copy;
+      }
+
+      function cardText(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function newGame() {
+        const deck = shuffle(makeDeck());
+        hands = players.map((_, player) => deck.slice(player * 8, player * 8 + 8).sort(sortCards));
+        trick = [];
+        score = 0;
+        trickCount = 0;
+        leadSuit = null;
+        currentPlayer = 0;
+        log = [];
+        statusEl.textContent = "Play a card. Follow suit when you can. Hearts score against you.";
+        statusEl.className = "mt-4 min-h-6 text-sm font-medium text-rose-100";
+        render();
+      }
+
+      function sortCards(a, b) {
+        return suits.indexOf(a.suit) - suits.indexOf(b.suit) || a.rank - b.rank;
+      }
+
+      function legalCard(card) {
+        if (currentPlayer !== 0) return false;
+        if (!leadSuit) return true;
+        const hasLead = hands[0].some((item) => item.suit === leadSuit);
+        return !hasLead || card.suit === leadSuit;
+      }
+
+      function playCard(player, cardIndex) {
+        const card = hands[player].splice(cardIndex, 1)[0];
+        if (!leadSuit) leadSuit = card.suit;
+        trick.push({ player, card });
+        currentPlayer = (currentPlayer + 1) % players.length;
+        if (trick.length === players.length) {
+          finishTrick();
+        } else if (currentPlayer !== 0) {
+          setTimeout(playBot, 250);
+        }
+        render();
+      }
+
+      function playHuman(cardIndex) {
+        const card = hands[0][cardIndex];
+        if (!legalCard(card)) {
+          statusEl.textContent = `Follow ${leadSuit} if possible.`;
+          statusEl.className = "mt-4 min-h-6 text-sm font-medium text-amber-200";
+          return;
+        }
+        playCard(0, cardIndex);
+      }
+
+      function playBot() {
+        if (currentPlayer === 0 || trick.length === players.length) return;
+        const hand = hands[currentPlayer];
+        const leadCards = leadSuit ? hand.filter((card) => card.suit === leadSuit) : [];
+        const choices = leadCards.length ? leadCards : hand;
+        const chosen = choices.sort((a, b) => a.rank - b.rank)[0];
+        playCard(currentPlayer, hand.indexOf(chosen));
+      }
+
+      function finishTrick() {
+        const followed = trick.filter((entry) => entry.card.suit === leadSuit);
+        const winner = followed.reduce((best, entry) => (entry.card.rank > best.card.rank ? entry : best), followed[0]);
+        const hearts = trick.filter((entry) => entry.card.suit === "♥").length;
+        if (winner.player === 0) score += hearts;
+        trickCount += 1;
+        log.unshift(`${players[winner.player]} took ${hearts} heart${hearts === 1 ? "" : "s"}.`);
+        trick = [];
+        leadSuit = null;
+        currentPlayer = winner.player;
+        statusEl.textContent = trickCount === 8 ? "Round complete. Low score wins." : `${players[currentPlayer]} leads next.`;
+        statusEl.className = trickCount === 8
+          ? "mt-4 min-h-6 text-sm font-medium text-pink-100"
+          : "mt-4 min-h-6 text-sm font-medium text-rose-100";
+        if (trickCount < 8 && currentPlayer !== 0) setTimeout(playBot, 350);
+      }
+
+      function renderCard(card, disabled, onClick) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.disabled = disabled;
+        button.className = [
+          "rounded border px-2 py-4 text-xl font-black transition",
+          card.suit === "♥" || card.suit === "♦" ? "text-pink-200" : "text-sky-100",
+          disabled ? "border-rose-800 bg-rose-950 opacity-70" : "border-pink-200 bg-rose-950 hover:bg-rose-800",
+        ].join(" ");
+        button.textContent = cardText(card);
+        if (onClick) button.addEventListener("click", onClick);
+        return button;
+      }
+
+      function render() {
+        handEl.innerHTML = "";
+        hands[0].forEach((card, index) => {
+          handEl.appendChild(renderCard(card, !legalCard(card) || trickCount === 8, () => playHuman(index)));
+        });
+        trickArea.innerHTML = "";
+        players.forEach((name, player) => {
+          const played = trick.find((entry) => entry.player === player);
+          const panel = document.createElement("div");
+          panel.className = "rounded border border-rose-800 bg-rose-950 p-2 text-center";
+          panel.innerHTML = `<div class="text-xs text-rose-400">${name}</div><div class="mt-2 text-2xl font-black">${played ? cardText(played.card) : "—"}</div>`;
+          trickArea.appendChild(panel);
+        });
+        scoreEl.textContent = score;
+        tricksEl.textContent = `${trickCount}/8`;
+        leadSuitEl.textContent = leadSuit || "-";
+        roundLog.textContent = log.length ? log.slice(0, 8).join("\\n") : "No tricks taken yet.";
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
