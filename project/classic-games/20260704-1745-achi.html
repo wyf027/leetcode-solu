@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Achi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-center">
+      <section class="w-full max-w-xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal text-lime-100">Mini Achi</h1>
+            <p class="mt-1 text-sm text-zinc-300">先落子，再沿线移动，率先三连获胜。</p>
+          </div>
+          <button id="reset" class="rounded bg-lime-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-300">
+            重新开始
+          </button>
+        </div>
+
+        <div class="relative aspect-square rounded border border-lime-800 bg-stone-800 p-6 shadow-2xl shadow-black/40">
+          <div class="absolute inset-14 border-4 border-stone-500"></div>
+          <div class="absolute left-1/2 top-14 h-[calc(100%-7rem)] w-1 -translate-x-1/2 bg-stone-500"></div>
+          <div class="absolute left-14 top-1/2 h-1 w-[calc(100%-7rem)] -translate-y-1/2 bg-stone-500"></div>
+          <div class="absolute left-14 top-14 h-[calc(100%-7rem)] w-[calc(100%-7rem)] rotate-45 border-t-4 border-stone-500"></div>
+          <div class="absolute right-14 top-14 h-[calc(100%-7rem)] w-[calc(100%-7rem)] -rotate-45 border-t-4 border-stone-500"></div>
+          <div id="board" class="relative grid h-full w-full grid-cols-3 grid-rows-3 gap-8"></div>
+        </div>
+      </section>
+
+      <aside class="w-full max-w-sm rounded border border-zinc-700 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">当前回合</div>
+            <div id="turn" class="mt-1 text-xl font-bold text-lime-200">白方</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">阶段</div>
+            <div id="phase" class="mt-1 text-xl font-bold text-lime-200">落子</div>
+          </div>
+        </div>
+        <div id="status" class="mt-4 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200">
+          白方先行，点击空点落子。
+        </div>
+        <div class="mt-4 space-y-2 text-sm text-zinc-300">
+          <div class="rounded border border-zinc-700 p-2">双方各有 4 枚棋子。</div>
+          <div class="rounded border border-zinc-700 p-2">落子阶段结束后，只能沿连线移动到相邻空点。</div>
+          <div class="rounded border border-zinc-700 p-2">横、竖、斜任意三点连成一线即可获胜。</div>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const empty = "";
+      const players = {
+        W: { label: "白方", disk: "bg-zinc-100 text-zinc-950 border-zinc-300" },
+        B: { label: "黑方", disk: "bg-zinc-950 text-zinc-100 border-zinc-700" },
+      };
+      const lines = [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [0, 3, 6],
+        [1, 4, 7],
+        [2, 5, 8],
+        [0, 4, 8],
+        [2, 4, 6],
+      ];
+      const neighbors = {
+        0: [1, 3, 4],
+        1: [0, 2, 4],
+        2: [1, 5, 4],
+        3: [0, 6, 4],
+        4: [0, 1, 2, 3, 5, 6, 7, 8],
+        5: [2, 8, 4],
+        6: [3, 7, 4],
+        7: [6, 8, 4],
+        8: [5, 7, 4],
+      };
+
+      let board = [];
+      let current = "W";
+      let placed = { W: 0, B: 0 };
+      let selected = null;
+      let winner = null;
+
+      const boardEl = document.getElementById("board");
+      const turnEl = document.getElementById("turn");
+      const phaseEl = document.getElementById("phase");
+      const statusEl = document.getElementById("status");
+
+      function resetGame() {
+        board = Array(9).fill(empty);
+        current = "W";
+        placed = { W: 0, B: 0 };
+        selected = null;
+        winner = null;
+        statusEl.textContent = "白方先行，点击空点落子。";
+        render();
+      }
+
+      function isPlacementPhase() {
+        return placed.W < 4 || placed.B < 4;
+      }
+
+      function opponentOf(player) {
+        return player === "W" ? "B" : "W";
+      }
+
+      function checkWinner(player) {
+        return lines.some((line) => line.every((index) => board[index] === player));
+      }
+
+      function legalMovesFrom(index) {
+        return neighbors[index].filter((next) => board[next] === empty);
+      }
+
+      function hasLegalMove(player) {
+        return board.some((piece, index) => piece === player && legalMovesFrom(index).length > 0);
+      }
+
+      function placePiece(index) {
+        if (board[index] !== empty || placed[current] >= 4) return;
+        board[index] = current;
+        placed[current] += 1;
+        finishTurn();
+      }
+
+      function movePiece(index) {
+        if (selected === null) {
+          if (board[index] === current) {
+            selected = index;
+            statusEl.textContent = "选择一个高亮空点移动。";
+          }
+          render();
+          return;
+        }
+
+        if (legalMovesFrom(selected).includes(index)) {
+          board[index] = current;
+          board[selected] = empty;
+          selected = null;
+          finishTurn();
+          return;
+        }
+
+        selected = board[index] === current ? index : null;
+        statusEl.textContent = selected === null ? "请选择当前回合的棋子。" : "选择一个高亮空点移动。";
+        render();
+      }
+
+      function finishTurn() {
+        if (checkWinner(current)) {
+          winner = current;
+          statusEl.textContent = `${players[current].label}获胜。`;
+        } else {
+          const previous = current;
+          current = opponentOf(current);
+          if (!isPlacementPhase() && !hasLegalMove(current)) {
+            winner = previous;
+            selected = null;
+            statusEl.textContent = `${players[current].label}无合法移动，${players[winner].label}获胜。`;
+          } else {
+            const phase = isPlacementPhase() ? "点击空点落子。" : "选择棋子移动。";
+            statusEl.textContent = `${players[current].label}行动，${phase}`;
+          }
+        }
+        render();
+      }
+
+      function handleCell(index) {
+        if (winner) return;
+        if (isPlacementPhase()) {
+          placePiece(index);
+        } else {
+          movePiece(index);
+        }
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        turnEl.textContent = winner ? `${players[winner].label}胜利` : players[current].label;
+        phaseEl.textContent = isPlacementPhase() ? "落子" : "移动";
+        const legal = selected === null ? [] : legalMovesFrom(selected);
+
+        for (let index = 0; index < 9; index += 1) {
+          const cell = document.createElement("button");
+          const piece = board[index];
+          const isSelected = selected === index;
+          const isLegal = legal.includes(index);
+          cell.type = "button";
+          cell.className = [
+            "relative flex items-center justify-center rounded-full border-4 bg-stone-300 transition hover:bg-stone-200",
+            isSelected ? "ring-4 ring-lime-400" : "",
+            isLegal ? "ring-4 ring-emerald-500" : "",
+          ].join(" ");
+          cell.setAttribute("aria-label", `point ${index + 1}`);
+          cell.addEventListener("click", () => handleCell(index));
+
+          if (piece) {
+            const disk = document.createElement("span");
+            disk.className = `flex h-12 w-12 items-center justify-center rounded-full border-2 shadow ${players[piece].disk}`;
+            disk.textContent = "●";
+            cell.appendChild(disk);
+          } else if (isLegal) {
+            const dot = document.createElement("span");
+            dot.className = "h-4 w-4 rounded-full bg-emerald-600";
+            cell.appendChild(dot);
+          }
+
+          boardEl.appendChild(cell);
+        }
+      }
+
+      document.getElementById("reset").addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
