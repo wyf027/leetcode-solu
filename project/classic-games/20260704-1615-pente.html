@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-center">
+      <section class="w-full max-w-xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal text-cyan-100">Mini Pente</h1>
+            <p class="mt-1 text-sm text-zinc-300">五子连线或捕获五对棋子即可获胜。</p>
+          </div>
+          <button id="reset" class="rounded bg-cyan-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-cyan-300">
+            重新开始
+          </button>
+        </div>
+
+        <div class="aspect-square rounded border border-cyan-800 bg-amber-100 p-3 shadow-2xl shadow-black/40">
+          <div id="board" class="grid h-full w-full grid-cols-9 grid-rows-9 gap-px rounded bg-amber-800 p-px"></div>
+        </div>
+      </section>
+
+      <aside class="w-full max-w-sm rounded border border-zinc-700 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">当前回合</div>
+            <div id="turn" class="mt-1 text-xl font-bold text-cyan-200">黑方</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">捕获</div>
+            <div id="captures" class="mt-1 text-xl font-bold text-cyan-200">0 : 0</div>
+          </div>
+        </div>
+        <div id="status" class="mt-4 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200">
+          黑方先行，点击空位落子。
+        </div>
+        <div class="mt-4 space-y-2 text-sm text-zinc-300">
+          <div class="rounded border border-zinc-700 p-2">连成横、竖或斜向五子获胜。</div>
+          <div class="rounded border border-zinc-700 p-2">落子后夹住正好两枚对手棋子可捕获。</div>
+          <div class="rounded border border-zinc-700 p-2">任意一方累计捕获五对也会获胜。</div>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const size = 9;
+      const empty = "";
+      const players = {
+        B: { label: "黑方", disk: "bg-zinc-950 border-zinc-700" },
+        W: { label: "白方", disk: "bg-zinc-100 border-zinc-300" },
+      };
+      const directions = [
+        [1, 0],
+        [0, 1],
+        [1, 1],
+        [1, -1],
+      ];
+
+      let board = [];
+      let current = "B";
+      let captures = { B: 0, W: 0 };
+      let winner = null;
+      let lastMove = null;
+
+      const boardEl = document.getElementById("board");
+      const turnEl = document.getElementById("turn");
+      const capturesEl = document.getElementById("captures");
+      const statusEl = document.getElementById("status");
+
+      function resetGame() {
+        board = Array.from({ length: size }, () => Array(size).fill(empty));
+        current = "B";
+        captures = { B: 0, W: 0 };
+        winner = null;
+        lastMove = null;
+        statusEl.textContent = "黑方先行，点击空位落子。";
+        render();
+      }
+
+      function inside(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function opponentOf(player) {
+        return player === "B" ? "W" : "B";
+      }
+
+      function capturePairs(row, col, player) {
+        const opponent = opponentOf(player);
+        let pairs = 0;
+
+        for (const [dr, dc] of directions) {
+          for (const side of [-1, 1]) {
+            const r1 = row + dr * side;
+            const c1 = col + dc * side;
+            const r2 = row + dr * side * 2;
+            const c2 = col + dc * side * 2;
+            const r3 = row + dr * side * 3;
+            const c3 = col + dc * side * 3;
+
+            if (
+              inside(r3, c3) &&
+              board[r1][c1] === opponent &&
+              board[r2][c2] === opponent &&
+              board[r3][c3] === player
+            ) {
+              board[r1][c1] = empty;
+              board[r2][c2] = empty;
+              pairs += 1;
+            }
+          }
+        }
+
+        captures[player] += pairs;
+        return pairs;
+      }
+
+      function countLine(row, col, dr, dc, player) {
+        let total = 1;
+        for (const side of [-1, 1]) {
+          let nextRow = row + dr * side;
+          let nextCol = col + dc * side;
+          while (inside(nextRow, nextCol) && board[nextRow][nextCol] === player) {
+            total += 1;
+            nextRow += dr * side;
+            nextCol += dc * side;
+          }
+        }
+        return total;
+      }
+
+      function checkWinner(row, col, player) {
+        const hasFive = directions.some(([dr, dc]) => countLine(row, col, dr, dc, player) >= 5);
+        if (hasFive || captures[player] >= 5) {
+          winner = player;
+          return true;
+        }
+        return false;
+      }
+
+      function isBoardFull() {
+        return board.every((row) => row.every((cell) => cell !== empty));
+      }
+
+      function placeStone(row, col) {
+        if (winner || board[row][col] !== empty) return;
+
+        board[row][col] = current;
+        lastMove = { row, col };
+        const pairs = capturePairs(row, col, current);
+
+        if (checkWinner(row, col, current)) {
+          statusEl.textContent = `${players[current].label}获胜。`;
+        } else if (isBoardFull()) {
+          statusEl.textContent = "棋盘已满，平局。";
+          winner = "draw";
+        } else {
+          const next = opponentOf(current);
+          statusEl.textContent = pairs
+            ? `${players[current].label}捕获 ${pairs} 对，${players[next].label}行动。`
+            : `${players[next].label}行动。`;
+          current = next;
+        }
+
+        render();
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        turnEl.textContent = winner && winner !== "draw" ? `${players[winner].label}胜利` : players[current].label;
+        capturesEl.textContent = `${captures.B} : ${captures.W}`;
+
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const stone = board[row][col];
+            const isLast = lastMove && lastMove.row === row && lastMove.col === col;
+            cell.type = "button";
+            cell.className = [
+              "flex items-center justify-center bg-amber-200 hover:bg-amber-300",
+              "relative min-h-0 min-w-0 transition",
+              isLast ? "ring-2 ring-cyan-500 ring-inset" : "",
+            ].join(" ");
+            cell.setAttribute("aria-label", `row ${row + 1} col ${col + 1}`);
+            cell.addEventListener("click", () => placeStone(row, col));
+
+            const point = document.createElement("span");
+            point.className = "absolute h-1.5 w-1.5 rounded-full bg-amber-900/60";
+            cell.appendChild(point);
+
+            if (stone) {
+              const disk = document.createElement("span");
+              disk.className = `relative z-10 h-7 w-7 rounded-full border-2 shadow ${players[stone].disk}`;
+              cell.appendChild(disk);
+            }
+
+            boardEl.appendChild(cell);
+          }
+        }
+      }
+
+      document.getElementById("reset").addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
