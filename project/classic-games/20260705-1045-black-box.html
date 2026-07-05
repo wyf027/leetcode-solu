@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Black Box</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Black Box</h1>
+          <p class="mt-1 text-sm text-slate-300">点击边缘发射射线，根据结果推断黑箱里的 3 个隐藏原子。</p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-fuchsia-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_14rem]">
+        <div class="rounded-lg border border-slate-700 bg-slate-950 p-3">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-6 grid-rows-6 gap-1"></div>
+        </div>
+        <aside class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+          <div class="text-sm font-semibold text-slate-200">状态</div>
+          <div id="status" class="mt-3 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300">点击边缘编号发射射线。</div>
+          <div class="mt-4 text-sm font-semibold text-slate-200">标记原子</div>
+          <div id="guessCount" class="mt-2 text-sm text-slate-300">已标记 0 / 3</div>
+          <button id="checkBtn" class="mt-3 w-full rounded-md bg-emerald-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">检查</button>
+          <ul class="mt-4 space-y-2 text-sm text-slate-300">
+            <li>H 表示射线命中原子。</li>
+            <li>R 表示射线被反射回入口。</li>
+            <li>数字表示射线从该出口离开。</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const atoms = new Set(["1,1", "2,3", "3,0"]);
+    const guesses = new Set();
+    const shots = new Map();
+    const board = document.getElementById("board");
+    const status = document.getElementById("status");
+    const guessCount = document.getElementById("guessCount");
+    const resetBtn = document.getElementById("resetBtn");
+    const checkBtn = document.getElementById("checkBtn");
+
+    function key(r, c) {
+      return `${r},${c}`;
+    }
+
+    function entryFromLabel(label) {
+      const side = label[0];
+      const index = Number(label.slice(1)) - 1;
+      if (side === "T") return { r: -1, c: index, dr: 1, dc: 0 };
+      if (side === "B") return { r: size, c: index, dr: -1, dc: 0 };
+      if (side === "L") return { r: index, c: -1, dr: 0, dc: 1 };
+      return { r: index, c: size, dr: 0, dc: -1 };
+    }
+
+    function exitLabel(r, c, dr, dc) {
+      if (r < 0) return `T${c + 1}`;
+      if (r >= size) return `B${c + 1}`;
+      if (c < 0) return `L${r + 1}`;
+      if (c >= size) return `R${r + 1}`;
+      return dr || dc;
+    }
+
+    function turnLeft(ray) {
+      return { ...ray, dr: -ray.dc, dc: ray.dr };
+    }
+
+    function turnRight(ray) {
+      return { ...ray, dr: ray.dc, dc: -ray.dr };
+    }
+
+    function trace(label) {
+      let ray = entryFromLabel(label);
+      const entrance = `${ray.r},${ray.c},${ray.dr},${ray.dc}`;
+      for (let step = 0; step < 40; step++) {
+        const front = key(ray.r + ray.dr, ray.c + ray.dc);
+        if (atoms.has(front)) return "H";
+        const left = key(ray.r + ray.dr - ray.dc, ray.c + ray.dc + ray.dr);
+        const right = key(ray.r + ray.dr + ray.dc, ray.c + ray.dc - ray.dr);
+        const blockLeft = atoms.has(left);
+        const blockRight = atoms.has(right);
+        if (blockLeft && blockRight) return "R";
+        if (blockLeft) ray = turnRight(ray);
+        else if (blockRight) ray = turnLeft(ray);
+        ray.r += ray.dr;
+        ray.c += ray.dc;
+        if (ray.r < 0 || ray.r >= size || ray.c < 0 || ray.c >= size) {
+          const out = exitLabel(ray.r, ray.c, ray.dr, ray.dc);
+          return out === label || `${ray.r},${ray.c},${ray.dr},${ray.dc}` === entrance ? "R" : out;
+        }
+      }
+      return "R";
+    }
+
+    function labelsForCell(r, c) {
+      if (r === 0 && c > 0 && c < 5) return `T${c}`;
+      if (r === 5 && c > 0 && c < 5) return `B${c}`;
+      if (c === 0 && r > 0 && r < 5) return `L${r}`;
+      if (c === 5 && r > 0 && r < 5) return `R${r}`;
+      return "";
+    }
+
+    function render() {
+      board.innerHTML = "";
+      for (let r = 0; r < 6; r++) {
+        for (let c = 0; c < 6; c++) {
+          const label = labelsForCell(r, c);
+          if (label) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "flex items-center justify-center rounded bg-slate-800 text-sm font-bold text-fuchsia-200 hover:bg-slate-700";
+            button.textContent = shots.get(label) || label;
+            button.title = `发射 ${label}`;
+            button.addEventListener("click", () => {
+              const result = trace(label);
+              shots.set(label, result);
+              status.textContent = `${label} 的结果：${result}`;
+              render();
+            });
+            board.appendChild(button);
+            continue;
+          }
+          if (r === 0 || r === 5 || c === 0 || c === 5) {
+            const spacer = document.createElement("div");
+            board.appendChild(spacer);
+            continue;
+          }
+          const rr = r - 1;
+          const cc = c - 1;
+          const cellKey = key(rr, cc);
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = [
+            "flex items-center justify-center rounded border text-xl font-bold transition",
+            guesses.has(cellKey) ? "border-fuchsia-300 bg-fuchsia-400 text-slate-950" : "border-slate-700 bg-slate-900 hover:bg-slate-800"
+          ].join(" ");
+          cell.textContent = guesses.has(cellKey) ? "A" : "";
+          cell.addEventListener("click", () => {
+            if (guesses.has(cellKey)) guesses.delete(cellKey);
+            else if (guesses.size < 3) guesses.add(cellKey);
+            render();
+          });
+          board.appendChild(cell);
+        }
+      }
+      guessCount.textContent = `已标记 ${guesses.size} / 3`;
+    }
+
+    checkBtn.addEventListener("click", () => {
+      const correct = guesses.size === atoms.size && [...atoms].every((value) => guesses.has(value));
+      status.textContent = correct ? "完成！三个隐藏原子都找到了。" : "还不对，继续利用射线结果推断。";
+      status.className = correct
+        ? "mt-3 rounded-md border border-emerald-500 bg-emerald-950 px-3 py-2 text-sm text-emerald-200"
+        : "mt-3 rounded-md border border-amber-500 bg-amber-950 px-3 py-2 text-sm text-amber-200";
+    });
+
+    resetBtn.addEventListener("click", () => {
+      guesses.clear();
+      shots.clear();
+      status.textContent = "点击边缘编号发射射线。";
+      status.className = "mt-3 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300";
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
