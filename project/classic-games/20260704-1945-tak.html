@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Tak</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 lg:flex-row lg:items-center">
+    <section class="flex-1">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-3xl font-bold tracking-normal text-teal-200">Mini Tak</h1>
+          <p class="mt-1 max-w-2xl text-sm leading-6 text-neutral-300">双方轮流放置平石。蓝方尝试连接左到右，白方尝试连接上到下。先形成连续道路者获胜。</p>
+        </div>
+        <button id="resetBtn" class="rounded bg-teal-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-teal-200">重开</button>
+      </div>
+
+      <div class="mx-auto w-full max-w-[560px] rounded border border-neutral-700 bg-neutral-900 p-3 shadow-2xl">
+        <div class="mb-2 flex justify-between text-xs text-teal-200">
+          <span>蓝方目标</span>
+          <span>蓝方目标</span>
+        </div>
+        <div id="board" class="grid aspect-square grid-cols-4 gap-2"></div>
+        <div class="mt-2 flex justify-center text-xs text-stone-100">白方目标：上到下</div>
+      </div>
+    </section>
+
+    <aside class="w-full rounded border border-neutral-700 bg-neutral-900 p-4 lg:w-80">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded bg-neutral-800 p-3">
+          <div class="text-neutral-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-xl font-bold text-teal-200">蓝方</div>
+        </div>
+        <div class="rounded bg-neutral-800 p-3">
+          <div class="text-neutral-400">剩余空格</div>
+          <div id="emptyText" class="mt-1 text-xl font-bold text-teal-200">16</div>
+        </div>
+        <div class="rounded bg-neutral-800 p-3">
+          <div class="text-neutral-400">蓝方石</div>
+          <div id="blueText" class="mt-1 text-xl font-bold text-teal-200">0</div>
+        </div>
+        <div class="rounded bg-neutral-800 p-3">
+          <div class="text-neutral-400">白方石</div>
+          <div id="whiteText" class="mt-1 text-xl font-bold text-stone-100">0</div>
+        </div>
+      </div>
+      <p id="statusText" class="mt-4 min-h-16 rounded bg-neutral-800 p-3 text-sm leading-6 text-neutral-200">蓝方放置一枚平石。</p>
+    </aside>
+  </main>
+
+  <script>
+    const size = 4;
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turnText");
+    const emptyEl = document.getElementById("emptyText");
+    const blueEl = document.getElementById("blueText");
+    const whiteEl = document.getElementById("whiteText");
+    const statusEl = document.getElementById("statusText");
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let board = [];
+    let current = "B";
+    let winner = null;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      current = "B";
+      winner = null;
+      render("蓝方放置一枚平石。");
+    }
+
+    function inBoard(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function placeStone(r, c) {
+      if (winner || board[r][c]) return;
+      board[r][c] = current;
+      if (checkWinner(current)) {
+        winner = current;
+        render(`${sideName(current)}完成道路并获胜。`);
+        return;
+      }
+      if (countPieces("") === 0) {
+        winner = "D";
+        render("棋盘已满，平局。");
+        return;
+      }
+      current = current === "B" ? "W" : "B";
+      render(`${sideName(current)}放置一枚平石。`);
+    }
+
+    function checkWinner(side) {
+      const queue = [];
+      const seen = new Set();
+      if (side === "B") {
+        for (let r = 0; r < size; r += 1) {
+          if (board[r][0] === side) queue.push([r, 0]);
+        }
+      } else {
+        for (let c = 0; c < size; c += 1) {
+          if (board[0][c] === side) queue.push([0, c]);
+        }
+      }
+      while (queue.length) {
+        const [r, c] = queue.shift();
+        const key = `${r},${c}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if ((side === "B" && c === size - 1) || (side === "W" && r === size - 1)) return true;
+        for (const [dr, dc] of dirs) {
+          const nr = r + dr;
+          const nc = c + dc;
+          if (inBoard(nr, nc) && board[nr][nc] === side) queue.push([nr, nc]);
+        }
+      }
+      return false;
+    }
+
+    function countPieces(side) {
+      return board.flat().filter((piece) => piece === side).length;
+    }
+
+    function sideName(side) {
+      if (side === "B") return "蓝方";
+      if (side === "W") return "白方";
+      return "双方";
+    }
+
+    function cellClasses(piece) {
+      if (piece === "B") return "bg-teal-300 text-neutral-950";
+      if (piece === "W") return "bg-stone-100 text-neutral-950";
+      return "bg-neutral-800 text-transparent hover:bg-neutral-700";
+    }
+
+    function render(message) {
+      boardEl.innerHTML = board.map((row, r) => row.map((piece, c) => {
+        const label = piece === "B" ? "B" : piece === "W" ? "W" : "";
+        return `<button type="button" onclick="placeStone(${r}, ${c})" aria-label="cell ${r + 1}-${c + 1}"
+          class="flex aspect-square items-center justify-center rounded text-2xl font-black shadow transition ${cellClasses(piece)}">${label}</button>`;
+      }).join("")).join("");
+      turnEl.textContent = winner ? (winner === "D" ? "平局" : sideName(winner)) : sideName(current);
+      turnEl.className = `mt-1 text-xl font-bold ${current === "B" ? "text-teal-200" : "text-stone-100"}`;
+      emptyEl.textContent = String(countPieces(""));
+      blueEl.textContent = String(countPieces("B"));
+      whiteEl.textContent = String(countPieces("W"));
+      statusEl.textContent = message;
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
