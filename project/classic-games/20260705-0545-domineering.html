@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Domineering</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Domineering</h1>
+        <p class="text-sm text-slate-400">你横放骨牌，电脑竖放骨牌；点击两个相邻横向空格，无法行动者输。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-300">重开</button>
+    </header>
+
+    <section class="grid grid-cols-3 gap-3">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">回合</div>
+        <div id="turnLabel" class="text-2xl font-semibold">你</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">你的骨牌</div>
+        <div id="playerScore" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">电脑骨牌</div>
+        <div id="botScore" class="text-2xl font-semibold">0</div>
+      </div>
+    </section>
+
+    <section class="rounded border border-slate-700 bg-slate-900 p-4">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">4 x 4 棋盘</h2>
+        <span id="message" class="text-sm text-fuchsia-300">选择横向相邻的两个空格。</span>
+      </div>
+      <div id="board" class="mx-auto grid max-w-md grid-cols-4 gap-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabelEl = document.getElementById("turnLabel");
+    const playerScoreEl = document.getElementById("playerScore");
+    const botScoreEl = document.getElementById("botScore");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 4;
+    let board = [];
+    let selected = null;
+    let playerScore = 0;
+    let botScore = 0;
+    let gameOver = false;
+    let botThinking = false;
+    let botTurnTimer = null;
+
+    function clearPendingBotTurn() {
+      if (botTurnTimer !== null) {
+        window.clearTimeout(botTurnTimer);
+        botTurnTimer = null;
+      }
+    }
+
+    function scheduleBotTurn() {
+      clearPendingBotTurn();
+      botTurnTimer = window.setTimeout(() => {
+        botTurnTimer = null;
+        botTurn();
+      }, 450);
+    }
+
+    function resetGame() {
+      clearPendingBotTurn();
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      selected = null;
+      playerScore = 0;
+      botScore = 0;
+      gameOver = false;
+      botThinking = false;
+      setMessage("选择横向相邻的两个空格。");
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function empty(row, col) {
+      return inside(row, col) && board[row][col] === "";
+    }
+
+    function getMoves(side) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (side === "H" && empty(row, col) && empty(row, col + 1)) {
+            moves.push([{ row, col }, { row, col: col + 1 }]);
+          }
+          if (side === "V" && empty(row, col) && empty(row + 1, col)) {
+            moves.push([{ row, col }, { row: row + 1, col }]);
+          }
+        }
+      }
+      return moves;
+    }
+
+    function handleCell(row, col) {
+      if (gameOver || botThinking) return;
+      if (!empty(row, col)) {
+        selected = null;
+        setMessage("只能选择空格。");
+        render();
+        return;
+      }
+      if (!selected) {
+        selected = { row, col };
+        setMessage("再选一个右侧或左侧相邻空格。");
+        render();
+        return;
+      }
+      const sameRow = selected.row === row;
+      const adjacent = Math.abs(selected.col - col) === 1;
+      if (sameRow && adjacent) {
+        placeDomino([selected, { row, col }], "H");
+        playerScore += 1;
+        selected = null;
+        if (!checkGameOver("V")) {
+          botThinking = true;
+          setMessage("电脑行动。");
+          render();
+          scheduleBotTurn();
+        }
+        return;
+      }
+      selected = { row, col };
+      setMessage("横向相邻才可以放置。已重新选择第一个格子。");
+      render();
+    }
+
+    function placeDomino(cells, side) {
+      cells.forEach(({ row, col }) => {
+        board[row][col] = side;
+      });
+    }
+
+    function botTurn() {
+      botTurnTimer = null;
+      if (gameOver || !botThinking) return;
+      const moves = getMoves("V");
+      if (!moves.length) {
+        finish("你赢了，电脑无法竖放。");
+        return;
+      }
+      const centerMove = moves.find((move) => move.some((cell) => cell.col === 1 || cell.col === 2));
+      placeDomino(centerMove || moves[0], "V");
+      botScore += 1;
+      botThinking = false;
+      if (!checkGameOver("H")) {
+        setMessage("轮到你横放骨牌。");
+      }
+      render();
+    }
+
+    function checkGameOver(nextSide) {
+      if (getMoves(nextSide).length > 0) return false;
+      finish(nextSide === "H" ? "电脑赢了，你无法横放。" : "你赢了，电脑无法竖放。");
+      return true;
+    }
+
+    function finish(text) {
+      clearPendingBotTurn();
+      gameOver = true;
+      botThinking = false;
+      selected = null;
+      setMessage(text);
+      render();
+    }
+
+    function isSelected(row, col) {
+      return selected?.row === row && selected?.col === col;
+    }
+
+    function isCandidate(row, col) {
+      if (!selected || !empty(row, col)) return false;
+      return selected.row === row && Math.abs(selected.col - col) === 1;
+    }
+
+    function renderCell(row, col) {
+      const value = board[row][col];
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "aspect-square rounded border border-slate-700 bg-slate-800 text-2xl font-semibold hover:border-fuchsia-300";
+      if ((row + col) % 2 === 0) button.classList.add("bg-slate-700");
+      if (value === "H") button.classList.add("bg-fuchsia-500", "text-white", "border-fuchsia-200");
+      if (value === "V") button.classList.add("bg-cyan-500", "text-slate-950", "border-cyan-200");
+      if (isSelected(row, col)) button.classList.add("ring-4", "ring-fuchsia-300");
+      if (isCandidate(row, col)) button.classList.add("ring-2", "ring-emerald-300");
+      button.textContent = value;
+      button.addEventListener("click", () => handleCell(row, col));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          boardEl.appendChild(renderCell(row, col));
+        }
+      }
+      turnLabelEl.textContent = gameOver ? "结束" : botThinking ? "电脑" : "你";
+      playerScoreEl.textContent = playerScore;
+      botScoreEl.textContent = botScore;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
