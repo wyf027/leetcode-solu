@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Nurikabe</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-8">
+      <section class="w-full rounded border border-zinc-700 bg-zinc-900 p-5 shadow-2xl shadow-sky-950/40">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-sky-300">Logic puzzle</p>
+            <h1 class="mt-1 text-3xl font-bold text-white">Mini Nurikabe</h1>
+          </div>
+          <button id="resetBtn" class="rounded bg-sky-400 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-sky-300">
+            重开
+          </button>
+        </div>
+
+        <div id="board" class="mx-auto mt-6 grid w-full max-w-[390px] grid-cols-5 gap-1"></div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+          <div class="rounded border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-zinc-400">岛屿错误</p>
+            <p id="islandErrors" class="text-xl font-bold text-amber-300">0</p>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-zinc-400">2x2 海块</p>
+            <p id="blockErrors" class="text-xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-zinc-400">海连通</p>
+            <p id="seaStatus" class="text-xl font-bold text-sky-200">否</p>
+          </div>
+        </div>
+
+        <p id="message" class="mt-5 min-h-7 text-center text-sm font-semibold text-zinc-300">
+          点击空格切换白岛与黑海。数字所在岛屿大小必须等于数字。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const clues = new Map([
+        ["0,0", 1],
+        ["0,3", 2],
+        ["2,1", 3],
+        ["3,4", 1],
+        ["4,2", 2],
+      ]);
+      const solutionSea = new Set([
+        "0,1",
+        "0,2",
+        "1,1",
+        "1,3",
+        "1,4",
+        "2,0",
+        "2,3",
+        "2,4",
+        "3,0",
+        "3,1",
+        "3,3",
+        "4,0",
+        "4,1",
+        "4,3",
+        "4,4",
+      ]);
+      const sea = new Set();
+      const board = document.getElementById("board");
+      const islandErrors = document.getElementById("islandErrors");
+      const blockErrors = document.getElementById("blockErrors");
+      const seaStatus = document.getElementById("seaStatus");
+      const message = document.getElementById("message");
+      const resetBtn = document.getElementById("resetBtn");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function neighbors(row, col) {
+        return [
+          [row - 1, col],
+          [row + 1, col],
+          [row, col - 1],
+          [row, col + 1],
+        ].filter(([r, c]) => r >= 0 && r < 5 && c >= 0 && c < 5);
+      }
+
+      function flood(start, accepts) {
+        const seen = new Set([start]);
+        const queue = [start];
+        while (queue.length) {
+          const [row, col] = queue.shift().split(",").map(Number);
+          neighbors(row, col).forEach(([r, c]) => {
+            const spot = key(r, c);
+            if (!seen.has(spot) && accepts(spot)) {
+              seen.add(spot);
+              queue.push(spot);
+            }
+          });
+        }
+        return seen;
+      }
+
+      function islandReport() {
+        const visited = new Set();
+        const bad = new Set();
+        for (let row = 0; row < 5; row += 1) {
+          for (let col = 0; col < 5; col += 1) {
+            const spot = key(row, col);
+            if (sea.has(spot) || visited.has(spot)) continue;
+            const group = flood(spot, (cell) => !sea.has(cell));
+            group.forEach((cell) => visited.add(cell));
+            const clueCells = [...group].filter((cell) => clues.has(cell));
+            const target = clueCells.length === 1 ? clues.get(clueCells[0]) : null;
+            if (target === null || group.size !== target) group.forEach((cell) => bad.add(cell));
+          }
+        }
+        return bad;
+      }
+
+      function seaConnected() {
+        if (!sea.size) return false;
+        const connected = flood([...sea][0], (cell) => sea.has(cell));
+        return connected.size === sea.size;
+      }
+
+      function twoByTwoSea() {
+        const bad = new Set();
+        for (let row = 0; row < 4; row += 1) {
+          for (let col = 0; col < 4; col += 1) {
+            const square = [key(row, col), key(row + 1, col), key(row, col + 1), key(row + 1, col + 1)];
+            if (square.every((cell) => sea.has(cell))) square.forEach((cell) => bad.add(cell));
+          }
+        }
+        return bad;
+      }
+
+      function solved(islands, blocks, connected) {
+        if (islands.size || blocks.size || !connected) return false;
+        for (const cell of solutionSea) {
+          if (!sea.has(cell)) return false;
+        }
+        return sea.size === solutionSea.size;
+      }
+
+      function render() {
+        const islands = islandReport();
+        const blocks = twoByTwoSea();
+        const connected = seaConnected();
+        board.innerHTML = "";
+
+        for (let row = 0; row < 5; row += 1) {
+          for (let col = 0; col < 5; col += 1) {
+            const spot = key(row, col);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className =
+              "aspect-square rounded border text-xl font-black transition focus:outline-none focus:ring-2 focus:ring-sky-300";
+            if (clues.has(spot)) {
+              button.textContent = clues.get(spot);
+              button.disabled = true;
+              button.className += islands.has(spot)
+                ? " border-amber-300 bg-amber-100 text-zinc-950"
+                : " border-sky-200 bg-white text-zinc-950";
+            } else {
+              const isSea = sea.has(spot);
+              button.textContent = isSea ? "" : "·";
+              button.ariaLabel = isSea ? "切换为岛屿" : "切换为海";
+              button.className += blocks.has(spot)
+                ? " border-rose-400 bg-rose-500 text-white"
+                : isSea
+                  ? " border-sky-700 bg-sky-950 text-sky-100"
+                  : islands.has(spot)
+                    ? " border-amber-300 bg-amber-100 text-zinc-950"
+                    : " border-zinc-700 bg-zinc-100 text-zinc-500 hover:bg-white";
+              button.addEventListener("click", () => {
+                sea.has(spot) ? sea.delete(spot) : sea.add(spot);
+                render();
+              });
+            }
+            board.appendChild(button);
+          }
+        }
+
+        islandErrors.textContent = islands.size;
+        blockErrors.textContent = blocks.size;
+        seaStatus.textContent = connected ? "是" : "否";
+
+        if (solved(islands, blocks, connected)) {
+          message.textContent = "完成！岛屿大小正确，黑海连通且没有 2x2 海块。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-emerald-300";
+        } else if (blocks.size) {
+          message.textContent = "红色格形成了 2x2 黑海，需要拆开。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-rose-300";
+        } else if (!connected) {
+          message.textContent = "黑海还没有全部连通。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-sky-300";
+        } else {
+          message.textContent = "调整白岛大小，让每个岛只包含一个数字。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-zinc-300";
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        sea.clear();
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
