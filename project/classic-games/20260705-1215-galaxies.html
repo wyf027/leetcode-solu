@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Galaxies</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-indigo-700 bg-indigo-900 p-5 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Galaxies</h1>
+          <p class="mt-1 text-sm text-indigo-100">点击格子切换星系颜色，每个星系必须围绕自己的星心中心对称。</p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-pink-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-pink-200">重开</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_14rem]">
+        <div class="rounded-lg border border-indigo-700 bg-indigo-950 p-3">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-4 grid-rows-4 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-indigo-700 bg-indigo-800 p-4">
+          <div class="text-sm font-semibold text-indigo-50">状态</div>
+          <div id="status" class="mt-3 rounded-md border border-indigo-700 bg-indigo-950 px-3 py-2 text-sm text-indigo-100">每种颜色对应一个星心。</div>
+          <div class="mt-4 text-sm font-semibold text-indigo-50">规则</div>
+          <ul class="mt-2 space-y-2 text-sm text-indigo-100">
+            <li>每格必须属于一个星心。</li>
+            <li>同色区域必须包含自己的星心。</li>
+            <li>同色区域绕星心旋转 180 度后不变。</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const centers = [
+      { id: 0, r: 0.5, c: 0.5, label: "A", color: "bg-pink-400 text-indigo-950" },
+      { id: 1, r: 0.5, c: 2.5, label: "B", color: "bg-sky-300 text-indigo-950" },
+      { id: 2, r: 2.5, c: 0.5, label: "C", color: "bg-lime-300 text-indigo-950" },
+      { id: 3, r: 2.5, c: 2.5, label: "D", color: "bg-amber-300 text-indigo-950" }
+    ];
+    const start = [
+      [0, 0, 1, 1],
+      [0, 1, 1, 1],
+      [2, 2, 3, 1],
+      [2, 2, 3, 3]
+    ];
+    const target = [
+      [0, 0, 1, 1],
+      [0, 0, 1, 1],
+      [2, 2, 3, 3],
+      [2, 2, 3, 3]
+    ];
+    const grid = start.map((row) => row.slice());
+    const board = document.getElementById("board");
+    const status = document.getElementById("status");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function centerCellIds(center) {
+      const ids = [];
+      for (let r = Math.floor(center.r); r <= Math.ceil(center.r); r++) {
+        for (let c = Math.floor(center.c); c <= Math.ceil(center.c); c++) {
+          if (r >= 0 && r < size && c >= 0 && c < size) ids.push(`${r},${c}`);
+        }
+      }
+      return ids;
+    }
+
+    function symmetricPartner(center, r, c) {
+      return {
+        r: Math.round(2 * center.r - r),
+        c: Math.round(2 * center.c - c)
+      };
+    }
+
+    function symmetryErrors() {
+      let errors = 0;
+      for (const center of centers) {
+        const owned = new Set();
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            if (grid[r][c] === center.id) owned.add(`${r},${c}`);
+          }
+        }
+        const hasCenter = centerCellIds(center).some((id) => owned.has(id));
+        if (!hasCenter) errors++;
+        for (const id of owned) {
+          const [r, c] = id.split(",").map(Number);
+          const mate = symmetricPartner(center, r, c);
+          if (mate.r < 0 || mate.r >= size || mate.c < 0 || mate.c >= size || !owned.has(`${mate.r},${mate.c}`)) {
+            errors++;
+          }
+        }
+      }
+      return errors;
+    }
+
+    function connectedErrors() {
+      let errors = 0;
+      for (const center of centers) {
+        const cells = [];
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            if (grid[r][c] === center.id) cells.push([r, c]);
+          }
+        }
+        if (!cells.length) {
+          errors++;
+          continue;
+        }
+        const seen = new Set([cells[0].join(",")]);
+        const queue = [cells[0]];
+        while (queue.length) {
+          const [r, c] = queue.shift();
+          for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+            const nr = r + dr;
+            const nc = c + dc;
+            const key = `${nr},${nc}`;
+            if (nr >= 0 && nr < size && nc >= 0 && nc < size && grid[nr][nc] === center.id && !seen.has(key)) {
+              seen.add(key);
+              queue.push([nr, nc]);
+            }
+          }
+        }
+        if (seen.size !== cells.length) errors++;
+      }
+      return errors;
+    }
+
+    function solved() {
+      return symmetryErrors() === 0 && connectedErrors() === 0;
+    }
+
+    function render() {
+      board.innerHTML = "";
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const center = centers[grid[r][c]];
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `relative rounded-md border border-indigo-700 text-xl font-bold transition hover:brightness-110 ${center.color}`;
+          button.textContent = center.label;
+          const mark = centers.find((item) => Math.floor(item.r) <= r && Math.ceil(item.r) >= r && Math.floor(item.c) <= c && Math.ceil(item.c) >= c);
+          if (mark && mark.id === grid[r][c]) {
+            const star = document.createElement("span");
+            star.className = "absolute right-1 top-1 text-xs";
+            star.textContent = "*";
+            button.appendChild(star);
+          }
+          button.addEventListener("click", () => {
+            grid[r][c] = (grid[r][c] + 1) % centers.length;
+            render();
+          });
+          board.appendChild(button);
+        }
+      }
+
+      const symmetry = symmetryErrors();
+      const connected = connectedErrors();
+      if (solved()) {
+        status.textContent = "完成！每个星系都连通，并且绕星心中心对称。";
+        status.className = "mt-3 rounded-md border border-emerald-400 bg-emerald-950 px-3 py-2 text-sm text-emerald-100";
+      } else if (symmetry) {
+        status.textContent = `还有 ${symmetry} 处不满足星心对称。`;
+        status.className = "mt-3 rounded-md border border-amber-400 bg-amber-950 px-3 py-2 text-sm text-amber-100";
+      } else if (connected) {
+        status.textContent = `还有 ${connected} 个星系没有连成一块。`;
+        status.className = "mt-3 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm text-rose-100";
+      } else {
+        status.textContent = "继续调整颜色分区。";
+        status.className = "mt-3 rounded-md border border-indigo-700 bg-indigo-950 px-3 py-2 text-sm text-indigo-100";
+      }
+    }
+
+    resetBtn.addEventListener("click", () => {
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) grid[r][c] = start[r][c];
+      }
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
