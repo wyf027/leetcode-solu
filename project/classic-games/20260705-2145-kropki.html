@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kropki</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="grid gap-4 md:grid-cols-[1fr_280px] md:items-start">
+      <div class="rounded-lg border border-stone-700 bg-stone-900 p-4 shadow-2xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-normal">Mini Kropki</h1>
+            <p class="text-sm text-stone-400">填入 1-4，让每行每列不重复，并满足圆点关系。</p>
+          </div>
+          <button id="resetBtn" class="rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400">重开</button>
+        </div>
+        <div id="board" class="mx-auto grid w-full max-w-[420px] grid-cols-[repeat(7,minmax(0,1fr))] grid-rows-[repeat(7,minmax(0,1fr))] gap-1 rounded-lg bg-stone-800 p-2"></div>
+      </div>
+      <aside class="rounded-lg border border-stone-700 bg-stone-900 p-4">
+        <h2 class="mb-3 text-lg font-semibold">状态</h2>
+        <div class="space-y-3 text-sm">
+          <p id="latinStatus" class="rounded-md bg-stone-800 p-3 text-stone-200"></p>
+          <p id="dotStatus" class="rounded-md bg-stone-800 p-3 text-stone-200"></p>
+          <p id="completeStatus" class="rounded-md bg-stone-800 p-3 font-semibold text-stone-200"></p>
+        </div>
+        <div class="mt-4 space-y-2 text-xs leading-5 text-stone-400">
+          <p><span class="inline-block h-3 w-3 rounded-full bg-stone-950 align-middle ring-1 ring-stone-400"></span> 黑点：相邻两数为 1:2。</p>
+          <p><span class="inline-block h-3 w-3 rounded-full bg-white align-middle ring-1 ring-stone-400"></span> 白点：相邻两数相差 1。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const givens = {
+      "0,1": 4,
+      "1,3": 1,
+      "2,0": 4,
+      "3,2": 1
+    };
+    const dots = [
+      { a: [0, 0], b: [0, 1], type: "white" },
+      { a: [0, 2], b: [0, 3], type: "black" },
+      { a: [1, 0], b: [2, 0], type: "white" },
+      { a: [1, 1], b: [1, 2], type: "black" },
+      { a: [1, 2], b: [2, 2], type: "white" },
+      { a: [2, 1], b: [3, 1], type: "black" },
+      { a: [2, 2], b: [2, 3], type: "white" },
+      { a: [3, 0], b: [3, 1], type: "black" }
+    ];
+    const solution = [
+      [1, 4, 2, 3],
+      [3, 2, 4, 1],
+      [4, 1, 3, 2],
+      [2, 3, 1, 4]
+    ];
+    const values = Array.from({ length: size }, (_, row) =>
+      Array.from({ length: size }, (_, col) => givens[`${row},${col}`] || 0)
+    );
+
+    const board = document.getElementById("board");
+    const latinStatus = document.getElementById("latinStatus");
+    const dotStatus = document.getElementById("dotStatus");
+    const completeStatus = document.getElementById("completeStatus");
+    const resetBtn = document.getElementById("resetBtn");
+    const cells = new Map();
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function renderBoard() {
+      board.innerHTML = "";
+      cells.clear();
+      for (let gridRow = 0; gridRow < 7; gridRow++) {
+        for (let gridCol = 0; gridCol < 7; gridCol++) {
+          const row = gridRow / 2;
+          const col = gridCol / 2;
+          if (gridRow % 2 === 0 && gridCol % 2 === 0) {
+            const fixed = Boolean(givens[key(row, col)]);
+            const button = document.createElement("button");
+            button.className = fixed
+              ? "aspect-square rounded-md bg-stone-200 text-xl font-bold text-stone-950"
+              : "aspect-square rounded-md bg-stone-700 text-xl font-bold text-stone-100 hover:bg-stone-600";
+            button.textContent = values[row][col] || "";
+            button.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+            if (!fixed) {
+              button.addEventListener("click", () => {
+                values[row][col] = (values[row][col] % size) + 1;
+                update();
+              });
+            }
+            board.appendChild(button);
+            cells.set(key(row, col), button);
+          } else {
+            const dot = document.createElement("div");
+            dot.className = "flex aspect-square items-center justify-center";
+            const relation = dots.find((item) => dotPosition(item, gridRow, gridCol));
+            if (relation) {
+              const mark = document.createElement("span");
+              mark.className = relation.type === "black"
+                ? "h-4 w-4 rounded-full bg-stone-950 ring-1 ring-stone-400"
+                : "h-4 w-4 rounded-full bg-white ring-1 ring-stone-400";
+              dot.appendChild(mark);
+            }
+            board.appendChild(dot);
+          }
+        }
+      }
+    }
+
+    function dotPosition(item, gridRow, gridCol) {
+      const [ar, ac] = item.a;
+      const [br, bc] = item.b;
+      return gridRow === ar + br && gridCol === ac + bc;
+    }
+
+    function latinReport() {
+      const conflicts = [];
+      for (let i = 0; i < size; i++) {
+        const rowValues = values[i].filter(Boolean);
+        const colValues = values.map((row) => row[i]).filter(Boolean);
+        if (new Set(rowValues).size !== rowValues.length) conflicts.push(`第 ${i + 1} 行重复`);
+        if (new Set(colValues).size !== colValues.length) conflicts.push(`第 ${i + 1} 列重复`);
+      }
+      return conflicts;
+    }
+
+    function dotReport() {
+      return dots.filter((item) => {
+        const left = values[item.a[0]][item.a[1]];
+        const right = values[item.b[0]][item.b[1]];
+        if (!left || !right) return false;
+        return item.type === "black"
+          ? Math.max(left, right) !== Math.min(left, right) * 2
+          : Math.abs(left - right) !== 1;
+      });
+    }
+
+    function isComplete() {
+      return values.every((row, rowIndex) =>
+        row.every((value, colIndex) => value === solution[rowIndex][colIndex])
+      );
+    }
+
+    function update() {
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          cells.get(key(row, col)).textContent = values[row][col] || "";
+        }
+      }
+      const latinIssues = latinReport();
+      const dotIssues = dotReport();
+      latinStatus.textContent = latinIssues.length ? latinIssues.join("；") : "行列检查通过";
+      dotStatus.textContent = dotIssues.length ? `有 ${dotIssues.length} 个圆点关系未满足` : "圆点关系通过";
+      completeStatus.textContent = isComplete() ? "完成：Kropki 解开了" : "继续推理";
+      completeStatus.className = isComplete()
+        ? "rounded-md bg-emerald-500 p-3 font-semibold text-emerald-950"
+        : "rounded-md bg-stone-800 p-3 font-semibold text-stone-200";
+    }
+
+    resetBtn.addEventListener("click", () => {
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          values[row][col] = givens[key(row, col)] || 0;
+        }
+      }
+      update();
+    });
+
+    renderBoard();
+    update();
+  </script>
+</body>
+</html>
