@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Yajilin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-indigo-300">Classic Logic Puzzle</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Yajilin</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="resetBtn" class="rounded-md bg-indigo-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-indigo-200">
+            重新开始
+          </button>
+          <button id="modeBtn" class="rounded-md border border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-100 hover:bg-neutral-800">
+            模式：路径
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-lg border border-neutral-800 bg-neutral-900/80 p-4 shadow-2xl shadow-black/30">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[32rem] grid-cols-6 overflow-hidden rounded-md border-4 border-neutral-100"></div>
+        </div>
+
+        <aside class="space-y-4">
+          <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+            <h2 class="text-lg font-semibold text-white">目标</h2>
+            <p class="mt-2 text-sm leading-6 text-neutral-300">
+              涂黑格并画出一条单闭环。线索箭头表示该方向上黑格数量，黑格不能相邻，路径不能经过线索或黑格。
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+            <h2 class="text-lg font-semibold text-white">检查</h2>
+            <ul class="mt-3 space-y-2 text-sm">
+              <li id="clueStatus" class="rounded-md bg-neutral-800 px-3 py-2 text-neutral-300">线索：等待检查</li>
+              <li id="blackStatus" class="rounded-md bg-neutral-800 px-3 py-2 text-neutral-300">黑格：无相邻</li>
+              <li id="pathStatus" class="rounded-md bg-neutral-800 px-3 py-2 text-neutral-300">路径：等待闭环</li>
+            </ul>
+          </div>
+
+          <div id="message" class="rounded-lg border border-indigo-300/30 bg-indigo-300/10 p-4 text-sm leading-6 text-indigo-100">
+            路径模式点击格子循环方向；切到涂黑模式可切换黑格。
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const board = document.getElementById("board");
+      const resetBtn = document.getElementById("resetBtn");
+      const modeBtn = document.getElementById("modeBtn");
+      const message = document.getElementById("message");
+      const clueStatus = document.getElementById("clueStatus");
+      const blackStatus = document.getElementById("blackStatus");
+      const pathStatus = document.getElementById("pathStatus");
+
+      const size = 6;
+      const clues = {
+        "0,0": { dir: "right", count: 1, label: "→1" },
+        "0,5": { dir: "down", count: 1, label: "↓1" },
+        "2,0": { dir: "right", count: 1, label: "→1" },
+        "3,5": { dir: "left", count: 1, label: "←1" },
+        "5,1": { dir: "up", count: 1, label: "↑1" },
+      };
+      const pathStates = ["", "h", "v", "ne", "nw", "se", "sw"];
+      const pathLabels = { h: "─", v: "│", ne: "└", nw: "┘", se: "┌", sw: "┐" };
+      const connections = {
+        h: [[0, -1], [0, 1]],
+        v: [[-1, 0], [1, 0]],
+        ne: [[-1, 0], [0, 1]],
+        nw: [[-1, 0], [0, -1]],
+        se: [[1, 0], [0, 1]],
+        sw: [[1, 0], [0, -1]],
+      };
+      const blackCells = new Set();
+      const paths = new Map();
+      const cells = [];
+      let paintBlack = false;
+
+      function keyOf(row, col) {
+        return `${row},${col}`;
+      }
+
+      function inBounds(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function isBlocked(key) {
+        return Boolean(clues[key]) || blackCells.has(key);
+      }
+
+      function clueReport() {
+        const bad = [];
+        Object.entries(clues).forEach(([key, clue]) => {
+          const [row, col] = key.split(",").map(Number);
+          const step = clue.dir === "right" ? [0, 1] : clue.dir === "left" ? [0, -1] : clue.dir === "down" ? [1, 0] : [-1, 0];
+          let nextRow = row + step[0];
+          let nextCol = col + step[1];
+          let count = 0;
+          while (inBounds(nextRow, nextCol)) {
+            if (blackCells.has(keyOf(nextRow, nextCol))) count += 1;
+            nextRow += step[0];
+            nextCol += step[1];
+          }
+          if (count !== clue.count) bad.push(key);
+        });
+        return { bad, clear: bad.length === 0 };
+      }
+
+      function blackReport() {
+        const bad = new Set();
+        blackCells.forEach((key) => {
+          const [row, col] = key.split(",").map(Number);
+          [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dr, dc]) => {
+            const nextKey = keyOf(row + dr, col + dc);
+            if (blackCells.has(nextKey)) {
+              bad.add(key);
+              bad.add(nextKey);
+            }
+          });
+        });
+        return { bad, clear: bad.size === 0 };
+      }
+
+      function pathReport() {
+        const pathKeys = [...paths.entries()].filter(([, value]) => value).map(([key]) => key);
+        if (!pathKeys.length) return { clear: false, bad: new Set(), reason: "还没有路径" };
+        const bad = new Set();
+        const graph = new Map();
+        pathKeys.forEach((key) => {
+          const [row, col] = key.split(",").map(Number);
+          if (isBlocked(key)) bad.add(key);
+          const shape = paths.get(key);
+          const neighbors = [];
+          connections[shape].forEach(([dr, dc]) => {
+            const nextRow = row + dr;
+            const nextCol = col + dc;
+            const nextKey = keyOf(nextRow, nextCol);
+            if (!inBounds(nextRow, nextCol) || !paths.get(nextKey)) bad.add(key);
+            else {
+              const reverse = [-dr, -dc];
+              const nextShape = paths.get(nextKey);
+              const linkedBack = connections[nextShape].some(([r, c]) => r === reverse[0] && c === reverse[1]);
+              if (linkedBack) neighbors.push(nextKey);
+              else bad.add(key);
+            }
+          });
+          if (neighbors.length !== 2) bad.add(key);
+          graph.set(key, neighbors);
+        });
+        const seen = new Set([pathKeys[0]]);
+        const queue = [pathKeys[0]];
+        while (queue.length) {
+          const key = queue.shift();
+          (graph.get(key) || []).forEach((next) => {
+            if (!seen.has(next)) {
+              seen.add(next);
+              queue.push(next);
+            }
+          });
+        }
+        const connected = seen.size === pathKeys.length;
+        return { clear: bad.size === 0 && connected, bad, reason: connected ? "路径局部错误" : "路径未连成单环" };
+      }
+
+      function setStatus(element, label, state) {
+        element.className = "rounded-md px-3 py-2 text-sm";
+        if (state === "ok") element.classList.add("bg-emerald-500/15", "text-emerald-200");
+        if (state === "warn") element.classList.add("bg-amber-500/15", "text-amber-200");
+        if (state === "bad") element.classList.add("bg-rose-500/15", "text-rose-200");
+        element.textContent = label;
+      }
+
+      function render() {
+        const clue = clueReport();
+        const black = blackReport();
+        const path = pathReport();
+        cells.forEach((cell) => {
+          const key = cell.dataset.key;
+          const isClue = Boolean(clues[key]);
+          const isBlack = blackCells.has(key);
+          const shape = paths.get(key);
+          cell.className = "flex aspect-square items-center justify-center border border-neutral-700 text-xl font-bold transition focus:outline-none focus:ring-4 focus:ring-indigo-300";
+          cell.classList.add(isClue ? "bg-indigo-200" : isBlack ? "bg-neutral-950" : "bg-neutral-100");
+          cell.classList.add(isClue || !isBlack ? "text-neutral-950" : "text-neutral-100");
+          cell.classList.toggle("ring-4", clue.bad.includes(key) || black.bad.has(key) || path.bad.has(key));
+          cell.classList.toggle("ring-rose-400", clue.bad.includes(key) || black.bad.has(key) || path.bad.has(key));
+          cell.textContent = isClue ? clues[key].label : isBlack ? "" : pathLabels[shape] || "";
+        });
+        setStatus(clueStatus, clue.clear ? "线索：数量正确" : "线索：数量不符", clue.clear ? "ok" : "bad");
+        setStatus(blackStatus, black.clear ? "黑格：无相邻" : "黑格：存在相邻", black.clear ? "ok" : "bad");
+        setStatus(pathStatus, path.clear ? "路径：单一闭环" : `路径：${path.reason}`, path.clear ? "ok" : "warn");
+        const solved = clue.clear && black.clear && path.clear;
+        message.textContent = solved ? "完成！线索、黑格和单闭环规则都满足。" : paintBlack ? "涂黑模式：点击普通格切换黑格。" : "路径模式：点击普通格循环路径形状。";
+      }
+
+      function buildBoard() {
+        board.innerHTML = "";
+        cells.length = 0;
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const key = keyOf(row, col);
+            cell.type = "button";
+            cell.dataset.key = key;
+            cell.addEventListener("click", () => {
+              if (clues[key]) return;
+              if (paintBlack) {
+                blackCells.has(key) ? blackCells.delete(key) : blackCells.add(key);
+                paths.delete(key);
+              } else if (!blackCells.has(key)) {
+                const current = paths.get(key) || "";
+                const next = pathStates[(pathStates.indexOf(current) + 1) % pathStates.length];
+                next ? paths.set(key, next) : paths.delete(key);
+              }
+              render();
+            });
+            board.appendChild(cell);
+            cells.push(cell);
+          }
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        blackCells.clear();
+        paths.clear();
+        render();
+      });
+
+      modeBtn.addEventListener("click", () => {
+        paintBlack = !paintBlack;
+        modeBtn.textContent = paintBlack ? "模式：涂黑" : "模式：路径";
+        render();
+      });
+
+      buildBoard();
+      render();
+    </script>
+  </body>
+</html>
