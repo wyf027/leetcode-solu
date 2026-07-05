@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Atomix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.24em] text-lime-300">Classic Games</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Atomix</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div id="moves" class="text-xl font-bold text-lime-200">0</div>
+            <div class="text-zinc-400">moves</div>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div id="placed" class="text-xl font-bold text-cyan-200">0/3</div>
+            <div class="text-zinc-400">placed</div>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
+            <div id="best" class="text-xl font-bold text-amber-200">--</div>
+            <div class="text-zinc-400">best</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+        <div>
+          <div id="board" class="grid aspect-square w-full max-w-[34rem] grid-cols-7 gap-1 rounded border border-zinc-800 bg-zinc-900 p-2"></div>
+          <p id="status" class="mt-3 min-h-6 text-sm font-medium text-zinc-300">Select an atom, then slide it with the arrows.</p>
+        </div>
+
+        <aside class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-400">Controls</h2>
+          <div class="mt-4 grid grid-cols-3 gap-2">
+            <span></span>
+            <button data-dir="-1,0" class="rounded bg-zinc-800 px-3 py-2 font-bold hover:bg-zinc-700">Up</button>
+            <span></span>
+            <button data-dir="0,-1" class="rounded bg-zinc-800 px-3 py-2 font-bold hover:bg-zinc-700">Left</button>
+            <button id="resetBtn" class="rounded bg-lime-400 px-3 py-2 font-bold text-zinc-950 hover:bg-lime-300">Reset</button>
+            <button data-dir="0,1" class="rounded bg-zinc-800 px-3 py-2 font-bold hover:bg-zinc-700">Right</button>
+            <span></span>
+            <button data-dir="1,0" class="rounded bg-zinc-800 px-3 py-2 font-bold hover:bg-zinc-700">Down</button>
+            <span></span>
+          </div>
+          <p class="mt-5 text-sm leading-6 text-zinc-400">
+            Atoms slide until blocked. Match each colored atom to its faint target cell to finish the molecule.
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 7;
+      const walls = new Set([1, 5, 8, 12, 15, 19, 22, 26, 29, 33, 36, 40, 43, 47]);
+      const startAtoms = [
+        { id: "H", color: "cyan", pos: 42, target: 10 },
+        { id: "O", color: "rose", pos: 6, target: 24 },
+        { id: "C", color: "amber", pos: 46, target: 38 },
+      ];
+      const colorClass = {
+        cyan: "bg-cyan-300 text-zinc-950",
+        rose: "bg-rose-400 text-zinc-950",
+        amber: "bg-amber-300 text-zinc-950",
+      };
+      const targetClass = {
+        cyan: "ring-cyan-300",
+        rose: "ring-rose-400",
+        amber: "ring-amber-300",
+      };
+
+      const boardEl = document.getElementById("board");
+      const movesEl = document.getElementById("moves");
+      const placedEl = document.getElementById("placed");
+      const bestEl = document.getElementById("best");
+      const statusEl = document.getElementById("status");
+      const resetBtn = document.getElementById("resetBtn");
+
+      let atoms = [];
+      let selectedId = null;
+      let moves = 0;
+      let best = null;
+
+      function atomAt(cell) {
+        return atoms.find((atom) => atom.pos === cell);
+      }
+
+      function rowCol(cell) {
+        return [Math.floor(cell / size), cell % size];
+      }
+
+      function isBlocked(row, col) {
+        if (row < 0 || row >= size || col < 0 || col >= size) return true;
+        const cell = row * size + col;
+        return walls.has(cell) || Boolean(atomAt(cell));
+      }
+
+      function placedCount() {
+        return atoms.filter((atom) => atom.pos === atom.target).length;
+      }
+
+      function checkWin() {
+        const placed = placedCount();
+        placedEl.textContent = `${placed}/${atoms.length}`;
+        if (placed !== atoms.length) return false;
+        best = best === null ? moves : Math.min(best, moves);
+        bestEl.textContent = best;
+        statusEl.textContent = "Molecule complete.";
+        statusEl.className = "mt-3 min-h-6 text-sm font-medium text-lime-300";
+        return true;
+      }
+
+      function slideAtom(dr, dc) {
+        const atom = atoms.find((item) => item.id === selectedId);
+        if (!atom) return;
+        let [row, col] = rowCol(atom.pos);
+        let moved = false;
+        while (!isBlocked(row + dr, col + dc)) {
+          row += dr;
+          col += dc;
+          moved = true;
+        }
+        if (!moved) {
+          statusEl.textContent = "That atom is blocked.";
+          statusEl.className = "mt-3 min-h-6 text-sm font-medium text-amber-300";
+          return;
+        }
+        atom.pos = row * size + col;
+        moves += 1;
+        statusEl.textContent = "Atom moved.";
+        statusEl.className = "mt-3 min-h-6 text-sm font-medium text-zinc-300";
+        render();
+        checkWin();
+      }
+
+      function renderAtom(atom) {
+        return `<span class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black shadow sm:h-11 sm:w-11 ${colorClass[atom.color]}">${atom.id}</span>`;
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        for (let cell = 0; cell < size * size; cell += 1) {
+          const atom = atomAt(cell);
+          const target = atoms.find((item) => item.target === cell);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.cell = cell;
+          button.className = [
+            "relative flex aspect-square items-center justify-center rounded border transition",
+            walls.has(cell) ? "border-zinc-700 bg-zinc-800" : "border-zinc-800 bg-zinc-950 hover:bg-zinc-800",
+            target && !walls.has(cell) ? `ring-2 ring-inset ${targetClass[target.color]}` : "",
+            atom && atom.id === selectedId ? "outline outline-2 outline-offset-2 outline-lime-200" : "",
+          ].join(" ");
+          if (target && !walls.has(cell)) {
+            button.innerHTML = `<span class="absolute bottom-1 right-1 text-[10px] font-bold text-zinc-400">${target.id}</span>`;
+          }
+          if (atom) button.innerHTML += renderAtom(atom);
+          boardEl.appendChild(button);
+        }
+        movesEl.textContent = moves;
+        placedEl.textContent = `${placedCount()}/${atoms.length}`;
+        bestEl.textContent = best === null ? "--" : best;
+      }
+
+      function resetGame() {
+        atoms = startAtoms.map((atom) => ({ ...atom }));
+        selectedId = null;
+        moves = 0;
+        statusEl.textContent = "Select an atom, then slide it with the arrows.";
+        statusEl.className = "mt-3 min-h-6 text-sm font-medium text-zinc-300";
+        render();
+      }
+
+      boardEl.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-cell]");
+        if (!button) return;
+        const atom = atomAt(Number(button.dataset.cell));
+        if (!atom) return;
+        selectedId = atom.id;
+        statusEl.textContent = `${atom.id} selected.`;
+        statusEl.className = "mt-3 min-h-6 text-sm font-medium text-cyan-300";
+        render();
+      });
+
+      document.querySelectorAll("[data-dir]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const [dr, dc] = button.dataset.dir.split(",").map(Number);
+          slideAtom(dr, dc);
+        });
+      });
+
+      window.addEventListener("keydown", (event) => {
+        const dirs = {
+          ArrowUp: [-1, 0],
+          ArrowDown: [1, 0],
+          ArrowLeft: [0, -1],
+          ArrowRight: [0, 1],
+        };
+        if (!dirs[event.key]) return;
+        event.preventDefault();
+        slideAtom(...dirs[event.key]);
+      });
+
+      resetBtn.addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
