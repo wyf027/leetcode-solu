@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Flood It</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="grid gap-4 md:grid-cols-[1fr_280px] md:items-start">
+      <div class="rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-normal">Mini Flood It</h1>
+            <p class="text-sm text-zinc-400">从左上角开始换色扩张，在限制步数内统一整盘。</p>
+          </div>
+          <button id="resetBtn" class="rounded-md bg-rose-400 px-3 py-2 text-sm font-semibold text-rose-950 hover:bg-rose-300">重开</button>
+        </div>
+        <div id="board" class="mx-auto grid w-full max-w-[420px] grid-cols-6 gap-1 rounded-lg bg-zinc-800 p-2"></div>
+      </div>
+      <aside class="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
+        <h2 class="mb-3 text-lg font-semibold">控制</h2>
+        <div id="palette" class="grid grid-cols-3 gap-2"></div>
+        <div class="mt-4 space-y-3 text-sm">
+          <p id="moveStatus" class="rounded-md bg-zinc-800 p-3 text-zinc-200"></p>
+          <p id="floodStatus" class="rounded-md bg-zinc-800 p-3 text-zinc-200"></p>
+          <p id="winStatus" class="rounded-md bg-zinc-800 p-3 font-semibold text-zinc-200"></p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const maxMoves = 14;
+    const palette = [
+      { name: "rose", className: "bg-rose-400" },
+      { name: "amber", className: "bg-amber-300" },
+      { name: "lime", className: "bg-lime-400" },
+      { name: "sky", className: "bg-sky-400" },
+      { name: "violet", className: "bg-violet-400" },
+      { name: "slate", className: "bg-slate-300" }
+    ];
+    const seed = [
+      [0, 1, 2, 3, 4, 5],
+      [0, 0, 2, 1, 4, 4],
+      [3, 0, 1, 1, 5, 2],
+      [3, 3, 3, 1, 2, 2],
+      [4, 4, 3, 5, 5, 2],
+      [4, 0, 0, 5, 1, 1]
+    ];
+    const board = document.getElementById("board");
+    const paletteEl = document.getElementById("palette");
+    const moveStatus = document.getElementById("moveStatus");
+    const floodStatus = document.getElementById("floodStatus");
+    const winStatus = document.getElementById("winStatus");
+    const resetBtn = document.getElementById("resetBtn");
+    let grid = cloneSeed();
+    let moves = 0;
+
+    function cloneSeed() {
+      return seed.map((row) => [...row]);
+    }
+
+    function renderBoard() {
+      board.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const tile = document.createElement("div");
+          tile.className = `aspect-square rounded-md ${palette[grid[row][col]].className}`;
+          tile.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          board.appendChild(tile);
+        }
+      }
+    }
+
+    function renderPalette() {
+      paletteEl.innerHTML = "";
+      palette.forEach((color, index) => {
+        const button = document.createElement("button");
+        button.className = `h-12 rounded-md ${color.className} ring-offset-2 ring-offset-zinc-900 hover:ring-2 hover:ring-white`;
+        button.setAttribute("aria-label", color.name);
+        button.addEventListener("click", () => chooseColor(index));
+        paletteEl.appendChild(button);
+      });
+    }
+
+    function floodCells() {
+      const origin = grid[0][0];
+      const seen = Array.from({ length: size }, () => Array(size).fill(false));
+      const stack = [[0, 0]];
+      const cells = [];
+      seen[0][0] = true;
+      while (stack.length) {
+        const [row, col] = stack.pop();
+        cells.push([row, col]);
+        for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (
+            nextRow >= 0 &&
+            nextRow < size &&
+            nextCol >= 0 &&
+            nextCol < size &&
+            !seen[nextRow][nextCol] &&
+            grid[nextRow][nextCol] === origin
+          ) {
+            seen[nextRow][nextCol] = true;
+            stack.push([nextRow, nextCol]);
+          }
+        }
+      }
+      return cells;
+    }
+
+    function chooseColor(colorIndex) {
+      if (isSolved() || moves >= maxMoves || colorIndex === grid[0][0]) return;
+      const cells = floodCells();
+      cells.forEach(([row, col]) => {
+        grid[row][col] = colorIndex;
+      });
+      moves++;
+      update();
+    }
+
+    function isSolved() {
+      const target = grid[0][0];
+      return grid.every((row) => row.every((value) => value === target));
+    }
+
+    function update() {
+      renderBoard();
+      const flooded = floodCells().length;
+      moveStatus.textContent = `步数：${moves}/${maxMoves}`;
+      floodStatus.textContent = `已连接区域：${flooded}/${size * size}`;
+      if (isSolved()) {
+        winStatus.textContent = "完成：整盘已统一";
+        winStatus.className = "rounded-md bg-emerald-400 p-3 font-semibold text-emerald-950";
+      } else if (moves >= maxMoves) {
+        winStatus.textContent = "步数用尽，重开再试";
+        winStatus.className = "rounded-md bg-rose-400 p-3 font-semibold text-rose-950";
+      } else {
+        winStatus.textContent = "继续选择颜色";
+        winStatus.className = "rounded-md bg-zinc-800 p-3 font-semibold text-zinc-200";
+      }
+    }
+
+    resetBtn.addEventListener("click", () => {
+      grid = cloneSeed();
+      moves = 0;
+      update();
+    });
+
+    renderPalette();
+    update();
+  </script>
+</body>
+</html>
