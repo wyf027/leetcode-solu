@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini BoxUp</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="grid gap-4 md:grid-cols-[1fr_270px] md:items-start">
+      <div class="rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-normal">Mini BoxUp</h1>
+            <p class="text-sm text-slate-400">把两个箱子推到目标格，墙壁会挡住移动。</p>
+          </div>
+          <button id="resetBtn" class="rounded-md bg-amber-300 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-200">重开</button>
+        </div>
+        <div id="board" class="mx-auto grid w-full max-w-[420px] grid-cols-6 gap-1 rounded-lg bg-slate-800 p-2"></div>
+      </div>
+      <aside class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <h2 class="mb-3 text-lg font-semibold">控制</h2>
+        <div class="grid grid-cols-3 gap-2">
+          <span></span>
+          <button data-move="up" class="rounded-md bg-slate-700 p-3 font-bold hover:bg-slate-600">↑</button>
+          <span></span>
+          <button data-move="left" class="rounded-md bg-slate-700 p-3 font-bold hover:bg-slate-600">←</button>
+          <button data-move="down" class="rounded-md bg-slate-700 p-3 font-bold hover:bg-slate-600">↓</button>
+          <button data-move="right" class="rounded-md bg-slate-700 p-3 font-bold hover:bg-slate-600">→</button>
+        </div>
+        <div class="mt-4 space-y-3 text-sm">
+          <p id="moveStatus" class="rounded-md bg-slate-800 p-3 text-slate-200"></p>
+          <p id="boxStatus" class="rounded-md bg-slate-800 p-3 font-semibold text-slate-200"></p>
+        </div>
+        <p class="mt-4 text-xs leading-5 text-slate-400">也可以使用键盘方向键。箱子只能被推，不能被拉。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const width = 6;
+    const height = 6;
+    const walls = new Set(["0,0", "0,1", "0,2", "0,3", "0,4", "0,5", "1,0", "2,0", "3,0", "4,0", "5,0", "5,1", "5,2", "5,3", "5,4", "5,5", "1,5", "2,5", "3,5", "4,5", "2,2"]);
+    const targets = new Set(["1,4", "4,4"]);
+    const start = {
+      player: [4, 1],
+      boxes: [[2, 3], [3, 2]]
+    };
+    const directions = {
+      up: [-1, 0],
+      down: [1, 0],
+      left: [0, -1],
+      right: [0, 1]
+    };
+    const board = document.getElementById("board");
+    const moveStatus = document.getElementById("moveStatus");
+    const boxStatus = document.getElementById("boxStatus");
+    const resetBtn = document.getElementById("resetBtn");
+    let player = [...start.player];
+    let boxes = start.boxes.map((box) => [...box]);
+    let moves = 0;
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function boxAt(row, col) {
+      return boxes.findIndex(([boxRow, boxCol]) => boxRow === row && boxCol === col);
+    }
+
+    function blocked(row, col) {
+      return row < 0 || row >= height || col < 0 || col >= width || walls.has(key(row, col));
+    }
+
+    function movePlayer(direction) {
+      if (isSolved()) return;
+      const [dr, dc] = directions[direction];
+      const nextRow = player[0] + dr;
+      const nextCol = player[1] + dc;
+      if (blocked(nextRow, nextCol)) return;
+      const boxIndex = boxAt(nextRow, nextCol);
+      if (boxIndex >= 0) {
+        const boxRow = nextRow + dr;
+        const boxCol = nextCol + dc;
+        if (blocked(boxRow, boxCol) || boxAt(boxRow, boxCol) >= 0) return;
+        boxes[boxIndex] = [boxRow, boxCol];
+      }
+      player = [nextRow, nextCol];
+      moves++;
+      renderBoard();
+    }
+
+    function isSolved() {
+      return boxes.every(([row, col]) => targets.has(key(row, col)));
+    }
+
+    function tileText(row, col) {
+      if (player[0] === row && player[1] === col) return "P";
+      if (boxAt(row, col) >= 0) return "B";
+      if (targets.has(key(row, col))) return "×";
+      return "";
+    }
+
+    function tileClass(row, col) {
+      if (walls.has(key(row, col))) return "aspect-square rounded-md bg-slate-950";
+      if (player[0] === row && player[1] === col) return "aspect-square rounded-md bg-sky-400 text-xl font-black text-sky-950";
+      if (boxAt(row, col) >= 0 && targets.has(key(row, col))) return "aspect-square rounded-md bg-emerald-400 text-xl font-black text-emerald-950";
+      if (boxAt(row, col) >= 0) return "aspect-square rounded-md bg-amber-300 text-xl font-black text-amber-950";
+      if (targets.has(key(row, col))) return "aspect-square rounded-md bg-slate-700 text-xl font-black text-emerald-300 ring-2 ring-emerald-400";
+      return "aspect-square rounded-md bg-slate-700";
+    }
+
+    function renderBoard() {
+      board.innerHTML = "";
+      for (let row = 0; row < height; row++) {
+        for (let col = 0; col < width; col++) {
+          const tile = document.createElement("div");
+          tile.className = `flex items-center justify-center ${tileClass(row, col)}`;
+          tile.textContent = tileText(row, col);
+          board.appendChild(tile);
+        }
+      }
+      const placed = boxes.filter(([row, col]) => targets.has(key(row, col))).length;
+      moveStatus.textContent = `步数：${moves}`;
+      boxStatus.textContent = isSolved() ? "完成：箱子全部到位" : `到位箱子：${placed}/${boxes.length}`;
+      boxStatus.className = isSolved()
+        ? "rounded-md bg-emerald-400 p-3 font-semibold text-emerald-950"
+        : "rounded-md bg-slate-800 p-3 font-semibold text-slate-200";
+    }
+
+    resetBtn.addEventListener("click", () => {
+      player = [...start.player];
+      boxes = start.boxes.map((box) => [...box]);
+      moves = 0;
+      renderBoard();
+    });
+
+    document.querySelectorAll("[data-move]").forEach((button) => {
+      button.addEventListener("click", () => movePlayer(button.dataset.move));
+    });
+
+    window.addEventListener("keydown", (event) => {
+      const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+      if (map[event.key]) {
+        event.preventDefault();
+        movePlayer(map[event.key]);
+      }
+    });
+
+    renderBoard();
+  </script>
+</body>
+</html>
