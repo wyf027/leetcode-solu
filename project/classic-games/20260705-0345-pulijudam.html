@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Pulijudam</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Pulijudam</h1>
+        <p class="text-sm text-stone-400">先放完 8 枚 G，再移动围住 T；T 可隔一枚 G 跳吃。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-emerald-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-emerald-300">重开</button>
+    </header>
+
+    <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="rounded border border-stone-700 bg-stone-900 p-3">
+        <div class="text-xs uppercase text-stone-500">回合</div>
+        <div id="turnLabel" class="text-2xl font-semibold">G</div>
+      </div>
+      <div class="rounded border border-stone-700 bg-stone-900 p-3">
+        <div class="text-xs uppercase text-stone-500">待放 G</div>
+        <div id="goatsLeft" class="text-2xl font-semibold">8</div>
+      </div>
+      <div class="rounded border border-stone-700 bg-stone-900 p-3">
+        <div class="text-xs uppercase text-stone-500">被吃 G</div>
+        <div id="capturedCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-stone-700 bg-stone-900 p-3">
+        <div class="text-xs uppercase text-stone-500">阶段</div>
+        <div id="phaseLabel" class="text-2xl font-semibold">放置</div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_16rem]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+      <aside class="rounded border border-stone-700 bg-stone-900 p-4">
+        <h2 class="mb-3 text-lg font-semibold">状态</h2>
+        <p id="message" class="min-h-20 text-sm leading-6 text-emerald-300">G 选择空位落子。</p>
+        <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-stone-800 p-3 text-center">
+            <div class="text-stone-500">T</div>
+            <div class="text-xl font-semibold">2</div>
+          </div>
+          <div class="rounded bg-stone-800 p-3 text-center">
+            <div class="text-stone-500">G 在盘</div>
+            <div id="goatsOnBoard" class="text-xl font-semibold">0</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabelEl = document.getElementById("turnLabel");
+    const goatsLeftEl = document.getElementById("goatsLeft");
+    const capturedCountEl = document.getElementById("capturedCount");
+    const phaseLabelEl = document.getElementById("phaseLabel");
+    const goatsOnBoardEl = document.getElementById("goatsOnBoard");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const goatTotal = 8;
+    const winCaptures = 5;
+    const directions = [
+      [-1, 0], [1, 0], [0, -1], [0, 1],
+      [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+
+    let board = [];
+    let turn = "G";
+    let goatsToPlace = goatTotal;
+    let goatsCaptured = 0;
+    let selected = null;
+    let gameOver = false;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      board[0][0] = "T";
+      board[4][4] = "T";
+      turn = "G";
+      goatsToPlace = goatTotal;
+      goatsCaptured = 0;
+      selected = null;
+      gameOver = false;
+      setMessage("G 选择空位落子。");
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function getGoatsOnBoard() {
+      return board.flat().filter((piece) => piece === "G").length;
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (turn === "G" && goatsToPlace > 0) {
+        placeGoat(row, col);
+        return;
+      }
+      if (selected) {
+        moveSelected(row, col);
+        return;
+      }
+      selectPiece(row, col);
+    }
+
+    function placeGoat(row, col) {
+      if (board[row][col]) {
+        setMessage("只能放在空位。");
+        return;
+      }
+      board[row][col] = "G";
+      goatsToPlace -= 1;
+      selected = null;
+      turn = "T";
+      setMessage("T 选择棋子移动或跳吃。");
+      checkWinner();
+      render();
+    }
+
+    function selectPiece(row, col) {
+      const piece = board[row][col];
+      if (piece !== turn) {
+        setMessage(`${turn} 选择自己的棋子。`);
+        return;
+      }
+      selected = { row, col };
+      setMessage(`${turn} 选择目标位置。`);
+      render();
+    }
+
+    function moveSelected(row, col) {
+      const piece = board[selected.row][selected.col];
+      const move = getLegalMoves(selected.row, selected.col).find((item) => item.row === row && item.col === col);
+      if (!move) {
+        selected = board[row][col] === piece ? { row, col } : selected;
+        setMessage("这个目标不能走。");
+        render();
+        return;
+      }
+      board[selected.row][selected.col] = "";
+      board[row][col] = piece;
+      if (move.capture) {
+        board[move.capture.row][move.capture.col] = "";
+        goatsCaptured += 1;
+      }
+      selected = null;
+      turn = piece === "G" ? "T" : "G";
+      setMessage(turn === "G" ? "G 行动。" : "T 行动。");
+      checkWinner();
+      render();
+    }
+
+    function getLegalMoves(row, col) {
+      const piece = board[row][col];
+      if (!piece) return [];
+      const moves = [];
+      directions.forEach(([dr, dc]) => {
+        const nextRow = row + dr;
+        const nextCol = col + dc;
+        if (inside(nextRow, nextCol) && !board[nextRow][nextCol]) {
+          moves.push({ row: nextRow, col: nextCol });
+        }
+        if (piece === "T") {
+          const jumpRow = row + dr * 2;
+          const jumpCol = col + dc * 2;
+          if (
+            inside(jumpRow, jumpCol) &&
+            board[nextRow]?.[nextCol] === "G" &&
+            !board[jumpRow][jumpCol]
+          ) {
+            moves.push({ row: jumpRow, col: jumpCol, capture: { row: nextRow, col: nextCol } });
+          }
+        }
+      });
+      return moves;
+    }
+
+    function hasTigerMove() {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === "T" && getLegalMoves(row, col).length > 0) return true;
+        }
+      }
+      return false;
+    }
+
+    function checkWinner() {
+      if (goatsCaptured >= winCaptures) {
+        gameOver = true;
+        setMessage("T 获胜。");
+        return;
+      }
+      if (goatsToPlace === 0 && !hasTigerMove()) {
+        gameOver = true;
+        setMessage("G 获胜。");
+      }
+    }
+
+    function isHighlighted(row, col) {
+      if (!selected) return false;
+      return getLegalMoves(selected.row, selected.col).some((move) => move.row === row && move.col === col);
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          const piece = board[row][col];
+          button.type = "button";
+          button.className = "aspect-square rounded border border-stone-700 bg-stone-800 text-2xl font-semibold hover:border-emerald-300";
+          if (piece === "T") button.classList.add("text-amber-300");
+          if (piece === "G") button.classList.add("text-sky-300");
+          if (selected?.row === row && selected?.col === col) button.classList.add("ring-2", "ring-emerald-300");
+          if (isHighlighted(row, col)) button.classList.add("bg-emerald-950", "border-emerald-500");
+          button.textContent = piece || "";
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+      turnLabelEl.textContent = gameOver ? "结束" : turn;
+      goatsLeftEl.textContent = goatsToPlace;
+      capturedCountEl.textContent = goatsCaptured;
+      phaseLabelEl.textContent = goatsToPlace > 0 ? "放置" : "移动";
+      goatsOnBoardEl.textContent = getGoatsOnBoard();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
