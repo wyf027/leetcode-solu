@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Corral</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-emerald-950 text-emerald-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-yellow-300">Classic Logic Puzzle</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Corral</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="resetBtn" class="rounded-md bg-yellow-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-yellow-200">
+            重新开始
+          </button>
+          <button id="hintBtn" class="rounded-md border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-50 hover:bg-emerald-800">
+            提示
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-lg border border-emerald-800 bg-emerald-900/80 p-4 shadow-2xl shadow-black/30">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[32rem] grid-cols-5 overflow-hidden rounded-md border-4 border-emerald-100"></div>
+        </div>
+
+        <aside class="space-y-4">
+          <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4">
+            <h2 class="text-lg font-semibold text-white">目标</h2>
+            <p class="mt-2 text-sm leading-6 text-emerald-200">
+              点击格子切换围栏内部与外部。数字格必须在内部，数字表示从该格上下左右可见的内部格数量。内部区域和外部区域都必须连通。
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4">
+            <h2 class="text-lg font-semibold text-white">检查</h2>
+            <ul class="mt-3 space-y-2 text-sm">
+              <li id="clueStatus" class="rounded-md bg-emerald-800 px-3 py-2 text-emerald-200">数字：等待检查</li>
+              <li id="insideStatus" class="rounded-md bg-emerald-800 px-3 py-2 text-emerald-200">内部：等待连通</li>
+              <li id="outsideStatus" class="rounded-md bg-emerald-800 px-3 py-2 text-emerald-200">外部：等待连通</li>
+            </ul>
+          </div>
+
+          <div id="message" class="rounded-lg border border-yellow-300/30 bg-yellow-300/10 p-4 text-sm leading-6 text-yellow-100">
+            点击非固定格切换内外状态。
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const board = document.getElementById("board");
+      const resetBtn = document.getElementById("resetBtn");
+      const hintBtn = document.getElementById("hintBtn");
+      const message = document.getElementById("message");
+      const clueStatus = document.getElementById("clueStatus");
+      const insideStatus = document.getElementById("insideStatus");
+      const outsideStatus = document.getElementById("outsideStatus");
+
+      const size = 5;
+      const clues = {
+        "0,1": 3,
+        "1,3": 4,
+        "2,2": 5,
+        "3,0": 3,
+        "4,3": 3,
+      };
+      const solutionInside = new Set(["0,1", "0,2", "1,1", "1,2", "1,3", "2,0", "2,1", "2,2", "2,3", "3,0", "3,1", "3,2", "4,2", "4,3"]);
+      const inside = new Set(Object.keys(clues));
+      const cells = [];
+
+      function keyOf(row, col) {
+        return `${row},${col}`;
+      }
+
+      function inBounds(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function neighbors(row, col) {
+        return [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .map(([dr, dc]) => [row + dr, col + dc])
+          .filter(([r, c]) => inBounds(r, c));
+      }
+
+      function visibleCount(row, col) {
+        let count = 1;
+        [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dr, dc]) => {
+          let r = row + dr;
+          let c = col + dc;
+          while (inBounds(r, c) && inside.has(keyOf(r, c))) {
+            count += 1;
+            r += dr;
+            c += dc;
+          }
+        });
+        return count;
+      }
+
+      function clueReport() {
+        const bad = [];
+        Object.entries(clues).forEach(([key, target]) => {
+          const [row, col] = key.split(",").map(Number);
+          if (!inside.has(key) || visibleCount(row, col) !== target) bad.push(key);
+        });
+        return { bad, clear: bad.length === 0 };
+      }
+
+      function connectedReport(wantInside) {
+        const keys = [];
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const key = keyOf(row, col);
+            if (inside.has(key) === wantInside) keys.push(key);
+          }
+        }
+        if (!keys.length) return { clear: false, reached: 0, total: 0 };
+        const seen = new Set([keys[0]]);
+        const queue = [keys[0]];
+        while (queue.length) {
+          const [row, col] = queue.shift().split(",").map(Number);
+          neighbors(row, col).forEach(([r, c]) => {
+            const nextKey = keyOf(r, c);
+            if (inside.has(nextKey) === wantInside && !seen.has(nextKey)) {
+              seen.add(nextKey);
+              queue.push(nextKey);
+            }
+          });
+        }
+        return { clear: seen.size === keys.length, reached: seen.size, total: keys.length };
+      }
+
+      function setStatus(element, label, state) {
+        element.className = "rounded-md px-3 py-2 text-sm";
+        if (state === "ok") element.classList.add("bg-emerald-500/15", "text-emerald-100");
+        if (state === "warn") element.classList.add("bg-yellow-500/15", "text-yellow-100");
+        if (state === "bad") element.classList.add("bg-rose-500/15", "text-rose-100");
+        element.textContent = label;
+      }
+
+      function render() {
+        const clue = clueReport();
+        const inner = connectedReport(true);
+        const outer = connectedReport(false);
+        cells.forEach((cell) => {
+          const key = cell.dataset.key;
+          const isInside = inside.has(key);
+          const isClue = Boolean(clues[key]);
+          cell.className = "flex aspect-square items-center justify-center border border-emerald-700 text-xl font-bold transition focus:outline-none focus:ring-4 focus:ring-yellow-300";
+          cell.classList.add(isInside ? "bg-yellow-200" : "bg-emerald-900");
+          cell.classList.add(isInside ? "text-emerald-950" : "text-emerald-100");
+          cell.classList.toggle("ring-4", clue.bad.includes(key));
+          cell.classList.toggle("ring-rose-400", clue.bad.includes(key));
+          cell.textContent = isClue ? clues[key] : "";
+        });
+        setStatus(clueStatus, clue.clear ? "数字：可见数量正确" : "数字：可见数量错误", clue.clear ? "ok" : "bad");
+        setStatus(insideStatus, inner.clear ? "内部：全部连通" : `内部：${inner.reached}/${inner.total} 连通`, inner.clear ? "ok" : "bad");
+        setStatus(outsideStatus, outer.clear ? "外部：全部连通" : `外部：${outer.reached}/${outer.total} 连通`, outer.clear ? "ok" : "warn");
+        const solved = clue.clear && inner.clear && outer.clear;
+        message.textContent = solved ? "完成！数字、内部和外部连通规则都满足。" : `内部 ${inside.size} 格，外部 ${size * size - inside.size} 格。`;
+      }
+
+      function buildBoard() {
+        board.innerHTML = "";
+        cells.length = 0;
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const key = keyOf(row, col);
+            const cell = document.createElement("button");
+            cell.type = "button";
+            cell.dataset.key = key;
+            cell.addEventListener("click", () => {
+              if (clues[key]) return;
+              inside.has(key) ? inside.delete(key) : inside.add(key);
+              render();
+            });
+            board.appendChild(cell);
+            cells.push(cell);
+          }
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        inside.clear();
+        Object.keys(clues).forEach((key) => inside.add(key));
+        render();
+      });
+
+      hintBtn.addEventListener("click", () => {
+        const next = [...solutionInside].find((key) => !inside.has(key));
+        if (next) inside.add(next);
+        render();
+      });
+
+      buildBoard();
+      render();
+    </script>
+  </body>
+</html>
