@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Masyu</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-8">
+      <section class="w-full rounded border border-stone-700 bg-stone-900 p-5 shadow-2xl shadow-emerald-950/40">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-emerald-300">Loop puzzle</p>
+            <h1 class="mt-1 text-3xl font-bold text-white">Mini Masyu</h1>
+          </div>
+          <button id="resetBtn" class="rounded bg-emerald-400 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-emerald-300">
+            重开
+          </button>
+        </div>
+
+        <div id="board" class="relative mx-auto mt-6 h-[360px] w-[360px] rounded bg-stone-800"></div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+          <div class="rounded border border-stone-700 bg-stone-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-stone-400">珠子错误</p>
+            <p id="pearlErrors" class="text-xl font-bold text-amber-300">0</p>
+          </div>
+          <div class="rounded border border-stone-700 bg-stone-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-stone-400">端点错误</p>
+            <p id="degreeErrors" class="text-xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded border border-stone-700 bg-stone-950/70 px-3 py-2 text-center">
+            <p class="text-xs text-stone-400">单环</p>
+            <p id="loopStatus" class="text-xl font-bold text-emerald-200">否</p>
+          </div>
+        </div>
+
+        <p id="message" class="mt-5 min-h-7 text-center text-sm font-semibold text-stone-300">
+          点击点与点之间的灰色边线来画路径，目标是形成一个闭合单环。
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const size = 5;
+      const cell = 72;
+      const margin = 36;
+      const pearls = new Map([
+        ["0,1", "white"],
+        ["1,3", "black"],
+        ["2,0", "black"],
+        ["2,2", "white"],
+        ["3,4", "white"],
+        ["4,2", "black"],
+      ]);
+      const solution = new Set([
+        "0,0|0,1",
+        "0,1|0,2",
+        "0,2|0,3",
+        "0,3|1,3",
+        "1,3|1,4",
+        "1,4|2,4",
+        "2,4|3,4",
+        "3,3|3,4",
+        "3,2|3,3",
+        "3,2|4,2",
+        "4,1|4,2",
+        "4,0|4,1",
+        "3,0|4,0",
+        "2,0|3,0",
+        "1,0|2,0",
+        "1,0|1,1",
+        "1,1|2,1",
+        "2,1|2,2",
+        "2,2|2,3",
+        "1,3|2,3",
+      ]);
+      const edges = new Set();
+      const board = document.getElementById("board");
+      const pearlErrors = document.getElementById("pearlErrors");
+      const degreeErrors = document.getElementById("degreeErrors");
+      const loopStatus = document.getElementById("loopStatus");
+      const message = document.getElementById("message");
+      const resetBtn = document.getElementById("resetBtn");
+
+      function dot(row, col) {
+        return `${row},${col}`;
+      }
+
+      function edgeKey(a, b) {
+        return [a, b].sort().join("|");
+      }
+
+      function coords(key) {
+        const [row, col] = key.split(",").map(Number);
+        return { x: margin + col * cell, y: margin + row * cell };
+      }
+
+      function edgeParts(edge) {
+        return edge.split("|");
+      }
+
+      function incident(point) {
+        return [...edges].filter((edge) => edgeParts(edge).includes(point));
+      }
+
+      function directionFrom(point, edge) {
+        const other = edgeParts(edge).find((item) => item !== point);
+        const [r1, c1] = point.split(",").map(Number);
+        const [r2, c2] = other.split(",").map(Number);
+        if (r1 === r2) return "h";
+        return "v";
+      }
+
+      function pearlReport() {
+        const bad = new Set();
+        pearls.forEach((type, point) => {
+          const lines = incident(point);
+          if (lines.length !== 2) {
+            bad.add(point);
+            return;
+          }
+          const dirs = lines.map((edge) => directionFrom(point, edge));
+          const straight = dirs[0] === dirs[1];
+          if (type === "white") {
+            if (!straight) bad.add(point);
+            const turnNearby = lines.some((edge) => {
+              const next = edgeParts(edge).find((item) => item !== point);
+              const nextDirs = incident(next).map((item) => directionFrom(next, item));
+              return nextDirs.length === 2 && nextDirs[0] !== nextDirs[1];
+            });
+            if (!turnNearby) bad.add(point);
+          } else {
+            if (straight) bad.add(point);
+            lines.forEach((edge) => {
+              const next = edgeParts(edge).find((item) => item !== point);
+              const axis = directionFrom(point, edge);
+              const nextLines = incident(next);
+              const continues = nextLines.some((item) => item !== edge && directionFrom(next, item) === axis);
+              if (!continues) bad.add(point);
+            });
+          }
+        });
+        return bad;
+      }
+
+      function degreeReport() {
+        const bad = new Set();
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const point = dot(row, col);
+            const degree = incident(point).length;
+            if (degree !== 0 && degree !== 2) bad.add(point);
+          }
+        }
+        return bad;
+      }
+
+      function singleLoop() {
+        if (!edges.size) return false;
+        const points = new Set([...edges].flatMap(edgeParts));
+        for (const point of points) {
+          if (incident(point).length !== 2) return false;
+        }
+        const seen = new Set();
+        const queue = [[...points][0]];
+        while (queue.length) {
+          const point = queue.shift();
+          if (seen.has(point)) continue;
+          seen.add(point);
+          incident(point).forEach((edge) => {
+            const next = edgeParts(edge).find((item) => item !== point);
+            if (!seen.has(next)) queue.push(next);
+          });
+        }
+        return seen.size === points.size;
+      }
+
+      function solved(pearlBad, degreeBad, loopOk) {
+        if (pearlBad.size || degreeBad.size || !loopOk) return false;
+        if (edges.size !== solution.size) return false;
+        return [...solution].every((edge) => edges.has(edge));
+      }
+
+      function addDiv(className, style, text = "") {
+        const div = document.createElement("div");
+        div.className = className;
+        div.style.cssText = style;
+        div.textContent = text;
+        board.appendChild(div);
+        return div;
+      }
+
+      function render() {
+        const pearlBad = pearlReport();
+        const degreeBad = degreeReport();
+        const loopOk = singleLoop();
+        board.innerHTML = "";
+
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const point = dot(row, col);
+            const { x, y } = coords(point);
+            addDiv(
+              `absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full ${degreeBad.has(point) ? "bg-rose-400" : "bg-stone-500"}`,
+              `left:${x}px;top:${y}px;`
+            );
+            if (pearls.has(point)) {
+              const type = pearls.get(point);
+              addDiv(
+                `absolute flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-xs font-bold ${
+                  type === "white"
+                    ? "border-stone-950 bg-white text-stone-950"
+                    : "border-white bg-stone-950 text-white"
+                } ${pearlBad.has(point) ? "ring-4 ring-amber-300" : ""}`,
+                `left:${x}px;top:${y}px;`,
+                type === "white" ? "白" : "黑"
+              );
+            }
+          }
+        }
+
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            [
+              [row, col + 1],
+              [row + 1, col],
+            ].forEach(([nr, nc]) => {
+              if (nr >= size || nc >= size) return;
+              const a = dot(row, col);
+              const b = dot(nr, nc);
+              const edge = edgeKey(a, b);
+              const pa = coords(a);
+              const pb = coords(b);
+              const horizontal = row === nr;
+              const button = document.createElement("button");
+              button.type = "button";
+              button.ariaLabel = edges.has(edge) ? "擦除线段" : "画线段";
+              button.className = `absolute rounded transition ${edges.has(edge) ? "bg-emerald-300" : "bg-stone-600 hover:bg-stone-400"}`;
+              button.style.cssText = horizontal
+                ? `left:${pa.x + 7}px;top:${pa.y - 4}px;width:${cell - 14}px;height:8px;`
+                : `left:${pa.x - 4}px;top:${pa.y + 7}px;width:8px;height:${cell - 14}px;`;
+              button.addEventListener("click", () => {
+                edges.has(edge) ? edges.delete(edge) : edges.add(edge);
+                render();
+              });
+              board.appendChild(button);
+            });
+          }
+        }
+
+        pearlErrors.textContent = pearlBad.size;
+        degreeErrors.textContent = degreeBad.size;
+        loopStatus.textContent = loopOk ? "是" : "否";
+
+        if (solved(pearlBad, degreeBad, loopOk)) {
+          message.textContent = "完成！路径是单环，所有黑白珠规则都满足。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-emerald-300";
+        } else if (degreeBad.size) {
+          message.textContent = "红点的线段数量不是 0 或 2，需要继续调整。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-rose-300";
+        } else if (pearlBad.size) {
+          message.textContent = "黄圈珠子违反了黑白珠规则。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-amber-300";
+        } else {
+          message.textContent = "继续连接路径，形成一个闭合单环。";
+          message.className = "mt-5 min-h-7 text-center text-sm font-semibold text-stone-300";
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        edges.clear();
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
