@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Konane</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.25em] text-amber-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-semibold text-white">Mini Konane</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div class="flex items-center justify-center">
+        <div id="board" class="grid w-full max-w-[34rem] grid-cols-6 gap-1 rounded border border-stone-700 bg-stone-800 p-2 shadow-2xl"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">当前阶段</p>
+          <p id="phaseLabel" class="mt-1 text-xl font-semibold text-white">黑方移除一枚棋子</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-sm text-stone-400">当前玩家</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-amber-300">黑方</p>
+          </div>
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-sm text-stone-400">已吃棋子</p>
+            <p id="captureLabel" class="mt-1 text-2xl font-bold text-emerald-300">0</p>
+          </div>
+        </div>
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">状态</p>
+          <p id="message" class="mt-2 min-h-16 text-base leading-7 text-stone-100">黑方先移除一枚黑棋，白方再移除相邻白棋。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const boardEl = document.getElementById("board");
+    const phaseLabel = document.getElementById("phaseLabel");
+    const turnLabel = document.getElementById("turnLabel");
+    const captureLabel = document.getElementById("captureLabel");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let board = [];
+    let phase = "removeBlack";
+    let turn = "black";
+    let selected = null;
+    let removedBlack = null;
+    let captures = 0;
+    let winner = null;
+
+    function resetGame() {
+      board = Array.from({ length: size }, (_, r) =>
+        Array.from({ length: size }, (_, c) => ((r + c) % 2 === 0 ? "black" : "white"))
+      );
+      phase = "removeBlack";
+      turn = "black";
+      selected = null;
+      removedBlack = null;
+      captures = 0;
+      winner = null;
+      message.textContent = "黑方先移除一枚黑棋，白方再移除相邻白棋。";
+      render();
+    }
+
+    function inBoard(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function opponent(color) {
+      return color === "black" ? "white" : "black";
+    }
+
+    function sameCell(a, b) {
+      return a && b && a.r === b.r && a.c === b.c;
+    }
+
+    function isAdjacentToRemovedBlack(r, c) {
+      return dirs.some(([dr, dc]) => removedBlack && removedBlack.r + dr === r && removedBlack.c + dc === c);
+    }
+
+    function legalMovesFrom(r, c) {
+      const piece = board[r][c];
+      if (!piece) return [];
+      return dirs
+        .map(([dr, dc]) => {
+          const mid = { r: r + dr, c: c + dc };
+          const end = { r: r + dr * 2, c: c + dc * 2 };
+          if (!inBoard(end.r, end.c) || !inBoard(mid.r, mid.c)) return null;
+          if (board[mid.r][mid.c] !== opponent(piece) || board[end.r][end.c]) return null;
+          return { r: end.r, c: end.c, mid };
+        })
+        .filter(Boolean);
+    }
+
+    function hasAnyMove(color) {
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          if (board[r][c] === color && legalMovesFrom(r, c).length) return true;
+        }
+      }
+      return false;
+    }
+
+    function handleRemove(r, c) {
+      if (phase === "removeBlack") {
+        if (board[r][c] !== "black") {
+          message.textContent = "请移除一枚黑棋。";
+          return;
+        }
+        board[r][c] = null;
+        removedBlack = { r, c };
+        phase = "removeWhite";
+        turn = "white";
+        message.textContent = "白方需移除一枚与空位相邻的白棋。";
+        render();
+        return;
+      }
+
+      if (board[r][c] !== "white" || !isAdjacentToRemovedBlack(r, c)) {
+        message.textContent = "请选择与第一枚空位正交相邻的白棋。";
+        return;
+      }
+      board[r][c] = null;
+      phase = "play";
+      turn = "black";
+      message.textContent = "黑方开始，选择棋子后跳过对方棋子落到空格。";
+      render();
+    }
+
+    function handlePlay(r, c) {
+      if (winner) return;
+      const piece = board[r][c];
+      if (piece === turn) {
+        const moves = legalMovesFrom(r, c);
+        if (!moves.length) {
+          selected = null;
+          message.textContent = "这枚棋子没有可用跳吃。";
+        } else {
+          selected = { r, c };
+          message.textContent = "选择一个高亮空格完成跳吃。";
+        }
+        render();
+        return;
+      }
+
+      if (!selected) {
+        message.textContent = "请选择当前玩家的棋子。";
+        return;
+      }
+
+      const move = legalMovesFrom(selected.r, selected.c).find((item) => item.r === r && item.c === c);
+      if (!move) {
+        message.textContent = "只能跳到高亮空格。";
+        return;
+      }
+
+      board[r][c] = board[selected.r][selected.c];
+      board[selected.r][selected.c] = null;
+      board[move.mid.r][move.mid.c] = null;
+      captures += 1;
+      selected = null;
+      turn = opponent(turn);
+
+      if (!hasAnyMove(turn)) {
+        winner = opponent(turn);
+        message.textContent = `${winner === "black" ? "黑方" : "白方"}获胜，对手已无合法跳吃。`;
+      } else {
+        message.textContent = `${turn === "black" ? "黑方" : "白方"}行动。`;
+      }
+      render();
+    }
+
+    function cellClasses(r, c) {
+      const dark = (r + c) % 2 === 0;
+      const moveTargets = selected ? legalMovesFrom(selected.r, selected.c) : [];
+      const isTarget = moveTargets.some((item) => item.r === r && item.c === c);
+      const base = "aspect-square rounded-sm border text-xl font-bold transition focus:outline-none focus:ring-2 focus:ring-amber-300";
+      const tone = dark ? "border-stone-700 bg-stone-700" : "border-stone-600 bg-stone-600";
+      const active = sameCell(selected, { r, c }) ? "ring-4 ring-amber-300" : "";
+      const target = isTarget ? "bg-emerald-500 hover:bg-emerald-400" : "hover:brightness-110";
+      return `${base} ${tone} ${active} ${target}`;
+    }
+
+    function renderPiece(piece) {
+      if (!piece) return "";
+      const color = piece === "black" ? "bg-stone-950 border-stone-300" : "bg-stone-100 border-stone-950";
+      return `<span class="mx-auto block h-8 w-8 rounded-full border-2 ${color} shadow"></span>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      phaseLabel.textContent =
+        phase === "removeBlack" ? "黑方移除一枚棋子" : phase === "removeWhite" ? "白方移除相邻棋子" : "跳吃对局";
+      turnLabel.textContent = winner ? "结束" : turn === "black" ? "黑方" : "白方";
+      captureLabel.textContent = String(captures);
+
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(r, c);
+          button.innerHTML = renderPiece(board[r][c]);
+          button.setAttribute("aria-label", `row ${r + 1} column ${c + 1}`);
+          button.addEventListener("click", () => {
+            if (phase === "play") handlePlay(r, c);
+            else handleRemove(r, c);
+          });
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
