@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Color Lines</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.24em] text-rose-300">Classic Games</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Color Lines</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-800 bg-slate-900 px-4 py-2">
+            <div id="score" class="text-xl font-bold text-rose-200">0</div>
+            <div class="text-slate-400">score</div>
+          </div>
+          <div class="rounded border border-slate-800 bg-slate-900 px-4 py-2">
+            <div id="moves" class="text-xl font-bold text-cyan-200">0</div>
+            <div class="text-slate-400">moves</div>
+          </div>
+          <div class="rounded border border-slate-800 bg-slate-900 px-4 py-2">
+            <div id="emptyCount" class="text-xl font-bold text-emerald-200">0</div>
+            <div class="text-slate-400">open</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+        <div>
+          <div id="board" class="grid aspect-square w-full max-w-[34rem] grid-cols-7 gap-1 rounded border border-slate-800 bg-slate-900 p-2"></div>
+          <p id="status" class="mt-3 min-h-6 text-sm font-medium text-slate-300">Select a ball, then move it to an open cell.</p>
+        </div>
+
+        <aside class="rounded border border-slate-800 bg-slate-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Next Balls</h2>
+          <div id="nextBalls" class="mt-3 flex gap-2"></div>
+          <div class="mt-5 grid gap-3">
+            <button id="newGameBtn" class="rounded bg-rose-400 px-4 py-2 font-semibold text-slate-950 hover:bg-rose-300">New Game</button>
+            <button id="clearPickBtn" class="rounded border border-slate-700 px-4 py-2 font-semibold text-slate-100 hover:bg-slate-800">Clear Pick</button>
+          </div>
+          <p class="mt-5 text-sm leading-6 text-slate-400">
+            Move one ball through empty cells. Make a row, column, or diagonal of five matching balls to clear them.
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 7;
+      const colors = ["rose", "cyan", "emerald", "amber", "violet"];
+      const colorClass = {
+        rose: "bg-rose-400",
+        cyan: "bg-cyan-300",
+        emerald: "bg-emerald-400",
+        amber: "bg-amber-300",
+        violet: "bg-violet-400",
+      };
+
+      const boardEl = document.getElementById("board");
+      const scoreEl = document.getElementById("score");
+      const movesEl = document.getElementById("moves");
+      const emptyCountEl = document.getElementById("emptyCount");
+      const statusEl = document.getElementById("status");
+      const nextBallsEl = document.getElementById("nextBalls");
+      const newGameBtn = document.getElementById("newGameBtn");
+      const clearPickBtn = document.getElementById("clearPickBtn");
+
+      let board = [];
+      let selected = null;
+      let nextBalls = [];
+      let score = 0;
+      let moves = 0;
+
+      function index(row, col) {
+        return row * size + col;
+      }
+
+      function randomColor() {
+        return colors[Math.floor(Math.random() * colors.length)];
+      }
+
+      function emptyCells() {
+        return board
+          .map((value, cell) => (value ? null : cell))
+          .filter((cell) => cell !== null);
+      }
+
+      function pickNextBalls() {
+        nextBalls = [randomColor(), randomColor(), randomColor()];
+      }
+
+      function addQueuedBalls() {
+        const empties = emptyCells();
+        for (const color of nextBalls) {
+          if (!empties.length) break;
+          const pick = Math.floor(Math.random() * empties.length);
+          board[empties.splice(pick, 1)[0]] = color;
+        }
+        pickNextBalls();
+      }
+
+      function hasPath(from, to) {
+        const queue = [from];
+        const seen = new Set([from]);
+        while (queue.length) {
+          const cell = queue.shift();
+          if (cell === to) return true;
+          const row = Math.floor(cell / size);
+          const col = cell % size;
+          for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nr = row + dr;
+            const nc = col + dc;
+            const next = index(nr, nc);
+            if (nr < 0 || nr >= size || nc < 0 || nc >= size || seen.has(next) || board[next]) continue;
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+        return false;
+      }
+
+      function findLines() {
+        const clear = new Set();
+        const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]];
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const color = board[index(row, col)];
+            if (!color) continue;
+            for (const [dr, dc] of dirs) {
+              const cells = [];
+              let nr = row;
+              let nc = col;
+              while (nr >= 0 && nr < size && nc >= 0 && nc < size && board[index(nr, nc)] === color) {
+                cells.push(index(nr, nc));
+                nr += dr;
+                nc += dc;
+              }
+              if (cells.length >= 5) cells.forEach((cell) => clear.add(cell));
+            }
+          }
+        }
+        return clear;
+      }
+
+      function clearLines() {
+        const clear = findLines();
+        if (!clear.size) return false;
+        clear.forEach((cell) => {
+          board[cell] = null;
+        });
+        score += clear.size * 10;
+        statusEl.textContent = `Cleared ${clear.size} balls.`;
+        statusEl.className = "mt-3 min-h-6 text-sm font-medium text-emerald-300";
+        return true;
+      }
+
+      function renderBall(color) {
+        if (!color) return "";
+        return `<span class="block h-7 w-7 rounded-full ${colorClass[color]} shadow sm:h-10 sm:w-10"></span>`;
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        board.forEach((color, cell) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.cell = cell;
+          button.className = [
+            "flex aspect-square items-center justify-center rounded border text-sm transition",
+            selected === cell ? "border-rose-200 bg-slate-700" : "border-slate-800 bg-slate-950 hover:bg-slate-800",
+          ].join(" ");
+          button.innerHTML = renderBall(color);
+          boardEl.appendChild(button);
+        });
+        nextBallsEl.innerHTML = nextBalls
+          .map((color) => `<span class="flex h-11 w-11 items-center justify-center rounded border border-slate-800 bg-slate-950">${renderBall(color)}</span>`)
+          .join("");
+        scoreEl.textContent = score;
+        movesEl.textContent = moves;
+        emptyCountEl.textContent = emptyCells().length;
+      }
+
+      function handleCellClick(cell) {
+        if (board[cell]) {
+          selected = cell;
+          statusEl.textContent = "Choose an open destination.";
+          statusEl.className = "mt-3 min-h-6 text-sm font-medium text-cyan-300";
+          render();
+          return;
+        }
+        if (selected === null) return;
+        if (!hasPath(selected, cell)) {
+          statusEl.textContent = "No clear path to that cell.";
+          statusEl.className = "mt-3 min-h-6 text-sm font-medium text-amber-300";
+          return;
+        }
+        board[cell] = board[selected];
+        board[selected] = null;
+        selected = null;
+        moves += 1;
+        if (!clearLines()) {
+          addQueuedBalls();
+          clearLines();
+        }
+        if (!emptyCells().length) {
+          statusEl.textContent = "Board full. Start a new game.";
+          statusEl.className = "mt-3 min-h-6 text-sm font-medium text-rose-300";
+        }
+        render();
+      }
+
+      function newGame() {
+        board = Array(size * size).fill(null);
+        selected = null;
+        score = 0;
+        moves = 0;
+        pickNextBalls();
+        addQueuedBalls();
+        statusEl.textContent = "Select a ball, then move it to an open cell.";
+        statusEl.className = "mt-3 min-h-6 text-sm font-medium text-slate-300";
+        render();
+      }
+
+      boardEl.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-cell]");
+        if (!button) return;
+        handleCellClick(Number(button.dataset.cell));
+      });
+      newGameBtn.addEventListener("click", newGame);
+      clearPickBtn.addEventListener("click", () => {
+        selected = null;
+        statusEl.textContent = "Selection cleared.";
+        statusEl.className = "mt-3 min-h-6 text-sm font-medium text-slate-300";
+        render();
+      });
+
+      newGame();
+    </script>
+  </body>
+</html>
