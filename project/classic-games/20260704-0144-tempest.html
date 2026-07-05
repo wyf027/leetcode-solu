@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Tempest</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-cyan-200">Mini Tempest</h1>
+        <p class="text-sm text-indigo-100">Slide around the rim, fire down lanes, and clear the vector web.</p>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <div class="rounded bg-indigo-900 px-3 py-2">Score <span id="score" class="font-semibold text-cyan-200">0</span></div>
+        <div class="rounded bg-indigo-900 px-3 py-2">Wave <span id="wave" class="font-semibold text-fuchsia-200">1</span></div>
+        <div class="rounded bg-indigo-900 px-3 py-2">Lives <span id="lives" class="font-semibold text-emerald-200">3</span></div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-indigo-700 bg-indigo-900 p-3">
+        <canvas id="game" width="704" height="528" class="aspect-[4/3] w-full rounded bg-slate-950"></canvas>
+      </div>
+      <aside class="rounded border border-indigo-700 bg-indigo-900 p-4 text-sm text-indigo-100">
+        <div class="mb-4">
+          <h2 class="mb-2 font-semibold text-white">Controls</h2>
+          <p>Arrow keys or A/D rotate.</p>
+          <p>Space fires into your lane.</p>
+          <p>Enter restarts after game over.</p>
+        </div>
+        <button id="restart" class="w-full rounded bg-cyan-300 px-4 py-2 font-semibold text-indigo-950 hover:bg-cyan-200">Restart</button>
+        <div id="status" class="mt-4 rounded bg-indigo-950 p-3 text-indigo-50">Destroy crawlers before they reach the rim.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const waveEl = document.getElementById("wave");
+    const livesEl = document.getElementById("lives");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restart");
+
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2 + 18;
+    const lanes = 16;
+    const outerRadius = 226;
+    const innerRadius = 70;
+    const keys = new Set();
+    const palette = ["#22d3ee", "#a78bfa", "#f0abfc", "#38bdf8"];
+
+    let playerLane;
+    let enemies;
+    let shots;
+    let score;
+    let lives;
+    let wave;
+    let tick;
+    let spawnTimer;
+    let cooldown;
+    let running;
+    let won;
+    let lastTime;
+
+    function lanePoint(lane, depth, offset = 0) {
+      const angle = ((lane + offset) / lanes) * Math.PI * 2 - Math.PI / 2;
+      const radius = innerRadius + (outerRadius - innerRadius) * depth;
+      return {
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius
+      };
+    }
+
+    function resetGame() {
+      playerLane = 0;
+      enemies = [];
+      shots = [];
+      score = 0;
+      lives = 3;
+      wave = 1;
+      tick = 0;
+      spawnTimer = 20;
+      cooldown = 0;
+      running = true;
+      won = false;
+      lastTime = 0;
+      statusEl.textContent = "Destroy crawlers before they reach the rim.";
+      updateHud();
+      renderTempest();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      waveEl.textContent = wave;
+      livesEl.textContent = lives;
+    }
+
+    function rotatePlayer(direction) {
+      playerLane = (playerLane + direction + lanes) % lanes;
+    }
+
+    function fireShot() {
+      if (!running || cooldown > 0) return;
+      shots.push({ lane: playerLane, depth: 0.98, speed: 0.055 });
+      cooldown = 9;
+    }
+
+    function spawnEnemy() {
+      const lane = Math.floor(Math.random() * lanes);
+      enemies.push({
+        lane,
+        depth: 0.02,
+        speed: 0.004 + wave * 0.0009 + Math.random() * 0.002,
+        type: Math.random() < 0.18 ? "spiker" : "crawler",
+        wobble: Math.random() * Math.PI * 2
+      });
+    }
+
+    function updateShots() {
+      shots.forEach((shot) => {
+        shot.depth -= shot.speed;
+      });
+
+      enemies = enemies.filter((enemy) => {
+        const hit = shots.some((shot) => shot.lane === enemy.lane && Math.abs(shot.depth - enemy.depth) < 0.045);
+        if (hit) {
+          score += enemy.type === "spiker" ? 180 : 100;
+          updateHud();
+          return false;
+        }
+        return true;
+      });
+
+      shots = shots.filter((shot) => shot.depth > 0.02);
+    }
+
+    function updateEnemies() {
+      spawnTimer--;
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = Math.max(12, 36 - wave * 2);
+      }
+
+      enemies.forEach((enemy) => {
+        enemy.depth += enemy.speed;
+        enemy.wobble += 0.08;
+        if (enemy.type === "spiker" && tick % 90 === 0 && Math.random() < 0.5) {
+          enemy.lane = (enemy.lane + (Math.random() < 0.5 ? -1 : 1) + lanes) % lanes;
+        }
+      });
+
+      const reached = enemies.find((enemy) => enemy.depth >= 0.98 && enemy.lane === playerLane);
+      if (reached) loseLife();
+      enemies = enemies.filter((enemy) => enemy.depth < 1.05);
+
+      if (score >= wave * 1200) {
+        wave++;
+        statusEl.textContent = `Wave ${wave}. The web accelerates.`;
+        updateHud();
+      }
+    }
+
+    function loseLife() {
+      lives--;
+      updateHud();
+      enemies = enemies.filter((enemy) => enemy.depth < 0.88);
+      shots = [];
+      if (lives <= 0) {
+        running = false;
+        statusEl.textContent = "Game over. Press Enter or Restart.";
+      } else {
+        statusEl.textContent = "Crawler reached the rim.";
+      }
+    }
+
+    function updatePlayer() {
+      if (cooldown > 0) cooldown--;
+      if (tick % 4 !== 0) return;
+      if (keys.has("ArrowLeft") || keys.has("a")) rotatePlayer(-1);
+      if (keys.has("ArrowRight") || keys.has("d")) rotatePlayer(1);
+    }
+
+    function updateGame() {
+      if (!running) return;
+      tick++;
+      updatePlayer();
+      updateShots();
+      updateEnemies();
+    }
+
+    function drawWeb() {
+      ctx.strokeStyle = "#312e81";
+      ctx.lineWidth = 2;
+      for (let ring = 0; ring < 6; ring++) {
+        const depth = ring / 5;
+        ctx.beginPath();
+        for (let lane = 0; lane <= lanes; lane++) {
+          const point = lanePoint(lane % lanes, depth);
+          if (lane === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+
+      for (let lane = 0; lane < lanes; lane++) {
+        const a = lanePoint(lane, 0);
+        const b = lanePoint(lane, 1);
+        ctx.strokeStyle = lane === playerLane ? "#67e8f9" : "#4338ca";
+        ctx.lineWidth = lane === playerLane ? 4 : 2;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+
+    function drawPlayer() {
+      const center = lanePoint(playerLane, 1.03);
+      const left = lanePoint(playerLane - 0.22, 0.95);
+      const right = lanePoint(playerLane + 0.22, 0.95);
+      ctx.fillStyle = "#22d3ee";
+      ctx.beginPath();
+      ctx.moveTo(center.x, center.y);
+      ctx.lineTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawShots() {
+      ctx.strokeStyle = "#fef9c3";
+      ctx.lineWidth = 4;
+      shots.forEach((shot) => {
+        const a = lanePoint(shot.lane, shot.depth);
+        const b = lanePoint(shot.lane, Math.min(1, shot.depth + 0.08));
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      });
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy, index) => {
+        const wobble = Math.sin(enemy.wobble) * 0.05;
+        const point = lanePoint(enemy.lane + wobble, enemy.depth);
+        ctx.fillStyle = enemy.type === "spiker" ? "#f472b6" : palette[index % palette.length];
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, enemy.type === "spiker" ? 8 : 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    function renderTempest() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bg = ctx.createRadialGradient(cx, cy, 30, cx, cy, outerRadius + 80);
+      bg.addColorStop(0, "#020617");
+      bg.addColorStop(1, "#1e1b4b");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawWeb();
+      drawShots();
+      drawEnemies();
+      drawPlayer();
+
+      if (!running) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.76)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = won ? "#bbf7d0" : "#fecaca";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "Web Clear" : "Game Over", canvas.width / 2, canvas.height / 2);
+        ctx.font = "18px sans-serif";
+        ctx.fillText("Press Enter or Restart", canvas.width / 2, canvas.height / 2 + 34);
+      }
+    }
+
+    function gameLoop(time) {
+      if (!lastTime) lastTime = time;
+      if (time - lastTime > 16) {
+        updateGame();
+        renderTempest();
+        lastTime = time;
+      }
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", " ", "a", "d", "Enter"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") fireShot();
+      else if (key === "Enter" && !running) resetGame();
+      else keys.add(key);
+    });
+
+    document.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
