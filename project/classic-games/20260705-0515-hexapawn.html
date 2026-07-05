@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Hexapawn</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Hexapawn</h1>
+        <p class="text-sm text-slate-400">你控制底部兵：直走一格，斜吃一格；到达对面或让对手无棋可走即胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-indigo-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-indigo-300">重开</button>
+    </header>
+
+    <section class="grid grid-cols-3 gap-3">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">回合</div>
+        <div id="turnLabel" class="text-2xl font-semibold">你</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">你的兵</div>
+        <div id="playerCount" class="text-2xl font-semibold">3</div>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-500">电脑兵</div>
+        <div id="botCount" class="text-2xl font-semibold">3</div>
+      </div>
+    </section>
+
+    <section class="rounded border border-slate-700 bg-slate-900 p-4">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">棋盘</h2>
+        <span id="message" class="text-sm text-indigo-300">选择你的兵。</span>
+      </div>
+      <div id="board" class="mx-auto grid max-w-sm grid-cols-3 gap-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabelEl = document.getElementById("turnLabel");
+    const playerCountEl = document.getElementById("playerCount");
+    const botCountEl = document.getElementById("botCount");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 3;
+    let board = [];
+    let selected = null;
+    let turn = "P";
+    let gameOver = false;
+    let botTurnTimer = null;
+
+    function clearPendingBotTurn() {
+      if (botTurnTimer !== null) {
+        window.clearTimeout(botTurnTimer);
+        botTurnTimer = null;
+      }
+    }
+
+    function scheduleBotTurn() {
+      clearPendingBotTurn();
+      botTurnTimer = window.setTimeout(() => {
+        botTurnTimer = null;
+        botTurn();
+      }, 450);
+    }
+
+    function resetGame() {
+      clearPendingBotTurn();
+      board = [
+        ["B", "B", "B"],
+        ["", "", ""],
+        ["P", "P", "P"]
+      ];
+      selected = null;
+      turn = "P";
+      gameOver = false;
+      setMessage("选择你的兵。");
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function getMoves(row, col, side) {
+      const dir = side === "P" ? -1 : 1;
+      const enemy = side === "P" ? "B" : "P";
+      const moves = [];
+      const forwardRow = row + dir;
+      if (inside(forwardRow, col) && board[forwardRow][col] === "") {
+        moves.push({ row: forwardRow, col });
+      }
+      [-1, 1].forEach((dc) => {
+        const nextCol = col + dc;
+        if (inside(forwardRow, nextCol) && board[forwardRow][nextCol] === enemy) {
+          moves.push({ row: forwardRow, col: nextCol });
+        }
+      });
+      return moves;
+    }
+
+    function allMoves(side) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === side) {
+            getMoves(row, col, side).forEach((move) => moves.push({ from: { row, col }, to: move }));
+          }
+        }
+      }
+      return moves;
+    }
+
+    function selectCell(row, col) {
+      if (gameOver || turn !== "P") return;
+      if (selected) {
+        const legal = getMoves(selected.row, selected.col, "P").some((move) => move.row === row && move.col === col);
+        if (legal) {
+          movePiece(selected, { row, col }, "P");
+          selected = null;
+          if (!checkWinner()) {
+            turn = "B";
+            setMessage("电脑行动。");
+            render();
+            scheduleBotTurn();
+          }
+          return;
+        }
+      }
+      if (board[row][col] === "P") {
+        selected = { row, col };
+        setMessage("选择目标格。");
+      } else {
+        selected = null;
+        setMessage("请选择你的兵。");
+      }
+      render();
+    }
+
+    function movePiece(from, to, side) {
+      board[to.row][to.col] = side;
+      board[from.row][from.col] = "";
+    }
+
+    function botTurn() {
+      botTurnTimer = null;
+      if (gameOver || turn !== "B") return;
+      const moves = allMoves("B");
+      if (!moves.length) {
+        finish("你赢了，电脑无棋可走。");
+        return;
+      }
+      const capture = moves.find((move) => board[move.to.row][move.to.col] === "P");
+      const advance = moves.find((move) => move.to.row === 2);
+      const choice = advance || capture || moves[0];
+      movePiece(choice.from, choice.to, "B");
+      if (!checkWinner()) {
+        turn = "P";
+        setMessage("轮到你。");
+      }
+      render();
+    }
+
+    function countPieces(side) {
+      return board.flat().filter((piece) => piece === side).length;
+    }
+
+    function checkWinner() {
+      if (board[0].includes("P")) return finish("你赢了，兵抵达底线。");
+      if (board[2].includes("B")) return finish("电脑赢了，兵抵达底线。");
+      if (countPieces("B") === 0) return finish("你赢了，吃光电脑兵。");
+      if (countPieces("P") === 0) return finish("电脑赢了，吃光你的兵。");
+      if (turn === "P" && allMoves("B").length === 0) return finish("你赢了，电脑无棋可走。");
+      if (turn === "B" && allMoves("P").length === 0) return finish("电脑赢了，你无棋可走。");
+      return false;
+    }
+
+    function finish(text) {
+      gameOver = true;
+      setMessage(text);
+      render();
+      return true;
+    }
+
+    function isTarget(row, col) {
+      if (!selected) return false;
+      return getMoves(selected.row, selected.col, "P").some((move) => move.row === row && move.col === col);
+    }
+
+    function renderCell(row, col) {
+      const button = document.createElement("button");
+      const piece = board[row][col];
+      button.type = "button";
+      button.className = "aspect-square rounded border border-slate-700 bg-slate-800 text-4xl font-semibold hover:border-indigo-300";
+      if ((row + col) % 2 === 0) button.classList.add("bg-slate-700");
+      if (piece === "P") button.classList.add("text-indigo-300");
+      if (piece === "B") button.classList.add("text-amber-300");
+      if (selected?.row === row && selected?.col === col) button.classList.add("ring-4", "ring-indigo-300");
+      if (isTarget(row, col)) button.classList.add("border-emerald-300", "ring-2", "ring-emerald-300");
+      button.textContent = piece === "P" ? "♙" : piece === "B" ? "♟" : "";
+      button.addEventListener("click", () => selectCell(row, col));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          boardEl.appendChild(renderCell(row, col));
+        }
+      }
+      turnLabelEl.textContent = gameOver ? "结束" : turn === "P" ? "你" : "电脑";
+      playerCountEl.textContent = countPieces("P");
+      botCountEl.textContent = countPieces("B");
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
