@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Gomoku</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-5 px-4 py-6">
+    <section class="w-full rounded-lg border border-amber-500/30 bg-zinc-900 p-4 shadow-2xl shadow-black/40">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-amber-100">Mini Gomoku</h1>
+          <p class="text-sm text-zinc-400">Place black stones and make five in a row before the rival does.</p>
+        </div>
+        <button id="restart" class="rounded-md bg-amber-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-200">Restart</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_220px]">
+        <div class="overflow-auto rounded-md bg-stone-950 p-3">
+          <div id="board" class="grid min-w-[600px] rounded-md border-4 border-stone-800 bg-amber-200 p-2"></div>
+        </div>
+        <aside class="space-y-3">
+          <div class="grid grid-cols-2 gap-2 text-center lg:grid-cols-1">
+            <div class="rounded-md bg-zinc-800 p-3">
+              <div class="text-xs uppercase text-zinc-400">Turn</div>
+              <div id="turn" class="text-xl font-bold text-amber-200">Black</div>
+            </div>
+            <div class="rounded-md bg-zinc-800 p-3">
+              <div class="text-xs uppercase text-zinc-400">Moves</div>
+              <div id="moves" class="text-xl font-bold text-cyan-200">0</div>
+            </div>
+          </div>
+          <div id="message" class="rounded-md border border-zinc-700 bg-zinc-950 p-3 text-center text-sm text-zinc-300">
+            You are black. Click an empty point to place a stone.
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 15;
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const movesEl = document.getElementById("moves");
+    const messageEl = document.getElementById("message");
+    const restartEl = document.getElementById("restart");
+
+    let board;
+    let current;
+    let moves;
+    let gameOver;
+
+    boardEl.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(0));
+      current = 1;
+      moves = 0;
+      gameOver = false;
+      messageEl.textContent = "You are black. Click an empty point to place a stone.";
+      renderBoard();
+    }
+
+    function placeStone(row, col, player) {
+      if (gameOver || board[row][col] !== 0) return false;
+      board[row][col] = player;
+      moves += 1;
+      if (checkWinner(row, col, player)) {
+        gameOver = true;
+        messageEl.textContent = player === 1 ? "Black wins with five in a row." : "White wins with five in a row.";
+      } else if (moves === size * size) {
+        gameOver = true;
+        messageEl.textContent = "The board is full. Draw.";
+      }
+      return true;
+    }
+
+    function playerMove(row, col) {
+      if (current !== 1 || !placeStone(row, col, 1)) return;
+      current = 2;
+      renderBoard();
+      if (!gameOver) {
+        setTimeout(() => {
+          computerMove();
+          current = 1;
+          renderBoard();
+        }, 180);
+      }
+    }
+
+    function computerMove() {
+      const move = bestComputerMove();
+      if (move) placeStone(move.row, move.col, 2);
+    }
+
+    function bestComputerMove() {
+      const empty = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === 0) empty.push({ row, col });
+        }
+      }
+      const winning = empty.find((move) => wouldWin(move.row, move.col, 2));
+      if (winning) return winning;
+      const blocking = empty.find((move) => wouldWin(move.row, move.col, 1));
+      if (blocking) return blocking;
+      empty.sort((a, b) => scorePoint(b.row, b.col) - scorePoint(a.row, a.col));
+      return empty[0];
+    }
+
+    function wouldWin(row, col, player) {
+      board[row][col] = player;
+      const result = checkWinner(row, col, player);
+      board[row][col] = 0;
+      return result;
+    }
+
+    function scorePoint(row, col) {
+      let score = 8 - Math.abs(7 - row) - Math.abs(7 - col);
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          if (!dr && !dc) continue;
+          const next = board[row + dr]?.[col + dc];
+          if (next === 1) score += 3;
+          if (next === 2) score += 4;
+        }
+      }
+      return score;
+    }
+
+    function checkWinner(row, col, player) {
+      return [[1, 0], [0, 1], [1, 1], [1, -1]].some(([dr, dc]) => {
+        return countLine(row, col, dr, dc, player) + countLine(row, col, -dr, -dc, player) - 1 >= 5;
+      });
+    }
+
+    function countLine(row, col, dr, dc, player) {
+      let total = 0;
+      let r = row;
+      let c = col;
+      while (r >= 0 && r < size && c >= 0 && c < size && board[r][c] === player) {
+        total += 1;
+        r += dr;
+        c += dc;
+      }
+      return total;
+    }
+
+    function renderBoard() {
+      turnEl.textContent = gameOver ? "Done" : current === 1 ? "Black" : "White";
+      movesEl.textContent = moves;
+      const cells = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          const value = board[row][col];
+          button.type = "button";
+          button.className = "relative h-10 border border-amber-900/30 bg-amber-200 hover:bg-amber-100 disabled:hover:bg-amber-200";
+          button.disabled = gameOver || value !== 0 || current !== 1;
+          if (value) {
+            const stone = document.createElement("span");
+            stone.className = value === 1
+              ? "absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-950 shadow-inner shadow-zinc-500"
+              : "absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border border-zinc-400 bg-zinc-100 shadow-inner shadow-white";
+            button.appendChild(stone);
+          }
+          button.addEventListener("click", () => playerMove(row, col));
+          cells.push(button);
+        }
+      }
+      boardEl.replaceChildren(...cells);
+    }
+
+    restartEl.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
