@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Surakarta</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-center">
+      <section class="w-full max-w-xl">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold tracking-normal text-amber-100">Mini Surakarta</h1>
+            <p class="mt-1 text-sm text-stone-300">移动到相邻空格，横纵直线捕获对手棋子。</p>
+          </div>
+          <button id="reset" class="rounded bg-amber-500 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-400">
+            重新开始
+          </button>
+        </div>
+
+        <div class="relative aspect-square rounded border border-amber-700 bg-amber-100 p-3 shadow-2xl shadow-black/40">
+          <div class="absolute inset-8 rounded-full border-4 border-amber-800/50"></div>
+          <div class="absolute inset-16 rounded-full border-4 border-amber-800/40"></div>
+          <div id="board" class="relative grid h-full w-full grid-cols-6 grid-rows-6 gap-1"></div>
+        </div>
+      </section>
+
+      <aside class="w-full max-w-sm rounded border border-stone-700 bg-stone-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs uppercase text-stone-400">当前回合</div>
+            <div id="turn" class="mt-1 text-xl font-bold text-amber-200">白方</div>
+          </div>
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs uppercase text-stone-400">棋子</div>
+            <div id="pieces" class="mt-1 text-xl font-bold text-amber-200">12 : 12</div>
+          </div>
+        </div>
+        <div id="status" class="mt-4 rounded bg-stone-800 p-3 text-sm leading-6 text-stone-200">
+          选择一枚己方棋子开始。
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-2 text-xs text-stone-300">
+          <div class="rounded border border-stone-700 p-2">白方：底部两行</div>
+          <div class="rounded border border-stone-700 p-2">黑方：顶部两行</div>
+          <div class="rounded border border-stone-700 p-2">移动：相邻空格</div>
+          <div class="rounded border border-stone-700 p-2">捕获：横纵无阻隔</div>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const size = 6;
+      const empty = "";
+      const players = {
+        W: { label: "白方", piece: "●", className: "bg-stone-100 text-stone-950" },
+        B: { label: "黑方", piece: "●", className: "bg-stone-950 text-stone-100" },
+      };
+
+      let board = [];
+      let current = "W";
+      let selected = null;
+      let moves = [];
+      let winner = null;
+
+      const boardEl = document.getElementById("board");
+      const turnEl = document.getElementById("turn");
+      const piecesEl = document.getElementById("pieces");
+      const statusEl = document.getElementById("status");
+
+      function resetGame() {
+        board = Array.from({ length: size }, (_, row) =>
+          Array.from({ length: size }, () => {
+            if (row < 2) return "B";
+            if (row > 3) return "W";
+            return empty;
+          }),
+        );
+        current = "W";
+        selected = null;
+        moves = [];
+        winner = null;
+        statusEl.textContent = "选择一枚己方棋子开始。";
+        render();
+      }
+
+      function inside(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function countPieces(player) {
+        return board.flat().filter((cell) => cell === player).length;
+      }
+
+      function legalMovesFrom(row, col) {
+        const result = [];
+        for (let dr = -1; dr <= 1; dr += 1) {
+          for (let dc = -1; dc <= 1; dc += 1) {
+            if (dr === 0 && dc === 0) continue;
+            const nextRow = row + dr;
+            const nextCol = col + dc;
+            if (inside(nextRow, nextCol) && board[nextRow][nextCol] === empty) {
+              result.push({ row: nextRow, col: nextCol, capture: false });
+            }
+          }
+        }
+        return result;
+      }
+
+      function captureMovesFrom(row, col) {
+        const result = [];
+        const opponent = current === "W" ? "B" : "W";
+        const directions = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+
+        for (const [dr, dc] of directions) {
+          let nextRow = row + dr;
+          let nextCol = col + dc;
+          while (inside(nextRow, nextCol)) {
+            if (board[nextRow][nextCol] === current) break;
+            if (board[nextRow][nextCol] === opponent) {
+              result.push({ row: nextRow, col: nextCol, capture: true });
+              break;
+            }
+            nextRow += dr;
+            nextCol += dc;
+          }
+        }
+
+        return result;
+      }
+
+      function selectPiece(row, col) {
+        selected = { row, col };
+        moves = [...legalMovesFrom(row, col), ...captureMovesFrom(row, col)];
+        statusEl.textContent = moves.length ? "选择高亮位置移动或捕获。" : "这枚棋子暂无可用走法。";
+        render();
+      }
+
+      function applyMove(move) {
+        if (!selected) return;
+        board[selected.row][selected.col] = empty;
+        board[move.row][move.col] = current;
+
+        const opponent = current === "W" ? "B" : "W";
+        if (countPieces(opponent) === 0) {
+          winner = current;
+          statusEl.textContent = `${players[current].label}获胜。`;
+        } else {
+          current = opponent;
+          statusEl.textContent = `${players[current].label}行动。`;
+        }
+
+        selected = null;
+        moves = [];
+        render();
+      }
+
+      function handleCell(row, col) {
+        if (winner) return;
+
+        const move = moves.find((item) => item.row === row && item.col === col);
+        if (move) {
+          applyMove(move);
+          return;
+        }
+
+        if (board[row][col] === current) {
+          selectPiece(row, col);
+          return;
+        }
+
+        selected = null;
+        moves = [];
+        statusEl.textContent = "请选择当前回合的棋子。";
+        render();
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        const whiteCount = countPieces("W");
+        const blackCount = countPieces("B");
+        turnEl.textContent = winner ? `${players[winner].label}胜利` : players[current].label;
+        piecesEl.textContent = `${whiteCount} : ${blackCount}`;
+
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const cell = document.createElement("button");
+            const piece = board[row][col];
+            const isSelected = selected && selected.row === row && selected.col === col;
+            const move = moves.find((item) => item.row === row && item.col === col);
+
+            cell.type = "button";
+            cell.className = [
+              "relative flex items-center justify-center rounded border text-2xl font-black transition",
+              "border-amber-900/50 bg-amber-200 hover:bg-amber-300",
+              isSelected ? "ring-4 ring-emerald-500" : "",
+              move && move.capture ? "ring-4 ring-red-500" : "",
+              move && !move.capture ? "ring-4 ring-lime-500" : "",
+            ].join(" ");
+            cell.setAttribute("aria-label", `row ${row + 1} col ${col + 1}`);
+            cell.addEventListener("click", () => handleCell(row, col));
+
+            if (piece) {
+              const disk = document.createElement("span");
+              disk.className = `flex h-9 w-9 items-center justify-center rounded-full border-2 border-amber-700 ${players[piece].className}`;
+              disk.textContent = players[piece].piece;
+              cell.appendChild(disk);
+            } else if (move) {
+              const dot = document.createElement("span");
+              dot.className = `h-3 w-3 rounded-full ${move.capture ? "bg-red-600" : "bg-lime-600"}`;
+              cell.appendChild(dot);
+            }
+
+            boardEl.appendChild(cell);
+          }
+        }
+      }
+
+      document.getElementById("reset").addEventListener("click", resetGame);
+      resetGame();
+    </script>
+  </body>
+</html>
