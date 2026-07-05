@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Nurimisaki</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-sky-950 text-sky-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-sky-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-lime-300">Classic Logic Puzzle</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Nurimisaki</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 text-sm font-semibold text-sky-950 hover:bg-lime-200">
+            重新开始
+          </button>
+          <button id="hintBtn" class="rounded-md border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-50 hover:bg-sky-800">
+            提示
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-lg border border-sky-800 bg-sky-900/80 p-4 shadow-2xl shadow-black/30">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[32rem] grid-cols-5 overflow-hidden rounded-md border-4 border-sky-100"></div>
+        </div>
+
+        <aside class="space-y-4">
+          <div class="rounded-lg border border-sky-800 bg-sky-900 p-4">
+            <h2 class="text-lg font-semibold text-white">目标</h2>
+            <p class="mt-2 text-sm leading-6 text-sky-200">
+              点击非数字格切换岛与海。数字岛必须是一条直线岛链的端点，数字表示该岛链长度；海格全部连通，且不能形成 2x2 海块。
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-sky-800 bg-sky-900 p-4">
+            <h2 class="text-lg font-semibold text-white">检查</h2>
+            <ul class="mt-3 space-y-2 text-sm">
+              <li id="clueStatus" class="rounded-md bg-sky-800 px-3 py-2 text-sky-200">线索：等待检查</li>
+              <li id="islandStatus" class="rounded-md bg-sky-800 px-3 py-2 text-sky-200">岛格：等待检查</li>
+              <li id="seaStatus" class="rounded-md bg-sky-800 px-3 py-2 text-sky-200">海格：等待连通</li>
+              <li id="blockStatus" class="rounded-md bg-sky-800 px-3 py-2 text-sky-200">2x2：无海块</li>
+            </ul>
+          </div>
+
+          <div id="message" class="rounded-lg border border-lime-300/30 bg-lime-300/10 p-4 text-sm leading-6 text-lime-100">
+            点击非数字格切换岛与海。
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const board = document.getElementById("board");
+      const resetBtn = document.getElementById("resetBtn");
+      const hintBtn = document.getElementById("hintBtn");
+      const message = document.getElementById("message");
+      const clueStatus = document.getElementById("clueStatus");
+      const islandStatus = document.getElementById("islandStatus");
+      const seaStatus = document.getElementById("seaStatus");
+      const blockStatus = document.getElementById("blockStatus");
+
+      const size = 5;
+      const clues = {
+        "0,0": 2,
+        "0,4": 3,
+        "2,2": 1,
+        "4,0": 3,
+        "4,4": 2,
+      };
+      const solutionIslands = new Set(["0,0", "0,1", "0,2", "0,3", "0,4", "2,2", "2,4", "3,0", "3,4", "4,0", "4,1", "4,2", "4,3", "4,4"]);
+      const islands = new Set(Object.keys(clues));
+      const cells = [];
+
+      function keyOf(row, col) {
+        return `${row},${col}`;
+      }
+
+      function inBounds(row, col) {
+        return row >= 0 && row < size && col >= 0 && col < size;
+      }
+
+      function neighbors(row, col) {
+        return [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .map(([dr, dc]) => [row + dr, col + dc])
+          .filter(([r, c]) => inBounds(r, c));
+      }
+
+      function islandDegree(key) {
+        const [row, col] = key.split(",").map(Number);
+        return neighbors(row, col).filter(([r, c]) => islands.has(keyOf(r, c))).length;
+      }
+
+      function lineLengthFrom(key) {
+        const [row, col] = key.split(",").map(Number);
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        let best = 1;
+        dirs.forEach(([dr, dc]) => {
+          let length = 1;
+          let nextRow = row + dr;
+          let nextCol = col + dc;
+          while (inBounds(nextRow, nextCol) && islands.has(keyOf(nextRow, nextCol))) {
+            length += 1;
+            nextRow += dr;
+            nextCol += dc;
+          }
+          best = Math.max(best, length);
+        });
+        return best;
+      }
+
+      function clueReport() {
+        const bad = [];
+        Object.entries(clues).forEach(([key, target]) => {
+          if (!islands.has(key) || islandDegree(key) > 1 || lineLengthFrom(key) !== target) bad.push(key);
+        });
+        return { bad, clear: bad.length === 0 };
+      }
+
+      function islandReport() {
+        const bad = new Set();
+        islands.forEach((key) => {
+          if (clues[key]) return;
+          const degree = islandDegree(key);
+          if (degree > 2) bad.add(key);
+        });
+        return { bad, clear: bad.size === 0 };
+      }
+
+      function seaReport() {
+        const seas = [];
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const key = keyOf(row, col);
+            if (!islands.has(key)) seas.push(key);
+          }
+        }
+        if (!seas.length) return { clear: false, reached: 0, total: 0 };
+        const seen = new Set([seas[0]]);
+        const queue = [seas[0]];
+        while (queue.length) {
+          const [row, col] = queue.shift().split(",").map(Number);
+          neighbors(row, col).forEach(([r, c]) => {
+            const nextKey = keyOf(r, c);
+            if (!islands.has(nextKey) && !seen.has(nextKey)) {
+              seen.add(nextKey);
+              queue.push(nextKey);
+            }
+          });
+        }
+        return { clear: seen.size === seas.length, reached: seen.size, total: seas.length };
+      }
+
+      function blockReport() {
+        const bad = new Set();
+        for (let row = 0; row < size - 1; row += 1) {
+          for (let col = 0; col < size - 1; col += 1) {
+            const square = [keyOf(row, col), keyOf(row + 1, col), keyOf(row, col + 1), keyOf(row + 1, col + 1)];
+            if (square.every((key) => !islands.has(key))) square.forEach((key) => bad.add(key));
+          }
+        }
+        return { bad, clear: bad.size === 0 };
+      }
+
+      function setStatus(element, label, state) {
+        element.className = "rounded-md px-3 py-2 text-sm";
+        if (state === "ok") element.classList.add("bg-emerald-500/15", "text-emerald-200");
+        if (state === "warn") element.classList.add("bg-amber-500/15", "text-amber-200");
+        if (state === "bad") element.classList.add("bg-rose-500/15", "text-rose-200");
+        element.textContent = label;
+      }
+
+      function render() {
+        const clue = clueReport();
+        const island = islandReport();
+        const sea = seaReport();
+        const block = blockReport();
+        cells.forEach((cell) => {
+          const key = cell.dataset.key;
+          const isClue = Boolean(clues[key]);
+          const isIsland = islands.has(key);
+          cell.className = "flex aspect-square items-center justify-center border border-sky-700 text-xl font-bold transition focus:outline-none focus:ring-4 focus:ring-lime-300";
+          cell.classList.add(isIsland ? "bg-lime-200" : "bg-sky-800");
+          cell.classList.add(isIsland ? "text-sky-950" : "text-sky-100");
+          cell.classList.toggle("ring-4", clue.bad.includes(key) || island.bad.has(key) || block.bad.has(key));
+          cell.classList.toggle("ring-rose-400", clue.bad.includes(key) || island.bad.has(key) || block.bad.has(key));
+          cell.textContent = isClue ? clues[key] : "";
+        });
+        setStatus(clueStatus, clue.clear ? "线索：端点长度正确" : "线索：端点或长度错误", clue.clear ? "ok" : "bad");
+        setStatus(islandStatus, island.clear ? "岛格：无分叉" : "岛格：存在分叉", island.clear ? "ok" : "bad");
+        setStatus(seaStatus, sea.clear ? "海格：全部连通" : `海格：${sea.reached}/${sea.total} 连通`, sea.clear ? "ok" : "warn");
+        setStatus(blockStatus, block.clear ? "2x2：无海块" : "2x2：存在海块", block.clear ? "ok" : "bad");
+        const solved = clue.clear && island.clear && sea.clear && block.clear;
+        message.textContent = solved ? "完成！所有 Nurimisaki 规则都满足。" : `岛格 ${islands.size} 个，海格 ${size * size - islands.size} 个。`;
+      }
+
+      function buildBoard() {
+        board.innerHTML = "";
+        cells.length = 0;
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            const key = keyOf(row, col);
+            const cell = document.createElement("button");
+            cell.type = "button";
+            cell.dataset.key = key;
+            cell.addEventListener("click", () => {
+              if (clues[key]) return;
+              islands.has(key) ? islands.delete(key) : islands.add(key);
+              render();
+            });
+            board.appendChild(cell);
+            cells.push(cell);
+          }
+        }
+      }
+
+      resetBtn.addEventListener("click", () => {
+        islands.clear();
+        Object.keys(clues).forEach((key) => islands.add(key));
+        render();
+      });
+
+      hintBtn.addEventListener("click", () => {
+        const next = [...solutionIslands].find((key) => !islands.has(key));
+        if (next) islands.add(next);
+        render();
+      });
+
+      buildBoard();
+      render();
+    </script>
+  </body>
+</html>
