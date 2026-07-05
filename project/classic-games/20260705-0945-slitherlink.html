@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Slitherlink</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Slitherlink</h1>
+          <p class="mt-1 text-sm text-neutral-300">点击点阵之间的边，画出一条不分叉的闭合回路。</p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-lime-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-lime-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_14rem]">
+        <div class="rounded-lg border border-neutral-700 bg-neutral-950 p-3">
+          <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] select-none grid-cols-[repeat(9,minmax(0,1fr))] grid-rows-[repeat(9,minmax(0,1fr))]"></div>
+        </div>
+        <aside class="rounded-lg border border-neutral-700 bg-neutral-800 p-4">
+          <div class="text-sm font-semibold text-neutral-200">状态</div>
+          <div id="status" class="mt-3 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-300">边上的数字表示周围需要几条线。</div>
+          <div class="mt-4 text-sm font-semibold text-neutral-200">规则</div>
+          <ul class="mt-2 space-y-2 text-sm text-neutral-300">
+            <li>每个数字周围的四条边必须匹配数字。</li>
+            <li>线不能分叉，节点度数只能是 0 或 2。</li>
+            <li>所有线段必须组成同一个闭环。</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const clues = [
+      [2, null, 3, null],
+      [null, 1, null, 2],
+      [3, null, 2, null],
+      [null, 2, null, 1]
+    ];
+    const edges = new Set();
+    const board = document.getElementById("board");
+    const status = document.getElementById("status");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function edgeKey(type, r, c) {
+      return `${type}-${r}-${c}`;
+    }
+
+    function toggleEdge(type, r, c) {
+      const key = edgeKey(type, r, c);
+      if (edges.has(key)) edges.delete(key);
+      else edges.add(key);
+      render();
+    }
+
+    function cellCount(r, c) {
+      let count = 0;
+      if (edges.has(edgeKey("h", r, c))) count++;
+      if (edges.has(edgeKey("h", r + 1, c))) count++;
+      if (edges.has(edgeKey("v", r, c))) count++;
+      if (edges.has(edgeKey("v", r, c + 1))) count++;
+      return count;
+    }
+
+    function nodeDegrees() {
+      const degrees = Array.from({ length: size + 1 }, () => Array(size + 1).fill(0));
+      for (const key of edges) {
+        const [type, rText, cText] = key.split("-");
+        const r = Number(rText);
+        const c = Number(cText);
+        if (type === "h") {
+          degrees[r][c]++;
+          degrees[r][c + 1]++;
+        } else {
+          degrees[r][c]++;
+          degrees[r + 1][c]++;
+        }
+      }
+      return degrees;
+    }
+
+    function graphConnected() {
+      if (edges.size === 0) return false;
+      const adj = new Map();
+      const add = (a, b) => {
+        if (!adj.has(a)) adj.set(a, []);
+        if (!adj.has(b)) adj.set(b, []);
+        adj.get(a).push(b);
+        adj.get(b).push(a);
+      };
+      for (const key of edges) {
+        const [type, rText, cText] = key.split("-");
+        const r = Number(rText);
+        const c = Number(cText);
+        if (type === "h") add(`${r},${c}`, `${r},${c + 1}`);
+        else add(`${r},${c}`, `${r + 1},${c}`);
+      }
+      const start = adj.keys().next().value;
+      const seen = new Set([start]);
+      const queue = [start];
+      while (queue.length) {
+        const current = queue.shift();
+        for (const next of adj.get(current)) {
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      return seen.size === adj.size;
+    }
+
+    function clueErrors() {
+      let errors = 0;
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          if (clues[r][c] !== null && cellCount(r, c) !== clues[r][c]) errors++;
+        }
+      }
+      return errors;
+    }
+
+    function branchErrors() {
+      return nodeDegrees().flat().filter((degree) => degree !== 0 && degree !== 2).length;
+    }
+
+    function solved() {
+      return edges.size > 0 && clueErrors() === 0 && branchErrors() === 0 && graphConnected();
+    }
+
+    function makeDot() {
+      const dot = document.createElement("div");
+      dot.className = "m-auto h-2 w-2 rounded-full bg-neutral-400";
+      return dot;
+    }
+
+    function makeEdge(type, r, c) {
+      const active = edges.has(edgeKey(type, r, c));
+      const edge = document.createElement("button");
+      edge.type = "button";
+      edge.className = [
+        "m-auto rounded transition hover:bg-lime-700/50",
+        type === "h" ? "h-3 w-full" : "h-full w-3",
+        active ? "bg-lime-300 shadow-[0_0_12px_rgba(190,242,100,.65)]" : "bg-neutral-800"
+      ].join(" ");
+      edge.addEventListener("click", () => toggleEdge(type, r, c));
+      return edge;
+    }
+
+    function makeClue(r, c) {
+      const value = clues[r][c];
+      const count = cellCount(r, c);
+      const cell = document.createElement("div");
+      cell.className = [
+        "flex items-center justify-center rounded text-lg font-bold",
+        value === null ? "bg-neutral-900" : count === value ? "bg-lime-500 text-neutral-950" : count > value ? "bg-rose-500 text-white" : "bg-neutral-800 text-neutral-100"
+      ].join(" ");
+      cell.textContent = value === null ? "" : value;
+      return cell;
+    }
+
+    function render() {
+      board.innerHTML = "";
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          if (r % 2 === 0 && c % 2 === 0) board.appendChild(makeDot());
+          else if (r % 2 === 0) board.appendChild(makeEdge("h", r / 2, (c - 1) / 2));
+          else if (c % 2 === 0) board.appendChild(makeEdge("v", (r - 1) / 2, c / 2));
+          else board.appendChild(makeClue((r - 1) / 2, (c - 1) / 2));
+        }
+      }
+
+      const badClues = clueErrors();
+      const badBranches = branchErrors();
+      if (solved()) {
+        status.textContent = "完成！所有数字匹配，线段组成单一闭环。";
+        status.className = "mt-3 rounded-md border border-lime-500 bg-lime-950 px-3 py-2 text-sm text-lime-200";
+      } else if (badBranches) {
+        status.textContent = `有 ${badBranches} 个节点出现断点或分叉，需要继续调整。`;
+        status.className = "mt-3 rounded-md border border-rose-500 bg-rose-950 px-3 py-2 text-sm text-rose-200";
+      } else if (badClues) {
+        status.textContent = `还有 ${badClues} 个数字周围的线段数量不匹配。`;
+        status.className = "mt-3 rounded-md border border-amber-500 bg-amber-950 px-3 py-2 text-sm text-amber-200";
+      } else {
+        status.textContent = graphConnected() ? "数字和节点都正确，检查是否已经闭合成单一回路。" : "数字已匹配，继续把线段连成同一个闭环。";
+        status.className = "mt-3 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-300";
+      }
+    }
+
+    resetBtn.addEventListener("click", () => {
+      edges.clear();
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
