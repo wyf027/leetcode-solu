@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Beleaguered Castle</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Beleaguered Castle</h1>
+        <p class="text-sm text-zinc-300">Build the four castle foundations from Ace to King.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-300">New game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-zinc-700 bg-zinc-900 p-3 md:grid-cols-[1fr_auto_1fr]" aria-label="Castle board">
+      <div id="leftTowers" class="grid gap-3 sm:grid-cols-2"></div>
+      <div class="grid min-w-36 gap-2 rounded border border-amber-500/40 bg-zinc-950 p-3" aria-label="Foundations">
+        <button id="foundation-0" class="foundation min-h-20 rounded border border-dashed border-zinc-600 p-2 text-left hover:border-amber-300"></button>
+        <button id="foundation-1" class="foundation min-h-20 rounded border border-dashed border-zinc-600 p-2 text-left hover:border-amber-300"></button>
+        <button id="foundation-2" class="foundation min-h-20 rounded border border-dashed border-zinc-600 p-2 text-left hover:border-amber-300"></button>
+        <button id="foundation-3" class="foundation min-h-20 rounded border border-dashed border-zinc-600 p-2 text-left hover:border-amber-300"></button>
+      </div>
+      <div id="rightTowers" class="grid gap-3 sm:grid-cols-2"></div>
+    </section>
+
+    <section id="status" class="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-200" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-zinc-100" },
+      { mark: "H", icon: "\u2665", color: "text-red-300" },
+      { mark: "D", icon: "\u2666", color: "text-sky-300" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const leftTowers = document.getElementById("leftTowers");
+    const rightTowers = document.getElementById("rightTowers");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let towers = [];
+    let foundations = [[], [], [], []];
+    let selectedTower = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      suits.forEach((suit, suitIndex) => {
+        ranks.forEach((rank, valueIndex) => {
+          deck.push({ suit: suitIndex, rank, value: valueIndex + 1 });
+        });
+      });
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      return card.rank + suits[card.suit].icon;
+    }
+
+    function topCard(towerIndex) {
+      const tower = towers[towerIndex];
+      return tower.length ? tower[tower.length - 1] : null;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card || card.suit !== foundationIndex) return false;
+      const pile = foundations[foundationIndex];
+      return pile.length === 0 ? card.value === 1 : card.value === pile[pile.length - 1].value + 1;
+    }
+
+    function canMoveToTower(card, targetTowerIndex) {
+      if (!card) return false;
+      const target = topCard(targetTowerIndex);
+      return !target || target.value === card.value + 1;
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      foundations = suits.map((_, suitIndex) => [{ suit: suitIndex, rank: "A", value: 1 }]);
+      const field = deck.filter((card) => card.value !== 1);
+      towers = Array.from({ length: 8 }, () => []);
+      field.forEach((card, index) => towers[index % 8].push(card));
+      selectedTower = null;
+      moves = 0;
+      render("Select a tower top card, then move it to a foundation or another tower.");
+    }
+
+    function chooseTower(index) {
+      if (selectedTower === null) {
+        if (!topCard(index)) {
+          render("That tower is empty. Any available top card can move into it.");
+          return;
+        }
+        selectedTower = index;
+        render("Selected " + cardLabel(topCard(index)) + ".");
+        return;
+      }
+
+      if (selectedTower === index) {
+        selectedTower = null;
+        render("Selection cleared.");
+        return;
+      }
+
+      const card = topCard(selectedTower);
+      if (canMoveToTower(card, index)) {
+        towers[index].push(towers[selectedTower].pop());
+        selectedTower = null;
+        moves += 1;
+        render("Moved " + cardLabel(card) + " to a tower.");
+        return;
+      }
+      render("Illegal tower move. Build towers down by one rank.");
+    }
+
+    function chooseFoundation(index) {
+      if (selectedTower === null) {
+        render("Select a tower top card first.");
+        return;
+      }
+      const card = topCard(selectedTower);
+      if (canFoundation(card, index)) {
+        foundations[index].push(towers[selectedTower].pop());
+        selectedTower = null;
+        moves += 1;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "Castle secured. You win." : "Moved " + cardLabel(card) + " to the castle.");
+        return;
+      }
+      render("That foundation needs the next card of the same suit.");
+    }
+
+    function renderTower(index) {
+      const tower = towers[index];
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "min-h-48 rounded border p-2 text-left transition " +
+        (selectedTower === index ? "border-amber-300 bg-amber-950/50" : "border-zinc-700 bg-zinc-950 hover:border-zinc-400");
+      const cards = tower.map((card, cardIndex) => {
+        const isTop = cardIndex === tower.length - 1;
+        return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+          suits[card.suit].color + " " + (isTop ? "border-amber-300 bg-zinc-800" : "border-zinc-700 bg-zinc-900") +
+          '">' + cardLabel(card) + '</span>';
+      }).join("");
+      button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-zinc-400"><span>Tower ' +
+        (index + 1) + '</span><span>' + tower.length + '</span></div><div class="flex flex-wrap gap-1">' +
+        (cards || '<span class="text-sm text-zinc-500">Empty</span>') + "</div>";
+      button.addEventListener("click", () => chooseTower(index));
+      return button;
+    }
+
+    function render(message) {
+      statusEl.textContent = message + " Moves: " + moves;
+      document.querySelectorAll(".foundation").forEach((button, index) => {
+        const pile = foundations[index];
+        const top = pile[pile.length - 1];
+        const suit = suits[index];
+        button.innerHTML = '<div class="text-xs uppercase text-zinc-400">' + suit.icon + ' castle</div>' +
+          '<div class="mt-2 text-2xl font-bold ' + suit.color + '">' + cardLabel(top) + '</div>' +
+          '<div class="mt-1 text-xs text-zinc-500">' + pile.length + " / 13</div>";
+      });
+      leftTowers.innerHTML = "";
+      rightTowers.innerHTML = "";
+      for (let i = 0; i < 4; i += 1) leftTowers.appendChild(renderTower(i));
+      for (let i = 4; i < 8; i += 1) rightTowers.appendChild(renderTower(i));
+    }
+
+    document.querySelectorAll(".foundation").forEach((button, index) => {
+      button.addEventListener("click", () => chooseFoundation(index));
+    });
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
