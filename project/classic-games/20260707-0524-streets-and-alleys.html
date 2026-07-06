@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Streets and Alleys</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Streets and Alleys</h1>
+        <p class="text-sm text-zinc-300">Move exposed street cards to build four foundations from Ace to King.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-violet-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-violet-200">New game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-zinc-700 bg-zinc-900 p-3 sm:grid-cols-4" aria-label="Foundations">
+      <button id="foundation-0" class="foundation min-h-24 rounded border border-dashed border-zinc-600 bg-zinc-950 p-2 text-left hover:border-violet-300"></button>
+      <button id="foundation-1" class="foundation min-h-24 rounded border border-dashed border-zinc-600 bg-zinc-950 p-2 text-left hover:border-violet-300"></button>
+      <button id="foundation-2" class="foundation min-h-24 rounded border border-dashed border-zinc-600 bg-zinc-950 p-2 text-left hover:border-violet-300"></button>
+      <button id="foundation-3" class="foundation min-h-24 rounded border border-dashed border-zinc-600 bg-zinc-950 p-2 text-left hover:border-violet-300"></button>
+    </section>
+
+    <section id="streets" class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8" aria-label="Streets and alleys"></section>
+    <section id="status" class="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-200" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-zinc-100" },
+      { mark: "H", icon: "\u2665", color: "text-rose-300" },
+      { mark: "D", icon: "\u2666", color: "text-sky-300" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const streetsEl = document.getElementById("streets");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let streets = [];
+    let foundations = [[], [], [], []];
+    let selectedStreet = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      suits.forEach((suit, suitIndex) => {
+        ranks.forEach((rank, valueIndex) => {
+          deck.push({ suit: suitIndex, rank, value: valueIndex + 1 });
+        });
+      });
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      return card.rank + suits[card.suit].icon;
+    }
+
+    function topCard(streetIndex) {
+      const street = streets[streetIndex];
+      return street.length ? street[street.length - 1] : null;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card || card.suit !== foundationIndex) return false;
+      const pile = foundations[foundationIndex];
+      return pile.length === 0 ? card.value === 1 : pile[pile.length - 1].value + 1 === card.value;
+    }
+
+    function canMoveToStreet(card, targetIndex) {
+      if (!card) return false;
+      const target = topCard(targetIndex);
+      if (!target) return true;
+      return target.value === card.value + 1;
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      streets = Array.from({ length: 8 }, () => []);
+      foundations = [[], [], [], []];
+      deck.forEach((card, index) => streets[index % 8].push(card));
+      selectedStreet = null;
+      moves = 0;
+      render("Select a street top card, then move it to a foundation or another street.");
+    }
+
+    function chooseStreet(index) {
+      if (selectedStreet === null) {
+        if (!topCard(index)) {
+          render("That street is empty. Any top card can move there.");
+          return;
+        }
+        selectedStreet = index;
+        render("Selected " + cardLabel(topCard(index)) + ".");
+        return;
+      }
+
+      if (selectedStreet === index) {
+        selectedStreet = null;
+        render("Selection cleared.");
+        return;
+      }
+
+      const card = topCard(selectedStreet);
+      if (canMoveToStreet(card, index)) {
+        streets[index].push(streets[selectedStreet].pop());
+        selectedStreet = null;
+        moves += 1;
+        render("Moved " + cardLabel(card) + " to a street.");
+        return;
+      }
+      render("Street moves build down by one rank.");
+    }
+
+    function chooseFoundation(index) {
+      if (selectedStreet === null) {
+        render("Select a street top card first.");
+        return;
+      }
+      const card = topCard(selectedStreet);
+      if (canFoundation(card, index)) {
+        foundations[index].push(streets[selectedStreet].pop());
+        selectedStreet = null;
+        moves += 1;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "The alleys are clear. You win." : "Moved " + cardLabel(card) + " to a foundation.");
+        return;
+      }
+      render("That foundation needs the next card of the same suit.");
+    }
+
+    function cardHtml(card, active) {
+      return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+        suits[card.suit].color + " " + (active ? "border-violet-300 bg-zinc-800" : "border-zinc-700 bg-zinc-950") +
+        '">' + cardLabel(card) + '</span>';
+    }
+
+    function render(message) {
+      statusEl.textContent = message + " Moves: " + moves;
+      document.querySelectorAll(".foundation").forEach((button, index) => {
+        const pile = foundations[index];
+        const top = pile[pile.length - 1];
+        const suit = suits[index];
+        button.innerHTML = '<div class="text-xs uppercase text-zinc-400">' + suit.icon + ' foundation</div>' +
+          '<div class="mt-2 text-2xl font-bold ' + suit.color + '">' + (top ? cardLabel(top) : "A") + '</div>' +
+          '<div class="mt-1 text-xs text-zinc-500">' + pile.length + " / 13</div>";
+      });
+
+      streetsEl.innerHTML = "";
+      streets.forEach((street, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-72 rounded border p-2 text-left transition " +
+          (selectedStreet === index ? "border-violet-300 bg-violet-950/40" : "border-zinc-700 bg-zinc-900 hover:border-zinc-400");
+        const cards = street.map((card, cardIndex) => cardHtml(card, cardIndex === street.length - 1)).join("");
+        button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-zinc-400"><span>Street ' +
+          (index + 1) + '</span><span>' + street.length + '</span></div><div class="flex flex-wrap gap-1">' +
+          (cards || '<span class="text-sm text-zinc-500">Empty</span>') + "</div>";
+        button.addEventListener("click", () => chooseStreet(index));
+        streetsEl.appendChild(button);
+      });
+    }
+
+    document.querySelectorAll(".foundation").forEach((button, index) => {
+      button.addEventListener("click", () => chooseFoundation(index));
+    });
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
