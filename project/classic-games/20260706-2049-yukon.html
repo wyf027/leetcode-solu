@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Yukon</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-emerald-950 text-emerald-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Yukon</h1>
+          <p class="text-sm text-emerald-200">Build foundations from Ace to King. Move descending alternating runs between columns.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="rounded border border-emerald-700 px-3 py-2 text-sm">
+            Moves <span id="moves" class="font-semibold">0</span>
+          </div>
+          <button id="newGame" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-amber-200">
+            New game
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-[1fr_1.4fr]">
+        <div>
+          <div class="mb-2 text-xs uppercase text-emerald-300">Foundations</div>
+          <div id="foundations" class="grid grid-cols-4 gap-2"></div>
+        </div>
+        <div class="rounded border border-emerald-800 bg-emerald-900/50 px-3 py-2 text-sm text-emerald-100">
+          <div id="message">Select any visible run in a tableau column.</div>
+        </div>
+      </section>
+
+      <section>
+        <div class="mb-2 text-xs uppercase text-emerald-300">Tableau</div>
+        <div id="tableau" class="grid grid-cols-7 gap-2"></div>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const foundationEl = document.getElementById("foundations");
+      const tableauEl = document.getElementById("tableau");
+      const movesEl = document.getElementById("moves");
+      const messageEl = document.getElementById("message");
+      const newGameBtn = document.getElementById("newGame");
+
+      let foundations = {};
+      let tableau = [];
+      let selected = null;
+      let moves = 0;
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank, index) => ({ suit, rank, value: index + 1 })));
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function isRed(card) {
+        return card.suit === "♥" || card.suit === "♦";
+      }
+
+      function cardLabel(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function topCard(cards) {
+        return cards[cards.length - 1];
+      }
+
+      function canBuildOnFoundation(card) {
+        return card.value === (foundations[card.suit]?.length || 0) + 1;
+      }
+
+      function canBuildOnTableau(card, pile) {
+        if (pile.length === 0) return card.value === 13;
+        const target = topCard(pile);
+        return target.value === card.value + 1 && isRed(target) !== isRed(card);
+      }
+
+      function isValidRun(cards) {
+        for (let i = 0; i < cards.length - 1; i += 1) {
+          const current = cards[i];
+          const next = cards[i + 1];
+          if (current.value !== next.value + 1 || isRed(current) === isRed(next)) return false;
+        }
+        return true;
+      }
+
+      function clearSelection(text) {
+        selected = null;
+        messageEl.textContent = text || "Select any visible run in a tableau column.";
+      }
+
+      function chooseFoundation(suit) {
+        if (!selected || selected.cards.length !== 1) {
+          clearSelection("Foundations accept one card at a time.");
+          render();
+          return;
+        }
+
+        const card = selected.cards[0];
+        if (card.suit !== suit || !canBuildOnFoundation(card)) {
+          clearSelection("That card does not fit this foundation.");
+          render();
+          return;
+        }
+
+        tableau[selected.column].splice(selected.index);
+        foundations[suit].push(card);
+        moves += 1;
+        clearSelection("Moved to foundation.");
+        render();
+      }
+
+      function chooseTableau(column, index) {
+        const pile = tableau[column];
+
+        if (selected) {
+          if (selected.column === column) {
+            clearSelection();
+            render();
+            return;
+          }
+
+          if (canBuildOnTableau(selected.cards[0], pile)) {
+            tableau[selected.column].splice(selected.index);
+            tableau[column].push(...selected.cards);
+            moves += 1;
+            clearSelection("Moved the run.");
+          } else {
+            clearSelection("Runs must land on the next higher card of the opposite color, or a King on an empty column.");
+          }
+          render();
+          return;
+        }
+
+        if (typeof index !== "number") {
+          clearSelection("Pick a card in a column first.");
+          return;
+        }
+
+        const cards = pile.slice(index);
+        if (!isValidRun(cards)) {
+          clearSelection("Selected cards must already form a descending alternating run.");
+          render();
+          return;
+        }
+
+        selected = { column, index, cards };
+        messageEl.textContent = `Selected ${cards.map(cardLabel).join(" ")}`;
+        render();
+      }
+
+      function cardView(card, options = {}) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = cardLabel(card);
+        button.className = [
+          "h-16 w-full rounded border bg-white px-2 text-left text-lg font-bold shadow-sm transition",
+          isRed(card) ? "text-rose-600" : "text-slate-900",
+          options.selected ? "border-amber-300 ring-2 ring-amber-300" : "border-slate-200 hover:-translate-y-0.5",
+        ].join(" ");
+        return button;
+      }
+
+      function emptySlot(label) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.className = "flex h-16 w-full items-center justify-center rounded border border-dashed border-emerald-500 bg-emerald-900/50 text-sm text-emerald-300";
+        return button;
+      }
+
+      function render() {
+        foundationEl.innerHTML = "";
+        suits.forEach((suit) => {
+          const pile = foundations[suit];
+          const node = pile.length ? cardView(topCard(pile)) : emptySlot(suit);
+          node.addEventListener("click", () => chooseFoundation(suit));
+          foundationEl.appendChild(node);
+        });
+
+        tableauEl.innerHTML = "";
+        tableau.forEach((pile, columnIndex) => {
+          const column = document.createElement("div");
+          column.className = "min-h-96 rounded border border-emerald-800 bg-emerald-900/40 p-2";
+
+          if (pile.length === 0) {
+            const empty = emptySlot("King");
+            empty.addEventListener("click", () => chooseTableau(columnIndex));
+            column.appendChild(empty);
+          }
+
+          pile.forEach((card, cardIndex) => {
+            const isSelected = selected?.column === columnIndex && cardIndex >= selected.index;
+            const node = cardView(card, { selected: isSelected });
+            node.classList.add(cardIndex === 0 ? "mt-0" : "-mt-7");
+            node.addEventListener("click", () => chooseTableau(columnIndex, cardIndex));
+            column.appendChild(node);
+          });
+
+          tableauEl.appendChild(column);
+        });
+
+        movesEl.textContent = moves;
+        if (suits.every((suit) => foundations[suit].length === 13)) {
+          messageEl.textContent = `You cleared Yukon in ${moves} moves.`;
+        }
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        foundations = Object.fromEntries(suits.map((suit) => [suit, []]));
+        tableau = Array.from({ length: 7 }, () => []);
+        moves = 0;
+        selected = null;
+
+        const sizes = [1, 6, 7, 8, 9, 10, 11];
+        sizes.forEach((size, column) => {
+          tableau[column] = deck.splice(0, size);
+        });
+
+        clearSelection("New Yukon layout dealt.");
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
