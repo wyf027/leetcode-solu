@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Farkle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-indigo-950 text-indigo-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.28em] text-orange-300">Classic dice game</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Farkle</h1>
+        </div>
+        <button id="newGameBtn" class="rounded border border-indigo-500 px-4 py-2 font-semibold hover:bg-indigo-900">
+          New Game
+        </button>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-4">
+        <div class="rounded border border-indigo-700 bg-indigo-900 p-4">
+          <p class="text-sm text-indigo-300">Banked score</p>
+          <p id="bankedScore" class="mt-2 text-3xl font-bold">0</p>
+        </div>
+        <div class="rounded border border-indigo-700 bg-indigo-900 p-4">
+          <p class="text-sm text-indigo-300">Turn score</p>
+          <p id="turnScore" class="mt-2 text-3xl font-bold">0</p>
+        </div>
+        <div class="rounded border border-indigo-700 bg-indigo-900 p-4">
+          <p class="text-sm text-indigo-300">Dice to roll</p>
+          <p id="diceLeft" class="mt-2 text-3xl font-bold">6</p>
+        </div>
+        <div class="rounded border border-orange-300/70 bg-indigo-900 p-4">
+          <p class="text-sm text-orange-200">Goal</p>
+          <p class="mt-2 text-lg font-semibold">Bank 5000</p>
+        </div>
+      </section>
+
+      <section class="rounded border border-indigo-700 bg-indigo-900 p-4">
+        <p id="message" class="min-h-7 text-sm text-indigo-100">Roll the dice. Select scoring dice, then keep rolling or bank.</p>
+        <div id="dice" class="mt-5 grid grid-cols-3 gap-3 sm:grid-cols-6"></div>
+        <div class="mt-5 flex flex-wrap gap-2">
+          <button id="rollBtn" class="rounded bg-orange-300 px-4 py-2 font-semibold text-indigo-950 hover:bg-orange-200">Roll</button>
+          <button id="scoreBtn" class="rounded bg-indigo-200 px-4 py-2 font-semibold text-indigo-950 hover:bg-white">Score Selected</button>
+          <button id="bankBtn" class="rounded border border-indigo-500 px-4 py-2 font-semibold hover:bg-indigo-800">Bank Turn</button>
+        </div>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-[1fr_18rem]">
+        <div class="rounded border border-indigo-700 bg-indigo-900 p-4">
+          <p class="font-semibold">Scoring</p>
+          <div class="mt-3 grid gap-2 text-sm text-indigo-200 sm:grid-cols-2">
+            <p>Single 1 = 100</p>
+            <p>Single 5 = 50</p>
+            <p>Three 1s = 1000</p>
+            <p>Three of any other = value x 100</p>
+          </div>
+        </div>
+        <div class="rounded border border-indigo-700 bg-indigo-900 p-4">
+          <p class="font-semibold">Round log</p>
+          <ol id="log" class="mt-3 space-y-2 text-sm text-indigo-200"></ol>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        banked: 0,
+        turn: 0,
+        dice: [],
+        selected: new Set(),
+        canRoll: true,
+        gameOver: false,
+      };
+
+      const bankedScore = document.getElementById("bankedScore");
+      const turnScore = document.getElementById("turnScore");
+      const diceLeft = document.getElementById("diceLeft");
+      const diceEl = document.getElementById("dice");
+      const message = document.getElementById("message");
+      const log = document.getElementById("log");
+      const rollBtn = document.getElementById("rollBtn");
+      const scoreBtn = document.getElementById("scoreBtn");
+      const bankBtn = document.getElementById("bankBtn");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      function addLog(text) {
+        const item = document.createElement("li");
+        item.textContent = text;
+        log.prepend(item);
+        while (log.children.length > 8) log.removeChild(log.lastChild);
+      }
+
+      function rollDie() {
+        return Math.floor(Math.random() * 6) + 1;
+      }
+
+      function scoreDice(values) {
+        const counts = [0, 0, 0, 0, 0, 0, 0];
+        values.forEach((value) => (counts[value] += 1));
+        let score = 0;
+        for (let value = 1; value <= 6; value += 1) {
+          if (counts[value] >= 3) {
+            score += value === 1 ? 1000 : value * 100;
+            counts[value] -= 3;
+          }
+        }
+        score += counts[1] * 100;
+        score += counts[5] * 50;
+        return score;
+      }
+
+      function hasScoringDice(values) {
+        for (const value of values) {
+          if (value === 1 || value === 5) return true;
+        }
+        for (let value = 1; value <= 6; value += 1) {
+          if (values.filter((die) => die === value).length >= 3) return true;
+        }
+        return false;
+      }
+
+      function rollDice() {
+        if (state.gameOver || !state.canRoll) return;
+        const count = state.dice.length || 6;
+        state.dice = Array.from({ length: count }, rollDie);
+        state.selected.clear();
+        const rolled = state.dice.join(", ");
+        if (!hasScoringDice(state.dice)) {
+          addLog(`Farkle on ${rolled}. Lost ${state.turn} turn points.`);
+          state.turn = 0;
+          state.dice = [];
+          state.canRoll = true;
+          message.textContent = "Farkle. Roll again to start a new turn.";
+        } else {
+          state.canRoll = false;
+          message.textContent = `Rolled ${rolled}. Select scoring dice.`;
+        }
+        render();
+      }
+
+      function scoreSelected() {
+        if (state.gameOver || state.canRoll || state.selected.size === 0) return;
+        const selectedValues = [...state.selected].map((index) => state.dice[index]);
+        const score = scoreDice(selectedValues);
+        if (score === 0) {
+          message.textContent = "Selected dice do not score.";
+          return;
+        }
+        state.turn += score;
+        state.dice = state.dice.filter((_, index) => !state.selected.has(index));
+        state.selected.clear();
+        if (state.dice.length === 0) state.dice = Array(6).fill(0);
+        state.canRoll = true;
+        addLog(`Kept ${selectedValues.join(", ")} for ${score}.`);
+        message.textContent = state.dice[0] === 0 ? "Hot dice. Roll all six again or bank." : "Roll remaining dice or bank your turn.";
+        if (state.dice[0] === 0) state.dice = [];
+        render();
+      }
+
+      function bankTurn() {
+        if (state.gameOver || state.turn === 0) return;
+        state.banked += state.turn;
+        addLog(`Banked ${state.turn}. Total is ${state.banked}.`);
+        state.turn = 0;
+        state.dice = [];
+        state.selected.clear();
+        state.canRoll = true;
+        if (state.banked >= 5000) {
+          state.gameOver = true;
+          message.textContent = "You reached 5000. New game to play again.";
+        } else {
+          message.textContent = "Turn banked. Roll to continue.";
+        }
+        render();
+      }
+
+      function toggleDie(index) {
+        if (state.canRoll || state.gameOver) return;
+        if (state.selected.has(index)) state.selected.delete(index);
+        else state.selected.add(index);
+        render();
+      }
+
+      function render() {
+        bankedScore.textContent = state.banked;
+        turnScore.textContent = state.turn;
+        diceLeft.textContent = state.dice.length || 6;
+        rollBtn.disabled = state.gameOver || !state.canRoll;
+        scoreBtn.disabled = state.gameOver || state.canRoll || state.selected.size === 0;
+        bankBtn.disabled = state.gameOver || state.turn === 0;
+        diceEl.innerHTML = "";
+        const displayDice = state.dice.length ? state.dice : Array(6).fill("-");
+        displayDice.forEach((value, index) => {
+          const button = document.createElement("button");
+          button.className =
+            "h-20 rounded bg-white text-3xl font-bold text-indigo-950 shadow " +
+            (state.selected.has(index) ? "ring-4 ring-orange-300" : "") +
+            (value === "-" || state.canRoll ? " opacity-60" : " hover:-translate-y-1");
+          button.textContent = value;
+          button.disabled = value === "-" || state.canRoll || state.gameOver;
+          button.addEventListener("click", () => toggleDie(index));
+          diceEl.appendChild(button);
+        });
+      }
+
+      function newGame() {
+        state.banked = 0;
+        state.turn = 0;
+        state.dice = [];
+        state.selected.clear();
+        state.canRoll = true;
+        state.gameOver = false;
+        log.innerHTML = "";
+        message.textContent = "Roll the dice. Select scoring dice, then keep rolling or bank.";
+        render();
+      }
+
+      rollBtn.addEventListener("click", rollDice);
+      scoreBtn.addEventListener("click", scoreSelected);
+      bankBtn.addEventListener("click", bankTurn);
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
