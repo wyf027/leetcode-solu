@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Fortress Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Fortress Solitaire</h1>
+        <p class="text-sm text-slate-300">Build the four foundations while shifting exposed pile tops by adjacent rank.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-fuchsia-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-300">New game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-slate-700 bg-slate-900 p-3 sm:grid-cols-4" aria-label="Foundations">
+      <button id="foundation-0" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950 p-2 text-left hover:border-fuchsia-300"></button>
+      <button id="foundation-1" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950 p-2 text-left hover:border-fuchsia-300"></button>
+      <button id="foundation-2" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950 p-2 text-left hover:border-fuchsia-300"></button>
+      <button id="foundation-3" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950 p-2 text-left hover:border-fuchsia-300"></button>
+    </section>
+
+    <section id="piles" class="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:grid-cols-10" aria-label="Fortress piles"></section>
+    <section id="status" class="rounded bg-slate-800 px-3 py-2 text-sm text-slate-200" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-slate-100" },
+      { mark: "H", icon: "\u2665", color: "text-rose-300" },
+      { mark: "D", icon: "\u2666", color: "text-cyan-300" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const pilesEl = document.getElementById("piles");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let piles = [];
+    let foundations = [[], [], [], []];
+    let selectedPile = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      suits.forEach((suit, suitIndex) => {
+        ranks.forEach((rank, valueIndex) => {
+          deck.push({ suit: suitIndex, rank, value: valueIndex + 1 });
+        });
+      });
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      return card.rank + suits[card.suit].icon;
+    }
+
+    function topCard(pileIndex) {
+      const pile = piles[pileIndex];
+      return pile.length ? pile[pile.length - 1] : null;
+    }
+
+    function adjacentRank(a, b) {
+      const gap = Math.abs(a - b);
+      return gap === 1 || gap === 12;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card || card.suit !== foundationIndex) return false;
+      const pile = foundations[foundationIndex];
+      return pile.length === 0 ? card.value === 1 : pile[pile.length - 1].value + 1 === card.value;
+    }
+
+    function canMoveToPile(card, targetIndex) {
+      if (!card) return false;
+      const target = topCard(targetIndex);
+      return !target || adjacentRank(card.value, target.value);
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      piles = Array.from({ length: 10 }, () => []);
+      foundations = [[], [], [], []];
+      deck.forEach((card, index) => piles[index % 10].push(card));
+      selectedPile = null;
+      moves = 0;
+      render("Select a pile top card, then move it to a foundation or adjacent-rank pile.");
+    }
+
+    function choosePile(index) {
+      if (selectedPile === null) {
+        if (!topCard(index)) {
+          render("That pile is empty. Any top card can move there.");
+          return;
+        }
+        selectedPile = index;
+        render("Selected " + cardLabel(topCard(index)) + ".");
+        return;
+      }
+
+      if (selectedPile === index) {
+        selectedPile = null;
+        render("Selection cleared.");
+        return;
+      }
+
+      const card = topCard(selectedPile);
+      if (canMoveToPile(card, index)) {
+        piles[index].push(piles[selectedPile].pop());
+        selectedPile = null;
+        moves += 1;
+        render("Moved " + cardLabel(card) + " to a pile.");
+        return;
+      }
+      render("Pile moves need adjacent ranks. Aces and Kings are adjacent.");
+    }
+
+    function chooseFoundation(index) {
+      if (selectedPile === null) {
+        render("Select a pile top card first.");
+        return;
+      }
+      const card = topCard(selectedPile);
+      if (canFoundation(card, index)) {
+        foundations[index].push(piles[selectedPile].pop());
+        selectedPile = null;
+        moves += 1;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "The fortress is complete." : "Moved " + cardLabel(card) + " to a foundation.");
+        return;
+      }
+      render("That foundation needs the next card of the same suit.");
+    }
+
+    function cardHtml(card, isTop) {
+      return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+        suits[card.suit].color + " " + (isTop ? "border-fuchsia-300 bg-slate-800" : "border-slate-700 bg-slate-950") +
+        '">' + cardLabel(card) + '</span>';
+    }
+
+    function render(message) {
+      statusEl.textContent = message + " Moves: " + moves;
+      document.querySelectorAll(".foundation").forEach((button, index) => {
+        const pile = foundations[index];
+        const top = pile[pile.length - 1];
+        const suit = suits[index];
+        button.innerHTML = '<div class="text-xs uppercase text-slate-400">' + suit.icon + ' foundation</div>' +
+          '<div class="mt-2 text-2xl font-bold ' + suit.color + '">' + (top ? cardLabel(top) : "A") + '</div>' +
+          '<div class="mt-1 text-xs text-slate-500">' + pile.length + " / 13</div>";
+      });
+      pilesEl.innerHTML = "";
+      piles.forEach((pile, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-64 rounded border p-2 text-left transition " +
+          (selectedPile === index ? "border-fuchsia-300 bg-fuchsia-950/40" : "border-slate-700 bg-slate-900 hover:border-slate-400");
+        const cards = pile.map((card, cardIndex) => cardHtml(card, cardIndex === pile.length - 1)).join("");
+        button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-slate-400"><span>Pile ' +
+          (index + 1) + '</span><span>' + pile.length + '</span></div><div class="flex flex-wrap gap-1">' +
+          (cards || '<span class="text-sm text-slate-500">Empty</span>') + "</div>";
+        button.addEventListener("click", () => choosePile(index));
+        pilesEl.appendChild(button);
+      });
+    }
+
+    document.querySelectorAll(".foundation").forEach((button, index) => {
+      button.addEventListener("click", () => chooseFoundation(index));
+    });
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
