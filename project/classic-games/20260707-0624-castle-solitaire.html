@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Castle Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Castle Solitaire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-300">
+          Build each castle foundation from Ace to King, then use the eight towers to free buried cards.
+        </p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-300">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-3 md:grid-cols-4">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-400">Moves</div>
+        <div id="moves" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-400">Foundation</div>
+        <div id="progress" class="text-2xl font-semibold">0 / 52</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3 md:col-span-2">
+        <div class="text-xs uppercase text-zinc-400">Status</div>
+        <div id="status" class="text-sm font-medium text-amber-200">Move aces to the castle foundations.</div>
+      </div>
+    </section>
+
+    <section class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div id="tableau" class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8"></div>
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <h2 class="mb-3 text-sm font-semibold uppercase text-zinc-300">Castle Foundations</h2>
+        <div id="foundations" class="grid grid-cols-2 gap-3"></div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const suitData = [
+      { suit: "♠", name: "spades", color: "text-zinc-100" },
+      { suit: "♥", name: "hearts", color: "text-rose-300" },
+      { suit: "♦", name: "diamonds", color: "text-sky-300" },
+      { suit: "♣", name: "clubs", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const tableauEl = document.getElementById("tableau");
+    const foundationsEl = document.getElementById("foundations");
+    const movesEl = document.getElementById("moves");
+    const progressEl = document.getElementById("progress");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let piles = [];
+    let foundations = {};
+    let selected = null;
+    let moves = 0;
+
+    function makeDeck() {
+      return suitData.flatMap((info) =>
+        ranks.map((rank, index) => ({
+          rank,
+          value: index + 1,
+          suit: info.suit,
+          suitName: info.name,
+          color: info.color
+        }))
+      );
+    }
+
+    function shuffle(cards) {
+      const copy = [...cards];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function newGame() {
+      const deck = shuffle(makeDeck());
+      piles = Array.from({ length: 8 }, () => []);
+      foundations = Object.fromEntries(suitData.map((info) => [info.name, 0]));
+      deck.forEach((card, index) => piles[index % piles.length].push(card));
+      selected = null;
+      moves = 0;
+      statusEl.textContent = "Move aces to the castle foundations.";
+      render();
+    }
+
+    function topCard(pileIndex) {
+      const pile = piles[pileIndex];
+      return pile[pile.length - 1];
+    }
+
+    function canMoveToFoundation(card) {
+      return card && foundations[card.suitName] + 1 === card.value;
+    }
+
+    function canMoveToPile(card, targetIndex) {
+      const target = topCard(targetIndex);
+      if (!card) return false;
+      if (!target) return true;
+      return target.suitName === card.suitName && target.value === card.value + 1;
+    }
+
+    function moveToFoundation(pileIndex) {
+      const card = topCard(pileIndex);
+      if (!canMoveToFoundation(card)) {
+        statusEl.textContent = "That foundation needs the next higher card of the same suit.";
+        return;
+      }
+      piles[pileIndex].pop();
+      foundations[card.suitName] = card.value;
+      selected = null;
+      moves += 1;
+      statusEl.textContent = `${card.rank}${card.suit} joined the castle.`;
+      render();
+    }
+
+    function choosePile(index) {
+      if (selected === null) {
+        if (!topCard(index)) {
+          statusEl.textContent = "Choose a tower with a top card.";
+          return;
+        }
+        selected = index;
+        statusEl.textContent = "Choose a matching tower or foundation.";
+        render();
+        return;
+      }
+
+      if (selected === index) {
+        selected = null;
+        statusEl.textContent = "Selection cleared.";
+        render();
+        return;
+      }
+
+      const card = topCard(selected);
+      if (!canMoveToPile(card, index)) {
+        statusEl.textContent = "Tower moves build down by the same suit.";
+        return;
+      }
+      piles[index].push(piles[selected].pop());
+      moves += 1;
+      selected = null;
+      statusEl.textContent = "Tower card moved.";
+      render();
+    }
+
+    function foundationCount() {
+      return Object.values(foundations).reduce((sum, value) => sum + value, 0);
+    }
+
+    function cardButton(card, pileIndex, isTop) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = [
+        "h-14 rounded border bg-zinc-800 px-2 text-left shadow transition",
+        isTop ? "hover:bg-zinc-700" : "cursor-default opacity-80",
+        selected === pileIndex && isTop ? "border-amber-300 ring-2 ring-amber-300" : "border-zinc-700"
+      ].join(" ");
+      button.innerHTML = `<span class="flex items-center justify-between font-semibold ${card.color}">
+        <span>${card.rank}</span><span class="text-xl">${card.suit}</span>
+      </span>`;
+      if (isTop) button.addEventListener("click", () => choosePile(pileIndex));
+      return button;
+    }
+
+    function render() {
+      tableauEl.innerHTML = "";
+      piles.forEach((pile, pileIndex) => {
+        const column = document.createElement("div");
+        column.className = "min-h-80 rounded border border-zinc-800 bg-zinc-900 p-2";
+        const label = document.createElement("button");
+        label.type = "button";
+        label.className = "mb-2 w-full rounded border border-dashed border-zinc-700 py-2 text-xs font-semibold uppercase text-zinc-400 hover:text-zinc-200";
+        label.textContent = `Tower ${pileIndex + 1}`;
+        label.addEventListener("click", () => choosePile(pileIndex));
+        column.appendChild(label);
+        pile.forEach((card, cardIndex) => column.appendChild(cardButton(card, pileIndex, cardIndex === pile.length - 1)));
+        tableauEl.appendChild(column);
+      });
+
+      foundationsEl.innerHTML = "";
+      suitData.forEach((info) => {
+        const value = foundations[info.name];
+        const card = value ? `${ranks[value - 1]}${info.suit}` : `${info.suit} A`;
+        const slot = document.createElement("button");
+        slot.type = "button";
+        slot.className = `h-24 rounded border border-zinc-700 bg-zinc-950 text-xl font-bold ${info.color} hover:border-amber-300`;
+        slot.textContent = card;
+        slot.addEventListener("click", () => {
+          if (selected !== null) moveToFoundation(selected);
+        });
+        foundationsEl.appendChild(slot);
+      });
+
+      movesEl.textContent = moves;
+      const progress = foundationCount();
+      progressEl.textContent = `${progress} / 52`;
+      if (progress === 52) statusEl.textContent = "Castle complete.";
+    }
+
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
