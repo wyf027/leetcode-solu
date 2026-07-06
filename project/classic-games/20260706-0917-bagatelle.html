@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bagatelle</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-slate-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Bagatelle</h1>
+        <p class="mt-1 text-sm text-slate-300">Launch five balls through the pegs and chase the high-value pockets.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-200">Reset Game</button>
+    </header>
+
+    <section class="grid gap-4 sm:grid-cols-4">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <p class="text-xs uppercase text-slate-400">Score</p>
+        <p id="scoreLabel" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <p class="text-xs uppercase text-slate-400">Balls</p>
+        <p id="ballsLabel" class="mt-2 text-3xl font-black">5</p>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <p class="text-xs uppercase text-slate-400">Power</p>
+        <p id="powerLabel" class="mt-2 text-3xl font-black">50</p>
+      </div>
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <p class="text-xs uppercase text-slate-400">Last Pocket</p>
+        <p id="lastLabel" class="mt-2 text-3xl font-black">-</p>
+      </div>
+    </section>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_260px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <canvas id="board" width="520" height="620" class="mx-auto aspect-[26/31] w-full max-w-[520px] rounded bg-slate-950"></canvas>
+        <div class="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <input id="powerSlider" type="range" min="25" max="90" value="50" class="w-56 accent-amber-300">
+          <button id="launchBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-200">Launch Ball</button>
+        </div>
+      </div>
+
+      <aside class="rounded border border-slate-700 bg-slate-900 p-4">
+        <p class="text-sm font-semibold uppercase text-slate-400">Pocket Log</p>
+        <div id="message" class="mt-3 rounded bg-slate-950 p-3 text-sm text-slate-200">Set the power and launch the first ball.</div>
+        <ol id="log" class="mt-4 space-y-2 text-sm text-slate-300"></ol>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const pockets = [10, 30, 50, 100, 50, 30, 10];
+    const pegs = [];
+    let ball = null;
+    let score = 0;
+    let balls = 5;
+    let running = false;
+    let animationId = null;
+
+    const scoreLabel = document.getElementById("scoreLabel");
+    const ballsLabel = document.getElementById("ballsLabel");
+    const powerLabel = document.getElementById("powerLabel");
+    const lastLabel = document.getElementById("lastLabel");
+    const messageEl = document.getElementById("message");
+    const logEl = document.getElementById("log");
+    const powerSlider = document.getElementById("powerSlider");
+
+    function buildPegs() {
+      pegs.length = 0;
+      for (let row = 0; row < 7; row++) {
+        const count = row % 2 === 0 ? 6 : 5;
+        const start = row % 2 === 0 ? 85 : 125;
+        for (let col = 0; col < count; col++) {
+          pegs.push({ x: start + col * 70, y: 130 + row * 55, r: 8 });
+        }
+      }
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#64748b";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(18, 18, 484, 584);
+      ctx.fillStyle = "#fbbf24";
+      pegs.forEach((peg) => {
+        ctx.beginPath();
+        ctx.arc(peg.x, peg.y, peg.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      drawPockets();
+      if (ball) drawBall();
+    }
+
+    function drawPockets() {
+      const width = 484 / pockets.length;
+      pockets.forEach((value, index) => {
+        const x = 18 + index * width;
+        ctx.strokeStyle = "#475569";
+        ctx.strokeRect(x, 540, width, 62);
+        ctx.fillStyle = value === 100 ? "#22d3ee" : "#e2e8f0";
+        ctx.font = "bold 18px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(value, x + width / 2, 578);
+      });
+    }
+
+    function drawBall() {
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#38bdf8";
+      ctx.stroke();
+    }
+
+    function updateLabels() {
+      scoreLabel.textContent = score;
+      ballsLabel.textContent = balls;
+      powerLabel.textContent = powerSlider.value;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function launchBall() {
+      if (running || balls <= 0) return;
+      const power = Number(powerSlider.value);
+      ball = {
+        x: 470,
+        y: 70,
+        vx: -1.6 - power / 55,
+        vy: 1.2,
+        r: 9
+      };
+      balls -= 1;
+      running = true;
+      setMessage("The ball is live.");
+      updateLabels();
+      animate();
+    }
+
+    function hitPeg(peg) {
+      const dx = ball.x - peg.x;
+      const dy = ball.y - peg.y;
+      const distance = Math.hypot(dx, dy);
+      return distance < ball.r + peg.r;
+    }
+
+    function bounceFromPeg(peg) {
+      const dx = ball.x - peg.x;
+      const dy = ball.y - peg.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const nx = dx / distance;
+      const ny = dy / distance;
+      const dot = ball.vx * nx + ball.vy * ny;
+      ball.vx = (ball.vx - 2 * dot * nx) * 0.82 + (Math.random() - 0.5) * 0.6;
+      ball.vy = Math.abs((ball.vy - 2 * dot * ny) * 0.82) + 0.4;
+      ball.x = peg.x + nx * (ball.r + peg.r + 1);
+      ball.y = peg.y + ny * (ball.r + peg.r + 1);
+    }
+
+    function scorePocket() {
+      const slotWidth = 484 / pockets.length;
+      const index = Math.max(0, Math.min(pockets.length - 1, Math.floor((ball.x - 18) / slotWidth)));
+      const value = pockets[index];
+      score += value;
+      lastLabel.textContent = value;
+      const item = document.createElement("li");
+      item.textContent = `Ball ${5 - balls}: pocket ${value}`;
+      logEl.prepend(item);
+      ball = null;
+      running = false;
+      setMessage(balls > 0 ? "Set power and launch again." : `Game over. Final score: ${score}.`);
+      updateLabels();
+      drawBoard();
+    }
+
+    function stepBall() {
+      ball.vy += 0.08;
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      if (ball.x < 28 || ball.x > 492) ball.vx *= -0.85;
+      if (ball.x < 28) ball.x = 28;
+      if (ball.x > 492) ball.x = 492;
+      pegs.forEach((peg) => {
+        if (hitPeg(peg)) bounceFromPeg(peg);
+      });
+      if (ball.y >= 540) scorePocket();
+    }
+
+    function animate() {
+      if (!running) return;
+      stepBall();
+      drawBoard();
+      animationId = requestAnimationFrame(animate);
+    }
+
+    function resetGame() {
+      cancelAnimationFrame(animationId);
+      score = 0;
+      balls = 5;
+      ball = null;
+      running = false;
+      lastLabel.textContent = "-";
+      logEl.innerHTML = "";
+      setMessage("Set the power and launch the first ball.");
+      updateLabels();
+      drawBoard();
+    }
+
+    powerSlider.addEventListener("input", updateLabels);
+    document.getElementById("launchBtn").addEventListener("click", launchBall);
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    buildPegs();
+    resetGame();
+  </script>
+</body>
+</html>
