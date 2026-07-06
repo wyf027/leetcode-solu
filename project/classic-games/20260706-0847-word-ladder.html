@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Word Ladder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Word Ladder</h1>
+        <p class="mt-1 text-sm text-zinc-300">Change one letter per step to transform the start word into the target word.</p>
+      </div>
+      <button id="newPuzzleBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-cyan-200">New Puzzle</button>
+    </header>
+
+    <section class="grid gap-4 sm:grid-cols-3">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-4">
+        <p class="text-xs uppercase text-zinc-400">Start</p>
+        <p id="startLabel" class="mt-2 text-3xl font-black tracking-widest">----</p>
+      </div>
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-4">
+        <p class="text-xs uppercase text-zinc-400">Target</p>
+        <p id="targetLabel" class="mt-2 text-3xl font-black tracking-widest">----</p>
+      </div>
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-4">
+        <p class="text-xs uppercase text-zinc-400">Moves</p>
+        <p id="moveLabel" class="mt-2 text-3xl font-black">0</p>
+      </div>
+    </section>
+
+    <section class="grid gap-5 md:grid-cols-[1fr_260px]">
+      <div class="rounded border border-zinc-700 bg-zinc-900/80 p-4">
+        <div class="mb-4 flex flex-wrap items-center gap-3">
+          <input id="wordInput" maxlength="4" autocomplete="off" class="h-11 w-40 rounded border border-zinc-600 bg-zinc-950 px-3 text-center text-xl font-black uppercase tracking-widest outline-none focus:border-cyan-300" placeholder="WORD">
+          <button id="submitBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-lime-200">Play Word</button>
+          <button id="undoBtn" class="rounded border border-zinc-600 px-4 py-2 text-sm font-bold text-zinc-100 hover:bg-zinc-800">Undo</button>
+        </div>
+        <div id="message" class="mb-4 rounded bg-zinc-950 p-3 text-sm text-zinc-200">Enter a valid word that differs by one letter.</div>
+        <div id="ladder" class="grid gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-zinc-700 bg-zinc-900 p-4">
+        <p class="text-sm font-semibold uppercase text-zinc-400">Word Bank</p>
+        <div id="wordBank" class="mt-3 flex flex-wrap gap-2 text-sm"></div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const puzzles = [
+      { start: "COLD", target: "WARM", path: ["COLD", "CORD", "CARD", "WARD", "WARM"] },
+      { start: "HEAD", target: "TAIL", path: ["HEAD", "HEAL", "TEAL", "TELL", "TALL", "TAIL"] },
+      { start: "FISH", target: "BIRD", path: ["FISH", "FIST", "FEST", "BEST", "BERT", "BIRD"] }
+    ];
+    const extraWords = [
+      "BOLD", "BARD", "BARN", "BORN", "WORN", "WORD", "WOOD", "WARD", "WARM", "CORD",
+      "CARD", "COLD", "HEAD", "HEAL", "TEAL", "TELL", "TALL", "TAIL", "FISH", "FIST",
+      "FEST", "BEST", "BERT", "BIRD", "GAME", "GATE", "GAVE", "PAVE", "PALE", "SALE",
+      "SAGE", "PAGE", "PLAY", "PLAN", "CLAY", "SLAY", "STAY", "STAR", "SEAR", "BEAR"
+    ];
+    let current = null;
+    let ladder = [];
+    let dictionary = new Set();
+
+    const startLabel = document.getElementById("startLabel");
+    const targetLabel = document.getElementById("targetLabel");
+    const moveLabel = document.getElementById("moveLabel");
+    const ladderEl = document.getElementById("ladder");
+    const messageEl = document.getElementById("message");
+    const inputEl = document.getElementById("wordInput");
+    const wordBankEl = document.getElementById("wordBank");
+
+    function differsByOne(a, b) {
+      if (a.length !== b.length) return false;
+      let diff = 0;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) diff += 1;
+      }
+      return diff === 1;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function renderLadder() {
+      startLabel.textContent = current.start;
+      targetLabel.textContent = current.target;
+      moveLabel.textContent = Math.max(0, ladder.length - 1);
+      ladderEl.innerHTML = "";
+      ladder.forEach((word, index) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center gap-3 rounded border border-zinc-700 bg-zinc-950 p-3";
+        const step = document.createElement("span");
+        step.className = "w-8 text-sm text-zinc-500";
+        step.textContent = index === 0 ? "S" : index;
+        const text = document.createElement("span");
+        text.className = "text-2xl font-black tracking-widest";
+        text.textContent = word;
+        row.append(step, text);
+        ladderEl.appendChild(row);
+      });
+    }
+
+    function renderWordBank() {
+      wordBankEl.innerHTML = "";
+      [...dictionary].sort().forEach((word) => {
+        const chip = document.createElement("button");
+        chip.className = "rounded border border-zinc-700 px-2 py-1 text-zinc-200 hover:border-cyan-300 hover:text-cyan-200";
+        chip.textContent = word;
+        chip.addEventListener("click", () => {
+          inputEl.value = word;
+          inputEl.focus();
+        });
+        wordBankEl.appendChild(chip);
+      });
+    }
+
+    function submitWord() {
+      const word = inputEl.value.trim().toUpperCase();
+      const last = ladder[ladder.length - 1];
+      if (!dictionary.has(word)) {
+        setMessage("That word is not in this tiny bank.");
+        return;
+      }
+      if (!differsByOne(last, word)) {
+        setMessage(`Change exactly one letter from ${last}.`);
+        return;
+      }
+      if (ladder.includes(word)) {
+        setMessage("That word is already on the ladder.");
+        return;
+      }
+      ladder.push(word);
+      inputEl.value = "";
+      if (word === current.target) {
+        setMessage(`Solved in ${ladder.length - 1} moves.`);
+      } else {
+        setMessage("Good step. Keep climbing.");
+      }
+      renderLadder();
+    }
+
+    function undoMove() {
+      if (ladder.length > 1) {
+        ladder.pop();
+        setMessage("Last step removed.");
+        renderLadder();
+      }
+    }
+
+    function newPuzzle() {
+      current = puzzles[Math.floor(Math.random() * puzzles.length)];
+      dictionary = new Set([...extraWords, ...current.path]);
+      ladder = [current.start];
+      inputEl.value = "";
+      setMessage("Enter a valid word that differs by one letter.");
+      renderLadder();
+      renderWordBank();
+    }
+
+    document.getElementById("submitBtn").addEventListener("click", submitWord);
+    document.getElementById("undoBtn").addEventListener("click", undoMove);
+    document.getElementById("newPuzzleBtn").addEventListener("click", newPuzzle);
+    inputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") submitWord();
+    });
+    newPuzzle();
+  </script>
+</body>
+</html>
