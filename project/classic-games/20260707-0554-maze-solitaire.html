@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Maze Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Maze Solitaire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-slate-300">
+          Slide cards into adjacent gaps and build longer ordered suit runs across the maze.
+        </p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-3">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-400">Moves</div>
+        <div id="moves" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-400">Ordered Pairs</div>
+        <div id="score" class="text-2xl font-semibold">0 / 42</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-400">Status</div>
+        <div id="status" class="text-sm font-medium text-emerald-300">Choose a card next to a gap.</div>
+      </div>
+    </section>
+
+    <section id="board" class="grid grid-cols-8 gap-2 rounded border border-slate-800 bg-slate-900 p-3"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "♠", name: "spades", color: "text-slate-100" },
+      { mark: "♥", name: "hearts", color: "text-rose-300" },
+      { mark: "♦", name: "diamonds", color: "text-sky-300" },
+      { mark: "♣", name: "clubs", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q"];
+    const board = document.getElementById("board");
+    const movesEl = document.getElementById("moves");
+    const scoreEl = document.getElementById("score");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let cells = [];
+    let moves = 0;
+
+    function makeDeck() {
+      return suits.flatMap((suit, suitIndex) =>
+        ranks.map((rank, rankIndex) => ({
+          rank,
+          suit: suit.mark,
+          suitName: suit.name,
+          color: suit.color,
+          value: rankIndex + 1,
+          order: suitIndex * ranks.length + rankIndex
+        }))
+      );
+    }
+
+    function shuffle(items) {
+      const copy = [...items];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function newGame() {
+      const deck = shuffle(makeDeck());
+      cells = shuffle([...deck, null, null, null, null]);
+      moves = 0;
+      statusEl.textContent = "Choose a card next to a gap.";
+      render();
+    }
+
+    function adjacentIndexes(index) {
+      const row = Math.floor(index / 8);
+      const col = index % 8;
+      const indexes = [];
+      if (row > 0) indexes.push(index - 8);
+      if (row < 5) indexes.push(index + 8);
+      if (col > 0) indexes.push(index - 1);
+      if (col < 7) indexes.push(index + 1);
+      return indexes;
+    }
+
+    function canSlide(index) {
+      return cells[index] && adjacentIndexes(index).some((next) => cells[next] === null);
+    }
+
+    function chooseCell(index) {
+      if (!canSlide(index)) {
+        statusEl.textContent = cells[index] ? "That card needs an adjacent gap." : "Pick a card, not a gap.";
+        return;
+      }
+      const gap = adjacentIndexes(index).find((next) => cells[next] === null);
+      [cells[index], cells[gap]] = [cells[gap], cells[index]];
+      moves += 1;
+      statusEl.textContent = "Nice slide. Keep joining matching suit runs.";
+      render();
+    }
+
+    function orderedPairs() {
+      let total = 0;
+      for (let row = 0; row < 6; row++) {
+        for (let col = 0; col < 7; col++) {
+          const left = cells[row * 8 + col];
+          const right = cells[row * 8 + col + 1];
+          if (left && right && left.suitName === right.suitName && right.value === left.value + 1) total += 1;
+        }
+      }
+      return total;
+    }
+
+    function render() {
+      board.innerHTML = "";
+      cells.forEach((card, index) => {
+        const tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "aspect-[4/5] rounded border text-left transition focus:outline-none focus:ring-2 focus:ring-emerald-300";
+        if (!card) {
+          tile.className += " border-dashed border-slate-600 bg-slate-950";
+          tile.setAttribute("aria-label", "Empty gap");
+        } else {
+          tile.className += canSlide(index)
+            ? " border-emerald-500 bg-slate-800 hover:bg-slate-700"
+            : " border-slate-700 bg-slate-800/70";
+          tile.innerHTML = `
+            <span class="flex h-full flex-col justify-between p-2">
+              <span class="text-sm font-bold ${card.color}">${card.rank}</span>
+              <span class="self-center text-2xl ${card.color}">${card.suit}</span>
+              <span class="self-end text-sm font-bold ${card.color}">${card.rank}</span>
+            </span>
+          `;
+          tile.addEventListener("click", () => chooseCell(index));
+        }
+        board.appendChild(tile);
+      });
+      movesEl.textContent = moves;
+      const pairs = orderedPairs();
+      scoreEl.textContent = `${pairs} / 42`;
+      if (pairs === 42) statusEl.textContent = "Solved: every row is a clean suit run.";
+    }
+
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
