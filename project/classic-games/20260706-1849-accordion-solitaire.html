@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Accordion Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-50">
+    <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 pb-3">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Accordion Solitaire</h1>
+          <p class="text-sm text-neutral-300">Compress the deck by moving piles left one or three spaces when rank or suit matches.</p>
+        </div>
+        <button id="newGameBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-fuchsia-200">
+          New Shuffle
+        </button>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+          <div class="text-xs uppercase text-neutral-400">Piles</div>
+          <div id="pileCount" class="mt-1 text-2xl font-bold">52</div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+          <div class="text-xs uppercase text-neutral-400">Moves</div>
+          <div id="moveCount" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+          <div class="text-xs uppercase text-neutral-400">Selected</div>
+          <div id="selectedLabel" class="mt-1 text-lg font-bold">None</div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+          <div class="text-xs uppercase text-neutral-400">Status</div>
+          <div id="status" class="mt-1 text-sm font-semibold text-neutral-200">Pick a pile.</div>
+        </div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <h2 class="mb-3 font-semibold">Piles</h2>
+          <div id="board" class="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10"></div>
+        </div>
+
+        <aside class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <h2 class="mb-3 font-semibold">Move Log</h2>
+          <ol id="log" class="space-y-2 text-sm text-neutral-200"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["spades", "hearts", "diamonds", "clubs"];
+      const suitIcon = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      let piles = [];
+      let selected = null;
+      let moves = 0;
+
+      const boardEl = document.getElementById("board");
+      const logEl = document.getElementById("log");
+      const pileCountEl = document.getElementById("pileCount");
+      const moveCountEl = document.getElementById("moveCount");
+      const selectedLabelEl = document.getElementById("selectedLabel");
+      const statusEl = document.getElementById("status");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      function buildDeck() {
+        const deck = [];
+        for (const suit of suits) {
+          for (const rank of ranks) deck.push({ suit, rank, id: `${suit}-${rank}` });
+        }
+        return deck;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+      }
+
+      function cardLabel(card) {
+        return `${card.rank}${suitIcon[card.suit]}`;
+      }
+
+      function cardClass(card) {
+        return card.suit === "hearts" || card.suit === "diamonds" ? "text-red-300" : "text-neutral-50";
+      }
+
+      function topCard(pile) {
+        return pile[pile.length - 1];
+      }
+
+      function canMove(fromIndex, toIndex) {
+        if (fromIndex <= toIndex || fromIndex < 0 || toIndex < 0) return false;
+        const distance = fromIndex - toIndex;
+        if (distance !== 1 && distance !== 3) return false;
+        const from = topCard(piles[fromIndex]);
+        const to = topCard(piles[toIndex]);
+        return from.rank === to.rank || from.suit === to.suit;
+      }
+
+      function anyMovesLeft() {
+        for (let i = 0; i < piles.length; i += 1) {
+          if (canMove(i, i - 1) || canMove(i, i - 3)) return true;
+        }
+        return false;
+      }
+
+      function addLog(message) {
+        const item = document.createElement("li");
+        item.className = "rounded bg-neutral-950 px-3 py-2";
+        item.textContent = message;
+        logEl.prepend(item);
+      }
+
+      function movePile(fromIndex, toIndex) {
+        const moving = piles[fromIndex];
+        const fromLabel = cardLabel(topCard(moving));
+        const toLabel = cardLabel(topCard(piles[toIndex]));
+        piles[toIndex] = piles[toIndex].concat(moving);
+        piles.splice(fromIndex, 1);
+        moves += 1;
+        selected = null;
+        addLog(`Moved ${fromLabel} onto ${toLabel}.`);
+        statusEl.textContent = anyMovesLeft() ? "Pick another pile." : "No legal moves remain.";
+        render();
+      }
+
+      function choosePile(index) {
+        if (selected === null) {
+          selected = index;
+          statusEl.textContent = `Selected pile ${index + 1}.`;
+          render();
+          return;
+        }
+        if (selected === index) {
+          selected = null;
+          statusEl.textContent = "Selection cleared.";
+          render();
+          return;
+        }
+        if (canMove(selected, index)) {
+          movePile(selected, index);
+          return;
+        }
+        statusEl.textContent = "Move must go left 1 or 3 piles and match rank or suit.";
+        selected = index;
+        render();
+      }
+
+      function pileButton(pile, index) {
+        const card = topCard(pile);
+        const selectedNow = selected === index;
+        const legalTarget = selected !== null && canMove(selected, index);
+        const button = document.createElement("button");
+        button.className = `rounded border p-2 text-left ${
+          selectedNow
+            ? "border-fuchsia-300 bg-neutral-700"
+            : legalTarget
+              ? "border-emerald-300 bg-neutral-800 hover:bg-neutral-700"
+              : "border-neutral-800 bg-neutral-950 hover:bg-neutral-800"
+        }`;
+        button.innerHTML = `
+          <div class="text-xs text-neutral-500">#${index + 1} · ${pile.length}</div>
+          <div class="mt-2 text-2xl font-bold ${cardClass(card)}">${cardLabel(card)}</div>
+        `;
+        button.addEventListener("click", () => choosePile(index));
+        return button;
+      }
+
+      function render() {
+        pileCountEl.textContent = piles.length;
+        moveCountEl.textContent = moves;
+        selectedLabelEl.textContent = selected === null ? "None" : `Pile ${selected + 1}`;
+        boardEl.innerHTML = "";
+        piles.forEach((pile, index) => boardEl.appendChild(pileButton(pile, index)));
+      }
+
+      function newGame() {
+        const deck = buildDeck();
+        shuffle(deck);
+        piles = deck.map((card) => [card]);
+        selected = null;
+        moves = 0;
+        logEl.innerHTML = "";
+        statusEl.textContent = "Pick a pile.";
+        addLog("Shuffled 52 single-card piles.");
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
