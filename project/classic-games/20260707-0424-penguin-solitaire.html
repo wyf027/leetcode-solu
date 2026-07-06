@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Penguin Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Penguin Solitaire</h1>
+        <p class="text-sm text-indigo-200">Build each suit upward from the beak rank, wrapping King to Ace.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-pink-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-pink-200">New game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-indigo-700 bg-indigo-900 p-3 lg:grid-cols-2">
+      <div>
+        <h2 class="mb-2 text-sm font-semibold text-indigo-200">Free cells</h2>
+        <div id="cells" class="grid grid-cols-4 gap-2 sm:grid-cols-7"></div>
+      </div>
+      <div>
+        <h2 id="beak" class="mb-2 text-sm font-semibold text-indigo-200">Beak</h2>
+        <div id="foundations" class="grid grid-cols-4 gap-2"></div>
+      </div>
+    </section>
+
+    <section id="columns" class="grid grid-cols-1 gap-3 sm:grid-cols-4 lg:grid-cols-7" aria-label="Penguin columns"></section>
+    <section id="status" class="rounded bg-indigo-900 px-3 py-2 text-sm text-indigo-100" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-slate-100" },
+      { mark: "H", icon: "\u2665", color: "text-rose-300" },
+      { mark: "D", icon: "\u2666", color: "text-sky-200" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-200" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const columnsEl = document.getElementById("columns");
+    const cellsEl = document.getElementById("cells");
+    const foundationsEl = document.getElementById("foundations");
+    const statusEl = document.getElementById("status");
+    const beakEl = document.getElementById("beak");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let columns = [];
+    let cells = Array(7).fill(null);
+    let foundations = [[], [], [], []];
+    let baseValue = 1;
+    let selected = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      suits.forEach((suit, suitIndex) => {
+        ranks.forEach((rank, valueIndex) => {
+          deck.push({ suit: suitIndex, rank, value: valueIndex + 1 });
+        });
+      });
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      return card.rank + suits[card.suit].icon;
+    }
+
+    function nextValue(value) {
+      return value === 13 ? 1 : value + 1;
+    }
+
+    function sourceCard(source) {
+      if (!source) return null;
+      if (source.type === "cell") return cells[source.index];
+      const column = columns[source.index];
+      return column.length ? column[column.length - 1] : null;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card || card.suit !== foundationIndex) return false;
+      const pile = foundations[foundationIndex];
+      return pile.length === 0 ? card.value === baseValue : nextValue(pile[pile.length - 1].value) === card.value;
+    }
+
+    function canMoveToColumn(card, targetIndex) {
+      if (!card) return false;
+      const target = columns[targetIndex][columns[targetIndex].length - 1];
+      if (!target) return true;
+      return target.suit === card.suit && nextValue(card.value) === target.value;
+    }
+
+    function removeSelectedCard() {
+      if (!selected) return null;
+      if (selected.type === "cell") {
+        const card = cells[selected.index];
+        cells[selected.index] = null;
+        return card;
+      }
+      return columns[selected.index].pop();
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      baseValue = deck[0].value;
+      foundations = [[], [], [], []];
+      const baseCards = [];
+      const rest = [];
+      deck.forEach((card) => {
+        if (card.value === baseValue) baseCards.push(card);
+        else rest.push(card);
+      });
+      baseCards.forEach((card) => foundations[card.suit].push(card));
+      columns = Array.from({ length: 7 }, () => []);
+      cells = Array(7).fill(null);
+      rest.forEach((card, index) => columns[index % 7].push(card));
+      selected = null;
+      moves = 0;
+      render("The beak rank is " + ranks[baseValue - 1] + ". Build foundations upward by suit.");
+    }
+
+    function chooseSource(source) {
+      const card = sourceCard(source);
+      if (!card) {
+        render("That source is empty.");
+        return;
+      }
+      selected = source;
+      render("Selected " + cardLabel(card) + ".");
+    }
+
+    function chooseCell(index) {
+      if (!selected) {
+        chooseSource({ type: "cell", index });
+        return;
+      }
+      if (selected.type === "cell" && selected.index === index) {
+        selected = null;
+        render("Selection cleared.");
+        return;
+      }
+      if (cells[index]) {
+        chooseSource({ type: "cell", index });
+        return;
+      }
+      const card = sourceCard(selected);
+      cells[index] = removeSelectedCard();
+      selected = null;
+      moves += 1;
+      render("Stored " + cardLabel(card) + " in a free cell.");
+    }
+
+    function chooseColumn(index) {
+      if (!selected) {
+        chooseSource({ type: "column", index });
+        return;
+      }
+      if (selected.type === "column" && selected.index === index) {
+        selected = null;
+        render("Selection cleared.");
+        return;
+      }
+      const card = sourceCard(selected);
+      if (canMoveToColumn(card, index)) {
+        columns[index].push(removeSelectedCard());
+        selected = null;
+        moves += 1;
+        render("Moved " + cardLabel(card) + " to a column.");
+        return;
+      }
+      render("Columns build down by suit, wrapping Ace under King.");
+    }
+
+    function chooseFoundation(index) {
+      if (!selected) {
+        render("Select a column or free-cell card first.");
+        return;
+      }
+      const card = sourceCard(selected);
+      if (canFoundation(card, index)) {
+        foundations[index].push(removeSelectedCard());
+        selected = null;
+        moves += 1;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "The penguins are home." : "Moved " + cardLabel(card) + " to a foundation.");
+        return;
+      }
+      render("That foundation needs the next card of its suit from the beak rank.");
+    }
+
+    function cardHtml(card, active) {
+      return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+        suits[card.suit].color + " " + (active ? "border-pink-300 bg-indigo-800" : "border-indigo-700 bg-indigo-950") +
+        '">' + cardLabel(card) + '</span>';
+    }
+
+    function render(message) {
+      beakEl.textContent = "Beak rank: " + ranks[baseValue - 1];
+      statusEl.textContent = message + " Moves: " + moves;
+      cellsEl.innerHTML = "";
+      cells.forEach((card, index) => {
+        const active = selected && selected.type === "cell" && selected.index === index;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-20 rounded border border-dashed border-indigo-600 bg-indigo-950 p-2 text-left hover:border-pink-300";
+        button.innerHTML = '<div class="text-xs uppercase text-indigo-300">Cell ' + (index + 1) + '</div><div class="mt-2">' +
+          (card ? cardHtml(card, active) : '<span class="text-sm text-indigo-500">Open</span>') + '</div>';
+        button.addEventListener("click", () => chooseCell(index));
+        cellsEl.appendChild(button);
+      });
+
+      foundationsEl.innerHTML = "";
+      foundations.forEach((pile, index) => {
+        const top = pile[pile.length - 1];
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-20 rounded border border-dashed border-indigo-600 bg-indigo-950 p-2 text-left hover:border-pink-300";
+        button.innerHTML = '<div class="text-xs uppercase text-indigo-300">' + suits[index].icon + ' foundation</div><div class="mt-2">' +
+          (top ? cardHtml(top, true) : '<span class="text-sm text-indigo-500">Base</span>') +
+          '</div><div class="mt-1 text-xs text-indigo-500">' + pile.length + " / 13</div>";
+        button.addEventListener("click", () => chooseFoundation(index));
+        foundationsEl.appendChild(button);
+      });
+
+      columnsEl.innerHTML = "";
+      columns.forEach((column, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-72 rounded border p-2 text-left transition " +
+          (selected && selected.type === "column" && selected.index === index ? "border-pink-300 bg-pink-950/40" : "border-indigo-700 bg-indigo-900 hover:border-indigo-300");
+        const cards = column.map((card, cardIndex) => cardHtml(card, cardIndex === column.length - 1)).join("");
+        button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-indigo-300"><span>Column ' +
+          (index + 1) + '</span><span>' + column.length + '</span></div><div class="flex flex-wrap gap-1">' +
+          (cards || '<span class="text-sm text-indigo-500">Empty</span>') + "</div>";
+        button.addEventListener("click", () => chooseColumn(index));
+        columnsEl.appendChild(button);
+      });
+    }
+
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
