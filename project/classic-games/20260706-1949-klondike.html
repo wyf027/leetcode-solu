@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Klondike</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-green-950 text-green-50">
+    <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-green-800 pb-3">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Klondike</h1>
+          <p class="text-sm text-green-200">Build foundations by suit and stack alternating colors in descending order.</p>
+        </div>
+        <button id="newGameBtn" class="rounded bg-yellow-300 px-4 py-2 text-sm font-bold text-green-950 hover:bg-yellow-200">
+          New Deal
+        </button>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-5">
+        <button id="stockBtn" class="rounded border border-green-800 bg-green-900 p-3 text-left hover:bg-green-800">
+          <div class="text-xs uppercase text-green-300">Stock</div>
+          <div id="stockCount" class="mt-1 text-2xl font-bold">24</div>
+        </button>
+        <div class="rounded border border-green-800 bg-green-900 p-3">
+          <div class="text-xs uppercase text-green-300">Waste</div>
+          <div id="wasteTop" class="mt-1 text-2xl font-bold">-</div>
+        </div>
+        <div class="rounded border border-green-800 bg-green-900 p-3">
+          <div class="text-xs uppercase text-green-300">Foundations</div>
+          <div id="foundationCount" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-green-800 bg-green-900 p-3">
+          <div class="text-xs uppercase text-green-300">Moves</div>
+          <div id="moveCount" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-green-800 bg-green-900 p-3">
+          <div class="text-xs uppercase text-green-300">Status</div>
+          <div id="status" class="mt-1 text-sm font-semibold text-green-100">Draw or move a card.</div>
+        </div>
+      </section>
+
+      <section class="rounded border border-green-800 bg-green-900 p-4">
+        <h2 class="mb-3 font-semibold">Foundations</h2>
+        <div id="foundations" class="grid grid-cols-4 gap-2"></div>
+      </section>
+
+      <section class="rounded border border-green-800 bg-green-900 p-4">
+        <h2 class="mb-3 font-semibold">Tableau</h2>
+        <div id="tableau" class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7"></div>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["spades", "hearts", "diamonds", "clubs"];
+      const suitIcon = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const rankValue = Object.fromEntries(ranks.map((rank, index) => [rank, index + 1]));
+      let stock = [];
+      let waste = [];
+      let foundations = {};
+      let tableau = [];
+      let selected = null;
+      let moves = 0;
+
+      const stockBtn = document.getElementById("stockBtn");
+      const newGameBtn = document.getElementById("newGameBtn");
+      const stockCountEl = document.getElementById("stockCount");
+      const wasteTopEl = document.getElementById("wasteTop");
+      const foundationCountEl = document.getElementById("foundationCount");
+      const moveCountEl = document.getElementById("moveCount");
+      const statusEl = document.getElementById("status");
+      const foundationsEl = document.getElementById("foundations");
+      const tableauEl = document.getElementById("tableau");
+
+      function buildDeck() {
+        const deck = [];
+        for (const suit of suits) {
+          for (const rank of ranks) deck.push({ suit, rank, id: `${suit}-${rank}`, faceUp: false });
+        }
+        return deck;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+      }
+
+      function cardLabel(card) {
+        return card ? `${card.rank}${suitIcon[card.suit]}` : "-";
+      }
+
+      function isRed(card) {
+        return card.suit === "hearts" || card.suit === "diamonds";
+      }
+
+      function cardClass(card) {
+        return card && isRed(card) ? "text-red-300" : "text-green-50";
+      }
+
+      function foundationTotal() {
+        return suits.reduce((sum, suit) => sum + foundations[suit].length, 0);
+      }
+
+      function topCard(cards) {
+        return cards[cards.length - 1] || null;
+      }
+
+      function canFoundation(card) {
+        if (!card) return false;
+        const top = topCard(foundations[card.suit]);
+        return top ? rankValue[card.rank] === rankValue[top.rank] + 1 : card.rank === "A";
+      }
+
+      function canTableau(card, pile) {
+        if (!card) return false;
+        const top = topCard(pile);
+        if (!top) return card.rank === "K";
+        return isRed(card) !== isRed(top) && rankValue[card.rank] === rankValue[top.rank] - 1;
+      }
+
+      function revealTop(pile) {
+        const top = topCard(pile);
+        if (top) top.faceUp = true;
+      }
+
+      function drawStock() {
+        if (!stock.length) {
+          stock = waste.reverse().map((card) => ({ ...card, faceUp: false }));
+          waste = [];
+          statusEl.textContent = stock.length ? "Recycled waste into stock." : "No stock to draw.";
+          render();
+          return;
+        }
+        const card = stock.pop();
+        card.faceUp = true;
+        waste.push(card);
+        selected = { type: "waste" };
+        statusEl.textContent = `Drew ${cardLabel(card)}.`;
+        render();
+      }
+
+      function selectWaste() {
+        if (!waste.length) return;
+        selected = { type: "waste" };
+        statusEl.textContent = `Selected ${cardLabel(topCard(waste))}.`;
+        render();
+      }
+
+      function selectTableau(index, cardIndex) {
+        const card = tableau[index][cardIndex];
+        if (!card.faceUp) return;
+        selected = { type: "tableau", pile: index, index: cardIndex };
+        statusEl.textContent = `Selected ${cardLabel(card)}.`;
+        render();
+      }
+
+      function selectedCards() {
+        if (!selected) return [];
+        if (selected.type === "waste") return [topCard(waste)];
+        return tableau[selected.pile].slice(selected.index);
+      }
+
+      function removeSelected() {
+        if (selected.type === "waste") return [waste.pop()];
+        const pile = tableau[selected.pile];
+        const moving = pile.splice(selected.index);
+        revealTop(pile);
+        return moving;
+      }
+
+      function moveToFoundation(suit) {
+        const cards = selectedCards();
+        if (cards.length !== 1 || cards[0].suit !== suit || !canFoundation(cards[0])) {
+          statusEl.textContent = "That card cannot go to this foundation.";
+          return;
+        }
+        const moving = removeSelected()[0];
+        foundations[suit].push(moving);
+        moves += 1;
+        selected = null;
+        statusEl.textContent = `Moved ${cardLabel(moving)} to foundation.`;
+        render();
+      }
+
+      function moveToTableau(target) {
+        const cards = selectedCards();
+        if (!cards.length || !canTableau(cards[0], tableau[target])) {
+          statusEl.textContent = "Move must descend by alternating colors.";
+          return;
+        }
+        const moving = removeSelected();
+        tableau[target].push(...moving);
+        moves += 1;
+        selected = null;
+        statusEl.textContent = `Moved ${cardLabel(moving[0])}.`;
+        render();
+      }
+
+      function cardButton(card, onClick, selectedNow = false) {
+        const button = document.createElement("button");
+        button.className = `rounded border px-2 py-3 text-lg font-bold ${
+          card.faceUp ? cardClass(card) : "text-green-300"
+        } ${selectedNow ? "border-yellow-300 bg-green-700" : "border-green-800 bg-green-950 hover:bg-green-800"}`;
+        button.textContent = card.faceUp ? cardLabel(card) : "##";
+        button.addEventListener("click", onClick);
+        return button;
+      }
+
+      function render() {
+        stockCountEl.textContent = stock.length;
+        const wasteTop = topCard(waste);
+        wasteTopEl.textContent = cardLabel(wasteTop);
+        wasteTopEl.className = `mt-1 text-2xl font-bold ${cardClass(wasteTop)}`;
+        wasteTopEl.onclick = selectWaste;
+        foundationCountEl.textContent = foundationTotal();
+        moveCountEl.textContent = moves;
+
+        foundationsEl.innerHTML = "";
+        for (const suit of suits) {
+          const top = topCard(foundations[suit]);
+          const button = document.createElement("button");
+          button.className = `rounded border border-green-800 bg-green-950 p-3 text-left hover:bg-green-800 ${cardClass(top)}`;
+          button.innerHTML = `<div class="text-xs text-green-300">${suitIcon[suit]} Foundation</div><div class="mt-2 text-2xl font-bold">${cardLabel(top)}</div>`;
+          button.addEventListener("click", () => moveToFoundation(suit));
+          foundationsEl.appendChild(button);
+        }
+
+        tableauEl.innerHTML = "";
+        tableau.forEach((pile, pileIndex) => {
+          const column = document.createElement("div");
+          column.className = "min-h-40 rounded border border-green-800 bg-green-950/70 p-2";
+          column.addEventListener("click", () => moveToTableau(pileIndex));
+          pile.forEach((card, cardIndex) => {
+            const selectedNow = selected?.type === "tableau" && selected.pile === pileIndex && selected.index === cardIndex;
+            column.appendChild(cardButton(card, (event) => {
+              event.stopPropagation();
+              selectTableau(pileIndex, cardIndex);
+            }, selectedNow));
+          });
+          tableauEl.appendChild(column);
+        });
+      }
+
+      function newGame() {
+        const deck = buildDeck();
+        shuffle(deck);
+        foundations = Object.fromEntries(suits.map((suit) => [suit, []]));
+        tableau = Array.from({ length: 7 }, (_, pileIndex) => {
+          const pile = deck.splice(0, pileIndex + 1);
+          pile[pile.length - 1].faceUp = true;
+          return pile;
+        });
+        stock = deck;
+        waste = [];
+        selected = null;
+        moves = 0;
+        statusEl.textContent = "Draw or move a card.";
+        render();
+      }
+
+      stockBtn.addEventListener("click", drawStock);
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
