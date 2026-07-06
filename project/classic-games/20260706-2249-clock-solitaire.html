@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Clock Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-indigo-950 text-indigo-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Clock Solitaire</h1>
+          <p class="text-sm text-indigo-200">Reveal cards around the clock. Each rank sends play to its matching pile.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="rounded border border-indigo-700 px-3 py-2 text-sm">Revealed <span id="revealed">0</span>/52</div>
+          <button id="newGame" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-fuchsia-200">New game</button>
+        </div>
+      </header>
+
+      <section class="rounded border border-indigo-800 bg-indigo-900/60 px-3 py-2 text-sm text-indigo-100">
+        <div id="message">Press Start to flip from the King pile.</div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+        <div id="clock" class="grid grid-cols-5 gap-2 rounded border border-indigo-800 bg-indigo-900/50 p-3"></div>
+        <aside class="flex flex-col gap-3">
+          <div id="currentCard" class="flex h-28 items-center justify-center rounded border border-indigo-700 bg-indigo-900 text-3xl font-bold text-indigo-300">--</div>
+          <button id="step" class="rounded bg-indigo-100 px-4 py-3 text-sm font-semibold text-indigo-950 hover:bg-white">Start</button>
+          <div class="rounded border border-indigo-800 p-3 text-sm text-indigo-200">
+            Aces go to 1, Jacks to 11, Queens to 12, Kings to the center.
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const positions = [11, 0, 1, 2, 3, 10, 12, 4, 9, 8, 7, 6, 5];
+      const clockEl = document.getElementById("clock");
+      const currentCardEl = document.getElementById("currentCard");
+      const revealedEl = document.getElementById("revealed");
+      const messageEl = document.getElementById("message");
+      const stepBtn = document.getElementById("step");
+      const newGameBtn = document.getElementById("newGame");
+
+      let piles = [];
+      let currentPile = 12;
+      let currentCard = null;
+      let revealed = 0;
+      let ended = false;
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank, index) => ({ suit, rank, value: index + 1 })));
+      }
+
+      function shuffle(deck) {
+        for (let i = deck.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+        return deck;
+      }
+
+      function isRed(card) {
+        return card.suit === "♥" || card.suit === "♦";
+      }
+
+      function cardLabel(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function pileName(index) {
+        if (index === 12) return "K";
+        if (index === 0) return "A";
+        if (index === 10) return "J";
+        if (index === 11) return "Q";
+        return String(index + 1);
+      }
+
+      function targetPile(card) {
+        return card.value - 1;
+      }
+
+      function setMessage(text) {
+        messageEl.textContent = text;
+      }
+
+      function flipNext() {
+        if (ended) return;
+        const pile = piles[currentPile];
+        if (!pile.faceDown.length) {
+          ended = true;
+          setMessage(`Pile ${pileName(currentPile)} is empty. Game over with ${revealed} cards revealed.`);
+          render();
+          return;
+        }
+
+        const card = pile.faceDown.pop();
+        pile.faceUp.push(card);
+        currentCard = card;
+        currentPile = targetPile(card);
+        revealed += 1;
+
+        if (revealed === 52) {
+          ended = true;
+          setMessage("All cards revealed. Clock completed.");
+        } else if (card.value === 13 && piles[12].faceUp.length === 4) {
+          ended = true;
+          setMessage(`Fourth King appeared after ${revealed} cards.`);
+        } else {
+          setMessage(`${cardLabel(card)} sends play to pile ${pileName(currentPile)}.`);
+        }
+        render();
+      }
+
+      function cardClass(card) {
+        return isRed(card) ? "text-rose-600" : "text-slate-900";
+      }
+
+      function renderPile(index) {
+        const pile = piles[index];
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = [
+          "flex h-24 min-w-0 flex-col items-center justify-between rounded border p-2 text-sm transition",
+          index === currentPile && !ended ? "border-fuchsia-300 bg-fuchsia-950/60 ring-2 ring-fuchsia-300" : "border-indigo-700 bg-indigo-950/70",
+        ].join(" ");
+
+        const label = document.createElement("div");
+        label.className = "font-semibold text-indigo-200";
+        label.textContent = pileName(index);
+        button.appendChild(label);
+
+        const top = pile.faceUp[pile.faceUp.length - 1];
+        const card = document.createElement("div");
+        card.className = "flex h-10 w-12 items-center justify-center rounded bg-white text-base font-bold shadow " + (top ? cardClass(top) : "text-slate-400");
+        card.textContent = top ? cardLabel(top) : `${pile.faceDown.length} down`;
+        button.appendChild(card);
+
+        const count = document.createElement("div");
+        count.className = "text-xs text-indigo-300";
+        count.textContent = `${pile.faceUp.length} up`;
+        button.appendChild(count);
+        return button;
+      }
+
+      function render() {
+        clockEl.innerHTML = "";
+        positions.forEach((pileIndex) => {
+          clockEl.appendChild(renderPile(pileIndex));
+        });
+
+        if (currentCard) {
+          currentCardEl.textContent = cardLabel(currentCard);
+          currentCardEl.className = "flex h-28 items-center justify-center rounded border border-indigo-700 bg-white text-3xl font-bold " + cardClass(currentCard);
+        } else {
+          currentCardEl.textContent = "--";
+          currentCardEl.className = "flex h-28 items-center justify-center rounded border border-indigo-700 bg-indigo-900 text-3xl font-bold text-indigo-300";
+        }
+
+        revealedEl.textContent = revealed;
+        stepBtn.textContent = revealed === 0 ? "Start" : ended ? "Game over" : "Flip next";
+        stepBtn.disabled = ended;
+        stepBtn.className = ended
+          ? "rounded bg-indigo-800 px-4 py-3 text-sm font-semibold text-indigo-400"
+          : "rounded bg-indigo-100 px-4 py-3 text-sm font-semibold text-indigo-950 hover:bg-white";
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        piles = Array.from({ length: 13 }, () => ({ faceDown: [], faceUp: [] }));
+        for (let round = 0; round < 4; round += 1) {
+          for (let pile = 0; pile < 13; pile += 1) {
+            piles[pile].faceDown.push(deck.pop());
+          }
+        }
+        currentPile = 12;
+        currentCard = null;
+        revealed = 0;
+        ended = false;
+        setMessage("Start from the King pile in the center.");
+        render();
+      }
+
+      stepBtn.addEventListener("click", flipNext);
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
