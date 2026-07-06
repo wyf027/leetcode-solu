@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Casino Card</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-teal-950 text-teal-50">
+    <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-teal-800 pb-3">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Casino Card</h1>
+          <p class="text-sm text-teal-200">Capture matching ranks from the table, or trail a card for later.</p>
+        </div>
+        <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-teal-950 hover:bg-amber-200">
+          New Round
+        </button>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-5">
+        <div class="rounded border border-teal-800 bg-teal-900 p-3">
+          <div class="text-xs uppercase text-teal-300">Deck</div>
+          <div id="deckCount" class="mt-1 text-2xl font-bold">40</div>
+        </div>
+        <div class="rounded border border-teal-800 bg-teal-900 p-3">
+          <div class="text-xs uppercase text-teal-300">Your Captures</div>
+          <div id="playerScore" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-teal-800 bg-teal-900 p-3">
+          <div class="text-xs uppercase text-teal-300">Bot Captures</div>
+          <div id="botScore" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-teal-800 bg-teal-900 p-3">
+          <div class="text-xs uppercase text-teal-300">Table</div>
+          <div id="tableCount" class="mt-1 text-2xl font-bold">4</div>
+        </div>
+        <div class="rounded border border-teal-800 bg-teal-900 p-3">
+          <div class="text-xs uppercase text-teal-300">Turn</div>
+          <div id="turnLabel" class="mt-1 text-lg font-bold">You</div>
+        </div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+        <div class="flex flex-col gap-4">
+          <div class="rounded border border-teal-800 bg-teal-900 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">Table Cards</h2>
+              <div id="status" class="text-sm text-teal-200">Choose a hand card.</div>
+            </div>
+            <div id="table" class="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-8"></div>
+          </div>
+
+          <div class="rounded border border-teal-800 bg-teal-900 p-4">
+            <h2 class="mb-3 font-semibold">Your Hand</h2>
+            <div id="hand" class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6"></div>
+          </div>
+        </div>
+
+        <aside class="rounded border border-teal-800 bg-teal-900 p-4">
+          <h2 class="mb-3 font-semibold">Round Log</h2>
+          <ol id="log" class="space-y-2 text-sm text-teal-100"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["spades", "hearts", "diamonds", "clubs"];
+      const suitIcon = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      let deck = [];
+      let tableCards = [];
+      let playerHand = [];
+      let botHand = [];
+      let playerPile = [];
+      let botPile = [];
+      let selectedCardId = null;
+      let playerTurn = true;
+      let gameOver = false;
+
+      const deckCountEl = document.getElementById("deckCount");
+      const playerScoreEl = document.getElementById("playerScore");
+      const botScoreEl = document.getElementById("botScore");
+      const tableCountEl = document.getElementById("tableCount");
+      const turnLabelEl = document.getElementById("turnLabel");
+      const statusEl = document.getElementById("status");
+      const tableEl = document.getElementById("table");
+      const handEl = document.getElementById("hand");
+      const logEl = document.getElementById("log");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      function buildDeck() {
+        const cards = [];
+        for (const suit of suits) {
+          for (const rank of ranks) cards.push({ suit, rank, id: `${suit}-${rank}` });
+        }
+        return cards;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+      }
+
+      function cardLabel(card) {
+        return `${card.rank}${suitIcon[card.suit]}`;
+      }
+
+      function cardClass(card) {
+        return card.suit === "hearts" || card.suit === "diamonds" ? "text-red-300" : "text-teal-50";
+      }
+
+      function addLog(message) {
+        const item = document.createElement("li");
+        item.className = "rounded bg-teal-950 px-3 py-2";
+        item.textContent = message;
+        logEl.prepend(item);
+      }
+
+      function dealHandsIfNeeded() {
+        if ((playerHand.length || botHand.length || !deck.length) && !gameOver) return;
+        playerHand = deck.splice(0, 4);
+        botHand = deck.splice(0, 4);
+        addLog("Dealt four new cards to each hand.");
+      }
+
+      function matchingTableCards(card) {
+        return tableCards.filter((tableCard) => tableCard.rank === card.rank);
+      }
+
+      function capture(owner, hand, pile, card) {
+        const matches = matchingTableCards(card);
+        hand.splice(hand.indexOf(card), 1);
+        if (matches.length) {
+          for (const match of matches) tableCards.splice(tableCards.indexOf(match), 1);
+          pile.push(card, ...matches);
+          addLog(`${owner} captured ${matches.length} with ${cardLabel(card)}.`);
+        } else {
+          tableCards.push(card);
+          addLog(`${owner} trailed ${cardLabel(card)}.`);
+        }
+      }
+
+      function checkGameOver() {
+        if (deck.length || playerHand.length || botHand.length) return;
+        gameOver = true;
+        if (tableCards.length) {
+          const target = playerPile.length >= botPile.length ? playerPile : botPile;
+          target.push(...tableCards);
+          tableCards = [];
+        }
+        statusEl.textContent = playerPile.length > botPile.length ? "You win by captures." : playerPile.length < botPile.length ? "Bot wins by captures." : "Capture race tied.";
+      }
+
+      function playPlayerCard(cardId) {
+        if (!playerTurn || gameOver) return;
+        const card = playerHand.find((item) => item.id === cardId);
+        if (!card) return;
+        capture("You", playerHand, playerPile, card);
+        playerTurn = false;
+        dealHandsIfNeeded();
+        checkGameOver();
+        render();
+        if (!gameOver) setTimeout(playBotCard, 550);
+      }
+
+      function chooseBotCard() {
+        const capturing = botHand.find((card) => matchingTableCards(card).length);
+        if (capturing) return capturing;
+        return [...botHand].sort((a, b) => ranks.indexOf(a.rank) - ranks.indexOf(b.rank))[0];
+      }
+
+      function playBotCard() {
+        if (playerTurn || gameOver) return;
+        const card = chooseBotCard();
+        capture("Bot", botHand, botPile, card);
+        playerTurn = true;
+        dealHandsIfNeeded();
+        checkGameOver();
+        render();
+      }
+
+      function cardButton(card, onClick, selected = false) {
+        const button = document.createElement("button");
+        button.className = `rounded border px-2 py-4 text-xl font-bold ${cardClass(card)} ${
+          selected ? "border-amber-300 bg-teal-700" : "border-teal-800 bg-teal-950 hover:bg-teal-800"
+        }`;
+        button.textContent = cardLabel(card);
+        button.addEventListener("click", onClick);
+        return button;
+      }
+
+      function render() {
+        deckCountEl.textContent = deck.length;
+        playerScoreEl.textContent = playerPile.length;
+        botScoreEl.textContent = botPile.length;
+        tableCountEl.textContent = tableCards.length;
+        turnLabelEl.textContent = gameOver ? "Done" : playerTurn ? "You" : "Bot";
+        if (!gameOver) statusEl.textContent = playerTurn ? "Choose a hand card." : "Bot is choosing.";
+        tableEl.innerHTML = "";
+        tableCards.forEach((card) => tableEl.appendChild(cardButton(card, () => {}, false)));
+        handEl.innerHTML = "";
+        playerHand.forEach((card) => {
+          handEl.appendChild(
+            cardButton(
+              card,
+              () => {
+                selectedCardId = card.id;
+                playPlayerCard(card.id);
+              },
+              selectedCardId === card.id,
+            ),
+          );
+        });
+      }
+
+      function newGame() {
+        deck = buildDeck();
+        shuffle(deck);
+        tableCards = deck.splice(0, 4);
+        playerHand = [];
+        botHand = [];
+        playerPile = [];
+        botPile = [];
+        selectedCardId = null;
+        playerTurn = true;
+        gameOver = false;
+        logEl.innerHTML = "";
+        dealHandsIfNeeded();
+        addLog("Four cards opened on the table.");
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
