@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Spades</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.28em] text-cyan-300">Classic trick taking</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Spades</h1>
+        </div>
+        <button id="newGameBtn" class="rounded bg-cyan-300 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-200">
+          New Deal
+        </button>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-4">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">North</p>
+          <p id="northScore" class="mt-2 text-3xl font-bold">0</p>
+          <p id="northCards" class="text-sm text-slate-400">13 cards</p>
+        </div>
+        <div class="rounded border border-cyan-400 bg-slate-900 p-4">
+          <p class="text-sm text-cyan-200">You</p>
+          <p id="playerScore" class="mt-2 text-3xl font-bold">0</p>
+          <p id="playerCards" class="text-sm text-slate-400">13 cards</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">East</p>
+          <p id="eastScore" class="mt-2 text-3xl font-bold">0</p>
+          <p id="eastCards" class="text-sm text-slate-400">13 cards</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">West</p>
+          <p id="westScore" class="mt-2 text-3xl font-bold">0</p>
+          <p id="westCards" class="text-sm text-slate-400">13 cards</p>
+        </div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_19rem]">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p id="status" class="text-lg font-semibold">Play a card to start the trick.</p>
+              <p id="ruleHint" class="mt-1 text-sm text-slate-400">Follow suit if possible. Spades always trump.</p>
+            </div>
+            <p id="trickCount" class="rounded bg-slate-800 px-3 py-2 text-sm text-cyan-200">Trick 1 of 13</p>
+          </div>
+          <div id="table" class="mt-5 grid min-h-44 grid-cols-2 gap-3 md:grid-cols-4"></div>
+        </div>
+
+        <aside class="rounded border border-slate-700 bg-slate-900 p-4">
+          <p class="font-semibold">Trick log</p>
+          <ol id="log" class="mt-3 space-y-2 text-sm text-slate-300"></ol>
+        </aside>
+      </section>
+
+      <section class="rounded border border-slate-700 bg-slate-900 p-4">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <p class="font-semibold">Your hand</p>
+          <p id="leadSuit" class="text-sm text-slate-400">Lead suit: none</p>
+        </div>
+        <div id="hand" class="grid grid-cols-4 gap-2 sm:grid-cols-7 md:grid-cols-13"></div>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♣", "♦", "♥", "♠"];
+      const ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+      const players = ["player", "east", "north", "west"];
+      const labels = { player: "You", east: "East", north: "North", west: "West" };
+      const state = {
+        hands: {},
+        tricks: { player: 0, east: 0, north: 0, west: 0 },
+        current: "player",
+        leader: "player",
+        table: [],
+        gameOver: false,
+      };
+
+      const els = {
+        hand: document.getElementById("hand"),
+        table: document.getElementById("table"),
+        log: document.getElementById("log"),
+        status: document.getElementById("status"),
+        ruleHint: document.getElementById("ruleHint"),
+        trickCount: document.getElementById("trickCount"),
+        leadSuit: document.getElementById("leadSuit"),
+        playerScore: document.getElementById("playerScore"),
+        eastScore: document.getElementById("eastScore"),
+        northScore: document.getElementById("northScore"),
+        westScore: document.getElementById("westScore"),
+        playerCards: document.getElementById("playerCards"),
+        eastCards: document.getElementById("eastCards"),
+        northCards: document.getElementById("northCards"),
+        westCards: document.getElementById("westCards"),
+        newGameBtn: document.getElementById("newGameBtn"),
+      };
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank, value) => ({ suit, rank, value })));
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardText(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function suitColor(card) {
+        return card.suit === "♥" || card.suit === "♦" ? "text-rose-600" : "text-slate-900";
+      }
+
+      function sortHand(hand) {
+        hand.sort((a, b) => suits.indexOf(a.suit) - suits.indexOf(b.suit) || a.value - b.value);
+      }
+
+      function addLog(text) {
+        const item = document.createElement("li");
+        item.textContent = text;
+        els.log.prepend(item);
+        while (els.log.children.length > 8) els.log.removeChild(els.log.lastChild);
+      }
+
+      function leadSuit() {
+        return state.table[0]?.card.suit || null;
+      }
+
+      function legalCards(player) {
+        const hand = state.hands[player];
+        const suit = leadSuit();
+        if (!suit) return hand;
+        const matching = hand.filter((card) => card.suit === suit);
+        return matching.length ? matching : hand;
+      }
+
+      function beats(candidate, best, suit) {
+        if (candidate.suit === "♠" && best.suit !== "♠") return true;
+        if (candidate.suit !== "♠" && best.suit === "♠") return false;
+        if (candidate.suit === best.suit) return candidate.value > best.value;
+        return candidate.suit === suit && best.suit !== suit;
+      }
+
+      function trickWinner() {
+        const suit = leadSuit();
+        return state.table.reduce((winner, play) => {
+          return beats(play.card, winner.card, suit) ? play : winner;
+        }, state.table[0]).player;
+      }
+
+      function playCard(player, index) {
+        const hand = state.hands[player];
+        const card = hand.splice(index, 1)[0];
+        state.table.push({ player, card });
+        addLog(`${labels[player]} played ${cardText(card)}.`);
+        if (state.table.length === 4) {
+          const winner = trickWinner();
+          state.tricks[winner] += 1;
+          state.leader = winner;
+          state.current = winner;
+          render();
+          setTimeout(() => {
+            addLog(`${labels[winner]} won the trick.`);
+            state.table = [];
+            finishIfNeeded();
+            render();
+            if (!state.gameOver) runBots();
+          }, 650);
+          return;
+        }
+        state.current = players[(players.indexOf(player) + 1) % players.length];
+        render();
+        runBots();
+      }
+
+      function chooseBotCard(player) {
+        const legal = legalCards(player);
+        const suit = leadSuit();
+        const sorted = [...legal].sort((a, b) => a.value - b.value);
+        if (!suit) return sorted[0];
+        const currentBest = state.table.reduce((best, play) => (beats(play.card, best, suit) ? play.card : best), state.table[0].card);
+        const winning = sorted.find((card) => beats(card, currentBest, suit));
+        return winning || sorted[0];
+      }
+
+      function runBots() {
+        if (state.gameOver || state.current === "player") return;
+        setTimeout(() => {
+          if (state.gameOver || state.current === "player") return;
+          const card = chooseBotCard(state.current);
+          const index = state.hands[state.current].indexOf(card);
+          playCard(state.current, index);
+        }, 420);
+      }
+
+      function finishIfNeeded() {
+        if (state.hands.player.length > 0) return;
+        state.gameOver = true;
+        const winner = Object.entries(state.tricks).sort((a, b) => b[1] - a[1])[0];
+        els.status.textContent = `${labels[winner[0]]} wins with ${winner[1]} tricks.`;
+        els.ruleHint.textContent = "Deal again to play another hand.";
+      }
+
+      function cardButton(card, index) {
+        const button = document.createElement("button");
+        const legal = legalCards("player").includes(card);
+        button.className =
+          "h-20 rounded border bg-white text-lg font-bold shadow transition " +
+          suitColor(card) +
+          (legal && state.current === "player" && !state.gameOver
+            ? " hover:-translate-y-1 hover:border-cyan-300"
+            : " cursor-not-allowed opacity-50");
+        button.textContent = cardText(card);
+        button.disabled = !legal || state.current !== "player" || state.gameOver;
+        button.addEventListener("click", () => playCard("player", index));
+        return button;
+      }
+
+      function renderTable() {
+        els.table.innerHTML = "";
+        const byPlayer = Object.fromEntries(state.table.map((play) => [play.player, play.card]));
+        players.forEach((player) => {
+          const card = byPlayer[player];
+          const slot = document.createElement("div");
+          slot.className = "rounded border border-slate-700 bg-slate-800 p-3 text-center";
+          slot.innerHTML = `<p class="text-sm text-slate-400">${labels[player]}</p><div class="mt-2 flex h-24 items-center justify-center rounded bg-white text-2xl font-bold ${card ? suitColor(card) : "text-slate-300"}">${card ? cardText(card) : "--"}</div>`;
+          els.table.appendChild(slot);
+        });
+      }
+
+      function render() {
+        els.playerScore.textContent = state.tricks.player;
+        els.eastScore.textContent = state.tricks.east;
+        els.northScore.textContent = state.tricks.north;
+        els.westScore.textContent = state.tricks.west;
+        els.playerCards.textContent = `${state.hands.player.length} cards`;
+        els.eastCards.textContent = `${state.hands.east.length} cards`;
+        els.northCards.textContent = `${state.hands.north.length} cards`;
+        els.westCards.textContent = `${state.hands.west.length} cards`;
+        els.trickCount.textContent = `Trick ${Math.min(13, state.tricks.player + state.tricks.east + state.tricks.north + state.tricks.west + 1)} of 13`;
+        els.leadSuit.textContent = `Lead suit: ${leadSuit() || "none"}`;
+        if (!state.gameOver) els.status.textContent = state.current === "player" ? "Your turn" : `${labels[state.current]} is playing`;
+        els.hand.innerHTML = "";
+        state.hands.player.forEach((card, index) => els.hand.appendChild(cardButton(card, index)));
+        renderTable();
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        players.forEach((player, i) => {
+          state.hands[player] = deck.slice(i * 13, i * 13 + 13);
+          sortHand(state.hands[player]);
+          state.tricks[player] = 0;
+        });
+        state.current = "player";
+        state.leader = "player";
+        state.table = [];
+        state.gameOver = false;
+        els.log.innerHTML = "";
+        els.ruleHint.textContent = "Follow suit if possible. Spades always trump.";
+        addLog("New spades hand dealt.");
+        render();
+      }
+
+      els.newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
