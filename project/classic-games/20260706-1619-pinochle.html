@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pinochle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-emerald-950 text-emerald-50">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-800 pb-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-wide">Mini Pinochle</h1>
+          <p class="text-sm text-emerald-200">Win tricks, follow suit, and collect card points.</p>
+        </div>
+        <button id="newGameBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-amber-300">
+          New Deal
+        </button>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-4">
+        <div class="rounded border border-emerald-800 bg-emerald-900/70 p-3">
+          <div class="text-xs uppercase text-emerald-300">Trump</div>
+          <div id="trump" class="mt-1 text-2xl font-bold">-</div>
+        </div>
+        <div class="rounded border border-emerald-800 bg-emerald-900/70 p-3">
+          <div class="text-xs uppercase text-emerald-300">Your Points</div>
+          <div id="playerScore" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-emerald-800 bg-emerald-900/70 p-3">
+          <div class="text-xs uppercase text-emerald-300">Bot Points</div>
+          <div id="botScore" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-emerald-800 bg-emerald-900/70 p-3">
+          <div class="text-xs uppercase text-emerald-300">Tricks Left</div>
+          <div id="tricksLeft" class="mt-1 text-2xl font-bold">12</div>
+        </div>
+      </section>
+
+      <section class="grid flex-1 gap-4 lg:grid-cols-[1fr_18rem]">
+        <div class="flex flex-col gap-4">
+          <div class="rounded border border-emerald-800 bg-emerald-900/60 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">Table</h2>
+              <div id="status" class="text-sm text-emerald-200">Choose a card to lead.</div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="rounded border border-emerald-800 bg-emerald-950/70 p-3">
+                <div class="mb-2 text-xs uppercase text-emerald-300">Bot</div>
+                <div id="botPlay" class="flex min-h-28 items-center justify-center rounded bg-emerald-900 text-3xl font-bold">-</div>
+              </div>
+              <div class="rounded border border-emerald-800 bg-emerald-950/70 p-3">
+                <div class="mb-2 text-xs uppercase text-emerald-300">You</div>
+                <div id="playerPlay" class="flex min-h-28 items-center justify-center rounded bg-emerald-900 text-3xl font-bold">-</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded border border-emerald-800 bg-emerald-900/60 p-4">
+            <h2 class="mb-3 font-semibold">Your Hand</h2>
+            <div id="hand" class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6"></div>
+          </div>
+        </div>
+
+        <aside class="rounded border border-emerald-800 bg-emerald-900/60 p-4">
+          <h2 class="mb-3 font-semibold">Round Log</h2>
+          <ol id="log" class="space-y-2 text-sm text-emerald-100"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["spades", "hearts", "diamonds", "clubs"];
+      const suitIcon = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
+      const ranks = ["9", "J", "Q", "K", "10", "A"];
+      const rankPower = { "9": 1, J: 2, Q: 3, K: 4, "10": 5, A: 6 };
+      const cardPoints = { "9": 0, J: 2, Q: 3, K: 4, "10": 10, A: 11 };
+      let deck = [];
+      let playerHand = [];
+      let botHand = [];
+      let table = [];
+      let trump = "spades";
+      let leader = "player";
+      let playerScore = 0;
+      let botScore = 0;
+      let gameOver = false;
+
+      const handEl = document.getElementById("hand");
+      const logEl = document.getElementById("log");
+      const trumpEl = document.getElementById("trump");
+      const statusEl = document.getElementById("status");
+      const playerPlayEl = document.getElementById("playerPlay");
+      const botPlayEl = document.getElementById("botPlay");
+      const playerScoreEl = document.getElementById("playerScore");
+      const botScoreEl = document.getElementById("botScore");
+      const tricksLeftEl = document.getElementById("tricksLeft");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      function buildDeck() {
+        const cards = [];
+        for (let copy = 0; copy < 2; copy += 1) {
+          for (const suit of suits) {
+            for (const rank of ranks) cards.push({ suit, rank, id: `${suit}-${rank}-${copy}` });
+          }
+        }
+        return cards;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+      }
+
+      function cardLabel(card) {
+        return card ? `${card.rank}${suitIcon[card.suit]}` : "-";
+      }
+
+      function cardClass(card) {
+        return card && (card.suit === "hearts" || card.suit === "diamonds") ? "text-red-300" : "text-emerald-50";
+      }
+
+      function sortHand(hand) {
+        hand.sort((a, b) => suits.indexOf(a.suit) - suits.indexOf(b.suit) || rankPower[a.rank] - rankPower[b.rank]);
+      }
+
+      function addLog(message) {
+        const item = document.createElement("li");
+        item.className = "rounded bg-emerald-950/70 px-3 py-2";
+        item.textContent = message;
+        logEl.prepend(item);
+      }
+
+      function leadSuit() {
+        return table.length ? table[0].card.suit : null;
+      }
+
+      function legalCards(hand) {
+        const led = leadSuit();
+        if (!led) return hand;
+        const suited = hand.filter((card) => card.suit === led);
+        return suited.length ? suited : hand;
+      }
+
+      function beats(challenger, current, led) {
+        if (challenger.suit === current.suit) return rankPower[challenger.rank] > rankPower[current.rank];
+        if (challenger.suit === trump && current.suit !== trump) return true;
+        if (challenger.suit !== trump && current.suit === trump) return false;
+        return challenger.suit === led && current.suit !== led;
+      }
+
+      function trickWinner() {
+        const led = leadSuit();
+        let winner = table[0];
+        for (const play of table.slice(1)) {
+          if (beats(play.card, winner.card, led)) winner = play;
+        }
+        return winner.owner;
+      }
+
+      function trickPoints() {
+        return table.reduce((sum, play) => sum + cardPoints[play.card.rank], 0);
+      }
+
+      function chooseBotCard() {
+        const legal = legalCards(botHand);
+        const led = leadSuit();
+        const playerCard = table.find((play) => play.owner === "player")?.card;
+        const sorted = [...legal].sort((a, b) => rankPower[a.rank] - rankPower[b.rank]);
+        if (!playerCard) return sorted[0];
+        const winners = sorted.filter((card) => beats(card, playerCard, led));
+        return winners[0] || sorted[0];
+      }
+
+      function playCard(owner, cardId) {
+        if (gameOver) return;
+        const hand = owner === "player" ? playerHand : botHand;
+        const card = hand.find((item) => item.id === cardId);
+        if (!card) return;
+        const legal = legalCards(hand);
+        if (!legal.some((item) => item.id === cardId)) {
+          statusEl.textContent = `Follow ${suitIcon[leadSuit()]} if you can.`;
+          return;
+        }
+        hand.splice(hand.indexOf(card), 1);
+        table.push({ owner, card });
+        render();
+
+        if (table.length === 2) {
+          const winner = trickWinner();
+          const points = trickPoints();
+          if (winner === "player") playerScore += points;
+          else botScore += points;
+          leader = winner;
+          addLog(`${winner === "player" ? "You" : "Bot"} won ${points} points with ${cardLabel(table.find((p) => p.owner === winner).card)}.`);
+          setTimeout(() => {
+            table = [];
+            if (!playerHand.length) {
+              gameOver = true;
+              statusEl.textContent = playerScore > botScore ? "You win the hand." : playerScore < botScore ? "Bot wins the hand." : "The hand is tied.";
+            } else if (leader === "bot") {
+              statusEl.textContent = "Bot leads.";
+              playBotLead();
+            } else {
+              statusEl.textContent = "Your lead.";
+            }
+            render();
+          }, 700);
+        } else if (owner === "player") {
+          setTimeout(playBotFollow, 450);
+        } else {
+          statusEl.textContent = "Play a card to follow.";
+        }
+      }
+
+      function playBotLead() {
+        if (gameOver || leader !== "bot" || table.length) return;
+        const card = chooseBotCard();
+        playCard("bot", card.id);
+      }
+
+      function playBotFollow() {
+        if (gameOver || table.length !== 1) return;
+        const card = chooseBotCard();
+        playCard("bot", card.id);
+      }
+
+      function cardButton(card) {
+        const button = document.createElement("button");
+        const legal = legalCards(playerHand).some((item) => item.id === card.id);
+        button.className = `rounded border px-2 py-4 text-xl font-bold ${cardClass(card)} ${
+          legal && !gameOver ? "border-amber-300 bg-emerald-800 hover:bg-emerald-700" : "border-emerald-800 bg-emerald-950 opacity-50"
+        }`;
+        button.textContent = cardLabel(card);
+        button.disabled = gameOver || !legal || table.some((play) => play.owner === "player") || (leader === "bot" && table.length === 0);
+        button.addEventListener("click", () => playCard("player", card.id));
+        return button;
+      }
+
+      function renderCardSlot(el, owner) {
+        const play = table.find((item) => item.owner === owner);
+        el.textContent = cardLabel(play?.card);
+        el.className = `flex min-h-28 items-center justify-center rounded bg-emerald-900 text-3xl font-bold ${cardClass(play?.card)}`;
+      }
+
+      function render() {
+        trumpEl.textContent = suitIcon[trump];
+        playerScoreEl.textContent = playerScore;
+        botScoreEl.textContent = botScore;
+        tricksLeftEl.textContent = playerHand.length;
+        handEl.innerHTML = "";
+        playerHand.forEach((card) => handEl.appendChild(cardButton(card)));
+        renderCardSlot(playerPlayEl, "player");
+        renderCardSlot(botPlayEl, "bot");
+      }
+
+      function newGame() {
+        deck = buildDeck();
+        shuffle(deck);
+        trump = deck[0].suit;
+        playerHand = deck.slice(0, 12);
+        botHand = deck.slice(12, 24);
+        sortHand(playerHand);
+        sortHand(botHand);
+        table = [];
+        leader = "player";
+        playerScore = 0;
+        botScore = 0;
+        gameOver = false;
+        logEl.innerHTML = "";
+        statusEl.textContent = "Choose a card to lead.";
+        addLog(`Trump is ${suitIcon[trump]}. High cards and trump win tricks.`);
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
