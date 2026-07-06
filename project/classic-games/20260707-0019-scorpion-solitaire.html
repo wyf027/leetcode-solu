@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Scorpion Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-violet-950 text-violet-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Scorpion Solitaire</h1>
+          <p class="text-sm text-violet-200">Move same-suit descending runs. Build four King-to-Ace suit sequences.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="rounded border border-violet-700 px-3 py-2 text-sm">Moves <span id="moves">0</span></div>
+          <button id="dealStock" class="rounded bg-violet-100 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-white">Deal stock</button>
+          <button id="newGame" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-amber-200">New game</button>
+        </div>
+      </header>
+
+      <section class="rounded border border-violet-800 bg-violet-900 px-3 py-2 text-sm text-violet-100">
+        <div id="message">Select a visible same-suit descending run, then choose a destination column.</div>
+      </section>
+
+      <section>
+        <div class="mb-2 text-xs uppercase text-violet-300">Tableau</div>
+        <div id="tableau" class="grid grid-cols-7 gap-2"></div>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const tableauEl = document.getElementById("tableau");
+      const movesEl = document.getElementById("moves");
+      const messageEl = document.getElementById("message");
+      const dealStockBtn = document.getElementById("dealStock");
+      const newGameBtn = document.getElementById("newGame");
+
+      let tableau = [];
+      let stock = [];
+      let selected = null;
+      let moves = 0;
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank, index) => ({ suit, rank, value: index + 1 })));
+      }
+
+      function shuffle(deck) {
+        for (let i = deck.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+        return deck;
+      }
+
+      function isRed(card) {
+        return card.suit === "♥" || card.suit === "♦";
+      }
+
+      function cardLabel(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function topCard(pile) {
+        return pile[pile.length - 1];
+      }
+
+      function setMessage(text) {
+        messageEl.textContent = text;
+      }
+
+      function isValidRun(cards) {
+        for (let i = 0; i < cards.length - 1; i += 1) {
+          const current = cards[i];
+          const next = cards[i + 1];
+          if (current.suit !== next.suit || current.value !== next.value + 1) return false;
+        }
+        return true;
+      }
+
+      function canPlace(run, pile) {
+        if (!pile.length) return run[0].value === 13;
+        const target = topCard(pile);
+        return target.suit === run[0].suit && target.value === run[0].value + 1;
+      }
+
+      function completedSequences() {
+        return tableau.filter((pile) => {
+          if (pile.length < 13) return false;
+          const run = pile.slice(-13);
+          return run[0].value === 13 && run[12].value === 1 && isValidRun(run);
+        }).length;
+      }
+
+      function clearSelection(text) {
+        selected = null;
+        setMessage(text || "Select a visible same-suit descending run, then choose a destination column.");
+      }
+
+      function chooseColumn(columnIndex, cardIndex) {
+        const pile = tableau[columnIndex];
+
+        if (selected) {
+          if (selected.column === columnIndex) {
+            clearSelection();
+            render();
+            return;
+          }
+          if (canPlace(selected.cards, pile)) {
+            tableau[selected.column].splice(selected.index);
+            tableau[columnIndex].push(...selected.cards);
+            moves += 1;
+            clearSelection("Run moved.");
+          } else {
+            clearSelection("Runs land on the next higher card of the same suit, or Kings on empty columns.");
+          }
+          render();
+          return;
+        }
+
+        if (typeof cardIndex !== "number") {
+          clearSelection("Pick a card before choosing a destination.");
+          return;
+        }
+
+        const cards = pile.slice(cardIndex);
+        if (!isValidRun(cards)) {
+          clearSelection("Selected cards must form a same-suit descending run.");
+          render();
+          return;
+        }
+        selected = { column: columnIndex, index: cardIndex, cards };
+        setMessage(`Selected ${cards.map(cardLabel).join(" ")}`);
+        render();
+      }
+
+      function dealStock() {
+        if (!stock.length) {
+          clearSelection("Stock is empty.");
+          render();
+          return;
+        }
+        tableau.forEach((pile) => {
+          if (stock.length) pile.push(stock.pop());
+        });
+        moves += 1;
+        clearSelection("Stock dealt across the columns.");
+        render();
+      }
+
+      function cardView(card, options = {}) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = cardLabel(card);
+        button.className = [
+          "h-16 w-full rounded border bg-white px-2 text-left text-lg font-bold shadow-sm transition",
+          isRed(card) ? "text-rose-600" : "text-slate-900",
+          options.selected ? "border-amber-300 ring-2 ring-amber-300" : "border-violet-100 hover:-translate-y-0.5",
+        ].join(" ");
+        return button;
+      }
+
+      function emptySlot() {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "King";
+        button.className = "flex h-16 w-full items-center justify-center rounded border border-dashed border-violet-600 bg-violet-900 text-sm text-violet-300";
+        return button;
+      }
+
+      function render() {
+        tableauEl.innerHTML = "";
+        tableau.forEach((pile, columnIndex) => {
+          const column = document.createElement("div");
+          column.className = "min-h-96 rounded border border-violet-800 bg-violet-900/50 p-2";
+          if (!pile.length) {
+            const empty = emptySlot();
+            empty.addEventListener("click", () => chooseColumn(columnIndex));
+            column.appendChild(empty);
+          }
+          pile.forEach((card, cardIndex) => {
+            const node = cardView(card, { selected: selected?.column === columnIndex && cardIndex >= selected.index });
+            node.classList.add(cardIndex === 0 ? "mt-0" : "-mt-7");
+            node.addEventListener("click", () => chooseColumn(columnIndex, cardIndex));
+            column.appendChild(node);
+          });
+          tableauEl.appendChild(column);
+        });
+        movesEl.textContent = moves;
+        dealStockBtn.textContent = stock.length ? `Deal stock (${stock.length})` : "Stock empty";
+        if (completedSequences() === 4) setMessage(`All four suit sequences completed in ${moves} moves.`);
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        tableau = Array.from({ length: 7 }, () => []);
+        for (let row = 0; row < 7; row += 1) {
+          for (let column = 0; column < 7; column += 1) {
+            tableau[column].push(deck.pop());
+          }
+        }
+        stock = deck;
+        selected = null;
+        moves = 0;
+        setMessage("New Scorpion layout dealt.");
+        render();
+      }
+
+      dealStockBtn.addEventListener("click", dealStock);
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
