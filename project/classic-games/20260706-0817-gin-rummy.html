@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gin Rummy</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-stone-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Gin Rummy</h1>
+        <p class="mt-1 text-sm text-stone-300">Draw, discard, and build sets or suited runs. Knock when your deadwood is 10 or less.</p>
+      </div>
+      <button id="newRoundBtn" class="rounded bg-rose-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-rose-200">New Round</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-4">
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <p class="text-xs uppercase text-stone-400">Deadwood</p>
+        <p id="deadwoodLabel" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <p class="text-xs uppercase text-stone-400">Melds</p>
+        <p id="meldLabel" class="mt-2 text-2xl font-bold">0</p>
+      </div>
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <p class="text-xs uppercase text-stone-400">Stock</p>
+        <p id="stockLabel" class="mt-2 text-2xl font-bold">0</p>
+      </div>
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <p class="text-xs uppercase text-stone-400">Discard</p>
+        <p id="discardLabel" class="mt-2 text-2xl font-bold">-</p>
+      </div>
+    </section>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-stone-700 bg-stone-900/80 p-4">
+        <div class="mb-4 flex flex-wrap gap-3">
+          <button id="drawStockBtn" class="rounded bg-emerald-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-emerald-200">Draw Stock</button>
+          <button id="drawDiscardBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-amber-200">Take Discard</button>
+          <button id="knockBtn" class="rounded bg-sky-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-sky-200">Knock</button>
+        </div>
+        <p class="mb-3 text-sm font-semibold uppercase text-stone-400">Your Hand</p>
+        <div id="hand" class="grid grid-cols-2 gap-3 sm:grid-cols-5"></div>
+      </div>
+
+      <aside class="rounded border border-stone-700 bg-stone-900 p-4">
+        <p class="text-sm font-semibold uppercase text-stone-400">Round Log</p>
+        <div id="message" class="mt-3 rounded bg-stone-950 p-3 text-sm text-stone-200">Draw one card to start.</div>
+        <ul id="meldList" class="mt-4 space-y-2 text-sm text-stone-300"></ul>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const suits = ["clubs", "diamonds", "hearts", "spades"];
+    const icons = { clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠" };
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const rankValue = { A: 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, J: 10, Q: 10, K: 10 };
+    const order = Object.fromEntries(ranks.map((rank, index) => [rank, index + 1]));
+    let deck = [];
+    let hand = [];
+    let discard = [];
+    let selectedId = null;
+    let mustDiscard = false;
+
+    const handEl = document.getElementById("hand");
+    const msgEl = document.getElementById("message");
+    const meldList = document.getElementById("meldList");
+
+    function buildDeck() {
+      return suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank, id: `${rank}-${suit}-${Math.random()}` })));
+    }
+
+    function shuffle(cards) {
+      for (let i = cards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+      return cards;
+    }
+
+    function label(card) {
+      return `${card.rank}${icons[card.suit]}`;
+    }
+
+    function colorClass(card) {
+      return card.suit === "diamonds" || card.suit === "hearts" ? "text-red-700" : "text-stone-950";
+    }
+
+    function findSets(cards) {
+      const groups = ranks.map((rank) => cards.filter((card) => card.rank === rank)).filter((group) => group.length >= 3);
+      return groups.map((group) => ({ name: `${group[0].rank}s`, cards: group.slice(0, 3) }));
+    }
+
+    function findRuns(cards) {
+      const runs = [];
+      suits.forEach((suit) => {
+        const suited = cards.filter((card) => card.suit === suit).sort((a, b) => order[a.rank] - order[b.rank]);
+        let streak = [];
+        suited.forEach((card) => {
+          if (!streak.length || order[card.rank] === order[streak[streak.length - 1].rank] + 1) streak.push(card);
+          else streak = [card];
+          if (streak.length >= 3) runs.push({ name: `${icons[suit]} run`, cards: streak.slice(-3) });
+        });
+      });
+      return runs;
+    }
+
+    function bestMelds(cards) {
+      const melds = [...findSets(cards), ...findRuns(cards)];
+      const used = new Set();
+      return melds.filter((meld) => {
+        if (meld.cards.some((card) => used.has(card.id))) return false;
+        meld.cards.forEach((card) => used.add(card.id));
+        return true;
+      });
+    }
+
+    function scoreHand() {
+      const melds = bestMelds(hand);
+      const used = new Set(melds.flatMap((meld) => meld.cards.map((card) => card.id)));
+      const deadwood = hand.filter((card) => !used.has(card.id)).reduce((sum, card) => sum + rankValue[card.rank], 0);
+      return { melds, deadwood };
+    }
+
+    function setMessage(text) {
+      msgEl.textContent = text;
+    }
+
+    function sortHand() {
+      hand.sort((a, b) => a.suit.localeCompare(b.suit) || order[a.rank] - order[b.rank]);
+    }
+
+    function render() {
+      sortHand();
+      const score = scoreHand();
+      document.getElementById("deadwoodLabel").textContent = score.deadwood;
+      document.getElementById("meldLabel").textContent = score.melds.length;
+      document.getElementById("stockLabel").textContent = deck.length;
+      document.getElementById("discardLabel").textContent = discard.length ? label(discard[discard.length - 1]) : "-";
+      meldList.innerHTML = "";
+      score.melds.forEach((meld) => {
+        const item = document.createElement("li");
+        item.textContent = `${meld.name}: ${meld.cards.map(label).join(" ")}`;
+        meldList.appendChild(item);
+      });
+      handEl.innerHTML = "";
+      hand.forEach((card) => {
+        const btn = document.createElement("button");
+        const selected = selectedId === card.id;
+        btn.className = `h-24 rounded border bg-stone-50 text-2xl font-black shadow ${colorClass(card)} ${selected ? "border-rose-400 ring-4 ring-rose-300" : "border-stone-700 hover:-translate-y-1"}`;
+        btn.textContent = label(card);
+        btn.addEventListener("click", () => selectOrDiscard(card.id));
+        handEl.appendChild(btn);
+      });
+    }
+
+    function selectOrDiscard(cardId) {
+      if (!mustDiscard) {
+        selectedId = selectedId === cardId ? null : cardId;
+        setMessage("Draw first, then click a card to discard.");
+        render();
+        return;
+      }
+      const index = hand.findIndex((card) => card.id === cardId);
+      const card = hand.splice(index, 1)[0];
+      discard.push(card);
+      selectedId = null;
+      mustDiscard = false;
+      setMessage(`Discarded ${label(card)}. Draw again or knock.`);
+      render();
+    }
+
+    function drawFromStock() {
+      if (mustDiscard || deck.length === 0) return;
+      hand.push(deck.pop());
+      mustDiscard = true;
+      setMessage("Choose one card to discard.");
+      render();
+    }
+
+    function drawFromDiscard() {
+      if (mustDiscard || discard.length === 0) return;
+      hand.push(discard.pop());
+      mustDiscard = true;
+      setMessage("Took the discard. Choose one card to discard.");
+      render();
+    }
+
+    function knock() {
+      const score = scoreHand();
+      if (mustDiscard) {
+        setMessage("Discard before knocking.");
+      } else if (score.deadwood <= 10) {
+        setMessage(score.deadwood === 0 ? "Gin! Perfect hand." : `Knock accepted with ${score.deadwood} deadwood.`);
+      } else {
+        setMessage(`Deadwood is ${score.deadwood}. Get to 10 or less.`);
+      }
+      render();
+    }
+
+    function newRound() {
+      deck = shuffle(buildDeck());
+      hand = deck.splice(0, 10);
+      discard = [deck.pop()];
+      selectedId = null;
+      mustDiscard = false;
+      setMessage("Draw one card to start.");
+      render();
+    }
+
+    document.getElementById("drawStockBtn").addEventListener("click", drawFromStock);
+    document.getElementById("drawDiscardBtn").addEventListener("click", drawFromDiscard);
+    document.getElementById("knockBtn").addEventListener("click", knock);
+    document.getElementById("newRoundBtn").addEventListener("click", newRound);
+    newRound();
+  </script>
+</body>
+</html>
