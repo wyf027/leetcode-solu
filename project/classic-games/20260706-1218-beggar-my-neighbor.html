@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Beggar My Neighbor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-emerald-950 text-emerald-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.28em] text-amber-300">Classic card game</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Beggar My Neighbor</h1>
+        </div>
+        <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-emerald-950 shadow hover:bg-amber-200">
+          New Game
+        </button>
+      </header>
+
+      <section class="grid gap-4 md:grid-cols-[1fr_1.1fr_1fr]">
+        <div class="rounded border border-emerald-700 bg-emerald-900/70 p-4">
+          <p class="text-sm text-emerald-200">Opponent</p>
+          <p id="opponentCount" class="mt-2 text-4xl font-bold">26</p>
+          <p id="opponentState" class="mt-2 min-h-6 text-sm text-amber-200">Waiting</p>
+        </div>
+
+        <div class="rounded border border-amber-300/50 bg-emerald-900 p-4 text-center">
+          <p class="text-sm text-emerald-200">Pile</p>
+          <div class="mt-3 flex items-center justify-center gap-3">
+            <div id="lastCard" class="flex h-36 w-24 items-center justify-center rounded border border-emerald-600 bg-emerald-800 text-2xl font-bold shadow-inner">
+              --
+            </div>
+            <div>
+              <p id="pileCount" class="text-4xl font-bold text-amber-200">0</p>
+              <p class="text-sm text-emerald-200">cards</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-12 text-sm leading-6 text-emerald-100">
+            Play the next card. Face cards force the neighbor to pay cards.
+          </p>
+        </div>
+
+        <div class="rounded border border-emerald-700 bg-emerald-900/70 p-4">
+          <p class="text-sm text-emerald-200">You</p>
+          <p id="playerCount" class="mt-2 text-4xl font-bold">26</p>
+          <p id="playerState" class="mt-2 min-h-6 text-sm text-amber-200">Your lead</p>
+        </div>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-[1fr_18rem]">
+        <div class="rounded border border-emerald-700 bg-emerald-900/70 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p id="turnLabel" class="text-lg font-semibold">Your turn</p>
+              <p id="penaltyLabel" class="text-sm text-emerald-200">No active penalty</p>
+            </div>
+            <button id="playBtn" class="rounded bg-emerald-200 px-5 py-3 font-semibold text-emerald-950 hover:bg-white disabled:cursor-not-allowed disabled:bg-emerald-800 disabled:text-emerald-500">
+              Play Card
+            </button>
+          </div>
+        </div>
+
+        <div class="rounded border border-emerald-700 bg-emerald-900/70 p-4">
+          <p class="font-semibold">Face card values</p>
+          <div class="mt-3 grid grid-cols-4 gap-2 text-center text-sm">
+            <span class="rounded bg-emerald-800 py-2">J = 1</span>
+            <span class="rounded bg-emerald-800 py-2">Q = 2</span>
+            <span class="rounded bg-emerald-800 py-2">K = 3</span>
+            <span class="rounded bg-emerald-800 py-2">A = 4</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded border border-emerald-700 bg-emerald-900/70 p-4">
+        <p class="font-semibold">Table log</p>
+        <ol id="log" class="mt-3 space-y-2 text-sm text-emerald-100"></ol>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+      const faceValues = { J: 1, Q: 2, K: 3, A: 4 };
+      const state = {
+        player: [],
+        opponent: [],
+        pile: [],
+        turn: "player",
+        challenger: null,
+        debtor: null,
+        penaltyLeft: 0,
+        gameOver: false,
+      };
+
+      const playerCount = document.getElementById("playerCount");
+      const opponentCount = document.getElementById("opponentCount");
+      const pileCount = document.getElementById("pileCount");
+      const lastCard = document.getElementById("lastCard");
+      const message = document.getElementById("message");
+      const turnLabel = document.getElementById("turnLabel");
+      const penaltyLabel = document.getElementById("penaltyLabel");
+      const playerState = document.getElementById("playerState");
+      const opponentState = document.getElementById("opponentState");
+      const playBtn = document.getElementById("playBtn");
+      const newGameBtn = document.getElementById("newGameBtn");
+      const log = document.getElementById("log");
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank) => ({ rank, suit })));
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardName(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function ownerName(owner) {
+        return owner === "player" ? "You" : "Opponent";
+      }
+
+      function other(owner) {
+        return owner === "player" ? "opponent" : "player";
+      }
+
+      function addLog(text) {
+        const item = document.createElement("li");
+        item.textContent = text;
+        log.prepend(item);
+        while (log.children.length > 8) log.removeChild(log.lastChild);
+      }
+
+      function setCard(card) {
+        lastCard.textContent = card ? cardName(card) : "--";
+        lastCard.className =
+          "flex h-36 w-24 items-center justify-center rounded border bg-white text-2xl font-bold shadow " +
+          (card && (card.suit === "♥" || card.suit === "♦")
+            ? "border-red-300 text-red-600"
+            : "border-slate-300 text-slate-900");
+      }
+
+      function draw(owner) {
+        const hand = state[owner];
+        if (hand.length === 0) return null;
+        const card = hand.shift();
+        state.pile.push(card);
+        setCard(card);
+        addLog(`${ownerName(owner)} played ${cardName(card)}.`);
+        return card;
+      }
+
+      function collectPile(winner) {
+        const count = state.pile.length;
+        state[winner].push(...state.pile);
+        state.pile = [];
+        state.turn = winner;
+        state.challenger = null;
+        state.debtor = null;
+        state.penaltyLeft = 0;
+        addLog(`${ownerName(winner)} collected ${count} cards.`);
+        message.textContent = `${ownerName(winner)} wins the pile and leads next.`;
+        finishIfNeeded();
+      }
+
+      function finishIfNeeded() {
+        if (state.player.length === 0 || state.opponent.length === 0) {
+          state.gameOver = true;
+          const winner = state.player.length > state.opponent.length ? "You win" : "Opponent wins";
+          message.textContent = `${winner}. Final count: ${state.player.length} to ${state.opponent.length}.`;
+        }
+      }
+
+      function resolveCard(owner, card) {
+        const value = faceValues[card.rank] || 0;
+        if (value > 0) {
+          state.challenger = owner;
+          state.debtor = other(owner);
+          state.turn = state.debtor;
+          state.penaltyLeft = value;
+          message.textContent = `${ownerName(owner)} played a face card. ${ownerName(state.debtor)} must pay ${value}.`;
+          return;
+        }
+
+        if (state.penaltyLeft > 0) {
+          state.penaltyLeft -= 1;
+          if (state.penaltyLeft === 0) {
+            collectPile(state.challenger);
+            return;
+          }
+        }
+        state.turn = other(owner);
+      }
+
+      function playCard() {
+        if (state.gameOver || state.turn !== "player") return;
+        const card = draw("player");
+        if (!card) return finishIfNeeded();
+        resolveCard("player", card);
+        render();
+        setTimeout(opponentTurn, 450);
+      }
+
+      function opponentTurn() {
+        if (state.gameOver) return;
+        while (state.turn === "opponent" && !state.gameOver) {
+          const card = draw("opponent");
+          if (!card) {
+            finishIfNeeded();
+            break;
+          }
+          resolveCard("opponent", card);
+          if (state.turn === "player") break;
+        }
+        render();
+      }
+
+      function render() {
+        playerCount.textContent = state.player.length;
+        opponentCount.textContent = state.opponent.length;
+        pileCount.textContent = state.pile.length;
+        turnLabel.textContent = state.gameOver ? "Game over" : state.turn === "player" ? "Your turn" : "Opponent turn";
+        penaltyLabel.textContent =
+          state.penaltyLeft > 0
+            ? `${ownerName(state.debtor)} owes ${state.penaltyLeft} card${state.penaltyLeft === 1 ? "" : "s"}`
+            : "No active penalty";
+        playerState.textContent = state.turn === "player" && !state.gameOver ? "Ready to play" : "";
+        opponentState.textContent = state.turn === "opponent" && !state.gameOver ? "Playing" : "";
+        playBtn.disabled = state.gameOver || state.turn !== "player";
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        state.player = deck.slice(0, 26);
+        state.opponent = deck.slice(26);
+        state.pile = [];
+        state.turn = "player";
+        state.challenger = null;
+        state.debtor = null;
+        state.penaltyLeft = 0;
+        state.gameOver = false;
+        log.innerHTML = "";
+        setCard(null);
+        message.textContent = "Play the next card. Face cards force the neighbor to pay cards.";
+        addLog("New game dealt.");
+        render();
+      }
+
+      playBtn.addEventListener("click", playCard);
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
