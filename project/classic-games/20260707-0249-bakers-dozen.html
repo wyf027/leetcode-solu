@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Baker's Dozen</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Baker's Dozen</h1>
+        <p class="text-sm text-neutral-300">Build four foundations from Ace to King using thirteen open columns.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-teal-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-teal-300">New game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-neutral-700 bg-neutral-900 p-3 sm:grid-cols-4" aria-label="Foundations">
+      <button id="foundation-0" class="foundation min-h-24 rounded border border-dashed border-neutral-600 bg-neutral-950 p-2 text-left hover:border-teal-300"></button>
+      <button id="foundation-1" class="foundation min-h-24 rounded border border-dashed border-neutral-600 bg-neutral-950 p-2 text-left hover:border-teal-300"></button>
+      <button id="foundation-2" class="foundation min-h-24 rounded border border-dashed border-neutral-600 bg-neutral-950 p-2 text-left hover:border-teal-300"></button>
+      <button id="foundation-3" class="foundation min-h-24 rounded border border-dashed border-neutral-600 bg-neutral-950 p-2 text-left hover:border-teal-300"></button>
+    </section>
+
+    <section id="columns" class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-13" aria-label="Baker columns"></section>
+    <section id="status" class="rounded bg-neutral-800 px-3 py-2 text-sm text-neutral-200" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-neutral-100" },
+      { mark: "H", icon: "\u2665", color: "text-rose-300" },
+      { mark: "D", icon: "\u2666", color: "text-sky-300" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const columnsEl = document.getElementById("columns");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let columns = [];
+    let foundations = [[], [], [], []];
+    let selectedColumn = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      suits.forEach((suit, suitIndex) => {
+        ranks.forEach((rank, valueIndex) => {
+          deck.push({ suit: suitIndex, rank, value: valueIndex + 1 });
+        });
+      });
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      return card.rank + suits[card.suit].icon;
+    }
+
+    function topCard(columnIndex) {
+      const column = columns[columnIndex];
+      return column.length ? column[column.length - 1] : null;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card || card.suit !== foundationIndex) return false;
+      const pile = foundations[foundationIndex];
+      return pile.length === 0 ? card.value === 1 : pile[pile.length - 1].value + 1 === card.value;
+    }
+
+    function canMoveToColumn(card, targetIndex) {
+      if (!card) return false;
+      const target = topCard(targetIndex);
+      if (!target) return false;
+      return target.value === card.value + 1;
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      columns = Array.from({ length: 13 }, () => []);
+      foundations = [[], [], [], []];
+      deck.forEach((card, index) => columns[index % 13].push(card));
+      selectedColumn = null;
+      moves = 0;
+      render("Select a column top card, then move it to a foundation or another descending column.");
+    }
+
+    function chooseColumn(index) {
+      if (selectedColumn === null) {
+        if (!topCard(index)) {
+          render("Empty columns stay empty in Baker's Dozen.");
+          return;
+        }
+        selectedColumn = index;
+        render("Selected " + cardLabel(topCard(index)) + ".");
+        return;
+      }
+
+      if (selectedColumn === index) {
+        selectedColumn = null;
+        render("Selection cleared.");
+        return;
+      }
+
+      const card = topCard(selectedColumn);
+      if (canMoveToColumn(card, index)) {
+        columns[index].push(columns[selectedColumn].pop());
+        selectedColumn = null;
+        moves += 1;
+        render("Moved " + cardLabel(card) + " to a column.");
+        return;
+      }
+      render("Column moves must descend by one rank, and empty columns cannot be filled.");
+    }
+
+    function chooseFoundation(index) {
+      if (selectedColumn === null) {
+        render("Select a column top card first.");
+        return;
+      }
+      const card = topCard(selectedColumn);
+      if (canFoundation(card, index)) {
+        foundations[index].push(columns[selectedColumn].pop());
+        selectedColumn = null;
+        moves += 1;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "All four foundations are complete." : "Moved " + cardLabel(card) + " to a foundation.");
+        return;
+      }
+      render("That foundation needs the next card of the same suit.");
+    }
+
+    function cardHtml(card, isTop) {
+      return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+        suits[card.suit].color + " " + (isTop ? "border-teal-300 bg-neutral-800" : "border-neutral-700 bg-neutral-950") +
+        '">' + cardLabel(card) + '</span>';
+    }
+
+    function render(message) {
+      statusEl.textContent = message + " Moves: " + moves;
+      document.querySelectorAll(".foundation").forEach((button, index) => {
+        const pile = foundations[index];
+        const top = pile[pile.length - 1];
+        const suit = suits[index];
+        button.innerHTML = '<div class="text-xs uppercase text-neutral-400">' + suit.icon + ' foundation</div>' +
+          '<div class="mt-2 text-2xl font-bold ' + suit.color + '">' + (top ? cardLabel(top) : "A") + '</div>' +
+          '<div class="mt-1 text-xs text-neutral-500">' + pile.length + " / 13</div>";
+      });
+      columnsEl.innerHTML = "";
+      columns.forEach((column, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-56 rounded border p-2 text-left transition " +
+          (selectedColumn === index ? "border-teal-300 bg-teal-950/40" : "border-neutral-700 bg-neutral-900 hover:border-neutral-400");
+        const cards = column.map((card, cardIndex) => cardHtml(card, cardIndex === column.length - 1)).join("");
+        button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-neutral-400"><span>Column ' +
+          (index + 1) + '</span><span>' + column.length + '</span></div><div class="flex flex-wrap gap-1">' +
+          (cards || '<span class="text-sm text-neutral-500">Empty</span>') + "</div>";
+        button.addEventListener("click", () => chooseColumn(index));
+        columnsEl.appendChild(button);
+      });
+    }
+
+    document.querySelectorAll(".foundation").forEach((button, index) => {
+      button.addEventListener("click", () => chooseFoundation(index));
+    });
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
