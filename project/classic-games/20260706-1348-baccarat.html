@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Baccarat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.28em] text-rose-300">Classic comparing game</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Baccarat</h1>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="dealBtn" class="rounded bg-rose-300 px-4 py-2 font-semibold text-stone-950 hover:bg-rose-200">
+            Deal Round
+          </button>
+          <button id="newGameBtn" class="rounded border border-stone-600 px-4 py-2 font-semibold hover:bg-stone-800">
+            Reset
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-3">
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">Player wins</p>
+          <p id="playerWins" class="mt-2 text-3xl font-bold">0</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">Banker wins</p>
+          <p id="bankerWins" class="mt-2 text-3xl font-bold">0</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">Ties</p>
+          <p id="tieWins" class="mt-2 text-3xl font-bold">0</p>
+        </div>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-2">
+        <div class="rounded border border-blue-400/70 bg-stone-900 p-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold">Player</h2>
+            <p id="playerTotal" class="rounded bg-blue-300 px-3 py-1 font-bold text-stone-950">0</p>
+          </div>
+          <div id="playerHand" class="mt-4 grid min-h-32 grid-cols-3 gap-2"></div>
+        </div>
+
+        <div class="rounded border border-amber-300/70 bg-stone-900 p-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold">Banker</h2>
+            <p id="bankerTotal" class="rounded bg-amber-300 px-3 py-1 font-bold text-stone-950">0</p>
+          </div>
+          <div id="bankerHand" class="mt-4 grid min-h-32 grid-cols-3 gap-2"></div>
+        </div>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-[1fr_18rem]">
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <p id="message" class="min-h-8 text-lg font-semibold">Deal a round. Highest final digit wins.</p>
+          <p id="ruleLine" class="mt-2 text-sm leading-6 text-stone-300">
+            Tens and face cards count as zero. Natural 8 or 9 stands. Otherwise the player draws on 0-5, and the banker follows the compact baccarat draw rule.
+          </p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">Cards left</p>
+          <p id="stockCount" class="mt-2 text-3xl font-bold">52</p>
+        </div>
+      </section>
+
+      <section class="rounded border border-stone-700 bg-stone-900 p-4">
+        <p class="font-semibold">Round log</p>
+        <ol id="log" class="mt-3 space-y-2 text-sm text-stone-300"></ol>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const state = {
+        stock: [],
+        player: [],
+        banker: [],
+        score: { player: 0, banker: 0, tie: 0 },
+      };
+
+      const playerHand = document.getElementById("playerHand");
+      const bankerHand = document.getElementById("bankerHand");
+      const playerTotal = document.getElementById("playerTotal");
+      const bankerTotal = document.getElementById("bankerTotal");
+      const playerWins = document.getElementById("playerWins");
+      const bankerWins = document.getElementById("bankerWins");
+      const tieWins = document.getElementById("tieWins");
+      const stockCount = document.getElementById("stockCount");
+      const message = document.getElementById("message");
+      const log = document.getElementById("log");
+      const dealBtn = document.getElementById("dealBtn");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank) => ({ rank, suit })));
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardValue(card) {
+        if (card.rank === "A") return 1;
+        if (["10", "J", "Q", "K"].includes(card.rank)) return 0;
+        return Number(card.rank);
+      }
+
+      function handTotal(cards) {
+        return cards.reduce((sum, card) => sum + cardValue(card), 0) % 10;
+      }
+
+      function cardName(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function cardColor(card) {
+        return card.suit === "♥" || card.suit === "♦" ? "text-red-600" : "text-stone-950";
+      }
+
+      function draw() {
+        if (state.stock.length < 8) {
+          state.stock = shuffle(buildDeck());
+          addLog("Deck reshuffled.");
+        }
+        return state.stock.shift();
+      }
+
+      function bankerShouldDraw(bankerTotalValue, playerThirdValue) {
+        if (playerThirdValue === null) return bankerTotalValue <= 5;
+        if (bankerTotalValue <= 2) return true;
+        if (bankerTotalValue === 3) return playerThirdValue !== 8;
+        if (bankerTotalValue === 4) return playerThirdValue >= 2 && playerThirdValue <= 7;
+        if (bankerTotalValue === 5) return playerThirdValue >= 4 && playerThirdValue <= 7;
+        if (bankerTotalValue === 6) return playerThirdValue === 6 || playerThirdValue === 7;
+        return false;
+      }
+
+      function addLog(text) {
+        const item = document.createElement("li");
+        item.textContent = text;
+        log.prepend(item);
+        while (log.children.length > 8) log.removeChild(log.lastChild);
+      }
+
+      function dealRound() {
+        state.player = [draw(), draw()];
+        state.banker = [draw(), draw()];
+        let playerScore = handTotal(state.player);
+        let bankerScore = handTotal(state.banker);
+        let playerThirdValue = null;
+
+        if (playerScore < 8 && bankerScore < 8) {
+          if (playerScore <= 5) {
+            const card = draw();
+            state.player.push(card);
+            playerThirdValue = cardValue(card);
+          }
+          bankerScore = handTotal(state.banker);
+          if (bankerShouldDraw(bankerScore, playerThirdValue)) {
+            state.banker.push(draw());
+          }
+        }
+
+        playerScore = handTotal(state.player);
+        bankerScore = handTotal(state.banker);
+        let result = "Tie";
+        if (playerScore > bankerScore) {
+          state.score.player += 1;
+          result = "Player wins";
+        } else if (bankerScore > playerScore) {
+          state.score.banker += 1;
+          result = "Banker wins";
+        } else {
+          state.score.tie += 1;
+        }
+        message.textContent = `${result}: ${playerScore} to ${bankerScore}.`;
+        addLog(`${result} with Player ${state.player.map(cardName).join(" ")} vs Banker ${state.banker.map(cardName).join(" ")}.`);
+        render();
+      }
+
+      function renderHand(container, cards) {
+        container.innerHTML = "";
+        cards.forEach((card) => {
+          const div = document.createElement("div");
+          div.className = `flex h-28 items-center justify-center rounded bg-white text-2xl font-bold shadow ${cardColor(card)}`;
+          div.textContent = cardName(card);
+          container.appendChild(div);
+        });
+      }
+
+      function render() {
+        renderHand(playerHand, state.player);
+        renderHand(bankerHand, state.banker);
+        playerTotal.textContent = handTotal(state.player);
+        bankerTotal.textContent = handTotal(state.banker);
+        playerWins.textContent = state.score.player;
+        bankerWins.textContent = state.score.banker;
+        tieWins.textContent = state.score.tie;
+        stockCount.textContent = state.stock.length;
+      }
+
+      function newGame() {
+        state.stock = shuffle(buildDeck());
+        state.player = [];
+        state.banker = [];
+        state.score = { player: 0, banker: 0, tie: 0 };
+        log.innerHTML = "";
+        message.textContent = "Deal a round. Highest final digit wins.";
+        render();
+      }
+
+      dealBtn.addEventListener("click", dealRound);
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
