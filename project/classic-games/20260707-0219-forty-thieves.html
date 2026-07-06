@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Forty Thieves</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Forty Thieves</h1>
+        <p class="text-sm text-stone-300">Build eight foundations by suit from Ace to King.</p>
+      </div>
+      <div class="flex gap-2">
+        <button id="drawBtn" class="rounded bg-sky-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-sky-300">Draw</button>
+        <button id="newGameBtn" class="rounded bg-lime-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-lime-300">New game</button>
+      </div>
+    </header>
+
+    <section class="grid gap-3 lg:grid-cols-[220px_1fr]" aria-label="Forty Thieves table">
+      <aside class="grid gap-3 rounded border border-stone-700 bg-stone-900 p-3">
+        <div class="grid grid-cols-2 gap-2">
+          <button id="stock" class="min-h-24 rounded border border-stone-700 bg-stone-950 p-2 text-left hover:border-sky-300"></button>
+          <button id="waste" class="min-h-24 rounded border border-stone-700 bg-stone-950 p-2 text-left hover:border-lime-300"></button>
+        </div>
+        <div id="foundations" class="grid grid-cols-2 gap-2"></div>
+      </aside>
+      <section id="tableau" class="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:grid-cols-10" aria-label="Tableau"></section>
+    </section>
+
+    <section id="status" class="rounded bg-stone-800 px-3 py-2 text-sm text-stone-200" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-stone-100" },
+      { mark: "H", icon: "\u2665", color: "text-rose-300" },
+      { mark: "D", icon: "\u2666", color: "text-cyan-300" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const tableauEl = document.getElementById("tableau");
+    const foundationsEl = document.getElementById("foundations");
+    const stockEl = document.getElementById("stock");
+    const wasteEl = document.getElementById("waste");
+    const statusEl = document.getElementById("status");
+    const drawBtn = document.getElementById("drawBtn");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let tableau = [];
+    let foundations = [];
+    let stock = [];
+    let waste = [];
+    let selected = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      for (let copy = 0; copy < 2; copy += 1) {
+        suits.forEach((suit, suitIndex) => {
+          ranks.forEach((rank, valueIndex) => {
+            deck.push({ suit: suitIndex, rank, value: valueIndex + 1, copy });
+          });
+        });
+      }
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      return card.rank + suits[card.suit].icon;
+    }
+
+    function topOf(source) {
+      if (source.type === "waste") return waste[waste.length - 1] || null;
+      const pile = tableau[source.index];
+      return pile.length ? pile[pile.length - 1] : null;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card) return false;
+      const pile = foundations[foundationIndex];
+      if (pile.length && pile[0].suit !== card.suit) return false;
+      if (!pile.length) return card.value === 1;
+      return pile[pile.length - 1].value + 1 === card.value;
+    }
+
+    function canMoveToTableau(card, targetIndex) {
+      if (!card) return false;
+      const target = tableau[targetIndex][tableau[targetIndex].length - 1];
+      if (!target) return true;
+      return target.suit === card.suit && target.value === card.value + 1;
+    }
+
+    function removeSelectedCard() {
+      if (!selected) return null;
+      if (selected.type === "waste") return waste.pop();
+      return tableau[selected.index].pop();
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      tableau = Array.from({ length: 10 }, () => []);
+      foundations = Array.from({ length: 8 }, () => []);
+      for (let round = 0; round < 4; round += 1) {
+        for (let pile = 0; pile < 10; pile += 1) tableau[pile].push(deck.pop());
+      }
+      stock = deck;
+      waste = [];
+      selected = null;
+      moves = 0;
+      render("Draw from stock or select a top card to move.");
+    }
+
+    function drawCard() {
+      if (!stock.length) {
+        render("Stock is empty. Keep building from tableau and waste.");
+        return;
+      }
+      waste.push(stock.pop());
+      selected = null;
+      moves += 1;
+      render("Drew " + cardLabel(waste[waste.length - 1]) + ".");
+    }
+
+    function chooseSource(source) {
+      const card = topOf(source);
+      if (!card) {
+        render("That pile is empty.");
+        return;
+      }
+      selected = source;
+      render("Selected " + cardLabel(card) + ".");
+    }
+
+    function chooseTableau(index) {
+      if (!selected) {
+        chooseSource({ type: "tableau", index });
+        return;
+      }
+      if (selected.type === "tableau" && selected.index === index) {
+        selected = null;
+        render("Selection cleared.");
+        return;
+      }
+      const card = topOf(selected);
+      if (canMoveToTableau(card, index)) {
+        tableau[index].push(removeSelectedCard());
+        selected = null;
+        moves += 1;
+        render("Moved " + cardLabel(card) + " to tableau.");
+        return;
+      }
+      render("Tableau builds down by suit.");
+    }
+
+    function chooseFoundation(index) {
+      if (!selected) {
+        render("Select a tableau or waste card first.");
+        return;
+      }
+      const card = topOf(selected);
+      if (canFoundation(card, index)) {
+        foundations[index].push(removeSelectedCard());
+        selected = null;
+        moves += 1;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "All thieves caught. You win." : "Moved " + cardLabel(card) + " to a foundation.");
+        return;
+      }
+      render("That foundation needs an Ace or the next card of its suit.");
+    }
+
+    function cardHtml(card, isTop) {
+      return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+        suits[card.suit].color + " " + (isTop ? "border-lime-300 bg-stone-800" : "border-stone-700 bg-stone-900") +
+        '">' + cardLabel(card) + '</span>';
+    }
+
+    function render(message) {
+      statusEl.textContent = message + " Moves: " + moves;
+      stockEl.innerHTML = '<div class="text-xs uppercase text-stone-400">Stock</div><div class="mt-2 text-2xl font-bold">' +
+        stock.length + '</div><div class="text-xs text-stone-500">cards</div>';
+      const wasteTop = waste[waste.length - 1];
+      wasteEl.innerHTML = '<div class="text-xs uppercase text-stone-400">Waste</div><div class="mt-2">' +
+        (wasteTop ? cardHtml(wasteTop, selected && selected.type === "waste") : '<span class="text-sm text-stone-500">Empty</span>') + '</div>';
+      foundationsEl.innerHTML = "";
+      foundations.forEach((pile, index) => {
+        const top = pile[pile.length - 1];
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-20 rounded border border-dashed border-stone-600 bg-stone-950 p-2 text-left hover:border-lime-300";
+        button.innerHTML = '<div class="text-xs uppercase text-stone-400">Foundation ' + (index + 1) + '</div><div class="mt-2">' +
+          (top ? cardHtml(top, true) : '<span class="text-sm text-stone-500">A start</span>') +
+          '</div><div class="mt-1 text-xs text-stone-500">' + pile.length + " / 13</div>";
+        button.addEventListener("click", () => chooseFoundation(index));
+        foundationsEl.appendChild(button);
+      });
+      tableauEl.innerHTML = "";
+      tableau.forEach((pile, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-72 rounded border p-2 text-left transition " +
+          (selected && selected.type === "tableau" && selected.index === index ? "border-lime-300 bg-lime-950/40" : "border-stone-700 bg-stone-900 hover:border-stone-400");
+        const cards = pile.map((card, cardIndex) => cardHtml(card, cardIndex === pile.length - 1)).join("");
+        button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-stone-400"><span>Pile ' +
+          (index + 1) + '</span><span>' + pile.length + '</span></div><div class="flex flex-wrap gap-1">' +
+          (cards || '<span class="text-sm text-stone-500">Empty</span>') + "</div>";
+        button.addEventListener("click", () => chooseTableau(index));
+        tableauEl.appendChild(button);
+      });
+    }
+
+    stockEl.addEventListener("click", drawCard);
+    wasteEl.addEventListener("click", () => chooseSource({ type: "waste" }));
+    drawBtn.addEventListener("click", drawCard);
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
