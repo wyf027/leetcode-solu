@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Sheepshead</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-50">
+    <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Sheepshead</h1>
+          <p class="text-sm text-zinc-300">Pick the blind, chase 61 points, and manage powerful queens and jacks.</p>
+        </div>
+        <button id="newGameBtn" class="rounded bg-yellow-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-yellow-200">
+          New Hand
+        </button>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-5">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+          <div class="text-xs uppercase text-zinc-400">Trump</div>
+          <div class="mt-1 text-lg font-bold">Q, J, ♦</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+          <div class="text-xs uppercase text-zinc-400">Picker</div>
+          <div class="mt-1 text-lg font-bold">You</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+          <div class="text-xs uppercase text-zinc-400">Your Points</div>
+          <div id="playerScore" class="mt-1 text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+          <div class="text-xs uppercase text-zinc-400">Defenders</div>
+          <div id="defenderScore" class="mt-1 text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+          <div class="text-xs uppercase text-zinc-400">Tricks Left</div>
+          <div id="tricksLeft" class="mt-1 text-lg font-bold">10</div>
+        </div>
+      </section>
+
+      <section class="grid flex-1 gap-4 lg:grid-cols-[1fr_18rem]">
+        <div class="flex flex-col gap-4">
+          <div class="grid gap-3 md:grid-cols-3">
+            <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+              <div class="mb-2 text-xs uppercase text-zinc-400">Left Defender</div>
+              <div id="leftPlay" class="flex min-h-28 items-center justify-center rounded bg-zinc-950 text-3xl font-bold">-</div>
+            </div>
+            <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+              <div class="mb-2 text-xs uppercase text-zinc-400">You</div>
+              <div id="playerPlay" class="flex min-h-28 items-center justify-center rounded bg-zinc-950 text-3xl font-bold">-</div>
+            </div>
+            <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+              <div class="mb-2 text-xs uppercase text-zinc-400">Right Defender</div>
+              <div id="rightPlay" class="flex min-h-28 items-center justify-center rounded bg-zinc-950 text-3xl font-bold">-</div>
+            </div>
+          </div>
+
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <h2 class="font-semibold">Your Hand</h2>
+              <div id="status" class="text-sm text-zinc-300">Lead a card.</div>
+            </div>
+            <div id="hand" class="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-10"></div>
+          </div>
+        </div>
+
+        <aside class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <h2 class="mb-3 font-semibold">Hand Log</h2>
+          <ol id="log" class="space-y-2 text-sm text-zinc-200"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["clubs", "spades", "hearts", "diamonds"];
+      const suitIcon = { clubs: "♣", spades: "♠", hearts: "♥", diamonds: "♦" };
+      const ranks = ["7", "8", "9", "K", "10", "A", "J", "Q"];
+      const pointMap = { "7": 0, "8": 0, "9": 0, K: 4, "10": 10, A: 11, J: 2, Q: 3 };
+      const basePower = { "7": 1, "8": 2, "9": 3, K: 4, "10": 5, A: 6 };
+      const queenPower = { clubs: 16, spades: 15, hearts: 14, diamonds: 13 };
+      const jackPower = { clubs: 12, spades: 11, hearts: 10, diamonds: 9 };
+      const seats = ["player", "left", "right"];
+      const seatName = { player: "You", left: "Left", right: "Right" };
+      let hands = { player: [], left: [], right: [] };
+      let blind = [];
+      let table = [];
+      let leader = "player";
+      let playerScore = 0;
+      let defenderScore = 0;
+      let gameOver = false;
+
+      const handEl = document.getElementById("hand");
+      const logEl = document.getElementById("log");
+      const statusEl = document.getElementById("status");
+      const playerScoreEl = document.getElementById("playerScore");
+      const defenderScoreEl = document.getElementById("defenderScore");
+      const tricksLeftEl = document.getElementById("tricksLeft");
+      const playerPlayEl = document.getElementById("playerPlay");
+      const leftPlayEl = document.getElementById("leftPlay");
+      const rightPlayEl = document.getElementById("rightPlay");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      function buildDeck() {
+        const deck = [];
+        for (const suit of suits) {
+          for (const rank of ranks) deck.push({ suit, rank, id: `${suit}-${rank}` });
+        }
+        return deck;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+      }
+
+      function isTrump(card) {
+        return card.rank === "Q" || card.rank === "J" || card.suit === "diamonds";
+      }
+
+      function cardPower(card) {
+        if (card.rank === "Q") return queenPower[card.suit];
+        if (card.rank === "J") return jackPower[card.suit];
+        return (isTrump(card) ? 8 : 0) + basePower[card.rank];
+      }
+
+      function cardLabel(card) {
+        return card ? `${card.rank}${suitIcon[card.suit]}` : "-";
+      }
+
+      function cardClass(card) {
+        return card && (card.suit === "hearts" || card.suit === "diamonds") ? "text-red-300" : "text-zinc-50";
+      }
+
+      function sortHand(hand) {
+        hand.sort((a, b) => Number(isTrump(a)) - Number(isTrump(b)) || suits.indexOf(a.suit) - suits.indexOf(b.suit) || cardPower(a) - cardPower(b));
+      }
+
+      function addLog(message) {
+        const item = document.createElement("li");
+        item.className = "rounded bg-zinc-950 px-3 py-2";
+        item.textContent = message;
+        logEl.prepend(item);
+      }
+
+      function leadSuit() {
+        const first = table[0]?.card;
+        if (!first) return null;
+        return isTrump(first) ? "trump" : first.suit;
+      }
+
+      function follows(card, led) {
+        return led === "trump" ? isTrump(card) : !isTrump(card) && card.suit === led;
+      }
+
+      function legalCards(hand) {
+        const led = leadSuit();
+        if (!led) return hand;
+        const matching = hand.filter((card) => follows(card, led));
+        return matching.length ? matching : hand;
+      }
+
+      function beats(challenger, current, led) {
+        const challengerTrump = isTrump(challenger);
+        const currentTrump = isTrump(current);
+        if (challengerTrump || currentTrump) {
+          if (challengerTrump !== currentTrump) return challengerTrump;
+          return cardPower(challenger) > cardPower(current);
+        }
+        if (challenger.suit === current.suit) return cardPower(challenger) > cardPower(current);
+        return challenger.suit === led && current.suit !== led;
+      }
+
+      function trickWinner() {
+        const led = leadSuit();
+        let winner = table[0];
+        for (const play of table.slice(1)) {
+          if (beats(play.card, winner.card, led)) winner = play;
+        }
+        return winner.owner;
+      }
+
+      function trickPoints() {
+        return table.reduce((sum, play) => sum + pointMap[play.card.rank], 0);
+      }
+
+      function nextSeat(seat) {
+        return seats[(seats.indexOf(seat) + 1) % seats.length];
+      }
+
+      function currentSeat() {
+        let seat = leader;
+        for (let i = 0; i < table.length; i += 1) seat = nextSeat(seat);
+        return seat;
+      }
+
+      function chooseBotCard(seat) {
+        const legal = legalCards(hands[seat]);
+        const sorted = [...legal].sort((a, b) => cardPower(a) - cardPower(b));
+        if (!table.length) return sorted[0];
+        const led = leadSuit();
+        let best = table[0];
+        for (const play of table.slice(1)) {
+          if (beats(play.card, best.card, led)) best = play;
+        }
+        const winners = sorted.filter((card) => beats(card, best.card, led));
+        return winners[0] || sorted[0];
+      }
+
+      function finishTrick() {
+        const winner = trickWinner();
+        const points = trickPoints();
+        if (winner === "player") playerScore += points;
+        else defenderScore += points;
+        addLog(`${seatName[winner]} won ${points} points.`);
+        leader = winner;
+        setTimeout(() => {
+          table = [];
+          if (!hands.player.length) {
+            gameOver = true;
+            const blindPoints = blind.reduce((sum, card) => sum + pointMap[card.rank], 0);
+            playerScore += blindPoints;
+            statusEl.textContent = playerScore >= 61 ? "Picker wins with 61+." : "Defenders stop the picker.";
+          } else {
+            statusEl.textContent = leader === "player" ? "Your lead." : `${seatName[leader]} leads.`;
+            runBots();
+          }
+          render();
+        }, 650);
+      }
+
+      function playCard(owner, cardId) {
+        if (gameOver || currentSeat() !== owner) return;
+        const hand = hands[owner];
+        const card = hand.find((item) => item.id === cardId);
+        if (!card) return;
+        if (!legalCards(hand).some((item) => item.id === cardId)) {
+          statusEl.textContent = "Follow suit or trump if possible.";
+          return;
+        }
+        hand.splice(hand.indexOf(card), 1);
+        table.push({ owner, card });
+        render();
+        if (table.length === 3) finishTrick();
+        else runBots();
+      }
+
+      function runBots() {
+        if (gameOver) return;
+        const seat = currentSeat();
+        if (seat === "player") {
+          statusEl.textContent = table.length ? "Play a legal card." : "Lead a card.";
+          render();
+          return;
+        }
+        setTimeout(() => playCard(seat, chooseBotCard(seat).id), 450);
+      }
+
+      function cardButton(card) {
+        const legal = legalCards(hands.player).some((item) => item.id === card.id);
+        const enabled = !gameOver && currentSeat() === "player" && legal;
+        const button = document.createElement("button");
+        button.className = `rounded border px-2 py-4 text-lg font-bold ${cardClass(card)} ${
+          enabled ? "border-yellow-300 bg-zinc-800 hover:bg-zinc-700" : "border-zinc-800 bg-zinc-950 opacity-50"
+        }`;
+        button.textContent = cardLabel(card);
+        button.disabled = !enabled;
+        button.addEventListener("click", () => playCard("player", card.id));
+        return button;
+      }
+
+      function renderSlot(element, owner) {
+        const play = table.find((item) => item.owner === owner);
+        element.textContent = cardLabel(play?.card);
+        element.className = `flex min-h-28 items-center justify-center rounded bg-zinc-950 text-3xl font-bold ${cardClass(play?.card)}`;
+      }
+
+      function render() {
+        playerScoreEl.textContent = playerScore;
+        defenderScoreEl.textContent = defenderScore;
+        tricksLeftEl.textContent = hands.player.length;
+        handEl.innerHTML = "";
+        hands.player.forEach((card) => handEl.appendChild(cardButton(card)));
+        renderSlot(playerPlayEl, "player");
+        renderSlot(leftPlayEl, "left");
+        renderSlot(rightPlayEl, "right");
+      }
+
+      function newGame() {
+        const deck = buildDeck();
+        shuffle(deck);
+        hands.player = deck.slice(0, 10);
+        hands.left = deck.slice(10, 20);
+        hands.right = deck.slice(20, 30);
+        blind = deck.slice(30, 32);
+        hands.player = hands.player.concat(blind);
+        hands.player.sort((a, b) => pointMap[a.rank] - pointMap[b.rank]);
+        blind = hands.player.splice(0, 2);
+        for (const seat of seats) sortHand(hands[seat]);
+        table = [];
+        leader = "player";
+        playerScore = 0;
+        defenderScore = 0;
+        gameOver = false;
+        logEl.innerHTML = "";
+        statusEl.textContent = "Lead a card.";
+        addLog(`You picked the blind and buried ${blind.map(cardLabel).join(" ")}.`);
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
