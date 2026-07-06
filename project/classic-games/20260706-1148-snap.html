@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Snap</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-fuchsia-950 text-fuchsia-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-fuchsia-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Snap</h1>
+        <p class="mt-1 text-sm text-fuchsia-200">Flip cards. If ranks match, hit Snap before the rival claims the pile.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-fuchsia-950 hover:bg-amber-200">New Game</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-4">
+      <div class="rounded border border-fuchsia-700 bg-fuchsia-900 p-4">
+        <p class="text-xs uppercase text-fuchsia-300">Your Score</p>
+        <p id="playerScore" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-fuchsia-700 bg-fuchsia-900 p-4">
+        <p class="text-xs uppercase text-fuchsia-300">Rival Score</p>
+        <p id="rivalScore" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-fuchsia-700 bg-fuchsia-900 p-4">
+        <p class="text-xs uppercase text-fuchsia-300">Cards Left</p>
+        <p id="deckCount" class="mt-2 text-3xl font-black">52</p>
+      </div>
+      <div class="rounded border border-fuchsia-700 bg-fuchsia-900 p-4">
+        <p class="text-xs uppercase text-fuchsia-300">Pile</p>
+        <p id="pileCount" class="mt-2 text-3xl font-black">0</p>
+      </div>
+    </section>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-fuchsia-700 bg-fuchsia-900/80 p-4">
+        <div class="grid min-h-60 place-items-center rounded bg-fuchsia-950 p-4">
+          <div class="flex flex-wrap justify-center gap-6">
+            <div class="text-center">
+              <p class="mb-2 text-sm font-semibold uppercase text-fuchsia-300">Previous</p>
+              <div id="previousCard" class="grid h-32 w-24 place-items-center rounded border border-fuchsia-700 bg-fuchsia-800 text-3xl font-black">?</div>
+            </div>
+            <div class="text-center">
+              <p class="mb-2 text-sm font-semibold uppercase text-fuchsia-300">Current</p>
+              <div id="currentCard" class="grid h-32 w-24 place-items-center rounded border border-fuchsia-700 bg-fuchsia-800 text-3xl font-black">?</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap justify-center gap-3">
+          <button id="flipBtn" class="rounded bg-cyan-300 px-5 py-2 text-sm font-bold text-fuchsia-950 hover:bg-cyan-200">Flip Card</button>
+          <button id="snapBtn" class="rounded bg-lime-300 px-5 py-2 text-sm font-bold text-fuchsia-950 hover:bg-lime-200">Snap!</button>
+        </div>
+      </div>
+
+      <aside class="rounded border border-fuchsia-700 bg-fuchsia-900 p-4">
+        <p class="text-sm font-semibold uppercase text-fuchsia-300">Snap Log</p>
+        <div id="message" class="mt-3 rounded bg-fuchsia-950 p-3 text-sm text-fuchsia-100">Flip a card to start.</div>
+        <ol id="log" class="mt-4 space-y-2 text-sm text-fuchsia-200"></ol>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const suits = ["clubs", "diamonds", "hearts", "spades"];
+    const icons = { clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠" };
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    let deck = [];
+    let pile = [];
+    let playerScore = 0;
+    let rivalScore = 0;
+    let snapOpen = false;
+    let rivalTimer = null;
+    let gameOver = false;
+
+    const previousCardEl = document.getElementById("previousCard");
+    const currentCardEl = document.getElementById("currentCard");
+    const msgEl = document.getElementById("message");
+    const logEl = document.getElementById("log");
+
+    function buildDeck() {
+      return suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank, id: `${rank}-${suit}-${Math.random()}` })));
+    }
+
+    function shuffle(cards) {
+      for (let i = cards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+      return cards;
+    }
+
+    function label(card) {
+      return `${card.rank}${icons[card.suit]}`;
+    }
+
+    function colorClass(card) {
+      return card.suit === "diamonds" || card.suit === "hearts" ? "text-red-700" : "text-fuchsia-950";
+    }
+
+    function setCard(el, card) {
+      if (!card) {
+        el.textContent = "?";
+        el.className = "grid h-32 w-24 place-items-center rounded border border-fuchsia-700 bg-fuchsia-800 text-3xl font-black";
+        return;
+      }
+      el.textContent = label(card);
+      el.className = `grid h-32 w-24 place-items-center rounded border border-amber-300 bg-fuchsia-50 text-3xl font-black ${colorClass(card)}`;
+    }
+
+    function addLog(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      logEl.prepend(item);
+    }
+
+    function setMessage(text) {
+      msgEl.textContent = text;
+    }
+
+    function ranksMatch() {
+      return pile.length >= 2 && pile[pile.length - 1].rank === pile[pile.length - 2].rank;
+    }
+
+    function claimPile(owner) {
+      const points = pile.length;
+      if (owner === "player") {
+        playerScore += points;
+        addLog(`You snapped ${points} cards.`);
+        setMessage("You claimed the pile.");
+      } else {
+        rivalScore += points;
+        addLog(`Rival snapped ${points} cards.`);
+        setMessage("Rival claimed the pile.");
+      }
+      pile = [];
+      snapOpen = false;
+      clearTimeout(rivalTimer);
+      setCard(previousCardEl, null);
+      setCard(currentCardEl, null);
+      render();
+    }
+
+    function falseSnap() {
+      if (gameOver) return;
+      rivalScore += 2;
+      snapOpen = false;
+      clearTimeout(rivalTimer);
+      addLog("False snap. Rival gains 2.");
+      setMessage("No match. Flip again.");
+      render();
+    }
+
+    function flipCard() {
+      if (gameOver || snapOpen) return;
+      if (deck.length === 0) {
+        gameOver = true;
+        const result = playerScore > rivalScore ? "You win." : playerScore < rivalScore ? "Rival wins." : "Tie game.";
+        setMessage(`Deck empty. ${result}`);
+        render();
+        return;
+      }
+      pile.push(deck.pop());
+      setCard(previousCardEl, pile[pile.length - 2]);
+      setCard(currentCardEl, pile[pile.length - 1]);
+      if (ranksMatch()) {
+        snapOpen = true;
+        setMessage("Match! Hit Snap now.");
+        const delay = 900 + Math.random() * 900;
+        rivalTimer = setTimeout(() => claimPile("rival"), delay);
+      } else {
+        setMessage("No match. Flip another card.");
+      }
+      render();
+    }
+
+    function playerSnap() {
+      if (gameOver) return;
+      if (snapOpen && ranksMatch()) claimPile("player");
+      else falseSnap();
+    }
+
+    function render() {
+      document.getElementById("playerScore").textContent = playerScore;
+      document.getElementById("rivalScore").textContent = rivalScore;
+      document.getElementById("deckCount").textContent = deck.length;
+      document.getElementById("pileCount").textContent = pile.length;
+      document.getElementById("flipBtn").disabled = gameOver || snapOpen;
+      document.getElementById("snapBtn").disabled = gameOver;
+    }
+
+    function newGame() {
+      clearTimeout(rivalTimer);
+      deck = shuffle(buildDeck());
+      pile = [];
+      playerScore = 0;
+      rivalScore = 0;
+      snapOpen = false;
+      gameOver = false;
+      logEl.innerHTML = "";
+      setCard(previousCardEl, null);
+      setCard(currentCardEl, null);
+      setMessage("Flip a card to start.");
+      render();
+    }
+
+    document.getElementById("flipBtn").addEventListener("click", flipCard);
+    document.getElementById("snapBtn").addEventListener("click", playerSnap);
+    document.getElementById("newGameBtn").addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
