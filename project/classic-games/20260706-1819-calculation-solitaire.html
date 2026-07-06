@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Calculation Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-50">
+    <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div>
+          <h1 class="text-2xl font-bold">Mini Calculation Solitaire</h1>
+          <p class="text-sm text-slate-300">Build four foundations by counting up in steps of 1, 2, 3, and 4.</p>
+        </div>
+        <div class="flex gap-2">
+          <button id="drawBtn" class="rounded bg-sky-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-sky-200">Draw</button>
+          <button id="newGameBtn" class="rounded bg-emerald-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-200">New Game</button>
+        </div>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-3">
+          <div class="text-xs uppercase text-slate-400">Stock</div>
+          <div id="stockCount" class="mt-1 text-2xl font-bold">48</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-3">
+          <div class="text-xs uppercase text-slate-400">Waste</div>
+          <div id="wasteCount" class="mt-1 text-2xl font-bold">0</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-3">
+          <div class="text-xs uppercase text-slate-400">Placed</div>
+          <div id="placedCount" class="mt-1 text-2xl font-bold">4</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-3">
+          <div class="text-xs uppercase text-slate-400">Status</div>
+          <div id="status" class="mt-1 text-sm font-semibold text-slate-200">Draw a card.</div>
+        </div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+        <div class="flex flex-col gap-4">
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <h2 class="mb-3 font-semibold">Foundations</h2>
+            <div id="foundations" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"></div>
+          </div>
+
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">Waste Top</h2>
+              <div id="heldCard" class="text-sm text-slate-300">No card drawn.</div>
+            </div>
+            <div id="waste" class="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-8"></div>
+          </div>
+        </div>
+
+        <aside class="rounded border border-slate-800 bg-slate-900 p-4">
+          <h2 class="mb-3 font-semibold">Move Log</h2>
+          <ol id="log" class="space-y-2 text-sm text-slate-200"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["spades", "hearts", "diamonds", "clubs"];
+      const suitIcon = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const rankValue = Object.fromEntries(ranks.map((rank, index) => [rank, index + 1]));
+      const foundations = [
+        { step: 1, base: 1, cards: [] },
+        { step: 2, base: 2, cards: [] },
+        { step: 3, base: 3, cards: [] },
+        { step: 4, base: 4, cards: [] },
+      ];
+      let stock = [];
+      let waste = [];
+      let selectedWaste = null;
+
+      const foundationsEl = document.getElementById("foundations");
+      const wasteEl = document.getElementById("waste");
+      const logEl = document.getElementById("log");
+      const statusEl = document.getElementById("status");
+      const heldCardEl = document.getElementById("heldCard");
+      const stockCountEl = document.getElementById("stockCount");
+      const wasteCountEl = document.getElementById("wasteCount");
+      const placedCountEl = document.getElementById("placedCount");
+      const drawBtn = document.getElementById("drawBtn");
+      const newGameBtn = document.getElementById("newGameBtn");
+
+      function buildDeck() {
+        const deck = [];
+        for (const suit of suits) {
+          for (const rank of ranks) deck.push({ suit, rank, id: `${suit}-${rank}` });
+        }
+        return deck;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+      }
+
+      function cardLabel(card) {
+        return card ? `${card.rank}${suitIcon[card.suit]}` : "-";
+      }
+
+      function cardClass(card) {
+        return card && (card.suit === "hearts" || card.suit === "diamonds") ? "text-red-300" : "text-slate-50";
+      }
+
+      function expectedRank(foundation) {
+        const count = foundation.cards.length;
+        const value = ((foundation.base - 1 + foundation.step * count) % 13) + 1;
+        return ranks[value - 1];
+      }
+
+      function addLog(message) {
+        const item = document.createElement("li");
+        item.className = "rounded bg-slate-950 px-3 py-2";
+        item.textContent = message;
+        logEl.prepend(item);
+      }
+
+      function canPlace(card, foundation) {
+        return card && foundation.cards.length < 13 && card.rank === expectedRank(foundation);
+      }
+
+      function placedTotal() {
+        return foundations.reduce((sum, foundation) => sum + foundation.cards.length, 0);
+      }
+
+      function checkGameState() {
+        if (placedTotal() === 52) {
+          statusEl.textContent = "You completed every foundation.";
+          return;
+        }
+        const movable = waste.some((card) => foundations.some((foundation) => canPlace(card, foundation)));
+        if (!stock.length && !movable) statusEl.textContent = "No legal moves remain.";
+      }
+
+      function drawCard() {
+        if (!stock.length) {
+          statusEl.textContent = "Stock is empty.";
+          checkGameState();
+          render();
+          return;
+        }
+        const card = stock.pop();
+        waste.unshift(card);
+        selectedWaste = card.id;
+        statusEl.textContent = `Drew ${cardLabel(card)}.`;
+        addLog(`Drew ${cardLabel(card)} to the waste.`);
+        render();
+      }
+
+      function placeOnFoundation(index) {
+        const foundation = foundations[index];
+        const card = waste.find((item) => item.id === selectedWaste);
+        if (!card) {
+          statusEl.textContent = "Select a waste card first.";
+          render();
+          return;
+        }
+        if (!canPlace(card, foundation)) {
+          const need = foundation.cards.length >= 13 ? "already complete" : `needs ${expectedRank(foundation)}`;
+          statusEl.textContent = `Foundation ${index + 1} ${need}.`;
+          render();
+          return;
+        }
+        waste.splice(waste.indexOf(card), 1);
+        foundation.cards.push(card);
+        selectedWaste = waste[0]?.id || null;
+        statusEl.textContent = `Placed ${cardLabel(card)}.`;
+        addLog(`Placed ${cardLabel(card)} on the +${foundation.step} foundation.`);
+        checkGameState();
+        render();
+      }
+
+      function cardButton(card) {
+        const button = document.createElement("button");
+        const selected = selectedWaste === card.id;
+        button.className = `rounded border px-2 py-4 text-lg font-bold ${cardClass(card)} ${
+          selected ? "border-sky-300 bg-slate-700" : "border-slate-800 bg-slate-950 hover:bg-slate-800"
+        }`;
+        button.textContent = cardLabel(card);
+        button.addEventListener("click", () => {
+          selectedWaste = card.id;
+          statusEl.textContent = `Selected ${cardLabel(card)}.`;
+          render();
+        });
+        return button;
+      }
+
+      function foundationView(foundation, index) {
+        const wrapper = document.createElement("button");
+        const top = foundation.cards[foundation.cards.length - 1];
+        const selectedCard = waste.find((card) => card.id === selectedWaste);
+        const legal = canPlace(selectedCard, foundation);
+        const nextRank = foundation.cards.length >= 13 ? "Complete" : expectedRank(foundation);
+        wrapper.className = `rounded border p-3 text-left ${legal ? "border-emerald-300 bg-slate-800 hover:bg-slate-700" : "border-slate-800 bg-slate-950"}`;
+        wrapper.innerHTML = `
+          <div class="flex items-center justify-between text-xs uppercase text-slate-400">
+            <span>+${foundation.step} Build</span>
+            <span>${foundation.cards.length}/13</span>
+          </div>
+          <div class="mt-3 text-3xl font-bold ${cardClass(top)}">${cardLabel(top)}</div>
+          <div class="mt-2 text-sm text-slate-300">Next: ${nextRank}</div>
+        `;
+        wrapper.addEventListener("click", () => placeOnFoundation(index));
+        return wrapper;
+      }
+
+      function render() {
+        stockCountEl.textContent = stock.length;
+        wasteCountEl.textContent = waste.length;
+        placedCountEl.textContent = placedTotal();
+        const selectedCard = waste.find((card) => card.id === selectedWaste);
+        heldCardEl.textContent = selectedCard ? `Selected ${cardLabel(selectedCard)}` : "No card selected.";
+        foundationsEl.innerHTML = "";
+        foundations.forEach((foundation, index) => foundationsEl.appendChild(foundationView(foundation, index)));
+        wasteEl.innerHTML = "";
+        waste.forEach((card) => wasteEl.appendChild(cardButton(card)));
+        drawBtn.disabled = !stock.length;
+        drawBtn.className = `rounded px-4 py-2 text-sm font-bold text-slate-950 ${stock.length ? "bg-sky-300 hover:bg-sky-200" : "bg-slate-500"}`;
+      }
+
+      function newGame() {
+        stock = buildDeck();
+        shuffle(stock);
+        waste = [];
+        selectedWaste = null;
+        logEl.innerHTML = "";
+        for (const foundation of foundations) foundation.cards = [];
+        for (const foundation of foundations) {
+          const index = stock.findIndex((card) => rankValue[card.rank] === foundation.base);
+          foundation.cards.push(stock.splice(index, 1)[0]);
+        }
+        statusEl.textContent = "Draw a card.";
+        addLog("Started the four calculation foundations.");
+        render();
+      }
+
+      drawBtn.addEventListener("click", drawCard);
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
