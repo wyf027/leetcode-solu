@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Sea Towers</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-cyan-950 text-cyan-50">
+  <main class="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini Sea Towers</h1>
+        <p class="text-sm text-cyan-200">Use four moorings to build every suit from Ace to King.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-semibold text-cyan-950 hover:bg-orange-200">New game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-cyan-700 bg-cyan-900 p-3 lg:grid-cols-2" aria-label="Sea towers controls">
+      <div>
+        <h2 class="mb-2 text-sm font-semibold text-cyan-200">Moorings</h2>
+        <div id="cells" class="grid grid-cols-4 gap-2"></div>
+      </div>
+      <div>
+        <h2 class="mb-2 text-sm font-semibold text-cyan-200">Foundations</h2>
+        <div id="foundations" class="grid grid-cols-4 gap-2"></div>
+      </div>
+    </section>
+
+    <section id="columns" class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8" aria-label="Sea columns"></section>
+    <section id="status" class="rounded bg-cyan-900 px-3 py-2 text-sm text-cyan-100" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-slate-100" },
+      { mark: "H", icon: "\u2665", color: "text-rose-300" },
+      { mark: "D", icon: "\u2666", color: "text-sky-200" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-200" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const columnsEl = document.getElementById("columns");
+    const cellsEl = document.getElementById("cells");
+    const foundationsEl = document.getElementById("foundations");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let columns = [];
+    let cells = [null, null, null, null];
+    let foundations = [[], [], [], []];
+    let selected = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      suits.forEach((suit, suitIndex) => {
+        ranks.forEach((rank, valueIndex) => {
+          deck.push({ suit: suitIndex, rank, value: valueIndex + 1 });
+        });
+      });
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      return card.rank + suits[card.suit].icon;
+    }
+
+    function sourceCard(source) {
+      if (!source) return null;
+      if (source.type === "cell") return cells[source.index];
+      const column = columns[source.index];
+      return column.length ? column[column.length - 1] : null;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card || card.suit !== foundationIndex) return false;
+      const pile = foundations[foundationIndex];
+      return pile.length === 0 ? card.value === 1 : pile[pile.length - 1].value + 1 === card.value;
+    }
+
+    function canMoveToColumn(card, targetIndex) {
+      if (!card) return false;
+      const target = columns[targetIndex][columns[targetIndex].length - 1];
+      if (!target) return true;
+      return target.suit === card.suit && target.value === card.value + 1;
+    }
+
+    function removeSelectedCard() {
+      if (!selected) return null;
+      if (selected.type === "cell") {
+        const card = cells[selected.index];
+        cells[selected.index] = null;
+        return card;
+      }
+      return columns[selected.index].pop();
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      columns = Array.from({ length: 8 }, () => []);
+      cells = [null, null, null, null];
+      foundations = [[], [], [], []];
+      deck.forEach((card, index) => columns[index % 8].push(card));
+      selected = null;
+      moves = 0;
+      render("Select a column top card or mooring card, then choose a target.");
+    }
+
+    function chooseSource(source) {
+      const card = sourceCard(source);
+      if (!card) {
+        render("That source is empty.");
+        return;
+      }
+      selected = source;
+      render("Selected " + cardLabel(card) + ".");
+    }
+
+    function chooseCell(index) {
+      if (!selected) {
+        chooseSource({ type: "cell", index });
+        return;
+      }
+      if (selected.type === "cell" && selected.index === index) {
+        selected = null;
+        render("Selection cleared.");
+        return;
+      }
+      if (cells[index]) {
+        chooseSource({ type: "cell", index });
+        return;
+      }
+      const card = sourceCard(selected);
+      cells[index] = removeSelectedCard();
+      selected = null;
+      moves += 1;
+      render("Moored " + cardLabel(card) + ".");
+    }
+
+    function chooseColumn(index) {
+      if (!selected) {
+        chooseSource({ type: "column", index });
+        return;
+      }
+      if (selected.type === "column" && selected.index === index) {
+        selected = null;
+        render("Selection cleared.");
+        return;
+      }
+      const card = sourceCard(selected);
+      if (canMoveToColumn(card, index)) {
+        columns[index].push(removeSelectedCard());
+        selected = null;
+        moves += 1;
+        render("Moved " + cardLabel(card) + " to a column.");
+        return;
+      }
+      render("Columns build down by suit.");
+    }
+
+    function chooseFoundation(index) {
+      if (!selected) {
+        render("Select a card first.");
+        return;
+      }
+      const card = sourceCard(selected);
+      if (canFoundation(card, index)) {
+        foundations[index].push(removeSelectedCard());
+        selected = null;
+        moves += 1;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "All towers are clear. You win." : "Moved " + cardLabel(card) + " to a foundation.");
+        return;
+      }
+      render("That foundation needs the next card of the same suit.");
+    }
+
+    function cardHtml(card, active) {
+      return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+        suits[card.suit].color + " " + (active ? "border-orange-300 bg-cyan-800" : "border-cyan-700 bg-cyan-950") +
+        '">' + cardLabel(card) + '</span>';
+    }
+
+    function render(message) {
+      statusEl.textContent = message + " Moves: " + moves;
+      cellsEl.innerHTML = "";
+      cells.forEach((card, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-20 rounded border border-dashed border-cyan-600 bg-cyan-950 p-2 text-left hover:border-orange-300";
+        const active = selected && selected.type === "cell" && selected.index === index;
+        button.innerHTML = '<div class="text-xs uppercase text-cyan-300">Mooring ' + (index + 1) + '</div><div class="mt-2">' +
+          (card ? cardHtml(card, active) : '<span class="text-sm text-cyan-500">Open</span>') + '</div>';
+        button.addEventListener("click", () => chooseCell(index));
+        cellsEl.appendChild(button);
+      });
+
+      foundationsEl.innerHTML = "";
+      foundations.forEach((pile, index) => {
+        const top = pile[pile.length - 1];
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-20 rounded border border-dashed border-cyan-600 bg-cyan-950 p-2 text-left hover:border-orange-300";
+        button.innerHTML = '<div class="text-xs uppercase text-cyan-300">' + suits[index].icon + ' foundation</div><div class="mt-2">' +
+          (top ? cardHtml(top, true) : '<span class="text-sm text-cyan-500">A start</span>') +
+          '</div><div class="mt-1 text-xs text-cyan-500">' + pile.length + " / 13</div>";
+        button.addEventListener("click", () => chooseFoundation(index));
+        foundationsEl.appendChild(button);
+      });
+
+      columnsEl.innerHTML = "";
+      columns.forEach((column, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-72 rounded border p-2 text-left transition " +
+          (selected && selected.type === "column" && selected.index === index ? "border-orange-300 bg-orange-950/40" : "border-cyan-700 bg-cyan-900 hover:border-cyan-300");
+        const cards = column.map((card, cardIndex) => cardHtml(card, cardIndex === column.length - 1)).join("");
+        button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-cyan-300"><span>Column ' +
+          (index + 1) + '</span><span>' + column.length + '</span></div><div class="flex flex-wrap gap-1">' +
+          (cards || '<span class="text-sm text-cyan-500">Empty</span>') + "</div>";
+        button.addEventListener("click", () => chooseColumn(index));
+        columnsEl.appendChild(button);
+      });
+    }
+
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
