@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Go Fish</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-sky-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Go Fish</h1>
+        <p class="mt-1 text-sm text-sky-200">Ask for ranks you hold. Take matches, or go fish. Four of a rank makes a book.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-sky-950 hover:bg-amber-200">New Game</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-4">
+      <div class="rounded border border-sky-700 bg-sky-900 p-4">
+        <p class="text-xs uppercase text-sky-300">Your Books</p>
+        <p id="playerBooksLabel" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-sky-700 bg-sky-900 p-4">
+        <p class="text-xs uppercase text-sky-300">Rival Books</p>
+        <p id="rivalBooksLabel" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-sky-700 bg-sky-900 p-4">
+        <p class="text-xs uppercase text-sky-300">Pond</p>
+        <p id="pondLabel" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-sky-700 bg-sky-900 p-4">
+        <p class="text-xs uppercase text-sky-300">Rival Cards</p>
+        <p id="rivalCardsLabel" class="mt-2 text-3xl font-black">0</p>
+      </div>
+    </section>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-sky-700 bg-sky-900/80 p-4">
+        <div class="mb-4 flex flex-wrap items-center gap-3">
+          <select id="rankSelect" class="h-10 rounded border border-sky-600 bg-sky-950 px-3 font-bold outline-none focus:border-amber-300"></select>
+          <button id="askBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-sky-950 hover:bg-cyan-200">Ask Rank</button>
+        </div>
+        <p class="mb-3 text-sm font-semibold uppercase text-sky-300">Your Hand</p>
+        <div id="hand" class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-7"></div>
+      </div>
+
+      <aside class="rounded border border-sky-700 bg-sky-900 p-4">
+        <p class="text-sm font-semibold uppercase text-sky-300">Table Log</p>
+        <div id="message" class="mt-3 rounded bg-sky-950 p-3 text-sm text-sky-100">Ask for a rank you hold.</div>
+        <ol id="log" class="mt-4 space-y-2 text-sm text-sky-200"></ol>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const suits = ["clubs", "diamonds", "hearts", "spades"];
+    const icons = { clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠" };
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    let pond = [];
+    let player = [];
+    let rival = [];
+    let playerBooks = [];
+    let rivalBooks = [];
+    let gameOver = false;
+
+    const handEl = document.getElementById("hand");
+    const rankSelect = document.getElementById("rankSelect");
+    const msgEl = document.getElementById("message");
+    const logEl = document.getElementById("log");
+
+    function buildDeck() {
+      return suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank, id: `${rank}-${suit}-${Math.random()}` })));
+    }
+
+    function shuffle(cards) {
+      for (let i = cards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+      return cards;
+    }
+
+    function label(card) {
+      return `${card.rank}${icons[card.suit]}`;
+    }
+
+    function colorClass(card) {
+      return card.suit === "diamonds" || card.suit === "hearts" ? "text-red-700" : "text-sky-950";
+    }
+
+    function addLog(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      logEl.prepend(item);
+    }
+
+    function setMessage(text) {
+      msgEl.textContent = text;
+    }
+
+    function transferRank(fromHand, toHand, rank) {
+      const matches = fromHand.filter((card) => card.rank === rank);
+      for (const card of matches) {
+        fromHand.splice(fromHand.findIndex((item) => item.id === card.id), 1);
+        toHand.push(card);
+      }
+      return matches.length;
+    }
+
+    function drawCard(hand) {
+      if (pond.length) hand.push(pond.pop());
+    }
+
+    function checkBooks(hand, books, owner) {
+      ranks.forEach((rank) => {
+        const cards = hand.filter((card) => card.rank === rank);
+        if (cards.length === 4) {
+          cards.forEach((card) => hand.splice(hand.findIndex((item) => item.id === card.id), 1));
+          books.push(rank);
+          addLog(`${owner} made a book of ${rank}s.`);
+        }
+      });
+    }
+
+    function handRanks(hand) {
+      return [...new Set(hand.map((card) => card.rank))].sort((a, b) => ranks.indexOf(a) - ranks.indexOf(b));
+    }
+
+    function refillIfEmpty(hand) {
+      while (hand.length < 5 && pond.length) drawCard(hand);
+    }
+
+    function finishIfDone() {
+      const playerRanks = handRanks(player);
+      const rivalRanks = handRanks(rival);
+      const noMoreTransfers = pond.length === 0 && !playerRanks.some((rank) => rivalRanks.includes(rank));
+      if (playerBooks.length + rivalBooks.length === 13 || noMoreTransfers) {
+        gameOver = true;
+        const result = playerBooks.length > rivalBooks.length ? "You win." : playerBooks.length < rivalBooks.length ? "Rival wins." : "Tie game.";
+        const reason = noMoreTransfers && player.length + rival.length > 0 ? "No cards remain to fish." : "Game over.";
+        setMessage(`${reason} ${result}`);
+        return true;
+      }
+      return false;
+    }
+
+    function render() {
+      document.getElementById("playerBooksLabel").textContent = playerBooks.length;
+      document.getElementById("rivalBooksLabel").textContent = rivalBooks.length;
+      document.getElementById("pondLabel").textContent = pond.length;
+      document.getElementById("rivalCardsLabel").textContent = rival.length;
+      handEl.innerHTML = "";
+      player.sort((a, b) => ranks.indexOf(a.rank) - ranks.indexOf(b.rank) || a.suit.localeCompare(b.suit));
+      player.forEach((card) => {
+        const tile = document.createElement("div");
+        tile.className = `grid h-24 place-items-center rounded border border-sky-700 bg-sky-50 text-2xl font-black shadow ${colorClass(card)}`;
+        tile.textContent = label(card);
+        handEl.appendChild(tile);
+      });
+      rankSelect.innerHTML = "";
+      handRanks(player).forEach((rank) => {
+        const option = document.createElement("option");
+        option.value = rank;
+        option.textContent = rank;
+        rankSelect.appendChild(option);
+      });
+      document.getElementById("askBtn").disabled = gameOver || player.length === 0;
+    }
+
+    function playerAsk() {
+      if (gameOver || player.length === 0) return;
+      const rank = rankSelect.value;
+      const taken = transferRank(rival, player, rank);
+      if (taken > 0) {
+        addLog(`You asked for ${rank}s and took ${taken}.`);
+        setMessage("You found a match. Ask again.");
+      } else {
+        drawCard(player);
+        addLog(`You asked for ${rank}s. Go fish.`);
+        setMessage("No match. Rival turn.");
+        checkBooks(player, playerBooks, "You");
+        rivalTurn();
+      }
+      checkBooks(player, playerBooks, "You");
+      refillIfEmpty(player);
+      refillIfEmpty(rival);
+      finishIfDone();
+      render();
+    }
+
+    function rivalTurn() {
+      if (gameOver || rival.length === 0) return;
+      const choices = handRanks(rival);
+      const rank = choices[Math.floor(Math.random() * choices.length)];
+      const taken = transferRank(player, rival, rank);
+      if (taken > 0) {
+        addLog(`Rival asked for ${rank}s and took ${taken}.`);
+      } else {
+        drawCard(rival);
+        addLog(`Rival asked for ${rank}s. Go fish.`);
+      }
+      checkBooks(rival, rivalBooks, "Rival");
+      refillIfEmpty(player);
+      refillIfEmpty(rival);
+      if (!finishIfDone()) setMessage("Your turn. Ask for a rank you hold.");
+    }
+
+    function newGame() {
+      pond = shuffle(buildDeck());
+      player = pond.splice(0, 7);
+      rival = pond.splice(0, 7);
+      playerBooks = [];
+      rivalBooks = [];
+      gameOver = false;
+      logEl.innerHTML = "";
+      checkBooks(player, playerBooks, "You");
+      checkBooks(rival, rivalBooks, "Rival");
+      setMessage("Ask for a rank you hold.");
+      render();
+    }
+
+    document.getElementById("askBtn").addEventListener("click", playerAsk);
+    document.getElementById("newGameBtn").addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
