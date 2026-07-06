@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pyramid Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Pyramid Solitaire</h1>
+          <p class="text-sm text-slate-300">Remove Kings or pairs that total 13. Clear the pyramid to win.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="rounded border border-slate-700 px-3 py-2 text-sm">Cleared <span id="cleared" class="font-semibold">0</span>/28</div>
+          <button id="newGame" class="rounded bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200">
+            New game
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-[1fr_1.4fr]">
+        <div class="grid grid-cols-3 gap-2">
+          <button id="stock" class="h-20 rounded border border-cyan-400 bg-cyan-950 text-sm font-semibold text-cyan-100 hover:bg-cyan-900"></button>
+          <div id="waste" class="h-20 rounded border border-slate-700 bg-slate-900"></div>
+          <button id="discard" class="h-20 rounded border border-dashed border-slate-600 bg-slate-900 text-sm text-slate-400"></button>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200">
+          <div id="message">Select exposed cards that total 13.</div>
+        </div>
+      </section>
+
+      <section id="pyramid" class="rounded border border-slate-800 bg-slate-900/70 p-3"></section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const pyramidEl = document.getElementById("pyramid");
+      const stockEl = document.getElementById("stock");
+      const wasteEl = document.getElementById("waste");
+      const discardEl = document.getElementById("discard");
+      const messageEl = document.getElementById("message");
+      const clearedEl = document.getElementById("cleared");
+      const newGameBtn = document.getElementById("newGame");
+
+      let pyramid = [];
+      let stock = [];
+      let waste = [];
+      let removed = new Set();
+      let selected = null;
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank, index) => ({ suit, rank, value: index + 1, id: `${rank}${suit}` })));
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardLabel(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function isRed(card) {
+        return card.suit === "♥" || card.suit === "♦";
+      }
+
+      function cardValue(card) {
+        return Math.min(card.value, 13);
+      }
+
+      function rowStart(row) {
+        return (row * (row + 1)) / 2;
+      }
+
+      function isCovered(index) {
+        const row = pyramid[index].row;
+        if (row === 6) return false;
+        const left = rowStart(row + 1) + (index - rowStart(row));
+        const right = left + 1;
+        return !removed.has(left) || !removed.has(right);
+      }
+
+      function isAvailable(source, index) {
+        if (source !== "pyramid") return true;
+        return !removed.has(index) && !isCovered(index);
+      }
+
+      function clearSelection(text) {
+        selected = null;
+        messageEl.textContent = text || "Select exposed cards that total 13.";
+      }
+
+      function removeChoice(choice) {
+        if (choice.source === "pyramid") {
+          removed.add(choice.index);
+        } else if (choice.source === "waste") {
+          waste.pop();
+        }
+      }
+
+      function choose(choice) {
+        if (!choice.card || !isAvailable(choice.source, choice.index)) {
+          clearSelection("That card is still covered.");
+          render();
+          return;
+        }
+
+        if (cardValue(choice.card) === 13) {
+          removeChoice(choice);
+          clearSelection(`Removed ${cardLabel(choice.card)}.`);
+          render();
+          return;
+        }
+
+        if (!selected) {
+          selected = choice;
+          messageEl.textContent = `Selected ${cardLabel(choice.card)}. Pick a matching card.`;
+          render();
+          return;
+        }
+
+        const sameCard = selected.source === choice.source && selected.index === choice.index;
+        if (sameCard) {
+          clearSelection();
+        } else if (cardValue(selected.card) + cardValue(choice.card) === 13) {
+          removeChoice(choice);
+          removeChoice(selected);
+          clearSelection(`Removed ${cardLabel(selected.card)} and ${cardLabel(choice.card)}.`);
+        } else {
+          clearSelection("Those two cards do not total 13.");
+        }
+        render();
+      }
+
+      function drawStock() {
+        if (stock.length > 0) {
+          waste.push(stock.pop());
+          clearSelection("Drew one card.");
+        } else if (waste.length > 0) {
+          stock = waste.reverse();
+          waste = [];
+          clearSelection("Recycled the waste pile.");
+        } else {
+          clearSelection("No cards left to draw.");
+        }
+        render();
+      }
+
+      function cardView(card, options = {}) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = cardLabel(card);
+        button.className = [
+          "flex h-16 w-12 items-center justify-center rounded border bg-white text-base font-bold shadow-sm transition sm:h-20 sm:w-16",
+          isRed(card) ? "text-rose-600" : "text-slate-900",
+          options.disabled ? "opacity-45" : "hover:-translate-y-0.5",
+          options.selected ? "border-cyan-300 ring-2 ring-cyan-300" : "border-slate-200",
+        ].join(" ");
+        return button;
+      }
+
+      function emptySlot(label) {
+        const div = document.createElement("div");
+        div.textContent = label;
+        div.className = "flex h-16 w-12 items-center justify-center rounded border border-dashed border-slate-700 text-xs text-slate-500 sm:h-20 sm:w-16";
+        return div;
+      }
+
+      function render() {
+        pyramidEl.innerHTML = "";
+        for (let row = 0; row < 7; row += 1) {
+          const rowEl = document.createElement("div");
+          rowEl.className = "mb-[-0.6rem] flex justify-center gap-2 last:mb-0";
+          for (let column = 0; column <= row; column += 1) {
+            const index = rowStart(row) + column;
+            const card = pyramid[index].card;
+            if (removed.has(index)) {
+              rowEl.appendChild(emptySlot(""));
+              continue;
+            }
+            const available = isAvailable("pyramid", index);
+            const isSelected = selected?.source === "pyramid" && selected.index === index;
+            const node = cardView(card, { disabled: !available, selected: isSelected });
+            node.addEventListener("click", () => choose({ source: "pyramid", index, card }));
+            rowEl.appendChild(node);
+          }
+          pyramidEl.appendChild(rowEl);
+        }
+
+        stockEl.textContent = stock.length ? `Stock ${stock.length}` : waste.length ? "Recycle" : "Empty";
+        stockEl.onclick = drawStock;
+
+        wasteEl.innerHTML = "";
+        const wasteTop = waste[waste.length - 1];
+        if (wasteTop) {
+          const node = cardView(wasteTop, { selected: selected?.source === "waste" });
+          node.classList.remove("w-full");
+          node.addEventListener("click", () => choose({ source: "waste", index: waste.length - 1, card: wasteTop }));
+          wasteEl.appendChild(node);
+        } else {
+          wasteEl.appendChild(emptySlot("Waste"));
+        }
+
+        discardEl.textContent = "Pairs = 13";
+        clearedEl.textContent = removed.size;
+        if (removed.size === 28) messageEl.textContent = "Pyramid cleared.";
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        pyramid = [];
+        removed = new Set();
+        selected = null;
+        for (let row = 0; row < 7; row += 1) {
+          for (let column = 0; column <= row; column += 1) {
+            pyramid.push({ row, column, card: deck.pop() });
+          }
+        }
+        stock = deck;
+        waste = [];
+        clearSelection("New pyramid dealt.");
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
