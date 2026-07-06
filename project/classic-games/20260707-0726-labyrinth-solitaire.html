@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Labyrinth Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Labyrinth Solitaire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-neutral-300">
+          Start anywhere, then carve a path through adjacent cards whose ranks rise or fall by one.
+        </p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-cyan-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-cyan-300">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-3">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div class="text-xs uppercase text-neutral-400">Path Length</div>
+        <div id="length" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div class="text-xs uppercase text-neutral-400">Best</div>
+        <div id="best" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div class="text-xs uppercase text-neutral-400">Status</div>
+        <div id="status" class="text-sm font-medium text-cyan-200">Choose any card to enter the labyrinth.</div>
+      </div>
+    </section>
+
+    <section class="mx-auto w-full max-w-2xl rounded border border-neutral-800 bg-neutral-900 p-3">
+      <div id="board" class="grid grid-cols-5 gap-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "♠", name: "spades", color: "text-neutral-100" },
+      { mark: "♥", name: "hearts", color: "text-rose-300" },
+      { mark: "♦", name: "diamonds", color: "text-sky-300" },
+      { mark: "♣", name: "clubs", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const boardEl = document.getElementById("board");
+    const lengthEl = document.getElementById("length");
+    const bestEl = document.getElementById("best");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let cells = [];
+    let path = [];
+    let best = 0;
+
+    function makeDeck() {
+      return suits.flatMap((suit) =>
+        ranks.map((rank, index) => ({
+          rank,
+          value: index + 1,
+          suit: suit.mark,
+          suitName: suit.name,
+          color: suit.color
+        }))
+      );
+    }
+
+    function shuffle(items) {
+      const copy = [...items];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function newGame() {
+      cells = shuffle(makeDeck()).slice(0, 25);
+      path = [];
+      statusEl.textContent = "Choose any card to enter the labyrinth.";
+      render();
+    }
+
+    function adjacentIndexes(index) {
+      const row = Math.floor(index / 5);
+      const col = index % 5;
+      const indexes = [];
+      if (row > 0) indexes.push(index - 5);
+      if (row < 4) indexes.push(index + 5);
+      if (col > 0) indexes.push(index - 1);
+      if (col < 4) indexes.push(index + 1);
+      return indexes;
+    }
+
+    function canExtend(index) {
+      if (path.includes(index)) return false;
+      if (path.length === 0) return true;
+      const last = path[path.length - 1];
+      return adjacentIndexes(last).includes(index) && Math.abs(cells[last].value - cells[index].value) === 1;
+    }
+
+    function chooseCell(index) {
+      if (!canExtend(index)) {
+        statusEl.textContent = "Move to an unused adjacent card that is one rank higher or lower.";
+        return;
+      }
+      path.push(index);
+      best = Math.max(best, path.length);
+      statusEl.textContent = path.length === 25 ? "Perfect path through the whole labyrinth." : "Path extended.";
+      render();
+    }
+
+    function undoStep() {
+      path.pop();
+      statusEl.textContent = path.length ? "Last step removed." : "Choose any card to enter the labyrinth.";
+      render();
+    }
+
+    function renderCard(card, index) {
+      const step = path.indexOf(index);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = [
+        "aspect-[4/5] rounded border p-2 text-left transition focus:outline-none focus:ring-2 focus:ring-cyan-300",
+        step >= 0 ? "border-cyan-300 bg-cyan-950/70" : "border-neutral-700 bg-neutral-800",
+        canExtend(index) ? "hover:border-cyan-200 hover:bg-neutral-700" : ""
+      ].join(" ");
+      button.innerHTML = `
+        <span class="flex h-full flex-col justify-between font-bold ${card.color}">
+          <span class="flex items-center justify-between"><span>${card.rank}</span><span class="text-xs text-cyan-200">${step >= 0 ? step + 1 : ""}</span></span>
+          <span class="self-center text-3xl">${card.suit}</span>
+          <span class="self-end">${card.rank}</span>
+        </span>
+      `;
+      button.addEventListener("click", () => chooseCell(index));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      cells.forEach((card, index) => boardEl.appendChild(renderCard(card, index)));
+      lengthEl.textContent = path.length;
+      bestEl.textContent = best;
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Backspace" || event.key.toLowerCase() === "u") undoStep();
+    });
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
