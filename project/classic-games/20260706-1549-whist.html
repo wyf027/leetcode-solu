@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Whist</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-sky-950 text-sky-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.28em] text-yellow-300">Classic trick taking</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Whist</h1>
+        </div>
+        <button id="newGameBtn" class="rounded bg-yellow-300 px-4 py-2 font-semibold text-sky-950 hover:bg-yellow-200">New Deal</button>
+      </header>
+
+      <section class="grid gap-3 md:grid-cols-4">
+        <div class="rounded border border-sky-700 bg-sky-900 p-4"><p class="text-sm text-sky-300">You</p><p id="playerScore" class="mt-2 text-3xl font-bold">0</p><p id="playerCards" class="text-sm text-sky-300">13 cards</p></div>
+        <div class="rounded border border-sky-700 bg-sky-900 p-4"><p class="text-sm text-sky-300">Left</p><p id="leftScore" class="mt-2 text-3xl font-bold">0</p><p id="leftCards" class="text-sm text-sky-300">13 cards</p></div>
+        <div class="rounded border border-sky-700 bg-sky-900 p-4"><p class="text-sm text-sky-300">Partner</p><p id="partnerScore" class="mt-2 text-3xl font-bold">0</p><p id="partnerCards" class="text-sm text-sky-300">13 cards</p></div>
+        <div class="rounded border border-sky-700 bg-sky-900 p-4"><p class="text-sm text-sky-300">Right</p><p id="rightScore" class="mt-2 text-3xl font-bold">0</p><p id="rightCards" class="text-sm text-sky-300">13 cards</p></div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+        <div class="rounded border border-sky-700 bg-sky-900 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p id="status" class="text-lg font-semibold">Your lead.</p>
+              <p id="leadSuit" class="mt-1 text-sm text-sky-300">Lead suit: none</p>
+            </div>
+            <p id="trickLabel" class="rounded bg-sky-800 px-3 py-2 text-sm text-yellow-200">Trick 1 of 13</p>
+          </div>
+          <div id="table" class="mt-5 grid min-h-44 grid-cols-2 gap-3 md:grid-cols-4"></div>
+        </div>
+        <aside class="rounded border border-sky-700 bg-sky-900 p-4">
+          <p class="font-semibold">Trick log</p>
+          <ol id="log" class="mt-3 space-y-2 text-sm text-sky-200"></ol>
+        </aside>
+      </section>
+
+      <section class="rounded border border-sky-700 bg-sky-900 p-4">
+        <p class="mb-3 font-semibold">Your hand</p>
+        <div id="hand" class="grid grid-cols-4 gap-2 sm:grid-cols-7 md:grid-cols-13"></div>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♣", "♦", "♥", "♠"];
+      const ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+      const players = ["player", "left", "partner", "right"];
+      const labels = { player: "You", left: "Left", partner: "Partner", right: "Right" };
+      const state = { hands: {}, tricks: {}, current: "player", table: [], gameOver: false };
+
+      const ids = ["player", "left", "partner", "right"];
+      const els = {
+        hand: document.getElementById("hand"),
+        table: document.getElementById("table"),
+        log: document.getElementById("log"),
+        status: document.getElementById("status"),
+        leadSuit: document.getElementById("leadSuit"),
+        trickLabel: document.getElementById("trickLabel"),
+        newGameBtn: document.getElementById("newGameBtn"),
+      };
+      ids.forEach((id) => {
+        els[`${id}Score`] = document.getElementById(`${id}Score`);
+        els[`${id}Cards`] = document.getElementById(`${id}Cards`);
+      });
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank, value) => ({ suit, rank, value })));
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardName(card) {
+        return `${card.rank}${card.suit}`;
+      }
+
+      function cardColor(card) {
+        return card.suit === "♥" || card.suit === "♦" ? "text-red-600" : "text-sky-950";
+      }
+
+      function sortHand(hand) {
+        hand.sort((a, b) => suits.indexOf(a.suit) - suits.indexOf(b.suit) || a.value - b.value);
+      }
+
+      function addLog(text) {
+        const item = document.createElement("li");
+        item.textContent = text;
+        els.log.prepend(item);
+        while (els.log.children.length > 8) els.log.removeChild(els.log.lastChild);
+      }
+
+      function leadSuit() {
+        return state.table[0]?.card.suit || null;
+      }
+
+      function legalCards(player) {
+        const hand = state.hands[player];
+        const suit = leadSuit();
+        if (!suit) return hand;
+        const matching = hand.filter((card) => card.suit === suit);
+        return matching.length ? matching : hand;
+      }
+
+      function trickWinner() {
+        const suit = leadSuit();
+        return state.table.reduce((best, play) => {
+          if (play.card.suit === suit && (best.card.suit !== suit || play.card.value > best.card.value)) return play;
+          return best;
+        }, state.table[0]).player;
+      }
+
+      function finishIfNeeded() {
+        if (state.hands.player.length > 0) return;
+        state.gameOver = true;
+        const team = state.tricks.player + state.tricks.partner;
+        const opponents = state.tricks.left + state.tricks.right;
+        els.status.textContent = team > opponents ? `Your team wins ${team}-${opponents}.` : `Opponents win ${opponents}-${team}.`;
+      }
+
+      function playCard(player, index) {
+        if (state.gameOver || player !== state.current) return;
+        const card = state.hands[player].splice(index, 1)[0];
+        state.table.push({ player, card });
+        addLog(`${labels[player]} played ${cardName(card)}.`);
+        if (state.table.length === 4) {
+          const winner = trickWinner();
+          state.tricks[winner] += 1;
+          state.current = winner;
+          render();
+          setTimeout(() => {
+            addLog(`${labels[winner]} won the trick.`);
+            state.table = [];
+            finishIfNeeded();
+            render();
+            runBots();
+          }, 600);
+          return;
+        }
+        state.current = players[(players.indexOf(player) + 1) % players.length];
+        render();
+        runBots();
+      }
+
+      function chooseBotCard(player) {
+        const legal = legalCards(player);
+        const suit = leadSuit();
+        const sorted = [...legal].sort((a, b) => a.value - b.value);
+        if (!suit) return sorted[0];
+        const best = state.table.filter((play) => play.card.suit === suit).sort((a, b) => b.card.value - a.card.value)[0].card;
+        return sorted.find((card) => card.suit === suit && card.value > best.value) || sorted[0];
+      }
+
+      function runBots() {
+        if (state.gameOver || state.current === "player") return;
+        setTimeout(() => {
+          if (state.gameOver || state.current === "player") return;
+          const card = chooseBotCard(state.current);
+          playCard(state.current, state.hands[state.current].indexOf(card));
+        }, 350);
+      }
+
+      function cardButton(card, index) {
+        const legal = legalCards("player").includes(card);
+        const button = document.createElement("button");
+        button.className = `h-20 rounded bg-white text-lg font-bold shadow ${cardColor(card)} ${legal && state.current === "player" ? "hover:-translate-y-1 hover:ring-2 hover:ring-yellow-300" : "opacity-50"}`;
+        button.textContent = cardName(card);
+        button.disabled = !legal || state.current !== "player" || state.gameOver;
+        button.addEventListener("click", () => playCard("player", index));
+        return button;
+      }
+
+      function renderTable() {
+        els.table.innerHTML = "";
+        const byPlayer = Object.fromEntries(state.table.map((play) => [play.player, play.card]));
+        players.forEach((player) => {
+          const card = byPlayer[player];
+          const slot = document.createElement("div");
+          slot.className = "rounded border border-sky-700 bg-sky-950 p-3 text-center";
+          slot.innerHTML = `<p class="text-sm text-sky-300">${labels[player]}</p><div class="mt-2 flex h-24 items-center justify-center rounded bg-white text-2xl font-bold ${card ? cardColor(card) : "text-sky-200"}">${card ? cardName(card) : "--"}</div>`;
+          els.table.appendChild(slot);
+        });
+      }
+
+      function render() {
+        ids.forEach((id) => {
+          els[`${id}Score`].textContent = state.tricks[id];
+          els[`${id}Cards`].textContent = `${state.hands[id].length} cards`;
+        });
+        els.leadSuit.textContent = `Lead suit: ${leadSuit() || "none"}`;
+        const playedTricks = Object.values(state.tricks).reduce((sum, value) => sum + value, 0);
+        els.trickLabel.textContent = `Trick ${Math.min(13, playedTricks + 1)} of 13`;
+        if (!state.gameOver) els.status.textContent = state.current === "player" ? "Your turn" : `${labels[state.current]} is playing`;
+        els.hand.innerHTML = "";
+        state.hands.player.forEach((card, index) => els.hand.appendChild(cardButton(card, index)));
+        renderTable();
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        players.forEach((player, index) => {
+          state.hands[player] = deck.slice(index * 13, index * 13 + 13);
+          sortHand(state.hands[player]);
+          state.tricks[player] = 0;
+        });
+        state.current = "player";
+        state.table = [];
+        state.gameOver = false;
+        els.log.innerHTML = "";
+        addLog("New whist hand dealt.");
+        render();
+      }
+
+      els.newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
