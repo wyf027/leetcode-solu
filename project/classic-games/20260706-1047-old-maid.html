@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Old Maid</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-rose-950 text-rose-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-rose-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Old Maid</h1>
+        <p class="mt-1 text-sm text-rose-200">Draw from the rival, discard pairs, and avoid being left with the Old Maid.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-rose-950 hover:bg-amber-200">New Game</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-4">
+      <div class="rounded border border-rose-700 bg-rose-900 p-4">
+        <p class="text-xs uppercase text-rose-300">Your Cards</p>
+        <p id="playerCount" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-rose-700 bg-rose-900 p-4">
+        <p class="text-xs uppercase text-rose-300">Rival Cards</p>
+        <p id="rivalCount" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-rose-700 bg-rose-900 p-4">
+        <p class="text-xs uppercase text-rose-300">Your Pairs</p>
+        <p id="playerPairs" class="mt-2 text-3xl font-black">0</p>
+      </div>
+      <div class="rounded border border-rose-700 bg-rose-900 p-4">
+        <p class="text-xs uppercase text-rose-300">Rival Pairs</p>
+        <p id="rivalPairs" class="mt-2 text-3xl font-black">0</p>
+      </div>
+    </section>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-rose-700 bg-rose-900/80 p-4">
+        <div class="mb-4 flex flex-wrap gap-3">
+          <button id="drawBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-rose-950 hover:bg-cyan-200">Draw From Rival</button>
+        </div>
+        <p class="mb-3 text-sm font-semibold uppercase text-rose-300">Your Hand</p>
+        <div id="hand" class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-7"></div>
+      </div>
+
+      <aside class="rounded border border-rose-700 bg-rose-900 p-4">
+        <p class="text-sm font-semibold uppercase text-rose-300">Draw Log</p>
+        <div id="message" class="mt-3 rounded bg-rose-950 p-3 text-sm text-rose-100">Draw a hidden card from the rival.</div>
+        <ol id="log" class="mt-4 space-y-2 text-sm text-rose-200"></ol>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const suits = ["clubs", "diamonds", "hearts", "spades"];
+    const icons = { clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠" };
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    let player = [];
+    let rival = [];
+    let playerPairsCount = 0;
+    let rivalPairsCount = 0;
+    let gameOver = false;
+
+    const handEl = document.getElementById("hand");
+    const logEl = document.getElementById("log");
+    const msgEl = document.getElementById("message");
+
+    function buildDeck() {
+      const cards = suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank, id: `${rank}-${suit}-${Math.random()}` })));
+      const queenIndex = cards.findIndex((card) => card.rank === "Q" && card.suit === "clubs");
+      cards.splice(queenIndex, 1);
+      return cards;
+    }
+
+    function shuffle(cards) {
+      for (let i = cards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+      return cards;
+    }
+
+    function label(card) {
+      return `${card.rank}${icons[card.suit]}`;
+    }
+
+    function colorClass(card) {
+      return card.suit === "diamonds" || card.suit === "hearts" ? "text-red-700" : "text-rose-950";
+    }
+
+    function addLog(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      logEl.prepend(item);
+    }
+
+    function setMessage(text) {
+      msgEl.textContent = text;
+    }
+
+    function discardPairs(hand, owner) {
+      let madePairs = 0;
+      ranks.forEach((rank) => {
+        while (hand.filter((card) => card.rank === rank).length >= 2) {
+          const first = hand.findIndex((card) => card.rank === rank);
+          hand.splice(first, 1);
+          const second = hand.findIndex((card) => card.rank === rank);
+          hand.splice(second, 1);
+          madePairs += 1;
+        }
+      });
+      if (madePairs) addLog(`${owner} discarded ${madePairs} pair${madePairs > 1 ? "s" : ""}.`);
+      return madePairs;
+    }
+
+    function sortHand(hand) {
+      hand.sort((a, b) => ranks.indexOf(a.rank) - ranks.indexOf(b.rank) || a.suit.localeCompare(b.suit));
+    }
+
+    function drawRandom(fromHand, toHand) {
+      if (fromHand.length === 0) return null;
+      const index = Math.floor(Math.random() * fromHand.length);
+      const card = fromHand.splice(index, 1)[0];
+      toHand.push(card);
+      return card;
+    }
+
+    function checkEnd() {
+      if (player.length === 1 && rival.length === 0) {
+        gameOver = true;
+        setMessage(player[0].rank === "Q" ? "You are stuck with the Old Maid." : "Rival cleared out first.");
+      } else if (rival.length === 1 && player.length === 0) {
+        gameOver = true;
+        setMessage(rival[0].rank === "Q" ? "Rival holds the Old Maid. You win." : "You cleared out first.");
+      } else if (player.length === 0 && rival.length === 0) {
+        gameOver = true;
+        setMessage("All pairs cleared. No Old Maid left in your hand.");
+      }
+      return gameOver;
+    }
+
+    function render() {
+      sortHand(player);
+      document.getElementById("playerCount").textContent = player.length;
+      document.getElementById("rivalCount").textContent = rival.length;
+      document.getElementById("playerPairs").textContent = playerPairsCount;
+      document.getElementById("rivalPairs").textContent = rivalPairsCount;
+      document.getElementById("drawBtn").disabled = gameOver || rival.length === 0;
+      handEl.innerHTML = "";
+      player.forEach((card) => {
+        const tile = document.createElement("div");
+        tile.className = `grid h-24 place-items-center rounded border border-rose-700 bg-rose-50 text-2xl font-black shadow ${colorClass(card)}`;
+        tile.textContent = label(card);
+        handEl.appendChild(tile);
+      });
+    }
+
+    function rivalTurn() {
+      if (gameOver || player.length === 0) return;
+      const card = drawRandom(player, rival);
+      if (card) addLog(`Rival drew one hidden card.`);
+      rivalPairsCount += discardPairs(rival, "Rival");
+    }
+
+    function playerDraw() {
+      if (gameOver) return;
+      const card = drawRandom(rival, player);
+      if (card) addLog(`You drew ${label(card)}.`);
+      playerPairsCount += discardPairs(player, "You");
+      if (!checkEnd()) {
+        rivalTurn();
+        checkEnd();
+      }
+      if (!gameOver) setMessage("Draw another hidden card from the rival.");
+      render();
+    }
+
+    function newGame() {
+      const deck = shuffle(buildDeck());
+      player = [];
+      rival = [];
+      playerPairsCount = 0;
+      rivalPairsCount = 0;
+      gameOver = false;
+      logEl.innerHTML = "";
+      deck.forEach((card, index) => (index % 2 === 0 ? player : rival).push(card));
+      playerPairsCount += discardPairs(player, "You");
+      rivalPairsCount += discardPairs(rival, "Rival");
+      if (!checkEnd()) setMessage("Draw a hidden card from the rival.");
+      render();
+    }
+
+    document.getElementById("drawBtn").addEventListener("click", playerDraw);
+    document.getElementById("newGameBtn").addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
