@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini La Belle Lucie</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-normal">Mini La Belle Lucie</h1>
+        <p class="text-sm text-slate-300">Move exposed fan cards to same-suit foundations from Ace to King.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400">New game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-slate-700 bg-slate-900 p-3 sm:grid-cols-4" aria-label="Foundations">
+      <button id="foundation-0" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950/70 p-2 text-left hover:border-emerald-400"></button>
+      <button id="foundation-1" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950/70 p-2 text-left hover:border-emerald-400"></button>
+      <button id="foundation-2" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950/70 p-2 text-left hover:border-emerald-400"></button>
+      <button id="foundation-3" class="foundation min-h-24 rounded border border-dashed border-slate-600 bg-slate-950/70 p-2 text-left hover:border-emerald-400"></button>
+    </section>
+
+    <section id="status" class="rounded bg-slate-800 px-3 py-2 text-sm text-slate-200" aria-live="polite"></section>
+    <section id="fans" class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6" aria-label="Fans"></section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "S", icon: "\u2660", color: "text-slate-100" },
+      { mark: "H", icon: "\u2665", color: "text-rose-300" },
+      { mark: "D", icon: "\u2666", color: "text-cyan-300" },
+      { mark: "C", icon: "\u2663", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const fansEl = document.getElementById("fans");
+    const statusEl = document.getElementById("status");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let fans = [];
+    let foundations = [[], [], [], []];
+    let selectedFan = null;
+    let moves = 0;
+
+    function buildDeck() {
+      const deck = [];
+      suits.forEach((suit, suitIndex) => {
+        ranks.forEach((rank, valueIndex) => {
+          deck.push({ suit: suitIndex, rank, value: valueIndex + 1 });
+        });
+      });
+      return deck;
+    }
+
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function cardLabel(card) {
+      const suit = suits[card.suit];
+      return card.rank + suit.icon;
+    }
+
+    function topCard(fanIndex) {
+      const fan = fans[fanIndex];
+      return fan.length ? fan[fan.length - 1] : null;
+    }
+
+    function canFoundation(card, foundationIndex) {
+      if (!card || card.suit !== foundationIndex) return false;
+      const pile = foundations[foundationIndex];
+      return pile.length === 0 ? card.value === 1 : card.value === pile[pile.length - 1].value + 1;
+    }
+
+    function canMoveToFan(card, targetFanIndex) {
+      if (!card) return false;
+      const target = topCard(targetFanIndex);
+      if (!target) return card.value === 13;
+      return target.suit === card.suit && target.value === card.value + 1;
+    }
+
+    function deal() {
+      const deck = shuffle(buildDeck());
+      fans = Array.from({ length: 18 }, () => []);
+      deck.forEach((card, index) => fans[Math.floor(index / 3)].push(card));
+      foundations = [[], [], [], []];
+      selectedFan = null;
+      moves = 0;
+      render("Build all four foundations. Select a fan top card, then choose a foundation or another fan.");
+    }
+
+    function chooseFan(index) {
+      if (selectedFan === null) {
+        if (!topCard(index)) {
+          render("That fan is empty. Empty fans accept Kings.");
+          return;
+        }
+        selectedFan = index;
+        render("Selected " + cardLabel(topCard(index)) + ". Choose a foundation or target fan.");
+        return;
+      }
+
+      if (selectedFan === index) {
+        selectedFan = null;
+        render("Selection cleared.");
+        return;
+      }
+
+      const card = topCard(selectedFan);
+      if (canMoveToFan(card, index)) {
+        fans[index].push(fans[selectedFan].pop());
+        moves += 1;
+        selectedFan = null;
+        render("Moved " + cardLabel(card) + " to a fan.");
+        return;
+      }
+      render("Illegal fan move. Build down by suit, or place a King in an empty fan.");
+    }
+
+    function chooseFoundation(index) {
+      if (selectedFan === null) {
+        render("Select a fan top card first.");
+        return;
+      }
+      const card = topCard(selectedFan);
+      if (canFoundation(card, index)) {
+        foundations[index].push(fans[selectedFan].pop());
+        moves += 1;
+        selectedFan = null;
+        const won = foundations.every((pile) => pile.length === 13);
+        render(won ? "You completed La Belle Lucie." : "Moved " + cardLabel(card) + " to a foundation.");
+        return;
+      }
+      render("That foundation needs the next card of the same suit.");
+    }
+
+    function render(message) {
+      statusEl.textContent = message + " Moves: " + moves;
+      document.querySelectorAll(".foundation").forEach((button, index) => {
+        const pile = foundations[index];
+        const top = pile[pile.length - 1];
+        const suit = suits[index];
+        button.innerHTML = '<div class="text-xs uppercase text-slate-400">' + suit.icon + ' foundation</div>' +
+          '<div class="mt-2 text-2xl font-bold ' + suit.color + '">' + (top ? cardLabel(top) : "A") + '</div>' +
+          '<div class="mt-1 text-xs text-slate-500">' + pile.length + " / 13</div>";
+      });
+
+      fansEl.innerHTML = "";
+      fans.forEach((fan, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-36 rounded border p-2 text-left transition " +
+          (selectedFan === index ? "border-emerald-300 bg-emerald-950/50" : "border-slate-700 bg-slate-900 hover:border-slate-400");
+        const cards = fan.map((card, cardIndex) => {
+          const top = cardIndex === fan.length - 1;
+          return '<span class="inline-flex min-w-10 justify-center rounded border px-2 py-1 text-sm font-semibold ' +
+            suits[card.suit].color + " " + (top ? "border-emerald-400 bg-slate-800" : "border-slate-700 bg-slate-950") +
+            '">' + cardLabel(card) + '</span>';
+        }).join("");
+        button.innerHTML = '<div class="mb-2 flex items-center justify-between text-xs text-slate-400"><span>Fan ' +
+          (index + 1) + '</span><span>' + fan.length + '</span></div><div class="flex flex-wrap gap-1">' +
+          (cards || '<span class="text-sm text-slate-500">Empty</span>') + "</div>";
+        button.addEventListener("click", () => chooseFan(index));
+        fansEl.appendChild(button);
+      });
+    }
+
+    document.querySelectorAll(".foundation").forEach((button, index) => {
+      button.addEventListener("click", () => chooseFoundation(index));
+    });
+    newGameBtn.addEventListener("click", deal);
+    deal();
+  </script>
+</body>
+</html>
