@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Canfield</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-green-950 text-green-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.28em] text-yellow-300">Classic solitaire</p>
+          <h1 class="mt-1 text-3xl font-bold">Mini Canfield</h1>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="drawBtn" class="rounded bg-yellow-300 px-4 py-2 font-semibold text-green-950 hover:bg-yellow-200">Draw</button>
+          <button id="newGameBtn" class="rounded border border-green-600 px-4 py-2 font-semibold hover:bg-green-900">New Game</button>
+        </div>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-4">
+        <div class="rounded border border-green-700 bg-green-900 p-4">
+          <p class="text-sm text-green-300">Stock</p>
+          <p id="stockCount" class="mt-2 text-3xl font-bold">0</p>
+        </div>
+        <div class="rounded border border-green-700 bg-green-900 p-4">
+          <p class="text-sm text-green-300">Reserve</p>
+          <p id="reserveCount" class="mt-2 text-3xl font-bold">13</p>
+        </div>
+        <div class="rounded border border-green-700 bg-green-900 p-4">
+          <p class="text-sm text-green-300">Waste</p>
+          <p id="wasteCard" class="mt-2 text-3xl font-bold">--</p>
+        </div>
+        <div class="rounded border border-yellow-300/70 bg-green-900 p-4">
+          <p class="text-sm text-yellow-200">Base rank</p>
+          <p id="baseRank" class="mt-2 text-3xl font-bold">--</p>
+        </div>
+      </section>
+
+      <section class="rounded border border-green-700 bg-green-900 p-4">
+        <p id="message" class="min-h-7 text-sm text-green-100">Move cards to the foundations by suit, wrapping from king to ace.</p>
+        <div class="mt-4 grid gap-3 sm:grid-cols-4" id="foundations"></div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[14rem_1fr]">
+        <aside class="rounded border border-green-700 bg-green-900 p-4">
+          <p class="font-semibold">Reserve top</p>
+          <div id="reserveTop" class="mt-3"></div>
+          <button id="reserveToTableauBtn" class="mt-3 w-full rounded border border-green-600 px-3 py-2 text-sm hover:bg-green-800">
+            Move reserve to empty tableau
+          </button>
+        </aside>
+
+        <div class="rounded border border-green-700 bg-green-900 p-4">
+          <p class="font-semibold">Tableau</p>
+          <div id="tableau" class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const suits = ["♠", "♥", "♦", "♣"];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const state = {
+        stock: [],
+        waste: [],
+        reserve: [],
+        tableau: [[], [], [], []],
+        foundations: {},
+        base: null,
+        selected: null,
+        gameOver: false,
+      };
+
+      const stockCount = document.getElementById("stockCount");
+      const reserveCount = document.getElementById("reserveCount");
+      const wasteCard = document.getElementById("wasteCard");
+      const baseRank = document.getElementById("baseRank");
+      const message = document.getElementById("message");
+      const foundationsEl = document.getElementById("foundations");
+      const reserveTop = document.getElementById("reserveTop");
+      const tableauEl = document.getElementById("tableau");
+      const drawBtn = document.getElementById("drawBtn");
+      const newGameBtn = document.getElementById("newGameBtn");
+      const reserveToTableauBtn = document.getElementById("reserveToTableauBtn");
+
+      function buildDeck() {
+        return suits.flatMap((suit) => ranks.map((rank, value) => ({ suit, rank, value })));
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardName(card) {
+        return card ? `${card.rank}${card.suit}` : "--";
+      }
+
+      function cardColor(card) {
+        return card && (card.suit === "♥" || card.suit === "♦") ? "text-red-600" : "text-green-950";
+      }
+
+      function nextValue(value) {
+        return (value + 1) % 13;
+      }
+
+      function top(cards) {
+        return cards[cards.length - 1] || null;
+      }
+
+      function canMoveToFoundation(card) {
+        if (!card) return false;
+        const pile = state.foundations[card.suit];
+        const current = top(pile);
+        if (!current) return card.value === state.base.value;
+        return card.value === nextValue(current.value);
+      }
+
+      function makeCardButton(card, label, onClick) {
+        const button = document.createElement("button");
+        button.className = `flex h-24 w-full items-center justify-center rounded bg-white text-xl font-bold shadow ${cardColor(card)} hover:ring-2 hover:ring-yellow-300 disabled:opacity-40`;
+        button.textContent = cardName(card);
+        button.disabled = !card || state.gameOver;
+        button.title = label;
+        button.addEventListener("click", onClick);
+        return button;
+      }
+
+      function drawCard() {
+        if (state.gameOver) return;
+        if (state.stock.length === 0 && state.waste.length > 0) {
+          state.stock = state.waste.reverse();
+          state.waste = [];
+          message.textContent = "Recycled waste into the stock.";
+        }
+        if (state.stock.length > 0) {
+          state.waste.push(state.stock.shift());
+          message.textContent = `Drew ${cardName(top(state.waste))}.`;
+        }
+        render();
+      }
+
+      function moveWasteToFoundation() {
+        const card = top(state.waste);
+        if (!canMoveToFoundation(card)) {
+          message.textContent = "Waste card cannot move to a foundation.";
+          return;
+        }
+        state.foundations[card.suit].push(state.waste.pop());
+        message.textContent = `Moved ${cardName(card)} to foundation.`;
+        refillTableau();
+        finishIfNeeded();
+        render();
+      }
+
+      function moveReserveToFoundation() {
+        const card = top(state.reserve);
+        if (!canMoveToFoundation(card)) {
+          message.textContent = "Reserve card cannot move to a foundation.";
+          return;
+        }
+        state.foundations[card.suit].push(state.reserve.pop());
+        message.textContent = `Moved ${cardName(card)} from reserve.`;
+        refillTableau();
+        finishIfNeeded();
+        render();
+      }
+
+      function moveTableauToFoundation(index) {
+        const card = top(state.tableau[index]);
+        if (!canMoveToFoundation(card)) {
+          message.textContent = "That tableau card cannot move to a foundation.";
+          return;
+        }
+        state.foundations[card.suit].push(state.tableau[index].pop());
+        message.textContent = `Moved ${cardName(card)} to foundation.`;
+        refillTableau();
+        finishIfNeeded();
+        render();
+      }
+
+      function moveReserveToEmptyTableau() {
+        const empty = state.tableau.findIndex((pile) => pile.length === 0);
+        if (empty === -1 || state.reserve.length === 0) {
+          message.textContent = "Need an empty tableau pile and reserve card.";
+          return;
+        }
+        const card = state.reserve.pop();
+        state.tableau[empty].push(card);
+        message.textContent = `Moved ${cardName(card)} into tableau ${empty + 1}.`;
+        render();
+      }
+
+      function refillTableau() {
+        state.tableau.forEach((pile) => {
+          if (pile.length === 0 && state.reserve.length > 0) pile.push(state.reserve.pop());
+        });
+      }
+
+      function finishIfNeeded() {
+        const built = suits.reduce((sum, suit) => sum + state.foundations[suit].length, 0);
+        if (built === 52) {
+          state.gameOver = true;
+          message.textContent = "You built all foundations.";
+        }
+      }
+
+      function renderFoundation(suit) {
+        const pile = state.foundations[suit];
+        const card = top(pile);
+        const div = document.createElement("div");
+        div.className = "rounded border border-green-700 bg-green-950 p-3 text-center";
+        div.innerHTML = `<p class="text-sm text-green-300">${suit} foundation</p><div class="mt-2 flex h-20 items-center justify-center rounded bg-white text-xl font-bold ${cardColor(card)}">${cardName(card)}</div><p class="mt-2 text-xs text-green-300">${pile.length} cards</p>`;
+        foundationsEl.appendChild(div);
+      }
+
+      function renderTableauPile(index) {
+        const pile = state.tableau[index];
+        const wrap = document.createElement("div");
+        wrap.className = "min-h-52 rounded border border-green-700 bg-green-950 p-3";
+        const title = document.createElement("p");
+        title.className = "mb-2 text-sm text-green-300";
+        title.textContent = `Pile ${index + 1} · ${pile.length}`;
+        wrap.appendChild(title);
+        pile.slice(-5).forEach((card, offset, visible) => {
+          const button = makeCardButton(card, "Move tableau top", () => {
+            if (offset === visible.length - 1) moveTableauToFoundation(index);
+          });
+          button.className += offset === visible.length - 1 ? "" : " opacity-60";
+          button.disabled = offset !== visible.length - 1 || state.gameOver;
+          wrap.appendChild(button);
+        });
+        if (pile.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "flex h-24 items-center justify-center rounded border border-dashed border-green-700 text-sm text-green-400";
+          empty.textContent = "Empty";
+          wrap.appendChild(empty);
+        }
+        tableauEl.appendChild(wrap);
+      }
+
+      function render() {
+        stockCount.textContent = state.stock.length;
+        reserveCount.textContent = state.reserve.length;
+        wasteCard.textContent = cardName(top(state.waste));
+        baseRank.textContent = state.base ? state.base.rank : "--";
+        foundationsEl.innerHTML = "";
+        suits.forEach(renderFoundation);
+        reserveTop.innerHTML = "";
+        reserveTop.appendChild(makeCardButton(top(state.reserve), "Move reserve to foundation", moveReserveToFoundation));
+        tableauEl.innerHTML = "";
+        state.tableau.forEach((_, index) => renderTableauPile(index));
+        drawBtn.disabled = state.gameOver || (state.stock.length === 0 && state.waste.length === 0);
+        reserveToTableauBtn.disabled = state.gameOver || state.reserve.length === 0 || !state.tableau.some((pile) => pile.length === 0);
+      }
+
+      function newGame() {
+        const deck = shuffle(buildDeck());
+        state.reserve = deck.splice(0, 13);
+        state.base = deck.shift();
+        state.foundations = { "♠": [], "♥": [], "♦": [], "♣": [] };
+        state.foundations[state.base.suit].push(state.base);
+        state.tableau = [[], [], [], []];
+        state.tableau.forEach((pile) => pile.push(deck.shift()));
+        state.stock = deck;
+        state.waste = [];
+        state.gameOver = false;
+        message.textContent = `Base rank is ${state.base.rank}. Build each suit upward from there.`;
+        render();
+      }
+
+      drawBtn.addEventListener("click", drawCard);
+      newGameBtn.addEventListener("click", newGame);
+      reserveToTableauBtn.addEventListener("click", moveReserveToEmptyTableau);
+      wasteCard.addEventListener("click", moveWasteToFoundation);
+      newGame();
+    </script>
+  </body>
+</html>
