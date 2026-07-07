@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Sultan Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-amber-950 text-amber-50">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-amber-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Sultan Solitaire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-amber-200">
+          Seat the Sultan in the center and build every court upward by suit, wrapping from King to Ace.
+        </p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-teal-300 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-teal-200">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-4">
+      <div class="rounded border border-amber-800 bg-amber-900 p-3">
+        <div class="text-xs uppercase text-amber-300">Stock</div>
+        <div id="stockCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-amber-800 bg-amber-900 p-3">
+        <div class="text-xs uppercase text-amber-300">Waste</div>
+        <div id="wasteCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-amber-800 bg-amber-900 p-3">
+        <div class="text-xs uppercase text-amber-300">Court</div>
+        <div id="progress" class="text-2xl font-semibold">8 / 52</div>
+      </div>
+      <div class="rounded border border-amber-800 bg-amber-900 p-3">
+        <div class="text-xs uppercase text-amber-300">Status</div>
+        <div id="status" class="text-sm font-medium text-teal-100">Draw a card for the Sultan court.</div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <aside class="rounded border border-amber-800 bg-amber-900 p-3">
+        <h2 class="mb-3 text-sm font-semibold uppercase text-amber-200">Draw Area</h2>
+        <button id="drawBtn" class="mb-3 w-full rounded border border-teal-300 bg-teal-950/50 py-4 text-sm font-semibold text-teal-100 hover:bg-teal-900">
+          Draw
+        </button>
+        <div id="waste" class="grid gap-2"></div>
+      </aside>
+      <section class="rounded border border-amber-800 bg-amber-900 p-3">
+        <div id="court" class="grid grid-cols-3 gap-3"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "♠", name: "spades", color: "text-amber-50" },
+      { mark: "♥", name: "hearts", color: "text-rose-300" },
+      { mark: "♦", name: "diamonds", color: "text-sky-300" },
+      { mark: "♣", name: "clubs", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const drawBtn = document.getElementById("drawBtn");
+    const newGameBtn = document.getElementById("newGameBtn");
+    const courtEl = document.getElementById("court");
+    const wasteEl = document.getElementById("waste");
+    const stockCountEl = document.getElementById("stockCount");
+    const wasteCountEl = document.getElementById("wasteCount");
+    const progressEl = document.getElementById("progress");
+    const statusEl = document.getElementById("status");
+    let stock = [];
+    let waste = [];
+    let foundations = [];
+
+    function makeDeck() {
+      return suits.flatMap((suit) =>
+        ranks.map((rank, index) => ({
+          rank,
+          value: index + 1,
+          suit: suit.mark,
+          suitName: suit.name,
+          color: suit.color
+        }))
+      );
+    }
+
+    function shuffle(cards) {
+      const copy = [...cards];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function nextValue(value) {
+      return value === 13 ? 1 : value + 1;
+    }
+
+    function newGame() {
+      const starters = [
+        { suitName: "spades", start: 1 },
+        { suitName: "hearts", start: 1 },
+        { suitName: "diamonds", start: 1 },
+        { suitName: "clubs", start: 1 },
+        { suitName: "spades", start: 13 },
+        { suitName: "diamonds", start: 13 },
+        { suitName: "clubs", start: 13 },
+        { suitName: "hearts", start: 12 }
+      ];
+      foundations = starters.map((starter) => {
+        const suit = suits.find((item) => item.name === starter.suitName);
+        return {
+          suitName: suit.name,
+          suit: suit.mark,
+          color: suit.color,
+          cards: [{ rank: ranks[starter.start - 1], value: starter.start, suit: suit.mark, suitName: suit.name, color: suit.color }]
+        };
+      });
+      const used = new Set(foundations.map((pile) => `${pile.suitName}:${pile.cards[0].value}`));
+      used.add("hearts:13");
+      stock = shuffle(makeDeck().filter((card) => !used.has(`${card.suitName}:${card.value}`)));
+      waste = [];
+      statusEl.textContent = "Draw a card for the Sultan court.";
+      render();
+    }
+
+    function topWaste() {
+      return waste[0];
+    }
+
+    function canPlace(card, pile) {
+      if (!card || card.suitName !== pile.suitName) return false;
+      const top = pile.cards[pile.cards.length - 1];
+      return card.value === nextValue(top.value);
+    }
+
+    function drawCard() {
+      if (!stock.length) {
+        stock = waste.reverse();
+        waste = [];
+        statusEl.textContent = stock.length ? "Waste returned to stock." : "No cards remain.";
+        render();
+        return;
+      }
+      waste.unshift(stock.pop());
+      statusEl.textContent = "Place the top waste card on a matching court pile.";
+      render();
+    }
+
+    function placeWaste(index) {
+      const pile = foundations[index];
+      const card = topWaste();
+      if (!canPlace(card, pile)) {
+        statusEl.textContent = "That court pile needs the next rank of the same suit.";
+        return;
+      }
+      pile.cards.push(waste.shift());
+      statusEl.textContent = `${card.rank}${card.suit} entered the Sultan court.`;
+      render();
+    }
+
+    function cardLabel(card) {
+      if (!card) return "<span class=\"text-sm text-amber-300\">empty</span>";
+      return `<span class="inline-flex h-12 min-w-10 items-center justify-between rounded border border-amber-700 bg-amber-800 px-2 font-bold ${card.color}">
+        <span>${card.rank}</span><span class="ml-1 text-lg">${card.suit}</span>
+      </span>`;
+    }
+
+    function renderPile(pile, index) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "min-h-24 rounded border border-amber-800 bg-amber-950/50 p-3 text-left hover:border-teal-300";
+      const top = pile.cards[pile.cards.length - 1];
+      button.innerHTML = `
+        <div class="mb-2 flex items-center justify-between text-xs uppercase text-amber-300">
+          <span>${pile.suitName}</span><span>${pile.cards.length}</span>
+        </div>
+        ${cardLabel(top)}
+      `;
+      button.addEventListener("click", () => placeWaste(index));
+      return button;
+    }
+
+    function render() {
+      courtEl.innerHTML = "";
+      foundations.slice(0, 4).forEach((pile, index) => courtEl.appendChild(renderPile(pile, index)));
+      const sultan = document.createElement("div");
+      sultan.className = "min-h-24 rounded border border-teal-300 bg-teal-950/60 p-3 text-center";
+      sultan.innerHTML = `<div class="mb-2 text-xs uppercase text-teal-200">Sultan</div>${cardLabel({ rank: "K", value: 13, suit: "♥", suitName: "hearts", color: "text-rose-300" })}`;
+      courtEl.appendChild(sultan);
+      foundations.slice(4).forEach((pile, index) => courtEl.appendChild(renderPile(pile, index + 4)));
+      wasteEl.innerHTML = waste.slice(0, 5).map(cardLabel).join("");
+      stockCountEl.textContent = stock.length;
+      wasteCountEl.textContent = waste.length;
+      const total = foundations.reduce((sum, pile) => sum + pile.cards.length, 1);
+      progressEl.textContent = `${total} / 52`;
+      if (total === 52) statusEl.textContent = "The Sultan court is complete.";
+    }
+
+    drawBtn.addEventListener("click", drawCard);
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
