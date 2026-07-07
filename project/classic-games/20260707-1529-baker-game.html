@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Baker Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-indigo-950 text-indigo-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Baker Game</h1>
+          <p class="text-sm text-indigo-200">A FreeCell cousin: tableau builds down by suit, with four free cells for tempo.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="rounded border border-indigo-700 bg-indigo-900 px-3 py-2 text-sm">
+            Moves: <span id="moves" class="font-semibold">0</span>
+          </div>
+          <button id="newGame" class="rounded bg-emerald-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-emerald-200">
+            New game
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-3 lg:grid-cols-2">
+        <div>
+          <div class="mb-2 text-xs uppercase text-indigo-300">Free cells</div>
+          <div id="cells" class="grid grid-cols-4 gap-3"></div>
+        </div>
+        <div>
+          <div class="mb-2 text-xs uppercase text-indigo-300">Foundations</div>
+          <div id="foundations" class="grid grid-cols-4 gap-3"></div>
+        </div>
+      </section>
+
+      <section id="tableau" class="grid flex-1 grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8"></section>
+      <footer id="message" class="min-h-8 text-sm text-indigo-200"></footer>
+    </main>
+
+    <script>
+      const suits = [
+        { symbol: "S", color: "black" },
+        { symbol: "H", color: "red" },
+        { symbol: "D", color: "red" },
+        { symbol: "C", color: "black" },
+      ];
+      const rankNames = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const state = {
+        cells: Array.from({ length: 4 }, () => []),
+        foundations: Array.from({ length: 4 }, () => []),
+        tableau: Array.from({ length: 8 }, () => []),
+        selected: null,
+        moves: 0,
+      };
+
+      const cellsEl = document.getElementById("cells");
+      const foundationsEl = document.getElementById("foundations");
+      const tableauEl = document.getElementById("tableau");
+      const movesEl = document.getElementById("moves");
+      const messageEl = document.getElementById("message");
+      const newGameBtn = document.getElementById("newGame");
+
+      function makeDeck() {
+        const deck = [];
+        for (const suit of suits) {
+          for (let rank = 1; rank <= 13; rank += 1) {
+            deck.push({ id: `${suit.symbol}-${rank}`, suit: suit.symbol, color: suit.color, rank });
+          }
+        }
+        return deck;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardLabel(card) {
+        return `${rankNames[card.rank]}${card.suit}`;
+      }
+
+      function topCard(pile) {
+        return pile[pile.length - 1];
+      }
+
+      function setMessage(text) {
+        messageEl.textContent = text;
+      }
+
+      function clearSelection() {
+        state.selected = null;
+      }
+
+      function sourcePile(source) {
+        if (!source) return null;
+        if (source.area === "cell") return state.cells[source.index];
+        if (source.area === "tableau") return state.tableau[source.index];
+        return null;
+      }
+
+      function selectedCard() {
+        return topCard(sourcePile(state.selected) || []);
+      }
+
+      function foundationIndexFor(card) {
+        return suits.findIndex((suit) => suit.symbol === card.suit);
+      }
+
+      function foundationAccepts(card) {
+        if (!card) return false;
+        const pile = state.foundations[foundationIndexFor(card)];
+        const top = topCard(pile);
+        return top ? top.rank + 1 === card.rank : card.rank === 1;
+      }
+
+      function tableauAccepts(pile, card) {
+        if (!card) return false;
+        const top = topCard(pile);
+        if (!top) return true;
+        return top.suit === card.suit && top.rank === card.rank + 1;
+      }
+
+      function moveSelectedToFoundation() {
+        const card = selectedCard();
+        if (!card || !foundationAccepts(card)) {
+          setMessage("That card cannot build its foundation yet.");
+          return false;
+        }
+        sourcePile(state.selected).pop();
+        state.foundations[foundationIndexFor(card)].push(card);
+        state.moves += 1;
+        clearSelection();
+        setMessage(`Built ${cardLabel(card)} to a foundation.`);
+        render();
+        return true;
+      }
+
+      function moveSelectedToCell(index) {
+        const card = selectedCard();
+        if (!card || state.cells[index].length) {
+          setMessage("Each free cell holds one card.");
+          return false;
+        }
+        sourcePile(state.selected).pop();
+        state.cells[index].push(card);
+        state.moves += 1;
+        clearSelection();
+        setMessage("Card moved to a free cell.");
+        render();
+        return true;
+      }
+
+      function moveSelectedToTableau(index) {
+        const card = selectedCard();
+        if (!card) return false;
+        if (state.selected.area === "tableau" && state.selected.index === index) {
+          clearSelection();
+          render();
+          return false;
+        }
+        if (!tableauAccepts(state.tableau[index], card)) {
+          setMessage("Baker Game tableau builds down by the same suit.");
+          return false;
+        }
+        sourcePile(state.selected).pop();
+        state.tableau[index].push(card);
+        state.moves += 1;
+        clearSelection();
+        setMessage("Tableau move made.");
+        render();
+        return true;
+      }
+
+      function selectSource(area, index) {
+        if (state.selected) {
+          if (area === "cell") moveSelectedToCell(index);
+          if (area === "tableau") moveSelectedToTableau(index);
+          return;
+        }
+        const pile = area === "cell" ? state.cells[index] : state.tableau[index];
+        const card = topCard(pile);
+        if (!card) {
+          setMessage(area === "cell" ? "Empty free cell." : "Empty tableau pile.");
+          return;
+        }
+        state.selected = { area, index };
+        setMessage(`Selected ${cardLabel(card)} from ${area}.`);
+        render();
+      }
+
+      function autoFoundation(area, index) {
+        state.selected = { area, index };
+        if (!moveSelectedToFoundation()) {
+          clearSelection();
+          render();
+        }
+      }
+
+      function cardClass(card, selected) {
+        const color = card.color === "red" ? "text-red-600" : "text-slate-900";
+        const ring = selected ? "ring-4 ring-emerald-300" : "";
+        return `rounded border border-slate-300 bg-white px-2 py-1 text-sm font-semibold shadow ${color} ${ring}`;
+      }
+
+      function renderCard(card, selected = false) {
+        return `<div class="${cardClass(card, selected)}">${cardLabel(card)}</div>`;
+      }
+
+      function render() {
+        movesEl.textContent = state.moves;
+        cellsEl.innerHTML = "";
+        foundationsEl.innerHTML = "";
+        tableauEl.innerHTML = "";
+
+        state.cells.forEach((pile, index) => {
+          const card = topCard(pile);
+          const button = document.createElement("button");
+          button.className = "min-h-24 rounded border border-indigo-700 bg-indigo-900 p-2 text-left shadow";
+          button.innerHTML = card ? renderCard(card, state.selected?.area === "cell" && state.selected.index === index) : '<div class="text-sm text-indigo-400">Empty</div>';
+          button.addEventListener("click", () => selectSource("cell", index));
+          button.addEventListener("dblclick", () => autoFoundation("cell", index));
+          cellsEl.appendChild(button);
+        });
+
+        state.foundations.forEach((pile, index) => {
+          const top = topCard(pile);
+          const button = document.createElement("button");
+          button.className = "min-h-24 rounded border border-indigo-700 bg-indigo-900 p-2 text-left shadow";
+          button.innerHTML = `<div class="mb-2 text-xs uppercase text-indigo-300">${suits[index].symbol}</div>${top ? renderCard(top) : '<div class="text-sm text-indigo-400">Start A</div>'}`;
+          button.addEventListener("click", moveSelectedToFoundation);
+          foundationsEl.appendChild(button);
+        });
+
+        state.tableau.forEach((pile, index) => {
+          const button = document.createElement("button");
+          button.className = "min-h-96 rounded border border-indigo-700 bg-indigo-900 p-2 text-left shadow";
+          const rows = pile.map((card, cardIndex) => {
+            const selected = state.selected?.area === "tableau" && state.selected.index === index && cardIndex === pile.length - 1;
+            return `<div class="${cardIndex ? '-mt-1' : ''}">${renderCard(card, selected)}</div>`;
+          });
+          button.innerHTML = `<div class="mb-2 flex justify-between text-xs uppercase text-indigo-300"><span>Pile ${index + 1}</span><span>${pile.length}</span></div>${rows.join("") || '<div class="text-sm text-indigo-400">Empty</div>'}`;
+          button.addEventListener("click", () => selectSource("tableau", index));
+          button.addEventListener("dblclick", () => autoFoundation("tableau", index));
+          tableauEl.appendChild(button);
+        });
+
+        if (state.foundations.every((pile) => pile.length === 13)) {
+          setMessage("Baker Game complete. All foundations are built.");
+        }
+      }
+
+      function newGame() {
+        const deck = shuffle(makeDeck());
+        state.cells = Array.from({ length: 4 }, () => []);
+        state.foundations = Array.from({ length: 4 }, () => []);
+        state.tableau = Array.from({ length: 8 }, () => []);
+        let pile = 0;
+        while (deck.length) {
+          state.tableau[pile].push(deck.pop());
+          pile = (pile + 1) % state.tableau.length;
+        }
+        state.moves = 0;
+        clearSelection();
+        setMessage("Move top cards to same-suit descending piles, free cells, or foundations.");
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
