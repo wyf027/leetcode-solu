@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Montana Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-300">Classic Games</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Montana Solitaire</h1>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <span class="rounded border border-stone-700 bg-stone-900 px-3 py-2">Moves: <b id="moves">0</b></span>
+          <span class="rounded border border-stone-700 bg-stone-900 px-3 py-2">Gaps: <b id="gaps">4</b></span>
+          <button id="newGameBtn" class="rounded bg-amber-400 px-4 py-2 font-semibold text-stone-950 hover:bg-amber-300">
+            New game
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+        <div class="overflow-x-auto">
+          <div id="board" class="grid min-w-[820px] grid-rows-4 gap-2 rounded border border-stone-800 bg-stone-900 p-3"></div>
+        </div>
+
+        <aside class="rounded border border-stone-800 bg-stone-900 p-4 text-sm text-stone-300">
+          <h2 class="text-lg font-semibold text-white">Rules</h2>
+          <p class="mt-3 leading-6">
+            Aces are removed to make four gaps. Move a card into a gap when it follows the card on the left by one rank and
+            matches suit. A gap in the first column accepts any 2.
+          </p>
+          <p class="mt-3 leading-6">Build every row from 2 through K in a single suit. Select a card, then select a legal gap.</p>
+          <p id="message" class="mt-4 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-200">
+            Pick a card that can slide into a highlighted gap.
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const suits = [
+        { symbol: "♠", color: "text-stone-100", name: "spades" },
+        { symbol: "♥", color: "text-red-300", name: "hearts" },
+        { symbol: "♦", color: "text-sky-300", name: "diamonds" },
+        { symbol: "♣", color: "text-emerald-300", name: "clubs" },
+      ];
+      const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const boardEl = document.getElementById("board");
+      const movesEl = document.getElementById("moves");
+      const gapsEl = document.getElementById("gaps");
+      const messageEl = document.getElementById("message");
+      const newGameBtn = document.getElementById("newGameBtn");
+      let cards = [];
+      let selectedIndex = null;
+      let moves = 0;
+
+      function makeDeck() {
+        return suits.flatMap((suit) =>
+          ranks.map((rank, rankIndex) => ({
+            suit: suit.name,
+            symbol: suit.symbol,
+            color: suit.color,
+            rank,
+            rankIndex,
+          }))
+        );
+      }
+
+      function shuffle(deck) {
+        const copy = [...deck];
+        for (let i = copy.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [copy[i], copy[j]] = [copy[j], copy[i]];
+        }
+        return copy;
+      }
+
+      function startGame() {
+        cards = shuffle(makeDeck()).map((card) => (card.rank === "A" ? null : card));
+        selectedIndex = null;
+        moves = 0;
+        messageEl.textContent = "Pick a card that can slide into a highlighted gap.";
+        render();
+      }
+
+      function canMoveToGap(cardIndex, gapIndex) {
+        const card = cards[cardIndex];
+        if (!card || cards[gapIndex] !== null) return false;
+        const gapColumn = gapIndex % 13;
+        if (gapColumn === 0) return card.rank === "2";
+        const leftCard = cards[gapIndex - 1];
+        return leftCard && leftCard.suit === card.suit && card.rankIndex === leftCard.rankIndex + 1;
+      }
+
+      function legalGapForCard(cardIndex) {
+        return cards.findIndex((slot, gapIndex) => slot === null && canMoveToGap(cardIndex, gapIndex));
+      }
+
+      function moveCardToGap(cardIndex, gapIndex) {
+        if (!canMoveToGap(cardIndex, gapIndex)) return false;
+        cards[gapIndex] = cards[cardIndex];
+        cards[cardIndex] = null;
+        moves += 1;
+        selectedIndex = null;
+        messageEl.textContent = "Nice move. Keep building each suit sequence from 2 to K.";
+        render();
+        if (isWon()) messageEl.textContent = `Solved in ${moves} moves. Start a new deal to play again.`;
+        return true;
+      }
+
+      function isWon() {
+        for (let row = 0; row < 4; row += 1) {
+          const rowStart = row * 13;
+          const first = cards[rowStart];
+          if (!first || first.rank !== "2") return false;
+          for (let col = 1; col < 12; col += 1) {
+            const previous = cards[rowStart + col - 1];
+            const current = cards[rowStart + col];
+            if (!current || current.suit !== first.suit || current.rankIndex !== previous.rankIndex + 1) return false;
+          }
+        }
+        return true;
+      }
+
+      function chooseSlot(index) {
+        if (cards[index] === null) {
+          if (selectedIndex === null) {
+            messageEl.textContent = "Select a movable card first, then choose a matching gap.";
+            return;
+          }
+          if (!moveCardToGap(selectedIndex, index)) {
+            messageEl.textContent = "That gap needs the same suit and the next rank after its left card.";
+          }
+          render();
+          return;
+        }
+
+        const targetGap = legalGapForCard(index);
+        if (targetGap === -1) {
+          selectedIndex = null;
+          messageEl.textContent = "That card has no legal gap right now.";
+        } else {
+          selectedIndex = index;
+          messageEl.textContent = `Selected ${cards[index].rank}${cards[index].symbol}. Choose the highlighted gap.`;
+        }
+        render();
+      }
+
+      function render() {
+        const gapCount = cards.filter((card) => card === null).length;
+        const highlightedGap = selectedIndex === null ? -1 : legalGapForCard(selectedIndex);
+        movesEl.textContent = moves;
+        gapsEl.textContent = gapCount;
+        boardEl.innerHTML = "";
+
+        for (let row = 0; row < 4; row += 1) {
+          const rowEl = document.createElement("div");
+          rowEl.className = "grid gap-2";
+          rowEl.style.gridTemplateColumns = "repeat(13, minmax(0, 1fr))";
+          for (let col = 0; col < 13; col += 1) {
+            const index = row * 13 + col;
+            const card = cards[index];
+            const button = document.createElement("button");
+            button.type = "button";
+            button.addEventListener("click", () => chooseSlot(index));
+
+            if (!card) {
+              const active = index === highlightedGap;
+              button.className = `h-20 rounded border border-dashed ${
+                active ? "border-amber-300 bg-amber-300/20" : "border-stone-700 bg-stone-950/80"
+              }`;
+              button.textContent = active ? "gap" : "";
+            } else {
+              const selected = index === selectedIndex;
+              button.className = `flex h-20 flex-col items-center justify-center rounded border bg-stone-100 text-lg font-bold shadow ${
+                selected ? "border-amber-300 ring-2 ring-amber-300" : "border-stone-300"
+              } ${card.color}`;
+              button.innerHTML = `<span>${card.rank}</span><span class="text-2xl">${card.symbol}</span>`;
+            }
+            rowEl.appendChild(button);
+          }
+          boardEl.appendChild(rowEl);
+        }
+      }
+
+      newGameBtn.addEventListener("click", startGame);
+      startGame();
+    </script>
+  </body>
+</html>
