@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Demon Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Demon Solitaire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-300">
+          Empty the demon reserve while building suited foundations from Ace to King.
+        </p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-red-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-red-300">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-4">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-400">Demon</div>
+        <div id="reserveCount" class="text-2xl font-semibold">13</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-400">Stock</div>
+        <div id="stockCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-400">Foundation</div>
+        <div id="progress" class="text-2xl font-semibold">0 / 52</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-xs uppercase text-zinc-400">Status</div>
+        <div id="status" class="text-sm font-medium text-red-200">Use the reserve card whenever possible.</div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <h2 class="mb-2 text-sm font-semibold uppercase text-zinc-300">Draw Area</h2>
+        <button id="drawBtn" class="mb-3 w-full rounded border border-red-400 bg-red-950/50 py-3 text-sm font-semibold text-red-100 hover:bg-red-900">
+          Draw
+        </button>
+        <div class="mb-4">
+          <div class="mb-1 text-xs uppercase text-zinc-400">Waste</div>
+          <div id="waste" class="min-h-14"></div>
+        </div>
+        <div>
+          <div class="mb-1 text-xs uppercase text-zinc-400">Demon Reserve</div>
+          <button id="reserve" class="min-h-16 w-full rounded border border-zinc-700 bg-zinc-800 p-2 text-left"></button>
+        </div>
+      </aside>
+
+      <section class="grid gap-4">
+        <div>
+          <h2 class="mb-2 text-sm font-semibold uppercase text-zinc-300">Foundations</h2>
+          <div id="foundations" class="grid gap-3 sm:grid-cols-4"></div>
+        </div>
+        <div>
+          <h2 class="mb-2 text-sm font-semibold uppercase text-zinc-300">Tableau</h2>
+          <div id="tableau" class="grid gap-3 sm:grid-cols-4"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "♠", name: "spades", color: "text-zinc-100" },
+      { mark: "♥", name: "hearts", color: "text-rose-300" },
+      { mark: "♦", name: "diamonds", color: "text-sky-300" },
+      { mark: "♣", name: "clubs", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const drawBtn = document.getElementById("drawBtn");
+    const newGameBtn = document.getElementById("newGameBtn");
+    const reserveBtn = document.getElementById("reserve");
+    const wasteEl = document.getElementById("waste");
+    const foundationsEl = document.getElementById("foundations");
+    const tableauEl = document.getElementById("tableau");
+    const reserveCountEl = document.getElementById("reserveCount");
+    const stockCountEl = document.getElementById("stockCount");
+    const progressEl = document.getElementById("progress");
+    const statusEl = document.getElementById("status");
+    let stock = [];
+    let waste = [];
+    let reserve = [];
+    let foundations = {};
+    let tableau = [];
+    let selected = null;
+
+    function makeDeck() {
+      return suits.flatMap((suit) =>
+        ranks.map((rank, index) => ({
+          rank,
+          value: index + 1,
+          suit: suit.mark,
+          suitName: suit.name,
+          color: suit.color
+        }))
+      );
+    }
+
+    function shuffle(cards) {
+      const copy = [...cards];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function newGame() {
+      const deck = shuffle(makeDeck());
+      reserve = deck.splice(0, 13);
+      tableau = Array.from({ length: 4 }, () => [deck.pop()]);
+      stock = deck;
+      waste = [];
+      foundations = Object.fromEntries(suits.map((suit) => [suit.name, 0]));
+      selected = null;
+      statusEl.textContent = "Use the reserve card whenever possible.";
+      render();
+    }
+
+    function topFrom(source) {
+      if (source.type === "reserve") return reserve[reserve.length - 1];
+      if (source.type === "waste") return waste[0];
+      return tableau[source.index][tableau[source.index].length - 1];
+    }
+
+    function removeFrom(source) {
+      if (source.type === "reserve") return reserve.pop();
+      if (source.type === "waste") return waste.shift();
+      return tableau[source.index].pop();
+    }
+
+    function canBuildFoundation(card) {
+      return card && foundations[card.suitName] + 1 === card.value;
+    }
+
+    function canMoveToTableau(card, index) {
+      if (!card) return false;
+      const target = tableau[index][tableau[index].length - 1];
+      if (!target) return true;
+      return target.suitName === card.suitName && target.value === card.value + 1;
+    }
+
+    function drawCard() {
+      if (!stock.length) {
+        stock = waste.reverse();
+        waste = [];
+        selected = null;
+        statusEl.textContent = stock.length ? "Waste recycled into stock." : "No stock remains.";
+        render();
+        return;
+      }
+      waste.unshift(stock.pop());
+      selected = { type: "waste" };
+      statusEl.textContent = "Waste card selected.";
+      render();
+    }
+
+    function selectSource(type, index = null) {
+      const source = { type, index };
+      if (!topFrom(source)) {
+        statusEl.textContent = "That pile is empty.";
+        return;
+      }
+      selected = source;
+      statusEl.textContent = "Choose a foundation or tableau target.";
+      render();
+    }
+
+    function moveSelectedToFoundation() {
+      const card = selected && topFrom(selected);
+      if (!canBuildFoundation(card)) {
+        statusEl.textContent = "Foundation needs the next card of that suit.";
+        return;
+      }
+      removeFrom(selected);
+      foundations[card.suitName] = card.value;
+      selected = null;
+      statusEl.textContent = `${card.rank}${card.suit} built to foundation.`;
+      render();
+    }
+
+    function moveSelectedToTableau(index) {
+      const card = selected && topFrom(selected);
+      if (!canMoveToTableau(card, index)) {
+        statusEl.textContent = "Tableau builds down by the same suit.";
+        return;
+      }
+      tableau[index].push(removeFrom(selected));
+      selected = null;
+      statusEl.textContent = "Card moved to tableau.";
+      render();
+    }
+
+    function cardLabel(card) {
+      if (!card) return "<span class=\"text-sm text-zinc-500\">empty</span>";
+      return `<span class="inline-flex h-12 min-w-10 items-center justify-between rounded border border-zinc-700 bg-zinc-800 px-2 font-bold ${card.color}">
+        <span>${card.rank}</span><span class="ml-1 text-lg">${card.suit}</span>
+      </span>`;
+    }
+
+    function selectedKey() {
+      return selected ? `${selected.type}:${selected.index ?? ""}` : "";
+    }
+
+    function render() {
+      wasteEl.innerHTML = cardLabel(waste[0]);
+      reserveBtn.innerHTML = cardLabel(reserve[reserve.length - 1]);
+      reserveBtn.className = `min-h-16 w-full rounded border p-2 text-left ${selectedKey() === "reserve:" ? "border-red-300 bg-red-950/60" : "border-zinc-700 bg-zinc-800"}`;
+      foundationsEl.innerHTML = "";
+      suits.forEach((suit) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-20 rounded border border-zinc-800 bg-zinc-900 p-3 text-left hover:border-red-300";
+        const value = foundations[suit.name];
+        const card = value ? { rank: ranks[value - 1], value, suit: suit.mark, suitName: suit.name, color: suit.color } : null;
+        button.innerHTML = `<div class="mb-1 text-xs uppercase text-zinc-400">${suit.name}</div>${cardLabel(card)}`;
+        button.addEventListener("click", moveSelectedToFoundation);
+        foundationsEl.appendChild(button);
+      });
+      tableauEl.innerHTML = "";
+      tableau.forEach((pile, index) => {
+        const column = document.createElement("button");
+        column.type = "button";
+        column.className = `min-h-56 rounded border p-3 text-left hover:border-red-300 ${selectedKey() === `tableau:${index}` ? "border-red-300 bg-red-950/60" : "border-zinc-800 bg-zinc-900"}`;
+        column.innerHTML = `<div class="mb-2 text-xs uppercase text-zinc-400">Column ${index + 1}</div><div class="flex flex-col gap-2">${pile.map(cardLabel).join("")}</div>`;
+        column.addEventListener("click", () => selected ? moveSelectedToTableau(index) : selectSource("tableau", index));
+        tableauEl.appendChild(column);
+      });
+      reserveCountEl.textContent = reserve.length;
+      stockCountEl.textContent = stock.length;
+      progressEl.textContent = `${Object.values(foundations).reduce((sum, value) => sum + value, 0)} / 52`;
+      if (Object.values(foundations).every((value) => value === 13)) statusEl.textContent = "Demon defeated.";
+    }
+
+    reserveBtn.addEventListener("click", () => selectSource("reserve"));
+    wasteEl.addEventListener("click", () => selectSource("waste"));
+    drawBtn.addEventListener("click", drawCard);
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
