@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Fan Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-rose-950 text-rose-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Fan Solitaire</h1>
+          <p class="text-sm text-rose-200">Move top cards between fans by same-suit descending order and build all foundations.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="rounded border border-rose-700 bg-rose-900 px-3 py-2 text-sm">
+            Moves: <span id="moves" class="font-semibold">0</span>
+          </div>
+          <button id="newGame" class="rounded bg-teal-300 px-4 py-2 text-sm font-semibold text-rose-950 hover:bg-teal-200">
+            New game
+          </button>
+        </div>
+      </header>
+
+      <section id="foundations" class="grid grid-cols-2 gap-3 sm:grid-cols-4"></section>
+      <section id="fans" class="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"></section>
+      <footer id="message" class="min-h-8 text-sm text-rose-200"></footer>
+    </main>
+
+    <script>
+      const suits = [
+        { symbol: "S", color: "black" },
+        { symbol: "H", color: "red" },
+        { symbol: "D", color: "red" },
+        { symbol: "C", color: "black" },
+      ];
+      const rankNames = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const state = {
+        foundations: Array.from({ length: 4 }, () => []),
+        fans: Array.from({ length: 18 }, () => []),
+        selected: null,
+        moves: 0,
+      };
+
+      const foundationsEl = document.getElementById("foundations");
+      const fansEl = document.getElementById("fans");
+      const movesEl = document.getElementById("moves");
+      const messageEl = document.getElementById("message");
+      const newGameBtn = document.getElementById("newGame");
+
+      function makeDeck() {
+        const deck = [];
+        for (const suit of suits) {
+          for (let rank = 1; rank <= 13; rank += 1) {
+            deck.push({ id: `${suit.symbol}-${rank}`, suit: suit.symbol, color: suit.color, rank });
+          }
+        }
+        return deck;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardLabel(card) {
+        return `${rankNames[card.rank]}${card.suit}`;
+      }
+
+      function topCard(pile) {
+        return pile[pile.length - 1];
+      }
+
+      function setMessage(text) {
+        messageEl.textContent = text;
+      }
+
+      function clearSelection() {
+        state.selected = null;
+      }
+
+      function foundationIndexFor(card) {
+        return suits.findIndex((suit) => suit.symbol === card.suit);
+      }
+
+      function foundationAccepts(card) {
+        if (!card) return false;
+        const pile = state.foundations[foundationIndexFor(card)];
+        const top = topCard(pile);
+        return top ? top.rank + 1 === card.rank : card.rank === 1;
+      }
+
+      function fanAccepts(pile, card) {
+        if (!card) return false;
+        const top = topCard(pile);
+        if (!top) return card.rank === 13;
+        return top.suit === card.suit && top.rank === card.rank + 1;
+      }
+
+      function selectedCard() {
+        if (state.selected === null) return null;
+        return topCard(state.fans[state.selected]);
+      }
+
+      function moveSelectedToFoundation() {
+        const card = selectedCard();
+        if (!card || !foundationAccepts(card)) {
+          setMessage("That top card cannot build its foundation.");
+          return false;
+        }
+        state.fans[state.selected].pop();
+        state.foundations[foundationIndexFor(card)].push(card);
+        state.moves += 1;
+        clearSelection();
+        setMessage(`Built ${cardLabel(card)} to a foundation.`);
+        render();
+        return true;
+      }
+
+      function moveSelectedToFan(index) {
+        const card = selectedCard();
+        if (!card) return false;
+        if (state.selected === index) {
+          clearSelection();
+          render();
+          return false;
+        }
+        if (!fanAccepts(state.fans[index], card)) {
+          setMessage("Fans build down by the same suit; empty fans accept kings.");
+          return false;
+        }
+        state.fans[state.selected].pop();
+        state.fans[index].push(card);
+        state.moves += 1;
+        clearSelection();
+        setMessage("Fan move made.");
+        render();
+        return true;
+      }
+
+      function clickFan(index) {
+        if (state.selected !== null) {
+          moveSelectedToFan(index);
+          return;
+        }
+        const card = topCard(state.fans[index]);
+        if (!card) {
+          setMessage("Empty fans accept a selected king.");
+          return;
+        }
+        state.selected = index;
+        setMessage(`Selected ${cardLabel(card)} from fan ${index + 1}.`);
+        render();
+      }
+
+      function autoFoundation(index) {
+        state.selected = index;
+        if (!moveSelectedToFoundation()) {
+          clearSelection();
+          render();
+        }
+      }
+
+      function cardClass(card, selected) {
+        const color = card.color === "red" ? "text-red-600" : "text-slate-900";
+        const ring = selected ? "ring-4 ring-teal-300" : "";
+        return `rounded border border-slate-300 bg-white px-2 py-1 text-sm font-semibold shadow ${color} ${ring}`;
+      }
+
+      function renderCard(card, selected = false) {
+        return `<div class="${cardClass(card, selected)}">${cardLabel(card)}</div>`;
+      }
+
+      function render() {
+        movesEl.textContent = state.moves;
+        foundationsEl.innerHTML = "";
+        fansEl.innerHTML = "";
+
+        state.foundations.forEach((pile, index) => {
+          const top = topCard(pile);
+          const button = document.createElement("button");
+          button.className = "min-h-24 rounded border border-rose-700 bg-rose-900 p-2 text-left shadow";
+          button.innerHTML = `<div class="mb-2 text-xs uppercase text-rose-300">${suits[index].symbol} Foundation</div>${top ? renderCard(top) : '<div class="text-sm text-rose-400">Start A</div>'}`;
+          button.addEventListener("click", moveSelectedToFoundation);
+          foundationsEl.appendChild(button);
+        });
+
+        state.fans.forEach((pile, index) => {
+          const button = document.createElement("button");
+          button.className = "min-h-40 rounded border border-rose-700 bg-rose-900 p-2 text-left shadow";
+          const rows = pile.map((card, cardIndex) => {
+            const selected = state.selected === index && cardIndex === pile.length - 1;
+            return `<div class="${cardIndex ? '-mt-1' : ''}">${renderCard(card, selected)}</div>`;
+          });
+          button.innerHTML = `<div class="mb-2 flex justify-between text-xs uppercase text-rose-300"><span>Fan ${index + 1}</span><span>${pile.length}</span></div>${rows.join("") || '<div class="text-sm text-rose-400">Empty for K</div>'}`;
+          button.addEventListener("click", () => clickFan(index));
+          button.addEventListener("dblclick", () => autoFoundation(index));
+          fansEl.appendChild(button);
+        });
+
+        if (state.foundations.every((pile) => pile.length === 13)) {
+          setMessage("Fan Solitaire complete. All foundations are built.");
+        }
+      }
+
+      function newGame() {
+        const deck = shuffle(makeDeck());
+        state.foundations = Array.from({ length: 4 }, () => []);
+        state.fans = Array.from({ length: 18 }, () => []);
+        let fan = 0;
+        while (deck.length) {
+          const count = fan < 16 ? 3 : 2;
+          for (let i = 0; i < count && deck.length; i += 1) {
+            state.fans[fan].push(deck.pop());
+          }
+          fan += 1;
+        }
+        state.moves = 0;
+        clearSelection();
+        setMessage("Move only fan top cards. Double-click a fan to try building its top card.");
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
