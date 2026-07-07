@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Cruel Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-rose-950 text-rose-50">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-rose-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Cruel Solitaire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-rose-200">
+          Build every suit from Ace to King while reshuffling the tableau without changing card order.
+        </p>
+      </div>
+      <div class="flex gap-2">
+        <button id="redealBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-rose-950 hover:bg-fuchsia-200">
+          Redeal
+        </button>
+        <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-rose-950 hover:bg-amber-200">
+          New Game
+        </button>
+      </div>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-4">
+      <div class="rounded border border-rose-800 bg-rose-900 p-3">
+        <div class="text-xs uppercase text-rose-300">Redeals</div>
+        <div id="redeals" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-rose-800 bg-rose-900 p-3">
+        <div class="text-xs uppercase text-rose-300">Tableau Cards</div>
+        <div id="tableauCount" class="text-2xl font-semibold">48</div>
+      </div>
+      <div class="rounded border border-rose-800 bg-rose-900 p-3">
+        <div class="text-xs uppercase text-rose-300">Foundation</div>
+        <div id="progress" class="text-2xl font-semibold">4 / 52</div>
+      </div>
+      <div class="rounded border border-rose-800 bg-rose-900 p-3">
+        <div class="text-xs uppercase text-rose-300">Status</div>
+        <div id="status" class="text-sm font-medium text-amber-100">Select a tableau top card.</div>
+      </div>
+    </section>
+
+    <section class="grid gap-4">
+      <div>
+        <h2 class="mb-2 text-sm font-semibold uppercase text-rose-200">Foundations</h2>
+        <div id="foundations" class="grid gap-3 sm:grid-cols-4"></div>
+      </div>
+      <div>
+        <h2 class="mb-2 text-sm font-semibold uppercase text-rose-200">Tableau</h2>
+        <div id="tableau" class="grid gap-3 sm:grid-cols-4 lg:grid-cols-6"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "♠", name: "spades", color: "text-rose-50" },
+      { mark: "♥", name: "hearts", color: "text-red-300" },
+      { mark: "♦", name: "diamonds", color: "text-sky-300" },
+      { mark: "♣", name: "clubs", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const newGameBtn = document.getElementById("newGameBtn");
+    const redealBtn = document.getElementById("redealBtn");
+    const foundationsEl = document.getElementById("foundations");
+    const tableauEl = document.getElementById("tableau");
+    const redealsEl = document.getElementById("redeals");
+    const tableauCountEl = document.getElementById("tableauCount");
+    const progressEl = document.getElementById("progress");
+    const statusEl = document.getElementById("status");
+    let tableau = [];
+    let foundations = {};
+    let selected = null;
+    let redeals = 0;
+
+    function makeDeck() {
+      return suits.flatMap((suit) =>
+        ranks.map((rank, index) => ({
+          rank,
+          value: index + 1,
+          suit: suit.mark,
+          suitName: suit.name,
+          color: suit.color
+        }))
+      );
+    }
+
+    function shuffle(cards) {
+      const copy = [...cards];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function newGame() {
+      foundations = Object.fromEntries(suits.map((suit) => [suit.name, 1]));
+      const aces = new Set(suits.map((suit) => `${suit.name}:1`));
+      const deck = shuffle(makeDeck().filter((card) => !aces.has(`${card.suitName}:${card.value}`)));
+      tableau = Array.from({ length: 12 }, () => []);
+      deck.forEach((card, index) => tableau[index % 12].push(card));
+      selected = null;
+      redeals = 0;
+      statusEl.textContent = "Select a tableau top card.";
+      render();
+    }
+
+    function topCard(index) {
+      const pile = tableau[index];
+      return pile[pile.length - 1];
+    }
+
+    function canBuildFoundation(card) {
+      return card && foundations[card.suitName] + 1 === card.value;
+    }
+
+    function canMoveToTableau(card, index) {
+      if (!card) return false;
+      const target = topCard(index);
+      if (!target) return true;
+      return target.suitName === card.suitName && target.value === card.value + 1;
+    }
+
+    function selectTableau(index) {
+      if (selected === null) {
+        if (!topCard(index)) {
+          statusEl.textContent = "That pile is empty.";
+          return;
+        }
+        selected = index;
+        statusEl.textContent = "Choose a foundation or a tableau target.";
+        render();
+        return;
+      }
+      if (selected === index) {
+        selected = null;
+        statusEl.textContent = "Selection cleared.";
+        render();
+        return;
+      }
+      moveSelectedToTableau(index);
+    }
+
+    function moveSelectedToFoundation() {
+      if (selected === null) {
+        statusEl.textContent = "Select a tableau top card first.";
+        return;
+      }
+      const card = topCard(selected);
+      if (!canBuildFoundation(card)) {
+        statusEl.textContent = "Foundation needs the next card of that suit.";
+        return;
+      }
+      tableau[selected].pop();
+      foundations[card.suitName] = card.value;
+      selected = null;
+      statusEl.textContent = `${card.rank}${card.suit} built to foundation.`;
+      render();
+    }
+
+    function moveSelectedToTableau(index) {
+      const card = selected !== null && topCard(selected);
+      if (!canMoveToTableau(card, index)) {
+        statusEl.textContent = "Tableau builds down by the same suit.";
+        return;
+      }
+      tableau[index].push(tableau[selected].pop());
+      selected = null;
+      statusEl.textContent = "Card moved.";
+      render();
+    }
+
+    function redealTableau() {
+      const cards = tableau.flat();
+      tableau = Array.from({ length: 12 }, () => []);
+      cards.forEach((card, index) => tableau[index % 12].push(card));
+      selected = null;
+      redeals += 1;
+      statusEl.textContent = "Cruel redeal complete: same order, new piles.";
+      render();
+    }
+
+    function cardLabel(card) {
+      if (!card) return "<span class=\"text-sm text-rose-300\">empty</span>";
+      return `<span class="inline-flex h-12 min-w-10 items-center justify-between rounded border border-rose-700 bg-rose-800 px-2 font-bold ${card.color}">
+        <span>${card.rank}</span><span class="ml-1 text-lg">${card.suit}</span>
+      </span>`;
+    }
+
+    function render() {
+      foundationsEl.innerHTML = "";
+      suits.forEach((suit) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "min-h-20 rounded border border-rose-800 bg-rose-900 p-3 text-left hover:border-amber-300";
+        const value = foundations[suit.name];
+        const card = { rank: ranks[value - 1], value, suit: suit.mark, suitName: suit.name, color: suit.color };
+        button.innerHTML = `<div class="mb-1 text-xs uppercase text-rose-300">${suit.name}</div>${cardLabel(card)}`;
+        button.addEventListener("click", moveSelectedToFoundation);
+        foundationsEl.appendChild(button);
+      });
+
+      tableauEl.innerHTML = "";
+      tableau.forEach((pile, index) => {
+        const column = document.createElement("button");
+        column.type = "button";
+        column.className = `min-h-48 rounded border p-3 text-left hover:border-amber-300 ${selected === index ? "border-amber-300 bg-amber-950/50" : "border-rose-800 bg-rose-900"}`;
+        column.innerHTML = `<div class="mb-2 flex items-center justify-between text-xs uppercase text-rose-300"><span>Pile ${index + 1}</span><span>${pile.length}</span></div><div class="flex flex-col gap-2">${pile.map(cardLabel).join("")}</div>`;
+        column.addEventListener("click", () => selectTableau(index));
+        tableauEl.appendChild(column);
+      });
+
+      redealsEl.textContent = redeals;
+      tableauCountEl.textContent = tableau.reduce((sum, pile) => sum + pile.length, 0);
+      const total = Object.values(foundations).reduce((sum, value) => sum + value, 0);
+      progressEl.textContent = `${total} / 52`;
+      if (total === 52) statusEl.textContent = "Cruel Solitaire solved.";
+    }
+
+    redealBtn.addEventListener("click", redealTableau);
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
