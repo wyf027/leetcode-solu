@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Royal Cotillion</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Royal Cotillion</h1>
+        <p class="mt-1 max-w-2xl text-sm text-emerald-200">
+          Build the lower court up from aces and the upper court down from kings using the top waste card.
+        </p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-fuchsia-200">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-4">
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-3">
+        <div class="text-xs uppercase text-emerald-300">Stock</div>
+        <div id="stockCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-3">
+        <div class="text-xs uppercase text-emerald-300">Waste</div>
+        <div id="wasteCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-3">
+        <div class="text-xs uppercase text-emerald-300">Foundation</div>
+        <div id="progress" class="text-2xl font-semibold">8 / 52</div>
+      </div>
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-3">
+        <div class="text-xs uppercase text-emerald-300">Status</div>
+        <div id="status" class="text-sm font-medium text-fuchsia-100">Draw a card for the cotillion.</div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <aside class="rounded border border-emerald-800 bg-emerald-900 p-3">
+        <h2 class="mb-3 text-sm font-semibold uppercase text-emerald-200">Waste</h2>
+        <button id="drawBtn" class="mb-3 w-full rounded border border-fuchsia-300 bg-fuchsia-950/50 py-4 text-sm font-semibold text-fuchsia-100 hover:bg-fuchsia-900">
+          Draw
+        </button>
+        <div id="waste" class="grid gap-2"></div>
+      </aside>
+      <section>
+        <h2 class="mb-2 text-sm font-semibold uppercase text-emerald-200">King Court</h2>
+        <div id="kingCourt" class="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"></div>
+        <h2 class="mb-2 text-sm font-semibold uppercase text-emerald-200">Ace Court</h2>
+        <div id="aceCourt" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "♠", name: "spades", color: "text-emerald-50" },
+      { mark: "♥", name: "hearts", color: "text-rose-300" },
+      { mark: "♦", name: "diamonds", color: "text-sky-300" },
+      { mark: "♣", name: "clubs", color: "text-lime-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const drawBtn = document.getElementById("drawBtn");
+    const newGameBtn = document.getElementById("newGameBtn");
+    const kingCourtEl = document.getElementById("kingCourt");
+    const aceCourtEl = document.getElementById("aceCourt");
+    const wasteEl = document.getElementById("waste");
+    const stockCountEl = document.getElementById("stockCount");
+    const wasteCountEl = document.getElementById("wasteCount");
+    const progressEl = document.getElementById("progress");
+    const statusEl = document.getElementById("status");
+    let stock = [];
+    let waste = [];
+    let foundations = [];
+
+    function makeDeck() {
+      return suits.flatMap((suit) =>
+        ranks.map((rank, index) => ({
+          rank,
+          value: index + 1,
+          suit: suit.mark,
+          suitName: suit.name,
+          color: suit.color
+        }))
+      );
+    }
+
+    function shuffle(cards) {
+      const copy = [...cards];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function newGame() {
+      foundations = [
+        ...suits.map((suit) => ({ suitName: suit.name, suit: suit.mark, color: suit.color, direction: -1, cards: [{ rank: "K", value: 13, suit: suit.mark, suitName: suit.name, color: suit.color }] })),
+        ...suits.map((suit) => ({ suitName: suit.name, suit: suit.mark, color: suit.color, direction: 1, cards: [{ rank: "A", value: 1, suit: suit.mark, suitName: suit.name, color: suit.color }] }))
+      ];
+      const starters = new Set(foundations.map((pile) => `${pile.suitName}:${pile.cards[0].value}:${pile.direction}`));
+      stock = shuffle(makeDeck().filter((card) => !(card.value === 1 || card.value === 13)));
+      waste = [];
+      statusEl.textContent = "Draw a card for the cotillion.";
+      render();
+    }
+
+    function topWaste() {
+      return waste[0];
+    }
+
+    function canPlace(card, pile) {
+      if (!card || card.suitName !== pile.suitName) return false;
+      const top = pile.cards[pile.cards.length - 1];
+      return card.value === top.value + pile.direction;
+    }
+
+    function drawCard() {
+      if (!stock.length) {
+        stock = waste.reverse();
+        waste = [];
+        statusEl.textContent = stock.length ? "Waste returned to stock." : "No cards remain.";
+        render();
+        return;
+      }
+      waste.unshift(stock.pop());
+      statusEl.textContent = "Place the top waste card if a royal court accepts it.";
+      render();
+    }
+
+    function placeWaste(index) {
+      const pile = foundations[index];
+      const card = topWaste();
+      if (!canPlace(card, pile)) {
+        statusEl.textContent = "That court needs the matching suit and next rank in its direction.";
+        return;
+      }
+      pile.cards.push(waste.shift());
+      statusEl.textContent = `${card.rank}${card.suit} joined the ${pile.direction > 0 ? "ace" : "king"} court.`;
+      render();
+    }
+
+    function cardLabel(card) {
+      if (!card) return "<span class=\"text-sm text-emerald-300\">empty</span>";
+      return `<span class="inline-flex h-12 min-w-10 items-center justify-between rounded border border-emerald-700 bg-emerald-800 px-2 font-bold ${card.color}">
+        <span>${card.rank}</span><span class="ml-1 text-lg">${card.suit}</span>
+      </span>`;
+    }
+
+    function renderPile(pile, index) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "min-h-28 rounded border border-emerald-800 bg-emerald-900 p-3 text-left hover:border-fuchsia-300";
+      button.innerHTML = `
+        <div class="mb-2 flex items-center justify-between text-xs uppercase text-emerald-300">
+          <span>${pile.suitName}</span><span>${pile.cards.length} cards</span>
+        </div>
+        <div>${cardLabel(pile.cards[pile.cards.length - 1])}</div>
+      `;
+      button.addEventListener("click", () => placeWaste(index));
+      return button;
+    }
+
+    function render() {
+      kingCourtEl.innerHTML = "";
+      aceCourtEl.innerHTML = "";
+      foundations.slice(0, 4).forEach((pile, index) => kingCourtEl.appendChild(renderPile(pile, index)));
+      foundations.slice(4).forEach((pile, index) => aceCourtEl.appendChild(renderPile(pile, index + 4)));
+      wasteEl.innerHTML = waste.slice(0, 5).map(cardLabel).join("");
+      stockCountEl.textContent = stock.length;
+      wasteCountEl.textContent = waste.length;
+      const total = foundations.reduce((sum, pile) => sum + pile.cards.length, 0);
+      progressEl.textContent = `${total} / 52`;
+      if (total === 52) statusEl.textContent = "Royal cotillion complete.";
+    }
+
+    drawBtn.addEventListener("click", drawCard);
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
