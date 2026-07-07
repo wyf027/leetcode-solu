@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Yukon Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-green-950 text-green-50">
+    <main class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-5">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Yukon Solitaire</h1>
+          <p class="text-sm text-green-200">Move any face-up sequence, even when it is not internally ordered.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="rounded border border-green-700 bg-green-900 px-3 py-2 text-sm">
+            Moves: <span id="moves" class="font-semibold">0</span>
+          </div>
+          <button id="newGame" class="rounded bg-yellow-300 px-4 py-2 text-sm font-semibold text-green-950 hover:bg-yellow-200">
+            New game
+          </button>
+        </div>
+      </header>
+
+      <section id="foundations" class="grid grid-cols-2 gap-3 sm:grid-cols-4"></section>
+      <section id="tableau" class="grid flex-1 grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7"></section>
+      <footer id="message" class="min-h-8 text-sm text-green-200"></footer>
+    </main>
+
+    <script>
+      const suits = [
+        { symbol: "S", color: "black" },
+        { symbol: "H", color: "red" },
+        { symbol: "D", color: "red" },
+        { symbol: "C", color: "black" },
+      ];
+      const rankNames = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+      const state = {
+        foundations: Array.from({ length: 4 }, () => []),
+        tableau: Array.from({ length: 7 }, () => []),
+        selected: null,
+        moves: 0,
+      };
+
+      const foundationsEl = document.getElementById("foundations");
+      const tableauEl = document.getElementById("tableau");
+      const movesEl = document.getElementById("moves");
+      const messageEl = document.getElementById("message");
+      const newGameBtn = document.getElementById("newGame");
+
+      function makeDeck() {
+        const cards = [];
+        for (const suit of suits) {
+          for (let rank = 1; rank <= 13; rank += 1) {
+            cards.push({ id: `${suit.symbol}-${rank}`, suit: suit.symbol, color: suit.color, rank, faceUp: false });
+          }
+        }
+        return cards;
+      }
+
+      function shuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+      }
+
+      function cardLabel(card) {
+        return `${rankNames[card.rank]}${card.suit}`;
+      }
+
+      function topCard(pile) {
+        return pile[pile.length - 1];
+      }
+
+      function setMessage(text) {
+        messageEl.textContent = text;
+      }
+
+      function clearSelection() {
+        state.selected = null;
+      }
+
+      function foundationIndexFor(card) {
+        return suits.findIndex((suit) => suit.symbol === card.suit);
+      }
+
+      function foundationAccepts(card) {
+        if (!card) return false;
+        const pile = state.foundations[foundationIndexFor(card)];
+        const top = topCard(pile);
+        return top ? top.rank + 1 === card.rank : card.rank === 1;
+      }
+
+      function tableauAccepts(pile, card) {
+        const top = topCard(pile);
+        if (!top) return card.rank === 13;
+        return top.faceUp && top.color !== card.color && top.rank === card.rank + 1;
+      }
+
+      function flipTop(index) {
+        const top = topCard(state.tableau[index]);
+        if (top && !top.faceUp) top.faceUp = true;
+      }
+
+      function selectedSequence() {
+        if (!state.selected) return [];
+        return state.tableau[state.selected.pile].slice(state.selected.card);
+      }
+
+      function moveSelectedToTableau(index) {
+        const seq = selectedSequence();
+        const first = seq[0];
+        if (!first || state.selected.pile === index) {
+          clearSelection();
+          render();
+          return false;
+        }
+        if (!tableauAccepts(state.tableau[index], first)) {
+          setMessage("Yukon tableau moves must land on an opposite-color card one rank higher, or an empty pile with a king.");
+          return false;
+        }
+        state.tableau[state.selected.pile].splice(state.selected.card);
+        state.tableau[index].push(...seq);
+        flipTop(state.selected.pile);
+        state.moves += 1;
+        clearSelection();
+        setMessage("Yukon sequence moved.");
+        render();
+        return true;
+      }
+
+      function moveTopToFoundation(index) {
+        const card = topCard(state.tableau[index]);
+        if (!card || !card.faceUp || !foundationAccepts(card)) {
+          setMessage("Only a valid face-up top card can build a foundation.");
+          return false;
+        }
+        state.tableau[index].pop();
+        state.foundations[foundationIndexFor(card)].push(card);
+        flipTop(index);
+        state.moves += 1;
+        clearSelection();
+        setMessage(`Built ${cardLabel(card)} to its foundation.`);
+        render();
+        return true;
+      }
+
+      function clickTableau(pileIndex, cardIndex) {
+        if (state.selected) {
+          moveSelectedToTableau(pileIndex);
+          return;
+        }
+        const card = state.tableau[pileIndex][cardIndex];
+        if (!card) return;
+        if (!card.faceUp) {
+          setMessage("Only face-up cards can start a Yukon move.");
+          return;
+        }
+        state.selected = { pile: pileIndex, card: cardIndex };
+        setMessage(`Selected ${cardLabel(card)} and the cards below it.`);
+        render();
+      }
+
+      function cardClass(card, selected) {
+        const color = card.color === "red" ? "text-red-600" : "text-slate-900";
+        const ring = selected ? "ring-4 ring-yellow-300" : "";
+        return `rounded border border-slate-300 bg-white px-2 py-1 text-sm font-semibold shadow ${color} ${ring}`;
+      }
+
+      function renderCard(card, selected = false) {
+        if (!card.faceUp) {
+          return '<div class="rounded border border-green-500 bg-green-800 px-2 py-1 text-sm text-green-100 shadow">Deck</div>';
+        }
+        return `<div class="${cardClass(card, selected)}">${cardLabel(card)}</div>`;
+      }
+
+      function render() {
+        movesEl.textContent = state.moves;
+        foundationsEl.innerHTML = "";
+        state.foundations.forEach((pile, index) => {
+          const top = topCard(pile);
+          const slot = document.createElement("button");
+          slot.className = "min-h-28 rounded border border-green-700 bg-green-900 p-2 text-left shadow";
+          slot.innerHTML = `<div class="mb-2 text-xs uppercase text-green-300">${suits[index].symbol} Foundation</div>${top ? renderCard({ ...top, faceUp: true }) : '<div class="text-sm text-green-400">Start with A</div>'}`;
+          foundationsEl.appendChild(slot);
+        });
+
+        tableauEl.innerHTML = "";
+        state.tableau.forEach((pile, pileIndex) => {
+          const column = document.createElement("div");
+          column.className = "min-h-96 rounded border border-green-700 bg-green-900 p-2 shadow";
+          const title = `<div class="mb-2 flex justify-between text-xs uppercase text-green-300"><span>Pile ${pileIndex + 1}</span><span>${pile.length}</span></div>`;
+          const cards = pile
+            .map((card, cardIndex) => {
+              const selected =
+                state.selected?.pile === pileIndex && cardIndex >= state.selected.card && card.faceUp;
+              return `<button class="block w-full text-left ${cardIndex ? '-mt-1' : ''}" data-pile="${pileIndex}" data-card="${cardIndex}">${renderCard(card, selected)}</button>`;
+            })
+            .join("");
+          column.innerHTML = title + (cards || '<button class="text-sm text-green-400" data-pile="' + pileIndex + '" data-card="-1">Empty for K</button>');
+          column.addEventListener("click", (event) => {
+            const button = event.target.closest("button[data-pile]");
+            if (!button) return;
+            const cardIndex = Number(button.dataset.card);
+            if (cardIndex < 0 && state.selected) {
+              moveSelectedToTableau(pileIndex);
+              return;
+            }
+            clickTableau(pileIndex, cardIndex);
+          });
+          column.addEventListener("dblclick", () => moveTopToFoundation(pileIndex));
+          tableauEl.appendChild(column);
+        });
+
+        if (state.foundations.every((pile) => pile.length === 13)) {
+          setMessage("Yukon cleared. All foundations are complete.");
+        }
+      }
+
+      function newGame() {
+        const deck = shuffle(makeDeck());
+        state.foundations = Array.from({ length: 4 }, () => []);
+        state.tableau = Array.from({ length: 7 }, () => []);
+        for (let pile = 0; pile < 7; pile += 1) {
+          for (let down = 0; down < pile; down += 1) {
+            state.tableau[pile].push(deck.pop());
+          }
+          for (let up = 0; up < 5; up += 1) {
+            const card = deck.pop();
+            if (card) {
+              card.faceUp = true;
+              state.tableau[pile].push(card);
+            }
+          }
+        }
+        while (deck.length) {
+          const card = deck.pop();
+          card.faceUp = true;
+          state.tableau[state.tableau.length - 1].push(card);
+        }
+        state.moves = 0;
+        clearSelection();
+        setMessage("Select any face-up card to move it with every card below it. Double-click a pile to build its top card.");
+        render();
+      }
+
+      newGameBtn.addEventListener("click", newGame);
+      newGame();
+    </script>
+  </body>
+</html>
