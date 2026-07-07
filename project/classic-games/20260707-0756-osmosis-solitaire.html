@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Osmosis Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Osmosis Solitaire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-slate-300">
+          Build each suit foundation by osmosis: lower rows can only accept ranks already present above them.
+        </p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-violet-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-violet-300">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-3 sm:grid-cols-4">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-400">Stock</div>
+        <div id="stockCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-400">Waste</div>
+        <div id="wasteCount" class="text-2xl font-semibold">0</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-400">Foundation</div>
+        <div id="progress" class="text-2xl font-semibold">4 / 52</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="text-xs uppercase text-slate-400">Status</div>
+        <div id="status" class="text-sm font-medium text-violet-200">Draw a card, then place it by osmosis.</div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <aside class="rounded border border-slate-800 bg-slate-900 p-3">
+        <h2 class="mb-3 text-sm font-semibold uppercase text-slate-300">Draw Pile</h2>
+        <button id="drawBtn" class="mb-3 w-full rounded border border-violet-400 bg-violet-950/50 py-4 text-sm font-semibold text-violet-100 hover:bg-violet-900">
+          Draw
+        </button>
+        <div id="waste" class="grid gap-2"></div>
+      </aside>
+      <section id="foundations" class="grid gap-3 md:grid-cols-2"></section>
+    </section>
+  </main>
+
+  <script>
+    const suits = [
+      { mark: "♠", name: "spades", color: "text-slate-100" },
+      { mark: "♥", name: "hearts", color: "text-rose-300" },
+      { mark: "♦", name: "diamonds", color: "text-sky-300" },
+      { mark: "♣", name: "clubs", color: "text-emerald-300" }
+    ];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const foundationsEl = document.getElementById("foundations");
+    const wasteEl = document.getElementById("waste");
+    const stockCountEl = document.getElementById("stockCount");
+    const wasteCountEl = document.getElementById("wasteCount");
+    const progressEl = document.getElementById("progress");
+    const statusEl = document.getElementById("status");
+    const drawBtn = document.getElementById("drawBtn");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let stock = [];
+    let waste = [];
+    let foundations = [];
+
+    function makeDeck() {
+      return suits.flatMap((suit) =>
+        ranks.map((rank, index) => ({
+          rank,
+          value: index + 1,
+          suit: suit.mark,
+          suitName: suit.name,
+          color: suit.color
+        }))
+      );
+    }
+
+    function shuffle(items) {
+      const copy = [...items];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function newGame() {
+      foundations = suits.map((suit, index) => [{ rank: "A", value: 1, suit: suit.mark, suitName: suit.name, color: suit.color }]);
+      const starters = new Set(foundations.map((card) => `${card.suitName}:1`));
+      stock = shuffle(makeDeck().filter((card) => !starters.has(`${card.suitName}:${card.value}`)));
+      waste = [];
+      statusEl.textContent = "Draw a card, then place it by osmosis.";
+      render();
+    }
+
+    function allowedRanks(rowIndex) {
+      if (rowIndex === 0) return new Set(ranks.map((_, index) => index + 1));
+      return new Set(foundations[rowIndex - 1].map((card) => card.value));
+    }
+
+    function canPlace(card, rowIndex) {
+      if (!card) return false;
+      if (foundations[rowIndex].some((placed) => placed.value === card.value)) return false;
+      const rowSuit = suits[rowIndex].name;
+      return card.suitName === rowSuit && allowedRanks(rowIndex).has(card.value);
+    }
+
+    function drawCard() {
+      if (!stock.length) {
+        stock = waste.reverse();
+        waste = [];
+        statusEl.textContent = stock.length ? "Waste recycled into stock." : "No cards left to draw.";
+        render();
+        return;
+      }
+      waste.unshift(stock.pop());
+      statusEl.textContent = "Try placing the top waste card.";
+      render();
+    }
+
+    function placeWaste(rowIndex) {
+      const card = waste[0];
+      if (!canPlace(card, rowIndex)) {
+        statusEl.textContent = "That row needs the matching suit and a rank already opened above it.";
+        return;
+      }
+      foundations[rowIndex].push(waste.shift());
+      statusEl.textContent = `${card.rank}${card.suit} seeped into its foundation.`;
+      render();
+    }
+
+    function cardLabel(card) {
+      return `<span class="inline-flex h-12 min-w-10 items-center justify-between rounded border border-slate-700 bg-slate-800 px-2 font-bold ${card.color}">
+        <span>${card.rank}</span><span class="ml-1 text-lg">${card.suit}</span>
+      </span>`;
+    }
+
+    function render() {
+      foundationsEl.innerHTML = "";
+      foundations.forEach((row, rowIndex) => {
+        const panel = document.createElement("button");
+        panel.type = "button";
+        panel.className = "min-h-28 rounded border border-slate-800 bg-slate-900 p-3 text-left hover:border-violet-300";
+        panel.innerHTML = `
+          <div class="mb-2 flex items-center justify-between text-xs uppercase text-slate-400">
+            <span>${suits[rowIndex].name}</span><span>${row.length} / 13</span>
+          </div>
+          <div class="flex flex-wrap gap-2">${row.sort((a, b) => a.value - b.value).map(cardLabel).join("")}</div>
+        `;
+        panel.addEventListener("click", () => placeWaste(rowIndex));
+        foundationsEl.appendChild(panel);
+      });
+
+      wasteEl.innerHTML = waste.slice(0, 5).map(cardLabel).join("");
+      stockCountEl.textContent = stock.length;
+      wasteCountEl.textContent = waste.length;
+      const total = foundations.reduce((sum, row) => sum + row.length, 0);
+      progressEl.textContent = `${total} / 52`;
+      if (total === 52) statusEl.textContent = "All foundations filled by osmosis.";
+    }
+
+    drawBtn.addEventListener("click", drawCard);
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
