@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Maze Runner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-50">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Maze Runner</h1>
+        <p class="text-sm text-zinc-300">Reach the gold exit. Move with arrow keys, WASD, or the pad.</p>
+      </div>
+      <button id="newMazeBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-zinc-950 hover:bg-amber-200">New Maze</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-zinc-700 bg-zinc-900 p-3 sm:grid-cols-3">
+      <div>Steps: <b id="stepCount">0</b></div>
+      <div>Size: <b>15 x 15</b></div>
+      <div id="message">Find the exit.</div>
+    </section>
+
+    <section id="mazeBoard" class="grid aspect-square w-full overflow-hidden rounded border border-zinc-700 bg-zinc-800"></section>
+
+    <section class="grid max-w-44 grid-cols-3 gap-2 self-center">
+      <span></span>
+      <button data-move="up" class="rounded bg-sky-300 px-4 py-3 font-bold text-zinc-950 hover:bg-sky-200">↑</button>
+      <span></span>
+      <button data-move="left" class="rounded bg-sky-300 px-4 py-3 font-bold text-zinc-950 hover:bg-sky-200">←</button>
+      <button data-move="down" class="rounded bg-sky-300 px-4 py-3 font-bold text-zinc-950 hover:bg-sky-200">↓</button>
+      <button data-move="right" class="rounded bg-sky-300 px-4 py-3 font-bold text-zinc-950 hover:bg-sky-200">→</button>
+    </section>
+  </main>
+
+  <script>
+    const size = 15;
+    const wall = 1;
+    const path = 0;
+    const dirs = [
+      { name: "up", dr: -1, dc: 0 },
+      { name: "right", dr: 0, dc: 1 },
+      { name: "down", dr: 1, dc: 0 },
+      { name: "left", dr: 0, dc: -1 }
+    ];
+    const keyMoves = {
+      ArrowUp: "up",
+      w: "up",
+      W: "up",
+      ArrowRight: "right",
+      d: "right",
+      D: "right",
+      ArrowDown: "down",
+      s: "down",
+      S: "down",
+      ArrowLeft: "left",
+      a: "left",
+      A: "left"
+    };
+    const el = (id) => document.getElementById(id);
+    const mazeBoard = el("mazeBoard");
+    const stepCount = el("stepCount");
+    const message = el("message");
+    const newMazeBtn = el("newMazeBtn");
+
+    let maze;
+    let player;
+    let exit;
+    let steps;
+    let won;
+
+    function shuffle(items) {
+      for (let i = items.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+      return items;
+    }
+
+    function carve(row, col) {
+      maze[row][col] = path;
+      shuffle([...dirs]).forEach(({ dr, dc }) => {
+        const nextRow = row + dr * 2;
+        const nextCol = col + dc * 2;
+        if (nextRow <= 0 || nextRow >= size - 1 || nextCol <= 0 || nextCol >= size - 1) return;
+        if (maze[nextRow][nextCol] === path) return;
+        maze[row + dr][col + dc] = path;
+        carve(nextRow, nextCol);
+      });
+    }
+
+    function buildMaze() {
+      maze = Array.from({ length: size }, () => Array(size).fill(wall));
+      carve(1, 1);
+      player = { row: 1, col: 1 };
+      exit = { row: size - 2, col: size - 2 };
+      maze[exit.row][exit.col] = path;
+      steps = 0;
+      won = false;
+      message.textContent = "Find the exit.";
+      render();
+    }
+
+    function movePlayer(direction) {
+      if (won) return;
+      const delta = dirs.find((item) => item.name === direction);
+      if (!delta) return;
+      const nextRow = player.row + delta.dr;
+      const nextCol = player.col + delta.dc;
+      if (maze[nextRow]?.[nextCol] !== path) {
+        message.textContent = "Wall blocked that move.";
+        return;
+      }
+      player = { row: nextRow, col: nextCol };
+      steps += 1;
+      if (player.row === exit.row && player.col === exit.col) {
+        won = true;
+        message.textContent = `Escaped in ${steps} steps.`;
+      } else {
+        message.textContent = "Keep running.";
+      }
+      render();
+    }
+
+    function render() {
+      mazeBoard.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+      mazeBoard.innerHTML = maze.map((row, r) => row.map((cell, c) => {
+        const isPlayer = r === player.row && c === player.col;
+        const isExit = r === exit.row && c === exit.col;
+        const classes = cell === wall ? "bg-zinc-950" : isExit ? "bg-amber-300" : "bg-zinc-100";
+        const label = isPlayer ? "●" : "";
+        return `<div class="flex aspect-square items-center justify-center text-sm font-bold ${classes} ${isPlayer ? "text-rose-600" : "text-zinc-900"}">${label}</div>`;
+      }).join("")).join("");
+      stepCount.textContent = steps;
+    }
+
+    document.addEventListener("keydown", (event) => {
+      const move = keyMoves[event.key];
+      if (!move) return;
+      event.preventDefault();
+      movePlayer(move);
+    });
+    document.querySelectorAll("[data-move]").forEach((button) => {
+      button.addEventListener("click", () => movePlayer(button.dataset.move));
+    });
+    newMazeBtn.addEventListener("click", buildMaze);
+    buildMaze();
+  </script>
+</body>
+</html>
