@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Dice Poker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Dice Poker</h1>
+        <p class="text-sm text-emerald-200">Roll five dice, lock keepers, and score the best poker hand in three rolls.</p>
+      </div>
+      <button id="newRoundBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-emerald-950 hover:bg-amber-200">New Round</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-emerald-700 bg-emerald-900 p-3 sm:grid-cols-3">
+      <div>Rolls left: <b id="rollsLeft">3</b></div>
+      <div>Best: <b id="bestHand">-</b></div>
+      <div>Score: <b id="scoreText">0</b></div>
+    </section>
+
+    <section id="diceBoard" class="grid grid-cols-5 gap-2"></section>
+
+    <section class="flex flex-wrap items-center gap-3">
+      <button id="rollBtn" class="rounded bg-lime-300 px-5 py-3 font-semibold text-emerald-950 hover:bg-lime-200">Roll Dice</button>
+      <button id="scoreBtn" class="rounded bg-sky-300 px-5 py-3 font-semibold text-emerald-950 hover:bg-sky-200">Score Hand</button>
+      <p id="message" class="text-sm text-emerald-100">Roll to begin. Tap dice to lock them before rerolling.</p>
+    </section>
+
+    <section class="rounded border border-emerald-700 bg-emerald-900 p-3">
+      <h2 class="mb-2 font-semibold">Hand Ladder</h2>
+      <div class="grid gap-1 text-sm text-emerald-100 sm:grid-cols-2">
+        <span>Five of a Kind: 50</span>
+        <span>Four of a Kind: 30</span>
+        <span>Full House: 25</span>
+        <span>Straight: 20</span>
+        <span>Three of a Kind: 15</span>
+        <span>Two Pair: 10</span>
+        <span>One Pair: 5</span>
+        <span>High Card: highest die</span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const diceFaces = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+    const el = (id) => document.getElementById(id);
+    const diceBoard = el("diceBoard");
+    const rollsLeftEl = el("rollsLeft");
+    const bestHand = el("bestHand");
+    const scoreText = el("scoreText");
+    const message = el("message");
+    const rollBtn = el("rollBtn");
+    const scoreBtn = el("scoreBtn");
+    const newRoundBtn = el("newRoundBtn");
+
+    let dice = [1, 1, 1, 1, 1];
+    let locked = [false, false, false, false, false];
+    let rollsLeft = 3;
+    let scored = false;
+
+    function rollDie() {
+      return Math.floor(Math.random() * 6) + 1;
+    }
+
+    function countDice(values) {
+      return values.reduce((counts, value) => {
+        counts[value] = (counts[value] || 0) + 1;
+        return counts;
+      }, {});
+    }
+
+    function scoreHand(values) {
+      const sorted = [...values].sort((a, b) => a - b);
+      const groups = Object.values(countDice(values)).sort((a, b) => b - a);
+      const straight = sorted.join("") === "12345" || sorted.join("") === "23456";
+      if (groups[0] === 5) return { name: "Five of a Kind", points: 50 };
+      if (groups[0] === 4) return { name: "Four of a Kind", points: 30 };
+      if (groups[0] === 3 && groups[1] === 2) return { name: "Full House", points: 25 };
+      if (straight) return { name: "Straight", points: 20 };
+      if (groups[0] === 3) return { name: "Three of a Kind", points: 15 };
+      if (groups[0] === 2 && groups[1] === 2) return { name: "Two Pair", points: 10 };
+      if (groups[0] === 2) return { name: "One Pair", points: 5 };
+      return { name: "High Card", points: Math.max(...values) };
+    }
+
+    function rollDice() {
+      if (rollsLeft === 0 || scored) return;
+      dice = dice.map((value, index) => locked[index] ? value : rollDie());
+      rollsLeft -= 1;
+      const result = scoreHand(dice);
+      message.textContent = rollsLeft ? "Lock any keepers, then roll again or score now." : "No rolls left. Score this hand.";
+      bestHand.textContent = result.name;
+      render();
+    }
+
+    function toggleLock(index) {
+      if (rollsLeft === 3 || scored) {
+        message.textContent = "Roll once before locking dice.";
+        return;
+      }
+      locked[index] = !locked[index];
+      render();
+    }
+
+    function finishScore() {
+      if (rollsLeft === 3 || scored) {
+        message.textContent = "Roll before scoring.";
+        return;
+      }
+      const result = scoreHand(dice);
+      scored = true;
+      bestHand.textContent = result.name;
+      scoreText.textContent = result.points;
+      message.textContent = `${result.name} scores ${result.points}. Start a new round to play again.`;
+      render();
+    }
+
+    function render() {
+      diceBoard.innerHTML = dice.map((value, index) => `
+        <button data-die="${index}" class="aspect-square rounded border ${locked[index] ? "border-amber-300 bg-amber-100" : "border-emerald-700 bg-white"} text-5xl text-emerald-950 shadow">
+          <span class="block">${diceFaces[value]}</span>
+          <span class="block text-xs font-semibold">${locked[index] ? "LOCKED" : "OPEN"}</span>
+        </button>
+      `).join("");
+      document.querySelectorAll("[data-die]").forEach((button) => {
+        button.onclick = () => toggleLock(Number(button.dataset.die));
+      });
+      rollsLeftEl.textContent = rollsLeft;
+      rollBtn.disabled = rollsLeft === 0 || scored;
+      scoreBtn.disabled = rollsLeft === 3 || scored;
+    }
+
+    function newRound() {
+      dice = [1, 1, 1, 1, 1];
+      locked = [false, false, false, false, false];
+      rollsLeft = 3;
+      scored = false;
+      bestHand.textContent = "-";
+      scoreText.textContent = "0";
+      message.textContent = "Roll to begin. Tap dice to lock them before rerolling.";
+      render();
+    }
+
+    rollBtn.addEventListener("click", rollDice);
+    scoreBtn.addEventListener("click", finishScore);
+    newRoundBtn.addEventListener("click", newRound);
+    newRound();
+  </script>
+</body>
+</html>
