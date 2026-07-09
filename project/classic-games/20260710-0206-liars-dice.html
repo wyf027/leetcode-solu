@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Liars Dice</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-orange-950 text-orange-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Liars Dice</h1>
+        <p class="text-sm text-orange-200">Bid how many dice of one face exist across both cups. Call when the bid feels too high.</p>
+      </div>
+      <button id="newRoundBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-orange-950 hover:bg-amber-200">New Round</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-orange-700 bg-orange-900 p-3 sm:grid-cols-4">
+      <div>Round: <b id="roundText">1</b></div>
+      <div>You: <b id="playerScore">0</b></div>
+      <div>House: <b id="houseScore">0</b></div>
+      <div id="message" class="text-orange-100">Set a bid or call bluff.</div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-2">
+      <div class="rounded border border-orange-700 bg-orange-900 p-4">
+        <h2 class="mb-2 font-semibold">Your Cup</h2>
+        <div id="playerDice" class="grid grid-cols-5 gap-2"></div>
+      </div>
+      <div class="rounded border border-orange-700 bg-orange-900 p-4">
+        <h2 class="mb-2 font-semibold">House Cup</h2>
+        <div id="houseDice" class="grid grid-cols-5 gap-2"></div>
+      </div>
+    </section>
+
+    <section class="grid gap-3 rounded border border-orange-700 bg-orange-900 p-4 sm:grid-cols-[1fr_1fr_auto_auto]">
+      <label class="text-sm">Quantity
+        <input id="quantityInput" class="mt-1 w-full rounded bg-white px-3 py-2 text-orange-950" type="number" min="1" max="10" value="3">
+      </label>
+      <label class="text-sm">Face
+        <select id="faceSelect" class="mt-1 w-full rounded bg-white px-3 py-2 text-orange-950">
+          <option value="1">One</option>
+          <option value="2">Two</option>
+          <option value="3">Three</option>
+          <option value="4">Four</option>
+          <option value="5">Five</option>
+          <option value="6">Six</option>
+        </select>
+      </label>
+      <button id="raiseBtn" class="self-end rounded bg-lime-300 px-5 py-3 font-semibold text-orange-950 hover:bg-lime-200">Raise Bid</button>
+      <button id="callBtn" class="self-end rounded bg-sky-300 px-5 py-3 font-semibold text-orange-950 hover:bg-sky-200">Call Bluff</button>
+    </section>
+
+    <section class="rounded border border-orange-700 bg-orange-900 p-3">
+      Current bid: <b id="bidText">none</b>
+    </section>
+  </main>
+
+  <script>
+    const faces = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+    const el = (id) => document.getElementById(id);
+    const playerDice = el("playerDice");
+    const houseDice = el("houseDice");
+    const roundText = el("roundText");
+    const playerScore = el("playerScore");
+    const houseScore = el("houseScore");
+    const message = el("message");
+    const quantityInput = el("quantityInput");
+    const faceSelect = el("faceSelect");
+    const raiseBtn = el("raiseBtn");
+    const callBtn = el("callBtn");
+    const newRoundBtn = el("newRoundBtn");
+    const bidText = el("bidText");
+    let player = [];
+    let house = [];
+    let bid = null;
+    let bidder = "";
+    let revealed = false;
+    let round = 1;
+    let pScore = 0;
+    let hScore = 0;
+
+    function rollDice() {
+      return Array.from({ length: 5 }, () => Math.floor(Math.random() * 6) + 1);
+    }
+
+    function countFace(face) {
+      return [...player, ...house].filter((value) => value === face).length;
+    }
+
+    function validRaise(quantity, face) {
+      return !bid || quantity > bid.quantity || (quantity === bid.quantity && face > bid.face);
+    }
+
+    function raiseBid() {
+      if (revealed) {
+        message.textContent = "Start a new round before bidding again.";
+        return;
+      }
+      const quantity = Number(quantityInput.value);
+      const face = Number(faceSelect.value);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10 || !validRaise(quantity, face)) {
+        message.textContent = "Raise to a higher quantity, or keep quantity and raise the face.";
+        return;
+      }
+      bid = { quantity, face };
+      bidder = "you";
+      message.textContent = `You bid ${quantity} of ${faces[face]}.`;
+      render();
+      window.setTimeout(houseTurn, 450);
+    }
+
+    function houseTurn() {
+      if (revealed || !bid || bidder !== "you") return;
+      const visible = house.filter((value) => value === bid.face).length;
+      const likelyTotal = visible + 2;
+      if (bid.quantity > likelyTotal || bid.quantity >= 8) {
+        callBluff("house");
+        return;
+      }
+      const nextFace = bid.face < 6 ? bid.face + 1 : bid.face;
+      const nextQuantity = bid.face < 6 ? bid.quantity : Math.min(10, bid.quantity + 1);
+      bid = { quantity: nextQuantity, face: nextFace };
+      bidder = "house";
+      quantityInput.value = Math.min(10, nextQuantity + 1);
+      faceSelect.value = String(nextFace);
+      message.textContent = `House raises to ${nextQuantity} of ${faces[nextFace]}.`;
+      render();
+    }
+
+    function callBluff(caller = "you") {
+      if (!bid || revealed) {
+        message.textContent = "There is no live bid to challenge.";
+        return;
+      }
+      revealed = true;
+      const actual = countFace(bid.face);
+      const bidderWins = actual >= bid.quantity;
+      const playerWins = bidderWins ? bidder === "you" : bidder !== "you";
+      if (playerWins) {
+        pScore += 1;
+      } else {
+        hScore += 1;
+      }
+      const callerText = caller === "you" ? "You called" : "House called";
+      message.textContent = `${callerText}. Found ${actual} of ${faces[bid.face]}; ${playerWins ? "you win" : "house wins"} this round.`;
+      render();
+    }
+
+    function renderDice(target, dice, hidden) {
+      target.innerHTML = "";
+      dice.forEach((value) => {
+        const die = document.createElement("div");
+        die.className = "flex aspect-square items-center justify-center rounded bg-orange-100 text-4xl font-bold text-orange-950 shadow";
+        die.textContent = hidden ? "?" : faces[value];
+        target.appendChild(die);
+      });
+    }
+
+    function render() {
+      renderDice(playerDice, player, false);
+      renderDice(houseDice, house, !revealed);
+      roundText.textContent = String(round);
+      playerScore.textContent = String(pScore);
+      houseScore.textContent = String(hScore);
+      bidText.textContent = bid ? `${bid.quantity} x ${faces[bid.face]} by ${bidder === "you" ? "you" : "house"}` : "none";
+      raiseBtn.disabled = revealed;
+      callBtn.disabled = revealed || !bid;
+      raiseBtn.classList.toggle("opacity-50", raiseBtn.disabled);
+      callBtn.classList.toggle("opacity-50", callBtn.disabled);
+    }
+
+    function newRound() {
+      player = rollDice();
+      house = rollDice();
+      bid = null;
+      bidder = "";
+      revealed = false;
+      quantityInput.value = "3";
+      faceSelect.value = "3";
+      message.textContent = "Roll complete. Open with a bid.";
+      if (round > 1) message.textContent = "New cups rolled. Open with a bid.";
+      render();
+      round += 1;
+    }
+
+    raiseBtn.addEventListener("click", raiseBid);
+    callBtn.addEventListener("click", () => callBluff("you"));
+    newRoundBtn.addEventListener("click", newRound);
+    newRound();
+  </script>
+</body>
+</html>
