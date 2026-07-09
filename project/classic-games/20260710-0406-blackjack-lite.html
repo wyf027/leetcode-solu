@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Blackjack Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Blackjack Lite</h1>
+        <p class="text-sm text-neutral-300">Draw toward 21, stand before busting, and beat the dealer's hand.</p>
+      </div>
+      <button id="dealBtn" class="rounded bg-emerald-300 px-4 py-2 font-semibold text-neutral-950 hover:bg-emerald-200">Deal</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-neutral-700 bg-neutral-900 p-3 sm:grid-cols-4">
+      <div>Wins: <b id="winText">0</b></div>
+      <div>Losses: <b id="lossText">0</b></div>
+      <div>Pushes: <b id="pushText">0</b></div>
+      <div id="message" class="text-neutral-200">Deal a new hand.</div>
+    </section>
+
+    <section class="grid gap-4 md:grid-cols-2">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-4">
+        <h2 class="mb-3 flex justify-between font-semibold">
+          Dealer <span id="dealerScore">0</span>
+        </h2>
+        <div id="dealerCards" class="grid grid-cols-3 gap-2 sm:grid-cols-4"></div>
+      </div>
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-4">
+        <h2 class="mb-3 flex justify-between font-semibold">
+          You <span id="playerScore">0</span>
+        </h2>
+        <div id="playerCards" class="grid grid-cols-3 gap-2 sm:grid-cols-4"></div>
+      </div>
+    </section>
+
+    <section class="flex flex-wrap gap-3 rounded border border-neutral-700 bg-neutral-900 p-4">
+      <button id="hitBtn" class="rounded bg-sky-300 px-5 py-3 font-semibold text-neutral-950 hover:bg-sky-200">Hit</button>
+      <button id="standBtn" class="rounded bg-amber-300 px-5 py-3 font-semibold text-neutral-950 hover:bg-amber-200">Stand</button>
+    </section>
+  </main>
+
+  <script>
+    const suits = ["♠", "♥", "♦", "♣"];
+    const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const dealerCards = document.getElementById("dealerCards");
+    const playerCards = document.getElementById("playerCards");
+    const dealerScore = document.getElementById("dealerScore");
+    const playerScore = document.getElementById("playerScore");
+    const message = document.getElementById("message");
+    const winText = document.getElementById("winText");
+    const lossText = document.getElementById("lossText");
+    const pushText = document.getElementById("pushText");
+    const dealBtn = document.getElementById("dealBtn");
+    const hitBtn = document.getElementById("hitBtn");
+    const standBtn = document.getElementById("standBtn");
+    let deck = [];
+    let dealer = [];
+    let player = [];
+    let hiddenDealer = true;
+    let active = false;
+    let wins = 0;
+    let losses = 0;
+    let pushes = 0;
+
+    function buildDeck() {
+      return suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank }))).sort(() => Math.random() - 0.5);
+    }
+
+    function cardValue(card) {
+      if (card.rank === "A") return 11;
+      return ["J", "Q", "K"].includes(card.rank) ? 10 : Number(card.rank);
+    }
+
+    function scoreHand(hand) {
+      let total = hand.reduce((sum, card) => sum + cardValue(card), 0);
+      let aces = hand.filter((card) => card.rank === "A").length;
+      while (total > 21 && aces > 0) {
+        total -= 10;
+        aces -= 1;
+      }
+      return total;
+    }
+
+    function drawCard() {
+      if (deck.length === 0) deck = buildDeck();
+      return deck.pop();
+    }
+
+    function renderHand(target, hand, hideFirst) {
+      target.innerHTML = "";
+      hand.forEach((card, index) => {
+        const cardEl = document.createElement("div");
+        const hidden = hideFirst && index === 0;
+        const red = ["♥", "♦"].includes(card.suit);
+        cardEl.className = "flex aspect-[3/4] min-h-24 flex-col items-center justify-center rounded bg-white text-xl font-bold shadow";
+        cardEl.classList.add(hidden ? "text-neutral-400" : red ? "text-red-600" : "text-neutral-950");
+        cardEl.textContent = hidden ? "?" : `${card.rank}${card.suit}`;
+        target.appendChild(cardEl);
+      });
+    }
+
+    function finishRound(result) {
+      active = false;
+      hiddenDealer = false;
+      if (result === "win") {
+        wins += 1;
+        message.textContent = "You win the hand.";
+      } else if (result === "loss") {
+        losses += 1;
+        message.textContent = "Dealer wins the hand.";
+      } else {
+        pushes += 1;
+        message.textContent = "Push. The hand is tied.";
+      }
+      render();
+    }
+
+    function compareHands() {
+      const playerTotal = scoreHand(player);
+      const dealerTotal = scoreHand(dealer);
+      if (dealerTotal > 21 || playerTotal > dealerTotal) finishRound("win");
+      else if (playerTotal < dealerTotal) finishRound("loss");
+      else finishRound("push");
+    }
+
+    function dealerPlay() {
+      hiddenDealer = false;
+      while (scoreHand(dealer) < 17) {
+        dealer.push(drawCard());
+      }
+      compareHands();
+    }
+
+    function hit() {
+      if (!active) return;
+      player.push(drawCard());
+      if (scoreHand(player) > 21) {
+        finishRound("loss");
+      } else {
+        message.textContent = "Hit or stand?";
+        render();
+      }
+    }
+
+    function stand() {
+      if (!active) return;
+      dealerPlay();
+    }
+
+    function deal() {
+      deck = buildDeck();
+      dealer = [drawCard(), drawCard()];
+      player = [drawCard(), drawCard()];
+      hiddenDealer = true;
+      active = true;
+      message.textContent = "Hit or stand?";
+      if (scoreHand(player) === 21) dealerPlay();
+      render();
+    }
+
+    function render() {
+      renderHand(dealerCards, dealer, hiddenDealer);
+      renderHand(playerCards, player, false);
+      dealerScore.textContent = hiddenDealer ? "?" : String(scoreHand(dealer));
+      playerScore.textContent = String(scoreHand(player));
+      winText.textContent = String(wins);
+      lossText.textContent = String(losses);
+      pushText.textContent = String(pushes);
+      hitBtn.disabled = !active;
+      standBtn.disabled = !active;
+      [hitBtn, standBtn].forEach((button) => button.classList.toggle("opacity-50", button.disabled));
+    }
+
+    dealBtn.addEventListener("click", deal);
+    hitBtn.addEventListener("click", hit);
+    standBtn.addEventListener("click", stand);
+    render();
+  </script>
+</body>
+</html>
