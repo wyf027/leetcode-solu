@@ -1231,19 +1231,38 @@ function App() {
 
     const nodes = await scanDirectory(nodepod.fs);
     const filesTotal = countFiles(nodes);
-    const selectedNode =
-      findFileNode(nodes, selectedFilePathRef.current) ??
-      findFileNode(nodes, firstFilePath(nodes));
+    const previousSelectedPath = selectedFilePathRef.current;
+    const exactSelectedNode = findFileNode(nodes, previousSelectedPath);
+    const selectedNode = exactSelectedNode ?? findFileNode(nodes, firstFilePath(nodes));
 
     setFiles(nodes);
     setFileCount(filesTotal);
 
     if (selectedNode) {
+      const selectedMissing = Boolean(previousSelectedPath) && !exactSelectedNode;
       setSelectedFilePath(selectedNode.path);
 
-      if (!preserveEditor && !editorDirtyRef.current) {
+      if (selectedMissing) {
+        selectedFilePathRef.current = selectedNode.path;
+        setSelectedFileSize(selectedNode.size);
+        if (isTextFile(selectedNode.path)) {
+          setEditorReadOnly(false);
+          updateEditorValue(await nodepod.fs.readFile(selectedNode.path, "utf-8"));
+        } else {
+          setEditorReadOnly(true);
+          updateEditorValue("");
+        }
+        updateEditorDirty(false);
+      } else if (!preserveEditor && !editorDirtyRef.current) {
         await openFile(selectedNode, { skipRefresh: true });
       }
+    } else if (previousSelectedPath) {
+      setSelectedFilePath("");
+      selectedFilePathRef.current = "";
+      setSelectedFileSize(0);
+      setEditorReadOnly(false);
+      updateEditorValue("");
+      updateEditorDirty(false);
     }
   }
 
