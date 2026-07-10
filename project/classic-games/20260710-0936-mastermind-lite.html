@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Mastermind</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-4 py-8">
+    <section class="rounded-lg border border-stone-700 bg-stone-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-wide text-fuchsia-300">Classic Games</p>
+          <h1 class="text-3xl font-bold">Mini Mastermind</h1>
+        </div>
+        <button id="resetBtn" class="rounded bg-fuchsia-400 px-4 py-2 font-semibold text-stone-950 hover:bg-fuchsia-300">
+          New Code
+        </button>
+      </div>
+
+      <div class="grid gap-3 sm:grid-cols-3">
+        <div class="rounded border border-stone-700 bg-stone-800 p-4">
+          <p class="text-sm text-stone-400">Turns</p>
+          <p id="turnCount" class="text-3xl font-bold">0 / 8</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-800 p-4">
+          <p class="text-sm text-stone-400">Exact</p>
+          <p id="exactCount" class="text-3xl font-bold text-lime-300">0</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-800 p-4">
+          <p class="text-sm text-stone-400">Color Only</p>
+          <p id="colorCount" class="text-3xl font-bold text-cyan-300">0</p>
+        </div>
+      </div>
+
+      <div class="mt-5 rounded border border-stone-700 bg-stone-950 p-4">
+        <p class="mb-3 text-sm text-stone-400">Current guess</p>
+        <div id="guessSlots" class="mb-4 grid grid-cols-4 gap-3"></div>
+        <div id="palette" class="grid grid-cols-6 gap-2"></div>
+      </div>
+
+      <div class="mt-5 flex flex-col gap-3 sm:flex-row">
+        <button id="backspaceBtn" class="rounded bg-stone-800 px-4 py-3 font-semibold hover:bg-stone-700">Backspace</button>
+        <button id="submitBtn" class="rounded bg-fuchsia-400 px-4 py-3 font-semibold text-stone-950 hover:bg-fuchsia-300">Submit Guess</button>
+      </div>
+
+      <p id="statusText" class="mt-4 min-h-6 rounded border border-stone-700 bg-stone-950 p-3 font-semibold">
+        Pick four colors, then submit the guess.
+      </p>
+
+      <div class="mt-5">
+        <p class="mb-2 text-sm text-stone-400">History</p>
+        <div id="historyList" class="space-y-2"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const colors = [
+      { name: "Red", className: "bg-red-500" },
+      { name: "Blue", className: "bg-blue-500" },
+      { name: "Green", className: "bg-emerald-500" },
+      { name: "Yellow", className: "bg-yellow-300" },
+      { name: "Purple", className: "bg-purple-500" },
+      { name: "Orange", className: "bg-orange-500" }
+    ];
+    const maxTurns = 8;
+    const codeLength = 4;
+    const state = { secret: [], guess: [], history: [], gameOver: false };
+
+    const turnCount = document.getElementById("turnCount");
+    const exactCount = document.getElementById("exactCount");
+    const colorCount = document.getElementById("colorCount");
+    const guessSlots = document.getElementById("guessSlots");
+    const palette = document.getElementById("palette");
+    const historyList = document.getElementById("historyList");
+    const statusText = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+    const backspaceBtn = document.getElementById("backspaceBtn");
+    const submitBtn = document.getElementById("submitBtn");
+
+    function makeSecret() {
+      return Array.from({ length: codeLength }, () => Math.floor(Math.random() * colors.length));
+    }
+
+    function scoreGuess(guess, secret) {
+      let exact = 0;
+      const guessRest = [];
+      const secretRest = [];
+      guess.forEach((value, index) => {
+        if (value === secret[index]) {
+          exact += 1;
+        } else {
+          guessRest.push(value);
+          secretRest.push(secret[index]);
+        }
+      });
+
+      let colorOnly = 0;
+      guessRest.forEach((value) => {
+        const matchIndex = secretRest.indexOf(value);
+        if (matchIndex >= 0) {
+          colorOnly += 1;
+          secretRest.splice(matchIndex, 1);
+        }
+      });
+      return { exact, colorOnly };
+    }
+
+    function colorDot(index) {
+      const dot = document.createElement("span");
+      dot.className = `inline-block h-8 w-8 rounded-full border border-stone-950 ${colors[index].className}`;
+      dot.title = colors[index].name;
+      return dot;
+    }
+
+    function renderGuess() {
+      guessSlots.innerHTML = "";
+      for (let index = 0; index < codeLength; index += 1) {
+        const slot = document.createElement("div");
+        slot.className = "flex h-14 items-center justify-center rounded border border-stone-700 bg-stone-800";
+        if (state.guess[index] !== undefined) slot.appendChild(colorDot(state.guess[index]));
+        guessSlots.appendChild(slot);
+      }
+    }
+
+    function renderPalette() {
+      palette.innerHTML = "";
+      colors.forEach((color, index) => {
+        const button = document.createElement("button");
+        button.className = `h-12 rounded border border-stone-950 ${color.className}`;
+        button.dataset.color = String(index);
+        button.title = color.name;
+        palette.appendChild(button);
+      });
+    }
+
+    function renderHistory() {
+      historyList.innerHTML = "";
+      state.history.forEach((entry) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between gap-3 rounded bg-stone-800 p-2";
+        const dots = document.createElement("div");
+        dots.className = "flex gap-2";
+        entry.guess.forEach((value) => dots.appendChild(colorDot(value)));
+        const score = document.createElement("span");
+        score.className = "text-sm text-stone-300";
+        score.textContent = `${entry.exact} exact, ${entry.colorOnly} color`;
+        row.append(dots, score);
+        historyList.prepend(row);
+      });
+    }
+
+    function render() {
+      const latest = state.history[state.history.length - 1] || { exact: 0, colorOnly: 0 };
+      turnCount.textContent = `${state.history.length} / ${maxTurns}`;
+      exactCount.textContent = latest.exact;
+      colorCount.textContent = latest.colorOnly;
+      renderGuess();
+      renderHistory();
+    }
+
+    function submitGuess() {
+      if (state.gameOver) return;
+      if (state.guess.length !== codeLength) {
+        statusText.textContent = "Pick exactly four colors before submitting.";
+        return;
+      }
+      const result = scoreGuess(state.guess, state.secret);
+      state.history.push({ guess: [...state.guess], ...result });
+      state.guess = [];
+
+      if (result.exact === codeLength) {
+        state.gameOver = true;
+        statusText.textContent = "Code cracked. You win.";
+      } else if (state.history.length >= maxTurns) {
+        state.gameOver = true;
+        statusText.textContent = "No turns left. Start a new code.";
+      } else {
+        statusText.textContent = "Guess logged. Use the clues for the next try.";
+      }
+      render();
+    }
+
+    function resetGame() {
+      state.secret = makeSecret();
+      state.guess = [];
+      state.history = [];
+      state.gameOver = false;
+      statusText.textContent = "Pick four colors, then submit the guess.";
+      render();
+    }
+
+    palette.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-color]");
+      if (!button || state.gameOver || state.guess.length >= codeLength) return;
+      state.guess.push(Number(button.dataset.color));
+      renderGuess();
+    });
+
+    backspaceBtn.addEventListener("click", () => {
+      state.guess.pop();
+      renderGuess();
+    });
+
+    submitBtn.addEventListener("click", submitGuess);
+    resetBtn.addEventListener("click", resetGame);
+    renderPalette();
+    resetGame();
+  </script>
+</body>
+</html>
