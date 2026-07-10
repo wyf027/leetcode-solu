@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Reversi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-8">
+    <section class="rounded-lg border border-emerald-700 bg-emerald-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-wide text-lime-300">Classic Games</p>
+          <h1 class="text-3xl font-bold">Mini Reversi</h1>
+        </div>
+        <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 font-semibold text-emerald-950 hover:bg-lime-200">
+          Restart
+        </button>
+      </div>
+
+      <div class="mb-5 grid gap-3 sm:grid-cols-3">
+        <div class="rounded border border-emerald-700 bg-emerald-800 p-4">
+          <p class="text-sm text-emerald-200">You</p>
+          <p id="blackScore" class="text-4xl font-bold">2</p>
+        </div>
+        <div class="rounded border border-emerald-700 bg-emerald-800 p-4">
+          <p class="text-sm text-emerald-200">Turn</p>
+          <p id="turnText" class="text-3xl font-bold">Black</p>
+        </div>
+        <div class="rounded border border-emerald-700 bg-emerald-800 p-4">
+          <p class="text-sm text-emerald-200">Computer</p>
+          <p id="whiteScore" class="text-4xl font-bold">2</p>
+        </div>
+      </div>
+
+      <div id="board" class="mx-auto grid max-w-md grid-cols-4 gap-2 rounded-lg bg-emerald-700 p-3"></div>
+
+      <p id="statusText" class="mt-5 min-h-6 rounded border border-emerald-700 bg-emerald-950 p-3 font-semibold">
+        Place a black disc to flip white discs.
+      </p>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const empty = 0;
+    const black = 1;
+    const white = 2;
+    const directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1], [0, 1],
+      [1, -1], [1, 0], [1, 1]
+    ];
+    const board = Array.from({ length: size }, () => Array(size).fill(empty));
+    let current = black;
+    let gameOver = false;
+
+    const boardEl = document.getElementById("board");
+    const blackScore = document.getElementById("blackScore");
+    const whiteScore = document.getElementById("whiteScore");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function opponent(piece) {
+      return piece === black ? white : black;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function flipsForMove(row, col, piece) {
+      if (board[row][col] !== empty) return [];
+      const other = opponent(piece);
+      const flips = [];
+
+      directions.forEach(([dr, dc]) => {
+        const line = [];
+        let r = row + dr;
+        let c = col + dc;
+        while (inBounds(r, c) && board[r][c] === other) {
+          line.push([r, c]);
+          r += dr;
+          c += dc;
+        }
+        if (line.length && inBounds(r, c) && board[r][c] === piece) {
+          flips.push(...line);
+        }
+      });
+      return flips;
+    }
+
+    function validMoves(piece) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const flips = flipsForMove(row, col, piece);
+          if (flips.length) moves.push({ row, col, flips });
+        }
+      }
+      return moves;
+    }
+
+    function applyMove(move, piece) {
+      board[move.row][move.col] = piece;
+      move.flips.forEach(([row, col]) => {
+        board[row][col] = piece;
+      });
+    }
+
+    function countPieces(piece) {
+      return board.flat().filter((value) => value === piece).length;
+    }
+
+    function render() {
+      const moves = validMoves(current);
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = document.createElement("button");
+          const value = board[row][col];
+          const legal = current === black && moves.some((move) => move.row === row && move.col === col);
+          cell.className = "aspect-square rounded bg-emerald-600 p-2 hover:bg-emerald-500 disabled:hover:bg-emerald-600";
+          cell.dataset.row = String(row);
+          cell.dataset.col = String(col);
+          cell.disabled = !legal || gameOver;
+          if (value !== empty) {
+            const disc = document.createElement("span");
+            disc.className = `block h-full w-full rounded-full ${value === black ? "bg-neutral-950" : "bg-white"}`;
+            cell.appendChild(disc);
+          } else if (legal) {
+            cell.classList.add("ring-2", "ring-lime-300");
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+      blackScore.textContent = countPieces(black);
+      whiteScore.textContent = countPieces(white);
+      turnText.textContent = gameOver ? "Done" : current === black ? "Black" : "White";
+    }
+
+    function finishIfNeeded() {
+      const blackMoves = validMoves(black);
+      const whiteMoves = validMoves(white);
+      if (blackMoves.length || whiteMoves.length) return false;
+      gameOver = true;
+      const blackTotal = countPieces(black);
+      const whiteTotal = countPieces(white);
+      statusText.textContent = blackTotal === whiteTotal ? "No moves left. Draw." : blackTotal > whiteTotal ? "No moves left. You win." : "No moves left. Computer wins.";
+      render();
+      return true;
+    }
+
+    function advanceTurn() {
+      if (finishIfNeeded()) return;
+      current = opponent(current);
+      const moves = validMoves(current);
+      if (!moves.length) {
+        statusText.textContent = `${current === black ? "Black" : "White"} has no legal move. Turn skipped.`;
+        current = opponent(current);
+      }
+      render();
+      if (current === white && !gameOver) {
+        window.setTimeout(computerMove, 400);
+      }
+    }
+
+    function computerMove() {
+      const moves = validMoves(white);
+      if (!moves.length) {
+        advanceTurn();
+        return;
+      }
+      const move = moves.sort((a, b) => b.flips.length - a.flips.length)[0];
+      applyMove(move, white);
+      statusText.textContent = `Computer flips ${move.flips.length} disc${move.flips.length === 1 ? "" : "s"}.`;
+      advanceTurn();
+    }
+
+    function playerMove(row, col) {
+      if (gameOver || current !== black) return;
+      const move = validMoves(black).find((item) => item.row === row && item.col === col);
+      if (!move) return;
+      applyMove(move, black);
+      statusText.textContent = `You flip ${move.flips.length} disc${move.flips.length === 1 ? "" : "s"}.`;
+      advanceTurn();
+    }
+
+    function resetGame() {
+      board.forEach((row) => row.fill(empty));
+      board[1][1] = white;
+      board[1][2] = black;
+      board[2][1] = black;
+      board[2][2] = white;
+      current = black;
+      gameOver = false;
+      statusText.textContent = "Place a black disc to flip white discs.";
+      render();
+    }
+
+    boardEl.addEventListener("click", (event) => {
+      const cell = event.target.closest("[data-row]");
+      if (!cell) return;
+      playerMove(Number(cell.dataset.row), Number(cell.dataset.col));
+    });
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
