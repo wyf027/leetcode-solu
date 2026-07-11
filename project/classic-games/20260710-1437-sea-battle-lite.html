@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Sea Battle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-sky-950 text-sky-50">
+    <main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-orange-300">classic naval grid</p>
+          <h1 class="text-3xl font-bold">Mini Sea Battle</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-sky-700 bg-sky-900 p-3">
+            <div class="text-orange-200">Shots</div>
+            <div id="shotsLeft" class="text-xl font-bold">12</div>
+          </div>
+          <div class="rounded border border-sky-700 bg-sky-900 p-3">
+            <div class="text-orange-200">Hits</div>
+            <div id="hitCount" class="text-xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-sky-700 bg-sky-900 p-3">
+            <div class="text-orange-200">Fleet</div>
+            <div class="text-xl font-bold">5</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="rounded border border-sky-700 bg-sky-900/70 p-4">
+        <div id="grid" class="mx-auto grid max-w-md grid-cols-5 gap-2"></div>
+        <p id="message" class="mt-4 min-h-6 text-sm text-sky-100"></p>
+      </section>
+
+      <section class="grid gap-3 sm:grid-cols-2">
+        <button id="newBtn" class="rounded bg-orange-300 px-4 py-3 font-semibold text-sky-950 hover:bg-orange-200">
+          New Fleet
+        </button>
+        <button id="revealBtn" class="rounded border border-orange-300 px-4 py-3 font-semibold text-orange-100 hover:bg-sky-800">
+          Reveal Fleet
+        </button>
+      </section>
+
+      <section class="rounded border border-sky-800 p-4 text-sm text-sky-100">
+        <h2 class="mb-2 font-semibold text-orange-200">Goal</h2>
+        <p>Find all hidden ship sections before your 12 shots run out. Each cell can be fired on once.</p>
+      </section>
+    </main>
+
+    <script>
+      const size = 5;
+      const fleetSize = 5;
+      const maxShots = 12;
+      const gridEl = document.getElementById("grid");
+      const shotsLeftEl = document.getElementById("shotsLeft");
+      const hitCountEl = document.getElementById("hitCount");
+      const messageEl = document.getElementById("message");
+      const newBtn = document.getElementById("newBtn");
+      const revealBtn = document.getElementById("revealBtn");
+
+      let ships = new Set();
+      let fired = new Set();
+      let shotsLeft = maxShots;
+      let hits = 0;
+      let gameOver = false;
+      let revealed = false;
+
+      function cellKey(row, col) {
+        return `${row},${col}`;
+      }
+
+      function placeFleet() {
+        ships = new Set();
+        const starts = [
+          [Math.floor(Math.random() * size), Math.floor(Math.random() * (size - 2)), 3, "h"],
+          [Math.floor(Math.random() * (size - 1)), Math.floor(Math.random() * size), 2, "v"],
+        ];
+
+        for (const [row, col, length, direction] of starts) {
+          for (let index = 0; index < length; index++) {
+            const nextRow = direction === "v" ? row + index : row;
+            const nextCol = direction === "h" ? col + index : col;
+            ships.add(cellKey(nextRow, nextCol));
+          }
+        }
+
+        while (ships.size < fleetSize) {
+          ships.add(cellKey(Math.floor(Math.random() * size), Math.floor(Math.random() * size)));
+        }
+      }
+
+      function renderGrid() {
+        gridEl.innerHTML = "";
+        for (let row = 0; row < size; row++) {
+          for (let col = 0; col < size; col++) {
+            const key = cellKey(row, col);
+            const wasFired = fired.has(key);
+            const isShip = ships.has(key);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.setAttribute("aria-label", `Fire at ${row + 1}, ${col + 1}`);
+            button.disabled = gameOver || wasFired;
+            button.textContent = wasFired ? (isShip ? "HIT" : "MISS") : revealed && isShip ? "SHIP" : "WAVE";
+            button.className = [
+              "aspect-square rounded border text-xs font-bold transition",
+              wasFired && isShip
+                ? "border-orange-200 bg-orange-300 text-sky-950"
+                : wasFired
+                  ? "border-sky-500 bg-sky-800 text-sky-300"
+                  : revealed && isShip
+                    ? "border-orange-400 bg-sky-800 text-orange-200"
+                    : "border-sky-600 bg-sky-700 text-sky-50 hover:bg-sky-600",
+            ].join(" ");
+            button.addEventListener("click", () => fireAt(key));
+            gridEl.appendChild(button);
+          }
+        }
+      }
+
+      function render() {
+        shotsLeftEl.textContent = shotsLeft;
+        hitCountEl.textContent = hits;
+        renderGrid();
+      }
+
+      function endIfDone() {
+        if (hits === fleetSize) {
+          gameOver = true;
+          messageEl.textContent = "Fleet sunk. You win.";
+        } else if (shotsLeft === 0) {
+          gameOver = true;
+          messageEl.textContent = "Out of shots. The fleet escaped.";
+        }
+      }
+
+      function fireAt(key) {
+        if (gameOver || fired.has(key)) return;
+        fired.add(key);
+        shotsLeft -= 1;
+        if (ships.has(key)) {
+          hits += 1;
+          messageEl.textContent = "Direct hit.";
+        } else {
+          messageEl.textContent = "Splash. Try another sector.";
+        }
+        endIfDone();
+        render();
+      }
+
+      function newFleet() {
+        placeFleet();
+        fired = new Set();
+        shotsLeft = maxShots;
+        hits = 0;
+        gameOver = false;
+        revealed = false;
+        messageEl.textContent = "Fleet hidden. Choose a sector to fire.";
+        render();
+      }
+
+      function revealFleet() {
+        revealed = !revealed;
+        messageEl.textContent = revealed ? "Fleet revealed for inspection." : "Fleet hidden again.";
+        render();
+      }
+
+      newBtn.addEventListener("click", newFleet);
+      revealBtn.addEventListener("click", revealFleet);
+
+      newFleet();
+    </script>
+  </body>
+</html>
