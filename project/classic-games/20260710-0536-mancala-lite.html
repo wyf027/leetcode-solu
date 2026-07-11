@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Mancala Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-teal-950 text-teal-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Mancala Lite</h1>
+        <p class="text-sm text-teal-200">Pick a pit on your side, sow stones counterclockwise, and collect more stones than the bot.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-teal-950 hover:bg-amber-200">New Game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-teal-700 bg-teal-900 p-3 sm:grid-cols-4">
+      <div>You Store: <b id="playerStore">0</b></div>
+      <div>Bot Store: <b id="botStore">0</b></div>
+      <div>Turn: <b id="turnText">You</b></div>
+      <div id="message" class="text-teal-100">Choose one of your pits.</div>
+    </section>
+
+    <section class="grid gap-3 rounded border border-teal-700 bg-teal-900 p-4">
+      <div id="botPits" class="grid grid-cols-6 gap-2"></div>
+      <div class="grid grid-cols-[1fr_6fr_1fr] items-center gap-3">
+        <div class="rounded bg-rose-400 p-5 text-center text-3xl font-bold text-teal-950" id="botStoreBox">0</div>
+        <div class="text-center text-sm text-teal-200">Stores</div>
+        <div class="rounded bg-amber-300 p-5 text-center text-3xl font-bold text-teal-950" id="playerStoreBox">0</div>
+      </div>
+      <div id="playerPits" class="grid grid-cols-6 gap-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const playerPitsEl = document.getElementById("playerPits");
+    const botPitsEl = document.getElementById("botPits");
+    const playerStoreEl = document.getElementById("playerStore");
+    const botStoreEl = document.getElementById("botStore");
+    const playerStoreBox = document.getElementById("playerStoreBox");
+    const botStoreBox = document.getElementById("botStoreBox");
+    const turnText = document.getElementById("turnText");
+    const message = document.getElementById("message");
+    const newGameBtn = document.getElementById("newGameBtn");
+    let pits = [];
+    let playerStore = 0;
+    let botStore = 0;
+    let playerTurn = true;
+    let finished = false;
+
+    function sideEmpty(start) {
+      return pits.slice(start, start + 6).every((stones) => stones === 0);
+    }
+
+    function collectRemainder() {
+      playerStore += pits.slice(0, 6).reduce((sum, stones) => sum + stones, 0);
+      botStore += pits.slice(6, 12).reduce((sum, stones) => sum + stones, 0);
+      pits = Array(12).fill(0);
+    }
+
+    function checkGameOver() {
+      if (sideEmpty(0) || sideEmpty(6)) {
+        collectRemainder();
+        finished = true;
+        message.textContent = playerStore > botStore ? "Game over. You win." : playerStore < botStore ? "Game over. Bot wins." : "Game over. Draw.";
+        return true;
+      }
+      return false;
+    }
+
+    function sowFrom(index, isPlayer) {
+      if (finished || pits[index] === 0) return false;
+      let stones = pits[index];
+      pits[index] = 0;
+      let pos = isPlayer ? index : index + 1;
+      while (stones > 0) {
+        pos = (pos + 1) % 14;
+        if (isPlayer && pos === 13) continue;
+        if (!isPlayer && pos === 6) continue;
+        if (pos === 6) playerStore += 1;
+        else if (pos === 13) botStore += 1;
+        else pits[pos > 6 ? pos - 1 : pos] += 1;
+        stones -= 1;
+      }
+      const extraTurn = isPlayer ? pos === 6 : pos === 13;
+      const boardIndex = pos > 6 ? pos - 1 : pos;
+      if (!extraTurn && pos !== 6 && pos !== 13 && isPlayer === (boardIndex < 6) && pits[boardIndex] === 1) {
+        const opposite = 11 - boardIndex;
+        if (pits[opposite] > 0) {
+          const captured = pits[opposite] + pits[boardIndex];
+          pits[opposite] = 0;
+          pits[boardIndex] = 0;
+          if (isPlayer) playerStore += captured;
+          else botStore += captured;
+        }
+      }
+      if (!checkGameOver()) {
+        playerTurn = extraTurn ? isPlayer : !isPlayer;
+        message.textContent = extraTurn ? `${isPlayer ? "You" : "Bot"} earned another turn.` : `${playerTurn ? "Your" : "Bot"} turn.`;
+      }
+      render();
+      if (!finished && !playerTurn) window.setTimeout(botMove, 500);
+      return true;
+    }
+
+    function botMove() {
+      const choices = pits.map((stones, index) => ({ stones, index })).filter((item) => item.index >= 6 && item.stones > 0);
+      const best = choices.find((item) => ((item.index + item.stones + 1) % 14) === 13) || choices.sort((a, b) => b.stones - a.stones)[0];
+      sowFrom(best.index, false);
+    }
+
+    function pitButton(index, label) {
+      const button = document.createElement("button");
+      const isPlayerPit = index < 6;
+      button.className = [
+        "rounded bg-teal-800 p-4 text-center shadow transition hover:bg-teal-700",
+        isPlayerPit ? "border border-amber-300" : "border border-rose-300",
+        (!playerTurn || !isPlayerPit || pits[index] === 0 || finished) ? "cursor-not-allowed opacity-70" : ""
+      ].join(" ");
+      button.disabled = !playerTurn || !isPlayerPit || pits[index] === 0 || finished;
+      button.innerHTML = `<span class="block text-xs text-teal-200">${label}</span><span class="text-3xl font-bold">${pits[index]}</span>`;
+      button.addEventListener("click", () => sowFrom(index, true));
+      return button;
+    }
+
+    function render() {
+      playerPitsEl.innerHTML = "";
+      botPitsEl.innerHTML = "";
+      for (let index = 11; index >= 6; index -= 1) {
+        botPitsEl.appendChild(pitButton(index, `Bot ${index - 5}`));
+      }
+      for (let index = 0; index < 6; index += 1) {
+        playerPitsEl.appendChild(pitButton(index, `Pit ${index + 1}`));
+      }
+      playerStoreEl.textContent = String(playerStore);
+      botStoreEl.textContent = String(botStore);
+      playerStoreBox.textContent = String(playerStore);
+      botStoreBox.textContent = String(botStore);
+      turnText.textContent = finished ? "Done" : playerTurn ? "You" : "Bot";
+    }
+
+    function newGame() {
+      pits = Array(12).fill(4);
+      playerStore = 0;
+      botStore = 0;
+      playerTurn = true;
+      finished = false;
+      message.textContent = "Choose one of your pits.";
+      render();
+    }
+
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
