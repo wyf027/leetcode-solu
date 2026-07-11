@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Paper Soccer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-green-950 text-green-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Paper Soccer</h1>
+        <p class="text-sm text-green-200">Draw a path from the center. Reused lines are blocked. Score in either goal.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-green-950 hover:bg-amber-200">New Game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-green-700 bg-green-900 p-3 sm:grid-cols-3">
+      <div>Moves: <b id="moveCount">0</b></div>
+      <div>Ball: <b id="ballText">center</b></div>
+      <div id="message">Choose a neighboring dot.</div>
+    </section>
+
+    <section class="rounded border border-green-700 bg-green-900 p-3">
+      <svg id="field" class="mx-auto block w-full max-w-xl rounded bg-green-800" viewBox="0 0 360 480" role="img" aria-label="Paper soccer field"></svg>
+    </section>
+  </main>
+
+  <script>
+    const rows = 9;
+    const cols = 7;
+    const pad = 40;
+    const cell = 46;
+    const topGoal = { row: -1, col: 3 };
+    const bottomGoal = { row: rows, col: 3 };
+    const el = (id) => document.getElementById(id);
+    const field = el("field");
+    const moveCount = el("moveCount");
+    const ballText = el("ballText");
+    const message = el("message");
+    const newGameBtn = el("newGameBtn");
+
+    let ball;
+    let usedEdges;
+    let moves;
+    let finished;
+
+    function pointKey(point) {
+      return `${point.row},${point.col}`;
+    }
+
+    function edgeKey(a, b) {
+      return [pointKey(a), pointKey(b)].sort().join("|");
+    }
+
+    function toXY(point) {
+      if (isGoal(point)) {
+        const y = point.row === topGoal.row ? pad / 2 : pad + (rows - 1) * cell + pad / 2;
+        return { x: pad + point.col * cell, y };
+      }
+      return { x: pad + point.col * cell, y: pad + point.row * cell };
+    }
+
+    function isGoal(point) {
+      return (point.row === topGoal.row && point.col === topGoal.col) || (point.row === bottomGoal.row && point.col === bottomGoal.col);
+    }
+
+    function isLegalPoint(point) {
+      if (isGoal(point)) return true;
+      return point.row >= 0 && point.row < rows && point.col >= 0 && point.col < cols;
+    }
+
+    function neighbors(point) {
+      const result = [];
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          if (dr === 0 && dc === 0) continue;
+          const next = { row: point.row + dr, col: point.col + dc };
+          if (!isLegalPoint(next)) continue;
+          if (usedEdges.has(edgeKey(point, next))) continue;
+          result.push(next);
+        }
+      }
+      return result;
+    }
+
+    function moveBall(next) {
+      if (finished) return;
+      const legal = neighbors(ball).some((point) => point.row === next.row && point.col === next.col);
+      if (!legal) {
+        message.textContent = "That line is blocked.";
+        return;
+      }
+      usedEdges.add(edgeKey(ball, next));
+      ball = next;
+      moves += 1;
+      if (isGoal(ball)) {
+        finished = true;
+        message.textContent = `Goal in ${moves} moves.`;
+      } else if (!neighbors(ball).length) {
+        finished = true;
+        message.textContent = "No legal lines left. Start a new game.";
+      } else {
+        message.textContent = "Choose the next neighboring dot.";
+      }
+      render();
+    }
+
+    function lineSvg(edge) {
+      const [a, b] = edge.split("|").map((key) => {
+        const [row, col] = key.split(",").map(Number);
+        return toXY({ row, col });
+      });
+      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#fde68a" stroke-width="5" stroke-linecap="round" />`;
+    }
+
+    function dotSvg(point, active) {
+      const { x, y } = toXY(point);
+      const isBall = point.row === ball.row && point.col === ball.col;
+      const fill = isBall ? "#f43f5e" : active ? "#bfdbfe" : "#dcfce7";
+      return `<circle data-row="${point.row}" data-col="${point.col}" cx="${x}" cy="${y}" r="${isBall ? 10 : 6}" fill="${fill}" stroke="#052e16" stroke-width="2" class="${active ? "cursor-pointer" : ""}" />`;
+    }
+
+    function render() {
+      const legal = neighbors(ball);
+      const legalKeys = new Set(legal.map(pointKey));
+      const dots = [];
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const point = { row, col };
+          dots.push(dotSvg(point, legalKeys.has(pointKey(point))));
+        }
+      }
+      dots.push(dotSvg(topGoal, legalKeys.has(pointKey(topGoal))));
+      dots.push(dotSvg(bottomGoal, legalKeys.has(pointKey(bottomGoal))));
+      field.innerHTML = `
+        <rect x="38" y="38" width="${(cols - 1) * cell + 4}" height="${(rows - 1) * cell + 4}" fill="none" stroke="#86efac" stroke-width="3" />
+        <rect x="${pad + 2 * cell}" y="0" width="${2 * cell}" height="${pad}" fill="none" stroke="#fde68a" stroke-width="4" />
+        <rect x="${pad + 2 * cell}" y="${pad + (rows - 1) * cell}" width="${2 * cell}" height="${pad}" fill="none" stroke="#fde68a" stroke-width="4" />
+        ${Array.from(usedEdges).map(lineSvg).join("")}
+        ${dots.join("")}
+      `;
+      field.querySelectorAll("[data-row]").forEach((dot) => {
+        dot.addEventListener("click", () => moveBall({ row: Number(dot.dataset.row), col: Number(dot.dataset.col) }));
+      });
+      moveCount.textContent = moves;
+      ballText.textContent = isGoal(ball) ? "goal" : `${ball.row},${ball.col}`;
+    }
+
+    function newGame() {
+      ball = { row: 4, col: 3 };
+      usedEdges = new Set();
+      moves = 0;
+      finished = false;
+      message.textContent = "Choose a neighboring dot.";
+      render();
+    }
+
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
