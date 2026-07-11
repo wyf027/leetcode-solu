@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Yahtzee</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-rose-950 text-rose-50">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-8">
+    <section class="rounded-lg border border-rose-700 bg-rose-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-wide text-teal-200">Classic Games</p>
+          <h1 class="text-3xl font-bold">Mini Yahtzee</h1>
+        </div>
+        <button id="resetBtn" class="rounded bg-teal-200 px-4 py-2 font-semibold text-rose-950 hover:bg-teal-100">
+          New Game
+        </button>
+      </div>
+
+      <div class="mb-5 grid gap-3 sm:grid-cols-3">
+        <div class="rounded border border-rose-700 bg-rose-800 p-4">
+          <p class="text-sm text-rose-200">Rolls</p>
+          <p id="rollCount" class="text-3xl font-bold">0</p>
+        </div>
+        <div class="rounded border border-rose-700 bg-rose-800 p-4">
+          <p class="text-sm text-rose-200">Round</p>
+          <p id="roundCount" class="text-3xl font-bold">1 / 3</p>
+        </div>
+        <div class="rounded border border-rose-700 bg-rose-800 p-4">
+          <p class="text-sm text-rose-200">Score</p>
+          <p id="totalScore" class="text-3xl font-bold">0</p>
+        </div>
+      </div>
+
+      <div id="diceRow" class="mb-5 grid grid-cols-5 gap-3"></div>
+
+      <div class="grid gap-3 sm:grid-cols-3">
+        <button data-score="ones" class="rounded bg-rose-800 px-3 py-4 font-bold hover:bg-rose-700">Score Ones</button>
+        <button data-score="threeKind" class="rounded bg-rose-800 px-3 py-4 font-bold hover:bg-rose-700">Three Kind</button>
+        <button data-score="fullHouse" class="rounded bg-rose-800 px-3 py-4 font-bold hover:bg-rose-700">Full House</button>
+      </div>
+
+      <div class="mt-5 flex gap-3">
+        <button id="rollBtn" class="flex-1 rounded bg-teal-200 px-4 py-3 font-semibold text-rose-950 hover:bg-teal-100">
+          Roll Dice
+        </button>
+      </div>
+
+      <p id="statusText" class="mt-5 min-h-6 rounded border border-rose-700 bg-rose-950 p-3 font-semibold">
+        Roll the dice, then choose one scoring category.
+      </p>
+    </section>
+  </main>
+
+  <script>
+    const diceCount = 5;
+    const maxRounds = 3;
+    const state = {
+      dice: [1, 1, 1, 1, 1],
+      rolls: 0,
+      round: 1,
+      total: 0,
+      usedCategories: new Set(),
+      rolledThisRound: false,
+      gameOver: false
+    };
+
+    const diceRow = document.getElementById("diceRow");
+    const rollCount = document.getElementById("rollCount");
+    const roundCount = document.getElementById("roundCount");
+    const totalScore = document.getElementById("totalScore");
+    const statusText = document.getElementById("statusText");
+    const rollBtn = document.getElementById("rollBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function counts() {
+      return state.dice.reduce((map, value) => {
+        map[value] = (map[value] || 0) + 1;
+        return map;
+      }, {});
+    }
+
+    function scoreCategory(category) {
+      const byValue = counts();
+      if (category === "ones") {
+        return state.dice.filter((value) => value === 1).length;
+      }
+      if (category === "threeKind") {
+        return Object.values(byValue).some((count) => count >= 3) ? state.dice.reduce((sum, value) => sum + value, 0) : 0;
+      }
+      if (category === "fullHouse") {
+        const sorted = Object.values(byValue).sort((a, b) => a - b).join(",");
+        return sorted === "2,3" ? 25 : 0;
+      }
+      return 0;
+    }
+
+    function renderDice() {
+      diceRow.innerHTML = "";
+      state.dice.forEach((value) => {
+        const die = document.createElement("div");
+        die.className = "flex aspect-square items-center justify-center rounded bg-rose-50 text-3xl font-bold text-rose-950 shadow";
+        die.textContent = value;
+        diceRow.appendChild(die);
+      });
+    }
+
+    function render() {
+      renderDice();
+      rollCount.textContent = state.rolls;
+      roundCount.textContent = `${Math.min(state.round, maxRounds)} / ${maxRounds}`;
+      totalScore.textContent = state.total;
+      rollBtn.disabled = state.gameOver;
+      rollBtn.classList.toggle("opacity-40", state.gameOver);
+      document.querySelectorAll("[data-score]").forEach((button) => {
+        button.disabled = state.gameOver || !state.rolledThisRound || state.usedCategories.has(button.dataset.score);
+        button.classList.toggle("opacity-40", button.disabled);
+        button.classList.toggle("cursor-not-allowed", button.disabled);
+      });
+    }
+
+    function rollDice() {
+      if (state.gameOver) return;
+      state.dice = Array.from({ length: diceCount }, () => Math.floor(Math.random() * 6) + 1);
+      state.rolls += 1;
+      state.rolledThisRound = true;
+      statusText.textContent = "Choose a category to score this roll.";
+      render();
+    }
+
+    function applyScore(category) {
+      if (state.gameOver || !state.rolledThisRound || state.usedCategories.has(category)) return;
+      const points = scoreCategory(category);
+      state.total += points;
+      state.usedCategories.add(category);
+      statusText.textContent = `Scored ${points} points.`;
+      state.round += 1;
+      state.rolledThisRound = false;
+
+      if (state.round > maxRounds) {
+        state.gameOver = true;
+        statusText.textContent = `Game over. Final score: ${state.total}.`;
+      }
+      render();
+    }
+
+    function resetGame() {
+      state.dice = [1, 1, 1, 1, 1];
+      state.rolls = 0;
+      state.round = 1;
+      state.total = 0;
+      state.usedCategories = new Set();
+      state.rolledThisRound = false;
+      state.gameOver = false;
+      statusText.textContent = "Roll the dice, then choose one scoring category.";
+      render();
+    }
+
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-score]");
+      if (!button) return;
+      applyScore(button.dataset.score);
+    });
+
+    rollBtn.addEventListener("click", rollDice);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
