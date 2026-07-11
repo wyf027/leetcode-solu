@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Dot and Boxes Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Dot and Boxes Lite</h1>
+        <p class="text-sm text-indigo-200">Draw lines between dots. Complete a box to score and take another turn.</p>
+      </div>
+      <button id="newGameBtn" class="rounded bg-white px-4 py-2 font-semibold text-indigo-950 hover:bg-indigo-100">New Game</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-indigo-700 bg-indigo-900 p-3 sm:grid-cols-4">
+      <div>You: <b id="playerScore">0</b></div>
+      <div>Bot: <b id="botScore">0</b></div>
+      <div>Turn: <b id="turnText">You</b></div>
+      <div id="message" class="text-indigo-100">Choose a line.</div>
+    </section>
+
+    <section id="board" class="grid w-full max-w-xl self-center rounded border border-indigo-700 bg-indigo-900 p-4"></section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const playerScoreEl = document.getElementById("playerScore");
+    const botScoreEl = document.getElementById("botScore");
+    const turnText = document.getElementById("turnText");
+    const message = document.getElementById("message");
+    const newGameBtn = document.getElementById("newGameBtn");
+    const size = 3;
+    let hLines = [];
+    let vLines = [];
+    let boxes = [];
+    let playerScore = 0;
+    let botScore = 0;
+    let playerTurn = true;
+    let finished = false;
+    let botTimer = null;
+
+    function hKey(row, col) {
+      return `${row}-${col}`;
+    }
+
+    function vKey(row, col) {
+      return `${row}-${col}`;
+    }
+
+    function boxOwner(row, col) {
+      return boxes[row * size + col];
+    }
+
+    function boxComplete(row, col) {
+      return hLines.includes(hKey(row, col)) &&
+        hLines.includes(hKey(row + 1, col)) &&
+        vLines.includes(vKey(row, col)) &&
+        vLines.includes(vKey(row, col + 1));
+    }
+
+    function claimBoxes(owner) {
+      let claimed = 0;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const pos = row * size + col;
+          if (!boxes[pos] && boxComplete(row, col)) {
+            boxes[pos] = owner;
+            claimed += 1;
+          }
+        }
+      }
+      if (claimed > 0) {
+        if (owner === "you") playerScore += claimed;
+        else botScore += claimed;
+      }
+      return claimed;
+    }
+
+    function allMoves() {
+      const moves = [];
+      for (let row = 0; row <= size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (!hLines.includes(hKey(row, col))) moves.push({ type: "h", row, col });
+        }
+      }
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col <= size; col += 1) {
+          if (!vLines.includes(vKey(row, col))) moves.push({ type: "v", row, col });
+        }
+      }
+      return moves;
+    }
+
+    function applyMove(move, owner) {
+      if (finished) return;
+      const list = move.type === "h" ? hLines : vLines;
+      const key = move.type === "h" ? hKey(move.row, move.col) : vKey(move.row, move.col);
+      if (list.includes(key)) return;
+      list.push(key);
+      const claimed = claimBoxes(owner);
+      if (allMoves().length === 0) {
+        finished = true;
+        message.textContent = playerScore > botScore ? "Game over. You win." : playerScore < botScore ? "Game over. Bot wins." : "Game over. Draw.";
+      } else if (claimed > 0) {
+        message.textContent = `${owner === "you" ? "You" : "Bot"} claimed ${claimed} box${claimed > 1 ? "es" : ""}.`;
+      } else {
+        playerTurn = owner !== "you";
+        message.textContent = playerTurn ? "Your turn." : "Bot is choosing.";
+      }
+      render();
+      if (!finished && !playerTurn) botTimer = window.setTimeout(botMove, 450);
+    }
+
+    function moveCompletesBox(move) {
+      const oldH = [...hLines];
+      const oldV = [...vLines];
+      const oldBoxes = [...boxes];
+      const oldPlayer = playerScore;
+      const oldBot = botScore;
+      const list = move.type === "h" ? hLines : vLines;
+      list.push(move.type === "h" ? hKey(move.row, move.col) : vKey(move.row, move.col));
+      const completes = claimBoxes("bot") > 0;
+      hLines = oldH;
+      vLines = oldV;
+      boxes = oldBoxes;
+      playerScore = oldPlayer;
+      botScore = oldBot;
+      return completes;
+    }
+
+    function botMove() {
+      botTimer = null;
+      const moves = allMoves();
+      const scoringMove = moves.find(moveCompletesBox);
+      const move = scoringMove || moves[Math.floor(Math.random() * moves.length)];
+      applyMove(move, "bot");
+    }
+
+    function lineButton(move, drawn) {
+      const button = document.createElement("button");
+      button.className = [
+        "rounded transition",
+        move.type === "h" ? "h-3 w-full" : "h-full w-3 justify-self-center",
+        drawn ? "bg-cyan-300" : "bg-indigo-700 hover:bg-cyan-400",
+        !playerTurn || finished ? "cursor-not-allowed opacity-70" : ""
+      ].join(" ");
+      button.disabled = drawn || !playerTurn || finished;
+      button.addEventListener("click", () => applyMove(move, "you"));
+      return button;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      boardEl.style.gridTemplateColumns = `repeat(${size}, 12px minmax(0, 1fr)) 12px`;
+      boardEl.style.gridTemplateRows = `repeat(${size}, 12px minmax(0, 1fr)) 12px`;
+      for (let row = 0; row <= size * 2; row += 1) {
+        for (let col = 0; col <= size * 2; col += 1) {
+          const realRow = Math.floor(row / 2);
+          const realCol = Math.floor(col / 2);
+          if (row % 2 === 0 && col % 2 === 0) {
+            const dot = document.createElement("div");
+            dot.className = "h-4 w-4 self-center justify-self-center rounded-full bg-white";
+            boardEl.appendChild(dot);
+          } else if (row % 2 === 0) {
+            boardEl.appendChild(lineButton({ type: "h", row: realRow, col: realCol }, hLines.includes(hKey(realRow, realCol))));
+          } else if (col % 2 === 0) {
+            boardEl.appendChild(lineButton({ type: "v", row: realRow, col: realCol }, vLines.includes(vKey(realRow, realCol))));
+          } else {
+            const owner = boxOwner(realRow, realCol);
+            const box = document.createElement("div");
+            box.className = [
+              "flex aspect-square items-center justify-center rounded text-2xl font-bold",
+              owner === "you" ? "bg-emerald-500 text-indigo-950" : owner === "bot" ? "bg-rose-500 text-white" : "bg-indigo-800"
+            ].join(" ");
+            box.textContent = owner === "you" ? "Y" : owner === "bot" ? "B" : "";
+            boardEl.appendChild(box);
+          }
+        }
+      }
+      playerScoreEl.textContent = String(playerScore);
+      botScoreEl.textContent = String(botScore);
+      turnText.textContent = finished ? "Done" : playerTurn ? "You" : "Bot";
+    }
+
+    function newGame() {
+      if (botTimer) {
+        window.clearTimeout(botTimer);
+        botTimer = null;
+      }
+      hLines = [];
+      vLines = [];
+      boxes = Array(size * size).fill("");
+      playerScore = 0;
+      botScore = 0;
+      playerTurn = true;
+      finished = false;
+      message.textContent = "Choose a line.";
+      render();
+    }
+
+    newGameBtn.addEventListener("click", newGame);
+    newGame();
+  </script>
+</body>
+</html>
