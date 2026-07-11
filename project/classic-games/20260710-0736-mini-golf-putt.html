@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Golf Putt</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-green-950 text-green-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold">Mini Golf Putt</h1>
+        <p class="text-sm text-green-200">Set angle and power, then sink the ball in as few strokes as possible.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-white px-4 py-2 font-semibold text-green-950 hover:bg-green-100">Reset Hole</button>
+    </header>
+
+    <section class="grid gap-3 rounded border border-green-700 bg-green-900 p-3 sm:grid-cols-4">
+      <div>Strokes: <b id="strokeText">0</b></div>
+      <div>Best: <b id="bestText">-</b></div>
+      <div>Power: <b id="powerText">45</b></div>
+      <div id="message" class="text-green-100">Line up the putt.</div>
+    </section>
+
+    <canvas id="course" class="aspect-[16/9] w-full rounded border border-green-700 bg-green-800"></canvas>
+
+    <section class="grid gap-3 rounded border border-green-700 bg-green-900 p-4 sm:grid-cols-[1fr_1fr_auto]">
+      <label class="text-sm">Angle
+        <input id="angleInput" class="mt-2 w-full" type="range" min="-80" max="80" value="-18">
+      </label>
+      <label class="text-sm">Power
+        <input id="powerInput" class="mt-2 w-full" type="range" min="20" max="80" value="45">
+      </label>
+      <button id="puttBtn" class="rounded bg-lime-300 px-5 py-3 font-semibold text-green-950 hover:bg-lime-200">Putt</button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("course");
+    const ctx = canvas.getContext("2d");
+    const angleInput = document.getElementById("angleInput");
+    const powerInput = document.getElementById("powerInput");
+    const powerText = document.getElementById("powerText");
+    const strokeText = document.getElementById("strokeText");
+    const bestText = document.getElementById("bestText");
+    const message = document.getElementById("message");
+    const puttBtn = document.getElementById("puttBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    let ball = { x: 80, y: 220, vx: 0, vy: 0 };
+    let hole = { x: 700, y: 140, r: 16 };
+    let strokes = 0;
+    let best = null;
+    let rolling = false;
+    let sunk = false;
+
+    function resizeCanvas() {
+      canvas.width = 800;
+      canvas.height = 450;
+      drawCourse();
+    }
+
+    function drawCourse() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#166534";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#15803d";
+      ctx.fillRect(210, 70, 90, 300);
+      ctx.fillRect(455, 0, 80, 270);
+      ctx.beginPath();
+      ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
+      ctx.fillStyle = "#111827";
+      ctx.fill();
+      if (!rolling && !sunk) {
+        const angle = Number(angleInput.value) * Math.PI / 180;
+        ctx.beginPath();
+        ctx.moveTo(ball.x, ball.y);
+        ctx.lineTo(ball.x + Math.cos(angle) * 80, ball.y + Math.sin(angle) * 80);
+        ctx.strokeStyle = "#fef08a";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, 10, 0, Math.PI * 2);
+      ctx.fillStyle = sunk ? "#111827" : "#ffffff";
+      ctx.fill();
+    }
+
+    function resetHole() {
+      ball = { x: 80, y: 220, vx: 0, vy: 0 };
+      strokes = 0;
+      rolling = false;
+      sunk = false;
+      strokeText.textContent = "0";
+      message.textContent = "Line up the putt.";
+      puttBtn.disabled = false;
+      drawCourse();
+    }
+
+    function puttBall() {
+      if (rolling || sunk) return;
+      const angle = Number(angleInput.value) * Math.PI / 180;
+      const power = Number(powerInput.value) / 5;
+      ball.vx = Math.cos(angle) * power;
+      ball.vy = Math.sin(angle) * power;
+      strokes += 1;
+      strokeText.textContent = String(strokes);
+      rolling = true;
+      puttBtn.disabled = true;
+      message.textContent = "Rolling.";
+      requestAnimationFrame(stepBall);
+    }
+
+    function bounceWalls() {
+      if (ball.x < 10 || ball.x > canvas.width - 10) {
+        ball.vx *= -0.65;
+        ball.x = Math.max(10, Math.min(canvas.width - 10, ball.x));
+      }
+      if (ball.y < 10 || ball.y > canvas.height - 10) {
+        ball.vy *= -0.65;
+        ball.y = Math.max(10, Math.min(canvas.height - 10, ball.y));
+      }
+    }
+
+    function checkHazards() {
+      const inSand = (ball.x > 210 && ball.x < 300 && ball.y > 70 && ball.y < 370) ||
+        (ball.x > 455 && ball.x < 535 && ball.y < 270);
+      if (inSand) {
+        ball.vx *= 0.86;
+        ball.vy *= 0.86;
+      }
+    }
+
+    function stepBall() {
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      bounceWalls();
+      checkHazards();
+      ball.vx *= 0.985;
+      ball.vy *= 0.985;
+      const distance = Math.hypot(ball.x - hole.x, ball.y - hole.y);
+      if (distance < hole.r && Math.hypot(ball.vx, ball.vy) < 4) {
+        sunk = true;
+        rolling = false;
+        best = best === null ? strokes : Math.min(best, strokes);
+        bestText.textContent = String(best);
+        message.textContent = `Holed in ${strokes}.`;
+      } else if (Math.hypot(ball.vx, ball.vy) < 0.12) {
+        ball.vx = 0;
+        ball.vy = 0;
+        rolling = false;
+        puttBtn.disabled = false;
+        message.textContent = "Stopped. Line up the next putt.";
+      }
+      drawCourse();
+      if (rolling) requestAnimationFrame(stepBall);
+    }
+
+    powerInput.addEventListener("input", () => {
+      powerText.textContent = powerInput.value;
+    });
+    angleInput.addEventListener("input", drawCourse);
+    puttBtn.addEventListener("click", puttBall);
+    resetBtn.addEventListener("click", resetHole);
+    resizeCanvas();
+  </script>
+</body>
+</html>
