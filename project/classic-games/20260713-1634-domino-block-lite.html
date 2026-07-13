@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Domino Block</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Mini Domino Block</h1>
+        <p class="text-sm text-zinc-400">Match a tile to either end of the line. Empty your hand before the stock runs out.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-300">New Game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="space-y-4 rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div class="rounded bg-zinc-950 p-4">
+          <div class="mb-2 text-sm text-zinc-400">Table line</div>
+          <div id="line" class="flex min-h-24 flex-wrap items-center gap-2"></div>
+        </div>
+        <div>
+          <div class="mb-2 text-sm text-zinc-400">Your hand</div>
+          <div id="hand" class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"></div>
+        </div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-zinc-400">Score</div>
+            <div id="score" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-zinc-400">Stock</div>
+            <div id="stock" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-zinc-400">Left</div>
+            <div id="leftEnd" class="text-2xl font-bold">-</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-zinc-400">Right</div>
+            <div id="rightEnd" class="text-2xl font-bold">-</div>
+          </div>
+        </div>
+        <button id="drawBtn" class="w-full rounded bg-sky-500 px-4 py-2 font-semibold text-sky-950 hover:bg-sky-400">Draw Tile</button>
+        <div id="message" class="min-h-16 rounded bg-zinc-800 p-3 text-sm text-zinc-300">Choose a highlighted tile to play it. If none match, draw from stock.</div>
+        <div class="text-sm text-zinc-400">Scoring: each played tile adds its pips. Clearing your hand adds a 20 point bonus.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const handEl = document.getElementById('hand');
+    const lineEl = document.getElementById('line');
+    const scoreEl = document.getElementById('score');
+    const stockEl = document.getElementById('stock');
+    const leftEndEl = document.getElementById('leftEnd');
+    const rightEndEl = document.getElementById('rightEnd');
+    const messageEl = document.getElementById('message');
+    const drawBtn = document.getElementById('drawBtn');
+    let stock;
+    let hand;
+    let line;
+    let score;
+    let gameOver;
+
+    function makeDeck() {
+      const deck = [];
+      for (let a = 0; a <= 6; a++) {
+        for (let b = a; b <= 6; b++) deck.push({ a, b, id: `${a}-${b}-${deck.length}` });
+      }
+      return deck.sort(() => Math.random() - 0.5);
+    }
+
+    function resetGame() {
+      stock = makeDeck();
+      hand = stock.splice(0, 7);
+      line = [stock.shift()];
+      score = line[0].a + line[0].b;
+      gameOver = false;
+      messageEl.textContent = 'Choose a highlighted tile to play it. If none match, draw from stock.';
+      render();
+    }
+
+    function ends() {
+      if (!line.length) return [null, null];
+      return [line[0].a, line[line.length - 1].b];
+    }
+
+    function legalPlay(tile) {
+      const [left, right] = ends();
+      if (tile.a === left || tile.b === left) return 'left';
+      if (tile.a === right || tile.b === right) return 'right';
+      return '';
+    }
+
+    function playableTiles() {
+      return hand.filter(tile => legalPlay(tile));
+    }
+
+    function orientForSide(tile, side) {
+      const [left, right] = ends();
+      if (side === 'left') {
+        return tile.b === left ? { a: tile.a, b: tile.b, id: tile.id } : { a: tile.b, b: tile.a, id: tile.id };
+      }
+      return tile.a === right ? { a: tile.a, b: tile.b, id: tile.id } : { a: tile.b, b: tile.a, id: tile.id };
+    }
+
+    function playTile(index) {
+      if (gameOver) return;
+      const tile = hand[index];
+      const side = legalPlay(tile);
+      if (!side) {
+        messageEl.textContent = 'That tile does not match either end.';
+        return;
+      }
+      const oriented = orientForSide(tile, side);
+      hand.splice(index, 1);
+      if (side === 'left') line.unshift(oriented);
+      else line.push(oriented);
+      score += oriented.a + oriented.b;
+      if (!hand.length) {
+        score += 20;
+        gameOver = true;
+        messageEl.textContent = 'You cleared your hand. Bonus awarded.';
+      } else if (!playableTiles().length && !stock.length) {
+        gameOver = true;
+        messageEl.textContent = 'Blocked. No playable tiles and the stock is empty.';
+      } else {
+        messageEl.textContent = 'Tile played. Keep matching the line ends.';
+      }
+      render();
+    }
+
+    function drawTile() {
+      if (gameOver) return;
+      if (playableTiles().length) {
+        messageEl.textContent = 'You already have a playable tile.';
+        return;
+      }
+      if (!stock.length) {
+        gameOver = true;
+        messageEl.textContent = 'Stock empty. Game over.';
+        render();
+        return;
+      }
+      hand.push(stock.shift());
+      messageEl.textContent = 'Drew one tile from the stock.';
+      render();
+    }
+
+    function tileHtml(tile) {
+      return `<span class="flex h-10 w-16 items-center justify-center rounded border border-zinc-500 bg-zinc-100 text-lg font-bold text-zinc-950">${tile.a}<span class="mx-2 h-7 border-l border-zinc-400"></span>${tile.b}</span>`;
+    }
+
+    function render() {
+      const [left, right] = ends();
+      lineEl.innerHTML = line.map(tileHtml).join('');
+      handEl.innerHTML = '';
+      hand.forEach((tile, index) => {
+        const canPlay = Boolean(legalPlay(tile));
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = canPlay
+          ? 'rounded border border-lime-500 bg-lime-950 p-2 text-lime-100 hover:bg-lime-900'
+          : 'rounded border border-zinc-700 bg-zinc-950 p-2 text-zinc-500';
+        button.innerHTML = tileHtml(tile);
+        button.addEventListener('click', () => playTile(index));
+        handEl.appendChild(button);
+      });
+      scoreEl.textContent = score;
+      stockEl.textContent = stock.length;
+      leftEndEl.textContent = left;
+      rightEndEl.textContent = right;
+      drawBtn.disabled = gameOver;
+      drawBtn.classList.toggle('opacity-50', gameOver);
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    drawBtn.addEventListener('click', drawTile);
+    resetGame();
+  </script>
+</body>
+</html>
