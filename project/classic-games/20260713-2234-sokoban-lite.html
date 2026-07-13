@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Sokoban</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Sokoban</h1>
+          <p class="mt-1 text-sm text-zinc-400">Push every crate onto a target tile.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-zinc-700 px-3 py-2 text-sm">Moves: <strong id="moves">0</strong></span>
+          <button id="resetBtn" class="rounded bg-orange-400 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-orange-300">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid w-full max-w-[560px] grid-cols-7 grid-rows-7 gap-1 rounded-lg bg-zinc-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <div class="grid grid-cols-3 gap-2">
+            <button data-dir="up" class="col-start-2 rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Up</button>
+            <button data-dir="left" class="rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Left</button>
+            <button data-dir="down" class="rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Down</button>
+            <button data-dir="right" class="rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Right</button>
+          </div>
+          <div id="message" class="min-h-24 rounded border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-300">Use buttons or arrow keys. Boxes move only when the space beyond them is clear.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const level = [
+      '#######',
+      '#..T..#',
+      '#.B#T.#',
+      '#..P..#',
+      '#.T#B.#',
+      '#..B.T#',
+      '#######'
+    ];
+    const boardEl = document.getElementById('board');
+    const movesEl = document.getElementById('moves');
+    const message = document.getElementById('message');
+    let walls = new Set();
+    let targets = new Set();
+    let boxes = [];
+    let player = { row: 0, col: 0 };
+    let moves = 0;
+    let won = false;
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function resetGame() {
+      walls = new Set();
+      targets = new Set();
+      boxes = [];
+      moves = 0;
+      won = false;
+      level.forEach((line, row) => {
+        [...line].forEach((cell, col) => {
+          if (cell === '#') walls.add(key(row, col));
+          if (cell === 'T') targets.add(key(row, col));
+          if (cell === 'B') boxes.push({ row, col });
+          if (cell === 'P') player = { row, col };
+        });
+      });
+      message.textContent = 'Use buttons or arrow keys. Boxes move only when the space beyond them is clear.';
+      render();
+    }
+
+    function boxAt(row, col) {
+      return boxes.find(box => box.row === row && box.col === col);
+    }
+
+    function isBlocked(row, col) {
+      return walls.has(key(row, col)) || Boolean(boxAt(row, col));
+    }
+
+    function movePlayer(dir) {
+      if (won) return;
+      const delta = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[dir];
+      const next = { row: player.row + delta[0], col: player.col + delta[1] };
+      if (walls.has(key(next.row, next.col))) {
+        message.textContent = 'A wall blocks the way.';
+        return;
+      }
+      const box = boxAt(next.row, next.col);
+      if (box) {
+        const beyond = { row: next.row + delta[0], col: next.col + delta[1] };
+        if (isBlocked(beyond.row, beyond.col)) {
+          message.textContent = 'The crate cannot move there.';
+          return;
+        }
+        box.row = beyond.row;
+        box.col = beyond.col;
+      }
+      player = next;
+      moves += 1;
+      checkWin();
+      render();
+    }
+
+    function checkWin() {
+      won = boxes.every(box => targets.has(key(box.row, box.col)));
+      message.textContent = won ? `Solved in ${moves} moves.` : 'Keep pushing crates onto targets.';
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      movesEl.textContent = moves;
+      for (let row = 0; row < 7; row += 1) {
+        for (let col = 0; col < 7; col += 1) {
+          const tile = document.createElement('div');
+          const isWall = walls.has(key(row, col));
+          const isTarget = targets.has(key(row, col));
+          const box = boxAt(row, col);
+          const isPlayer = player.row === row && player.col === col;
+          tile.className = `relative flex aspect-square items-center justify-center rounded ${isWall ? 'bg-zinc-700' : isTarget ? 'bg-emerald-950 ring-2 ring-emerald-500' : 'bg-zinc-800'}`;
+          if (isTarget) tile.innerHTML = '<span class="absolute text-xl text-emerald-300">x</span>';
+          if (box) {
+            const crate = document.createElement('div');
+            crate.className = `z-10 flex h-10 w-10 items-center justify-center rounded bg-amber-500 text-lg font-black text-zinc-950 shadow ${isTarget ? 'ring-4 ring-emerald-300' : ''}`;
+            crate.textContent = 'B';
+            tile.appendChild(crate);
+          }
+          if (isPlayer) {
+            const hero = document.createElement('div');
+            hero.className = 'z-20 flex h-9 w-9 items-center justify-center rounded-full bg-cyan-400 text-sm font-black text-zinc-950 shadow';
+            hero.textContent = 'P';
+            tile.appendChild(hero);
+          }
+          boardEl.appendChild(tile);
+        }
+      }
+    }
+
+    document.querySelectorAll('[data-dir]').forEach(button => {
+      button.addEventListener('click', () => movePlayer(button.dataset.dir));
+    });
+    document.addEventListener('keydown', event => {
+      const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+      if (map[event.key]) movePlayer(map[event.key]);
+    });
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
