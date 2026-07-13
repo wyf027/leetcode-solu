@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Laser Mirror</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-neutral-700 bg-neutral-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Laser Mirror</h1>
+          <p class="mt-1 text-sm text-neutral-300">Rotate mirrors until the beam reaches the target star.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-neutral-700 px-3 py-2 text-sm">Moves: <strong id="moves">0</strong></span>
+          <button id="resetBtn" class="rounded bg-red-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-red-200">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-7 grid-rows-7 gap-1 rounded-lg bg-neutral-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-neutral-700 bg-neutral-950 p-3">
+          <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+            <div class="text-xs uppercase text-neutral-400">Beam status</div>
+            <div id="status" class="mt-1 text-2xl font-black">Aiming</div>
+          </div>
+          <p id="message" class="min-h-28 rounded border border-neutral-700 bg-neutral-900 p-3 text-sm text-neutral-300">Click a mirror tile to rotate it. Guide the red laser from the left edge to the star.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const start = { row: 3, col: 0, dir: 'right' };
+    const target = { row: 1, col: 6 };
+    const fixedMirrors = new Map([
+      ['3,2', '/'],
+      ['1,2', '\\'],
+      ['1,4', '/'],
+      ['4,4', '\\'],
+      ['4,5', '/']
+    ]);
+    const boardEl = document.getElementById('board');
+    const movesEl = document.getElementById('moves');
+    const statusEl = document.getElementById('status');
+    const message = document.getElementById('message');
+    const resetBtn = document.getElementById('resetBtn');
+    let mirrors = new Map();
+    let path = [];
+    let moves = 0;
+    let solved = false;
+
+    function resetGame() {
+      mirrors = new Map(fixedMirrors);
+      path = [];
+      moves = 0;
+      solved = false;
+      message.textContent = 'Click a mirror tile to rotate it. Guide the red laser from the left edge to the star.';
+      traceBeam();
+      render();
+    }
+
+    function turn(dir, mirror) {
+      const slash = { up: 'right', right: 'up', down: 'left', left: 'down' };
+      const backslash = { up: 'left', left: 'up', down: 'right', right: 'down' };
+      return mirror === '/' ? slash[dir] : backslash[dir];
+    }
+
+    function step(row, col, dir) {
+      if (dir === 'up') return { row: row - 1, col, dir };
+      if (dir === 'down') return { row: row + 1, col, dir };
+      if (dir === 'left') return { row, col: col - 1, dir };
+      return { row, col: col + 1, dir };
+    }
+
+    function traceBeam() {
+      const seen = new Set();
+      path = [];
+      let beam = { ...start };
+      solved = false;
+      for (let guard = 0; guard < 80; guard += 1) {
+        if (beam.row < 0 || beam.row >= size || beam.col < 0 || beam.col >= size) break;
+        const key = `${beam.row},${beam.col},${beam.dir}`;
+        if (seen.has(key)) break;
+        seen.add(key);
+        path.push({ row: beam.row, col: beam.col });
+        if (beam.row === target.row && beam.col === target.col) {
+          solved = true;
+          break;
+        }
+        const mirror = mirrors.get(`${beam.row},${beam.col}`);
+        if (mirror) beam.dir = turn(beam.dir, mirror);
+        beam = step(beam.row, beam.col, beam.dir);
+      }
+      statusEl.textContent = solved ? 'Solved' : 'Aiming';
+      if (solved) message.textContent = `Target hit in ${moves} moves.`;
+    }
+
+    function rotateMirror(row, col) {
+      if (solved) return;
+      const key = `${row},${col}`;
+      if (!mirrors.has(key)) return;
+      mirrors.set(key, mirrors.get(key) === '/' ? '\\' : '/');
+      moves += 1;
+      traceBeam();
+      render();
+    }
+
+    function cellText(row, col) {
+      const key = `${row},${col}`;
+      if (row === start.row && col === start.col) return '▶';
+      if (row === target.row && col === target.col) return '★';
+      return mirrors.get(key) || '';
+    }
+
+    function render() {
+      const beamCells = new Set(path.map(tile => `${tile.row},${tile.col}`));
+      boardEl.innerHTML = '';
+      movesEl.textContent = moves;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const key = `${row},${col}`;
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = `flex items-center justify-center rounded border text-2xl font-black ${beamCells.has(key) ? 'border-red-300 bg-red-950 text-red-200' : 'border-neutral-800 bg-neutral-900 text-neutral-200'} ${mirrors.has(key) ? 'hover:bg-neutral-700' : ''}`;
+          button.textContent = cellText(row, col);
+          button.addEventListener('click', () => rotateMirror(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
