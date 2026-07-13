@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Peg Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Mini Peg Solitaire</h1>
+        <p class="text-sm text-stone-400">Jump pegs over neighbors into empty holes. Clear the board down to one peg.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-300">New Game</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_16rem]">
+      <div class="rounded border border-stone-800 bg-stone-900 p-4">
+        <div id="board" class="mx-auto grid max-w-[28rem] grid-cols-7 gap-2"></div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-stone-800 bg-stone-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-stone-400">Pegs</div>
+            <div id="pegs" class="text-2xl font-bold">32</div>
+          </div>
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-stone-400">Moves</div>
+            <div id="moves" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+        <div id="message" class="min-h-16 rounded bg-stone-800 p-3 text-sm text-stone-300">Select a peg, then choose a highlighted empty hole two spaces away.</div>
+        <button id="hintBtn" class="w-full rounded border border-stone-700 px-4 py-2 text-sm font-semibold text-stone-200 hover:bg-stone-800">Show Hint</button>
+        <div class="space-y-2 text-sm text-stone-300">
+          <div class="flex items-center gap-2"><span class="h-4 w-4 rounded-full bg-amber-300"></span> Peg</div>
+          <div class="flex items-center gap-2"><span class="h-4 w-4 rounded-full border border-stone-500"></span> Empty hole</div>
+          <div class="flex items-center gap-2"><span class="h-4 w-4 rounded-full bg-emerald-400"></span> Legal landing</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const pegsEl = document.getElementById('pegs');
+    const movesEl = document.getElementById('moves');
+    const messageEl = document.getElementById('message');
+    const shape = [
+      '  xxx  ',
+      '  xxx  ',
+      'xxxxxxx',
+      'xxx.xxx',
+      'xxxxxxx',
+      '  xxx  ',
+      '  xxx  '
+    ];
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let cells;
+    let selected;
+    let moves;
+    let hinted;
+
+    function resetGame() {
+      cells = shape.map(row => [...row].map(ch => ch === ' ' ? null : ch === 'x'));
+      selected = null;
+      moves = 0;
+      hinted = null;
+      messageEl.textContent = 'Select a peg, then choose a highlighted empty hole two spaces away.';
+      render();
+    }
+
+    function isPlayable(row, col) {
+      return row >= 0 && row < 7 && col >= 0 && col < 7 && cells[row][col] !== null;
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function legalMovesFrom(row, col) {
+      if (!isPlayable(row, col) || !cells[row][col]) return [];
+      const moves = [];
+      for (const [dr, dc] of dirs) {
+        const midRow = row + dr;
+        const midCol = col + dc;
+        const landRow = row + dr * 2;
+        const landCol = col + dc * 2;
+        if (isPlayable(landRow, landCol) && cells[midRow][midCol] === true && cells[landRow][landCol] === false) {
+          moves.push({ from: [row, col], over: [midRow, midCol], to: [landRow, landCol] });
+        }
+      }
+      return moves;
+    }
+
+    function allLegalMoves() {
+      const result = [];
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 7; col++) {
+          result.push(...legalMovesFrom(row, col));
+        }
+      }
+      return result;
+    }
+
+    function landingKeys() {
+      if (!selected) return new Set();
+      return new Set(legalMovesFrom(selected[0], selected[1]).map(move => key(move.to[0], move.to[1])));
+    }
+
+    function countPegs() {
+      return cells.flat().filter(Boolean).length;
+    }
+
+    function chooseCell(row, col) {
+      hinted = null;
+      if (!isPlayable(row, col)) return;
+      if (cells[row][col]) {
+        selected = [row, col];
+        const count = legalMovesFrom(row, col).length;
+        messageEl.textContent = count ? 'Now choose a highlighted landing hole.' : 'That peg has no legal jump.';
+        render();
+        return;
+      }
+      if (!selected) return;
+      const move = legalMovesFrom(selected[0], selected[1]).find(item => item.to[0] === row && item.to[1] === col);
+      if (!move) {
+        messageEl.textContent = 'That empty hole is not a legal landing spot.';
+        render();
+        return;
+      }
+      cells[move.from[0]][move.from[1]] = false;
+      cells[move.over[0]][move.over[1]] = false;
+      cells[move.to[0]][move.to[1]] = true;
+      selected = null;
+      moves += 1;
+      const remainingMoves = allLegalMoves();
+      const remainingPegs = countPegs();
+      if (remainingPegs === 1) {
+        messageEl.textContent = 'Perfect finish. Only one peg remains.';
+      } else if (!remainingMoves.length) {
+        messageEl.textContent = `No legal moves remain. Final pegs: ${remainingPegs}.`;
+      } else {
+        messageEl.textContent = 'Good jump. Keep clearing the board.';
+      }
+      render();
+    }
+
+    function showHint() {
+      const options = allLegalMoves();
+      if (!options.length) {
+        messageEl.textContent = 'No legal moves remain.';
+        return;
+      }
+      hinted = options[0];
+      selected = hinted.from;
+      messageEl.textContent = `Hint: jump from row ${hinted.from[0] + 1}, column ${hinted.from[1] + 1}.`;
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      const legalLandings = landingKeys();
+      const hintFrom = hinted ? key(hinted.from[0], hinted.from[1]) : '';
+      const hintTo = hinted ? key(hinted.to[0], hinted.to[1]) : '';
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 7; col++) {
+          const value = cells[row][col];
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'aspect-square rounded text-sm font-bold transition';
+          if (value === null) {
+            button.className += ' invisible';
+            button.disabled = true;
+          } else {
+            const id = key(row, col);
+            const isSelected = selected && selected[0] === row && selected[1] === col;
+            if (value) {
+              button.className += isSelected || id === hintFrom
+                ? ' bg-sky-300 text-sky-950 ring-4 ring-sky-600'
+                : ' bg-amber-300 text-amber-950 hover:bg-amber-200';
+              button.textContent = '●';
+            } else if (legalLandings.has(id) || id === hintTo) {
+              button.className += ' bg-emerald-400 text-emerald-950 ring-4 ring-emerald-700';
+              button.textContent = '•';
+            } else {
+              button.className += ' border border-stone-600 bg-stone-950 hover:bg-stone-800';
+              button.textContent = '○';
+            }
+            button.addEventListener('click', () => chooseCell(row, col));
+          }
+          boardEl.appendChild(button);
+        }
+      }
+      pegsEl.textContent = countPegs();
+      movesEl.textContent = moves;
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    document.getElementById('hintBtn').addEventListener('click', showHint);
+    resetGame();
+  </script>
+</body>
+</html>
