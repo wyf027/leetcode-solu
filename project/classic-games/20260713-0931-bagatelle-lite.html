@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Bagatelle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-yellow-300">classic marble table</p>
+          <h1 class="text-3xl font-bold">Mini Bagatelle</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-700 bg-slate-900 p-3">
+            <div class="text-yellow-200">Score</div>
+            <div id="scoreEl" class="text-xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-900 p-3">
+            <div class="text-yellow-200">Balls</div>
+            <div id="ballsEl" class="text-xl font-bold">6</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-900 p-3">
+            <div class="text-yellow-200">Last</div>
+            <div id="lastEl" class="text-xl font-bold">-</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+        <canvas id="tableCanvas" width="520" height="620" class="w-full rounded border border-slate-700 bg-slate-900"></canvas>
+        <div class="flex flex-col gap-3 rounded border border-slate-700 bg-slate-900/80 p-4">
+          <label class="block">
+            <span class="text-sm font-semibold text-yellow-200">Launch angle</span>
+            <input id="angleInput" type="range" min="-35" max="35" value="0" class="mt-3 w-full" />
+          </label>
+          <button id="launchBtn" class="rounded bg-yellow-300 px-4 py-3 font-semibold text-slate-950 hover:bg-yellow-200">
+            Launch Ball
+          </button>
+          <button id="resetBtn" class="rounded border border-yellow-300 px-4 py-3 font-semibold text-yellow-100 hover:bg-slate-800">
+            Reset Table
+          </button>
+          <p id="messageEl" class="min-h-16 text-sm text-slate-300">Set the launch angle, then send a ball into the pins.</p>
+        </div>
+      </section>
+
+      <section class="rounded border border-slate-800 p-4 text-sm text-slate-300">
+        <h2 class="mb-2 font-semibold text-yellow-200">Goal</h2>
+        <p>Launch six balls. Pegs deflect the ball, and the scoring pocket at the bottom decides the points.</p>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("tableCanvas");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("scoreEl");
+      const ballsEl = document.getElementById("ballsEl");
+      const lastEl = document.getElementById("lastEl");
+      const angleInput = document.getElementById("angleInput");
+      const launchBtn = document.getElementById("launchBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const messageEl = document.getElementById("messageEl");
+
+      const pockets = [50, 100, 25, 200, 25, 100, 50];
+      const pegs = [];
+      let score = 0;
+      let balls = 6;
+      let lastScore = "-";
+      let ball = null;
+      let running = false;
+
+      function buildPegs() {
+        pegs.length = 0;
+        for (let row = 0; row < 6; row++) {
+          const count = row % 2 === 0 ? 5 : 4;
+          const startX = row % 2 === 0 ? 95 : 140;
+          for (let col = 0; col < count; col++) {
+            pegs.push({ x: startX + col * 82, y: 120 + row * 70, r: 7 });
+          }
+        }
+      }
+
+      function drawTable() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#64748b";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+
+        ctx.fillStyle = "#facc15";
+        pegs.forEach((peg) => {
+          ctx.beginPath();
+          ctx.arc(peg.x, peg.y, peg.r, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        const slotWidth = (canvas.width - 40) / pockets.length;
+        pockets.forEach((value, index) => {
+          const x = 20 + index * slotWidth;
+          ctx.strokeStyle = "#475569";
+          ctx.strokeRect(x, canvas.height - 78, slotWidth, 58);
+          ctx.fillStyle = value === 200 ? "#f97316" : "#e2e8f0";
+          ctx.font = "bold 16px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(value, x + slotWidth / 2, canvas.height - 42);
+        });
+
+        ctx.strokeStyle = "#facc15";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 46);
+        const angle = (Number(angleInput.value) * Math.PI) / 180;
+        ctx.lineTo(canvas.width / 2 + Math.sin(angle) * 58, 46 + Math.cos(angle) * 58);
+        ctx.stroke();
+
+        if (ball) {
+          ctx.fillStyle = "#38bdf8";
+          ctx.beginPath();
+          ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function renderStats() {
+        scoreEl.textContent = score;
+        ballsEl.textContent = balls;
+        lastEl.textContent = lastScore;
+        launchBtn.disabled = running || balls <= 0;
+      }
+
+      function finishBall() {
+        const slotWidth = (canvas.width - 40) / pockets.length;
+        const index = Math.max(0, Math.min(pockets.length - 1, Math.floor((ball.x - 20) / slotWidth)));
+        lastScore = pockets[index];
+        score += lastScore;
+        ball = null;
+        running = false;
+        messageEl.textContent = balls > 0 ? `Pocket scored ${lastScore}. Launch another ball.` : `Final score: ${score}.`;
+        renderStats();
+        drawTable();
+      }
+
+      function stepBall() {
+        if (!ball) return;
+        ball.vy += 0.08;
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        if (ball.x < 34 || ball.x > canvas.width - 34) {
+          ball.vx *= -0.82;
+          ball.x = Math.max(34, Math.min(canvas.width - 34, ball.x));
+        }
+
+        pegs.forEach((peg) => {
+          const dx = ball.x - peg.x;
+          const dy = ball.y - peg.y;
+          const distance = Math.hypot(dx, dy);
+          if (distance < ball.r + peg.r) {
+            const normalX = dx / distance || 0;
+            const normalY = dy / distance || -1;
+            const speed = Math.hypot(ball.vx, ball.vy) || 1;
+            ball.vx = normalX * speed * 0.85 + (Math.random() - 0.5) * 0.8;
+            ball.vy = Math.abs(normalY * speed) * 0.7 + 0.9;
+            ball.x = peg.x + normalX * (ball.r + peg.r + 1);
+            ball.y = peg.y + normalY * (ball.r + peg.r + 1);
+          }
+        });
+
+        if (ball.y > canvas.height - 82) {
+          finishBall();
+          return;
+        }
+
+        drawTable();
+        requestAnimationFrame(stepBall);
+      }
+
+      function launchBall() {
+        if (running || balls <= 0) return;
+        const angle = (Number(angleInput.value) * Math.PI) / 180;
+        ball = { x: canvas.width / 2, y: 48, vx: Math.sin(angle) * 2.4, vy: 2.2, r: 9 };
+        balls -= 1;
+        running = true;
+        messageEl.textContent = "Ball in play.";
+        renderStats();
+        stepBall();
+      }
+
+      function resetTable() {
+        score = 0;
+        balls = 6;
+        lastScore = "-";
+        ball = null;
+        running = false;
+        messageEl.textContent = "Set the launch angle, then send a ball into the pins.";
+        renderStats();
+        drawTable();
+      }
+
+      angleInput.addEventListener("input", drawTable);
+      launchBtn.addEventListener("click", launchBall);
+      resetBtn.addEventListener("click", resetTable);
+
+      buildPegs();
+      resetTable();
+    </script>
+  </body>
+</html>
