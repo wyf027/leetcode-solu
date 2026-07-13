@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Number Crunch</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Number Crunch</h1>
+          <p class="mt-1 text-sm text-stone-400">Merge adjacent matching numbers and reach 64 before the board fills.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-stone-700 px-3 py-2 text-sm">Score: <strong id="score">0</strong></span>
+          <button id="resetBtn" class="rounded bg-lime-400 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-lime-300">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[480px] grid-cols-4 grid-rows-4 gap-2 rounded-lg bg-stone-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
+          <div id="selectedLabel" class="rounded border border-stone-700 bg-stone-900 px-3 py-2 font-semibold">Select a tile</div>
+          <div id="message" class="min-h-24 rounded border border-stone-800 bg-stone-900 p-3 text-sm text-stone-300">Click a tile, then click an adjacent tile with the same value to merge.</div>
+          <button id="shuffleBtn" class="rounded bg-stone-800 px-4 py-3 font-bold hover:bg-stone-700">Add Tile</button>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const boardEl = document.getElementById('board');
+    const scoreEl = document.getElementById('score');
+    const selectedLabel = document.getElementById('selectedLabel');
+    const message = document.getElementById('message');
+    let board = [];
+    let selected = null;
+    let score = 0;
+    let gameOver = false;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(0));
+      selected = null;
+      score = 0;
+      gameOver = false;
+      addTile();
+      addTile();
+      addTile();
+      message.textContent = 'Click a tile, then click an adjacent tile with the same value to merge.';
+      render();
+    }
+
+    function emptyCells() {
+      const cells = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (!board[row][col]) cells.push({ row, col });
+        }
+      }
+      return cells;
+    }
+
+    function addTile() {
+      if (gameOver) return;
+      const cells = emptyCells();
+      if (!cells.length) {
+        checkGameOver();
+        return;
+      }
+      const cell = cells[Math.floor(Math.random() * cells.length)];
+      board[cell.row][cell.col] = Math.random() < 0.8 ? 2 : 4;
+      checkGameOver();
+      render();
+    }
+
+    function areAdjacent(a, b) {
+      return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
+    }
+
+    function selectTile(row, col) {
+      if (gameOver || !board[row][col]) return;
+      const next = { row, col };
+      if (!selected) {
+        selected = next;
+        message.textContent = `Selected ${board[row][col]}.`;
+        render();
+        return;
+      }
+      if (selected.row === row && selected.col === col) {
+        selected = null;
+        message.textContent = 'Selection cleared.';
+        render();
+        return;
+      }
+      mergeTiles(selected, next);
+    }
+
+    function mergeTiles(a, b) {
+      const first = board[a.row][a.col];
+      const second = board[b.row][b.col];
+      if (!areAdjacent(a, b) || first !== second) {
+        selected = b;
+        message.textContent = first === second ? 'Tiles must be adjacent.' : `Selected ${second}.`;
+        render();
+        return;
+      }
+      board[b.row][b.col] = first * 2;
+      board[a.row][a.col] = 0;
+      score += board[b.row][b.col];
+      selected = null;
+      if (board[b.row][b.col] >= 64) {
+        gameOver = true;
+        message.textContent = `You made ${board[b.row][b.col]}. Puzzle cleared.`;
+      } else {
+        message.textContent = `Merged into ${board[b.row][b.col]}.`;
+        addTile();
+      }
+      render();
+    }
+
+    function checkGameOver() {
+      if (emptyCells().length) return false;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const here = board[row][col];
+          if ((row + 1 < size && board[row + 1][col] === here) || (col + 1 < size && board[row][col + 1] === here)) {
+            return false;
+          }
+        }
+      }
+      gameOver = true;
+      message.textContent = `No more merges. Final score: ${score}.`;
+      return true;
+    }
+
+    function tileClass(value) {
+      const colors = {
+        2: 'bg-stone-700 text-stone-100',
+        4: 'bg-amber-700 text-white',
+        8: 'bg-orange-600 text-white',
+        16: 'bg-red-600 text-white',
+        32: 'bg-fuchsia-600 text-white',
+        64: 'bg-lime-400 text-stone-950'
+      };
+      return colors[value] || 'bg-cyan-500 text-stone-950';
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      scoreEl.textContent = score;
+      selectedLabel.textContent = selected ? `Selected ${board[selected.row][selected.col]}` : 'Select a tile';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const value = board[row][col];
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = `rounded-lg text-2xl font-black shadow ${value ? tileClass(value) : 'bg-stone-800 text-stone-800'} ${selected && selected.row === row && selected.col === col ? 'ring-4 ring-white' : ''}`;
+          button.textContent = value || '';
+          button.addEventListener('click', () => selectTile(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    document.getElementById('shuffleBtn').addEventListener('click', addTile);
+    resetGame();
+  </script>
+</body>
+</html>
