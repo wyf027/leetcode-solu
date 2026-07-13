@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pipe Mania</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-sky-800 bg-sky-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Pipe Mania</h1>
+          <p class="mt-1 text-sm text-sky-300">Rotate the pipes until water can flow from the left source to the right drain.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-sky-700 px-3 py-2 text-sm">Turns: <strong id="turns">0</strong></span>
+          <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-sky-950 hover:bg-cyan-200">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-5 grid-rows-5 gap-2 rounded-lg bg-sky-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-sky-800 bg-sky-950 p-3">
+          <button id="flowBtn" class="rounded bg-emerald-400 px-4 py-3 font-bold text-sky-950 hover:bg-emerald-300">Test Flow</button>
+          <div id="message" class="min-h-24 rounded border border-sky-800 bg-sky-900 p-3 text-sm text-sky-200">Click a pipe to rotate it. Light every pipe in the route from source to drain.</div>
+          <div class="rounded border border-sky-800 p-3 text-sm text-sky-300">
+            Source enters at row 3 on the left. Drain exits row 3 on the right.
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const puzzle = [
+      ['corner', 'line', 'tee', 'corner', 'line'],
+      ['tee', 'corner', 'line', 'corner', 'tee'],
+      ['line', 'corner', 'tee', 'corner', 'line'],
+      ['corner', 'line', 'line', 'line', 'corner'],
+      ['line', 'tee', 'corner', 'line', 'corner']
+    ];
+    const solution = [
+      [1, 1, 0, 2, 0],
+      [0, 2, 1, 1, 3],
+      [1, 0, 1, 2, 1],
+      [1, 1, 1, 1, 3],
+      [0, 1, 3, 0, 2]
+    ];
+    let rotations = [];
+    let wet = new Set();
+    let turns = 0;
+    let solved = false;
+
+    const board = document.getElementById('board');
+    const turnsEl = document.getElementById('turns');
+    const message = document.getElementById('message');
+
+    function resetGame() {
+      rotations = solution.map(row => row.map(value => (value + 1 + Math.floor(Math.random() * 3)) % 4));
+      wet = new Set();
+      turns = 0;
+      solved = false;
+      message.textContent = 'Click a pipe to rotate it. Light every pipe in the route from source to drain.';
+      render();
+    }
+
+    function baseOpenings(type) {
+      if (type === 'line') return ['left', 'right'];
+      if (type === 'corner') return ['up', 'right'];
+      return ['left', 'up', 'right'];
+    }
+
+    function rotateSide(side, amount) {
+      const order = ['up', 'right', 'down', 'left'];
+      return order[(order.indexOf(side) + amount) % 4];
+    }
+
+    function openings(row, col) {
+      return baseOpenings(puzzle[row][col]).map(side => rotateSide(side, rotations[row][col]));
+    }
+
+    function opposite(side) {
+      return { up: 'down', down: 'up', left: 'right', right: 'left' }[side];
+    }
+
+    function neighbor(row, col, side) {
+      const delta = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[side];
+      return { row: row + delta[0], col: col + delta[1] };
+    }
+
+    function testFlow() {
+      wet = new Set();
+      const queue = [{ row: 2, col: 0 }];
+      if (!openings(2, 0).includes('left')) {
+        solved = false;
+        message.textContent = 'The source pipe is not facing left.';
+        render();
+        return;
+      }
+      while (queue.length) {
+        const current = queue.shift();
+        const key = `${current.row},${current.col}`;
+        if (wet.has(key)) continue;
+        wet.add(key);
+        openings(current.row, current.col).forEach(side => {
+          const next = neighbor(current.row, current.col, side);
+          if (next.row < 0 || next.row >= size || next.col < 0 || next.col >= size) return;
+          if (openings(next.row, next.col).includes(opposite(side))) queue.push(next);
+        });
+      }
+      solved = wet.has('2,4') && openings(2, 4).includes('right');
+      message.textContent = solved ? `Water reached the drain in ${turns} turns.` : 'Water stopped before the drain.';
+      render();
+    }
+
+    function rotatePipe(row, col) {
+      if (solved) return;
+      rotations[row][col] = (rotations[row][col] + 1) % 4;
+      turns += 1;
+      wet = new Set();
+      message.textContent = 'Pipe rotated. Test the flow when ready.';
+      render();
+    }
+
+    function pipeSvg(row, col) {
+      const lines = { up: 'M50 50 L50 5', right: 'M50 50 L95 50', down: 'M50 50 L50 95', left: 'M50 50 L5 50' };
+      const color = wet.has(`${row},${col}`) ? '#67e8f9' : '#bae6fd';
+      return `<svg viewBox="0 0 100 100" class="h-full w-full"><circle cx="50" cy="50" r="13" fill="${color}"></circle>${openings(row, col).map(side => `<path d="${lines[side]}" stroke="${color}" stroke-width="18" stroke-linecap="round"/>`).join('')}</svg>`;
+    }
+
+    function render() {
+      board.innerHTML = '';
+      turnsEl.textContent = turns;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          const isSource = row === 2 && col === 0;
+          const isDrain = row === 2 && col === 4;
+          button.className = `relative rounded-lg border ${wet.has(`${row},${col}`) ? 'border-cyan-300 bg-cyan-950' : 'border-sky-800 bg-sky-900'} p-2 hover:bg-sky-800`;
+          button.innerHTML = pipeSvg(row, col);
+          if (isSource || isDrain) {
+            const label = document.createElement('span');
+            label.className = 'absolute bottom-1 left-1 text-xs font-bold text-cyan-200';
+            label.textContent = isSource ? 'IN' : 'OUT';
+            button.appendChild(label);
+          }
+          button.addEventListener('click', () => rotatePipe(row, col));
+          board.appendChild(button);
+        }
+      }
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    document.getElementById('flowBtn').addEventListener('click', testFlow);
+    resetGame();
+  </script>
+</body>
+</html>
