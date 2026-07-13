@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Coin Slider</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-neutral-800 bg-neutral-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Coin Slider</h1>
+          <p class="mt-1 text-sm text-neutral-400">Slide every coin onto a matching target in as few moves as possible.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="rounded border border-neutral-700 px-3 py-2 text-sm">Moves: <strong id="moves">0</strong></span>
+          <button id="resetBtn" class="rounded bg-yellow-400 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-yellow-300">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[500px] grid-cols-5 grid-rows-5 gap-2 rounded-lg bg-neutral-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+          <div class="text-sm text-neutral-400">Selected</div>
+          <div id="selectedLabel" class="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 font-semibold">Gold coin</div>
+          <div class="grid grid-cols-3 gap-2">
+            <button data-dir="up" class="col-start-2 rounded bg-neutral-800 py-3 font-bold hover:bg-neutral-700">Up</button>
+            <button data-dir="left" class="rounded bg-neutral-800 py-3 font-bold hover:bg-neutral-700">Left</button>
+            <button data-dir="down" class="rounded bg-neutral-800 py-3 font-bold hover:bg-neutral-700">Down</button>
+            <button data-dir="right" class="rounded bg-neutral-800 py-3 font-bold hover:bg-neutral-700">Right</button>
+          </div>
+          <div id="message" class="min-h-20 rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-300">Pick a coin, then slide it in a straight line until it hits a wall or blocker.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const targets = [
+      { row: 0, col: 4, coin: 'gold' },
+      { row: 4, col: 0, coin: 'silver' },
+      { row: 4, col: 4, coin: 'copper' }
+    ];
+    const walls = new Set(['1,1', '1,3', '2,2', '3,1']);
+    const startCoins = [
+      { id: 'gold', name: 'Gold coin', row: 0, col: 0, color: 'bg-yellow-400 text-neutral-950' },
+      { id: 'silver', name: 'Silver coin', row: 2, col: 4, color: 'bg-slate-300 text-neutral-950' },
+      { id: 'copper', name: 'Copper coin', row: 4, col: 2, color: 'bg-orange-500 text-white' }
+    ];
+
+    let coins = [];
+    let selectedId = 'gold';
+    let moves = 0;
+    let won = false;
+
+    const board = document.getElementById('board');
+    const movesEl = document.getElementById('moves');
+    const selectedLabel = document.getElementById('selectedLabel');
+    const message = document.getElementById('message');
+
+    function resetGame() {
+      coins = startCoins.map(coin => ({ ...coin }));
+      selectedId = 'gold';
+      moves = 0;
+      won = false;
+      message.textContent = 'Pick a coin, then slide it in a straight line until it hits a wall or blocker.';
+      render();
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function isBlocked(row, col, movingId) {
+      return row < 0 || row >= size || col < 0 || col >= size || walls.has(key(row, col)) || coins.some(coin => coin.id !== movingId && coin.row === row && coin.col === col);
+    }
+
+    function slideCoin(dir) {
+      if (won) return;
+      const coin = coins.find(item => item.id === selectedId);
+      const delta = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[dir];
+      let nextRow = coin.row + delta[0];
+      let nextCol = coin.col + delta[1];
+      if (isBlocked(nextRow, nextCol, coin.id)) {
+        message.textContent = `${coin.name} cannot slide ${dir}.`;
+        return;
+      }
+      while (!isBlocked(nextRow, nextCol, coin.id)) {
+        coin.row = nextRow;
+        coin.col = nextCol;
+        nextRow += delta[0];
+        nextCol += delta[1];
+      }
+      moves += 1;
+      message.textContent = `${coin.name} slid ${dir}.`;
+      checkWin();
+      render();
+    }
+
+    function checkWin() {
+      won = targets.every(target => coins.some(coin => coin.id === target.coin && coin.row === target.row && coin.col === target.col));
+      if (won) message.textContent = `Solved in ${moves} moves.`;
+    }
+
+    function selectCoin(id) {
+      if (won) return;
+      selectedId = id;
+      const coin = coins.find(item => item.id === id);
+      selectedLabel.textContent = coin.name;
+      message.textContent = `${coin.name} selected.`;
+      render();
+    }
+
+    function render() {
+      board.innerHTML = '';
+      movesEl.textContent = moves;
+      selectedLabel.textContent = coins.find(coin => coin.id === selectedId)?.name || 'None';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = document.createElement('div');
+          const target = targets.find(item => item.row === row && item.col === col);
+          const wall = walls.has(key(row, col));
+          cell.className = `relative flex items-center justify-center rounded ${wall ? 'bg-neutral-700' : target ? 'bg-emerald-950 ring-2 ring-emerald-500' : 'bg-neutral-800'}`;
+          if (target) {
+            const mark = document.createElement('span');
+            mark.className = 'absolute text-xs font-bold uppercase text-emerald-300';
+            mark.textContent = target.coin[0];
+            cell.appendChild(mark);
+          }
+          const coin = coins.find(item => item.row === row && item.col === col);
+          if (coin) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `${coin.color} z-10 flex h-12 w-12 items-center justify-center rounded-full text-sm font-black shadow-lg ${selectedId === coin.id ? 'ring-4 ring-white' : 'ring-1 ring-black/40'}`;
+            button.textContent = coin.id[0].toUpperCase();
+            button.addEventListener('click', () => selectCoin(coin.id));
+            cell.appendChild(button);
+          }
+          board.appendChild(cell);
+        }
+      }
+    }
+
+    document.querySelectorAll('[data-dir]').forEach(button => {
+      button.addEventListener('click', () => slideCoin(button.dataset.dir));
+    });
+    document.addEventListener('keydown', event => {
+      const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+      if (map[event.key]) slideCoin(map[event.key]);
+    });
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
