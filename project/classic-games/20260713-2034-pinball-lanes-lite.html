@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pinball Lanes</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-white">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Pinball Lanes</h1>
+          <p class="mt-1 text-sm text-slate-400">Aim the spring, launch the ball, and catch a scoring lane.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-slate-700 px-3 py-2 text-sm">Score: <strong id="score">0</strong></span>
+          <span class="rounded border border-slate-700 px-3 py-2 text-sm">Balls: <strong id="balls">5</strong></span>
+          <button id="resetBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-300">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div class="relative mx-auto aspect-[3/4] w-full max-w-[420px] overflow-hidden rounded-lg border border-slate-700 bg-slate-950">
+          <canvas id="game" width="420" height="560" class="h-full w-full"></canvas>
+        </div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+          <label class="text-sm text-slate-400" for="aim">Aim</label>
+          <input id="aim" type="range" min="-42" max="42" value="0" class="w-full accent-amber-400">
+          <button id="launchBtn" class="rounded bg-cyan-500 px-4 py-3 font-bold text-slate-950 hover:bg-cyan-400">Launch</button>
+          <div id="message" class="min-h-20 rounded border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">Use the slider, then launch. Peg hits nudge the ball into different lanes.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const ballsEl = document.getElementById('balls');
+    const aimInput = document.getElementById('aim');
+    const message = document.getElementById('message');
+    const launchBtn = document.getElementById('launchBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const lanes = [100, 250, 500, 1000, 500, 250, 100];
+    const pegs = [];
+    let score = 0;
+    let balls = 5;
+    let ball = null;
+    let animationId = null;
+
+    for (let row = 0; row < 6; row += 1) {
+      const count = row % 2 === 0 ? 5 : 4;
+      const start = row % 2 === 0 ? 70 : 105;
+      for (let col = 0; col < count; col += 1) {
+        pegs.push({ x: start + col * 70, y: 105 + row * 58, r: 8 });
+      }
+    }
+
+    function resetGame() {
+      score = 0;
+      balls = 5;
+      ball = null;
+      message.textContent = 'Use the slider, then launch. Peg hits nudge the ball into different lanes.';
+      updateStats();
+      draw();
+    }
+
+    function updateStats() {
+      scoreEl.textContent = score;
+      ballsEl.textContent = balls;
+    }
+
+    function launchBall() {
+      if (ball || balls <= 0) return;
+      balls -= 1;
+      const aim = Number(aimInput.value) / 100;
+      ball = { x: 210, y: 44, vx: aim * 5, vy: 0.5, r: 9, hit: new Set() };
+      message.textContent = 'Ball in play.';
+      updateStats();
+      loop();
+    }
+
+    function stepBall() {
+      if (!ball) return;
+      ball.vy += 0.12;
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      if (ball.x < 18 || ball.x > canvas.width - 18) {
+        ball.vx *= -0.75;
+        ball.x = Math.max(18, Math.min(canvas.width - 18, ball.x));
+      }
+      pegs.forEach((peg, index) => {
+        const dx = ball.x - peg.x;
+        const dy = ball.y - peg.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance < ball.r + peg.r && !ball.hit.has(index)) {
+          ball.hit.add(index);
+          const side = dx >= 0 ? 1 : -1;
+          ball.vx = side * (1.1 + Math.random() * 1.8);
+          ball.vy = Math.max(0.8, ball.vy * 0.72);
+        }
+      });
+      if (ball.y > 493) settleBall();
+    }
+
+    function settleBall() {
+      const laneWidth = canvas.width / lanes.length;
+      const index = Math.max(0, Math.min(lanes.length - 1, Math.floor(ball.x / laneWidth)));
+      const points = lanes[index];
+      score += points;
+      message.textContent = `Lane ${index + 1} scored ${points}.`;
+      ball = null;
+      updateStats();
+      if (balls === 0) message.textContent += ` Final score: ${score}.`;
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+      ctx.fillStyle = '#fbbf24';
+      pegs.forEach(peg => {
+        ctx.beginPath();
+        ctx.arc(peg.x, peg.y, peg.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      const laneWidth = canvas.width / lanes.length;
+      lanes.forEach((value, index) => {
+        ctx.fillStyle = index === 3 ? '#ef4444' : '#0f172a';
+        ctx.fillRect(index * laneWidth + 2, 504, laneWidth - 4, 44);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(value, index * laneWidth + laneWidth / 2, 531);
+      });
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(210, 44);
+      ctx.lineTo(210 + Number(aimInput.value) * 1.8, 70);
+      ctx.stroke();
+    }
+
+    function draw() {
+      drawBoard();
+      if (ball) {
+        ctx.fillStyle = '#67e8f9';
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function loop() {
+      cancelAnimationFrame(animationId);
+      function frame() {
+        stepBall();
+        draw();
+        if (ball) {
+          animationId = requestAnimationFrame(frame);
+        }
+      }
+      animationId = requestAnimationFrame(frame);
+    }
+
+    launchBtn.addEventListener('click', launchBall);
+    resetBtn.addEventListener('click', resetGame);
+    aimInput.addEventListener('input', draw);
+    document.addEventListener('keydown', event => {
+      if (event.code === 'Space') {
+        event.preventDefault();
+        launchBall();
+      }
+    });
+    resetGame();
+  </script>
+</body>
+</html>
