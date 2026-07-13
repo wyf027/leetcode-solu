@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Qwirkle</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Mini Qwirkle</h1>
+        <p class="text-sm text-indigo-200/75">Place tiles beside matching colors or shapes. Build legal lines and score their length.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-fuchsia-200">New Game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+        <div id="board" class="grid grid-cols-7 gap-2"></div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-indigo-800 bg-indigo-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-indigo-950 p-3">
+            <div class="text-indigo-300">Score</div>
+            <div id="score" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded bg-indigo-950 p-3">
+            <div class="text-indigo-300">Tiles</div>
+            <div id="tilesLeft" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+        <div>
+          <div class="mb-2 text-sm text-indigo-300">Your rack</div>
+          <div id="rack" class="grid grid-cols-3 gap-2"></div>
+        </div>
+        <button id="passBtn" class="w-full rounded bg-sky-400 px-4 py-2 font-semibold text-indigo-950 hover:bg-sky-300">Swap Rack</button>
+        <div id="message" class="min-h-20 rounded bg-indigo-950 p-3 text-sm text-indigo-100">Pick a rack tile, then click an empty board cell next to an existing tile.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const rackEl = document.getElementById('rack');
+    const scoreEl = document.getElementById('score');
+    const tilesLeftEl = document.getElementById('tilesLeft');
+    const messageEl = document.getElementById('message');
+    const colors = [
+      { name: 'red', cls: 'bg-rose-400 text-rose-950' },
+      { name: 'blue', cls: 'bg-sky-300 text-sky-950' },
+      { name: 'green', cls: 'bg-emerald-300 text-emerald-950' }
+    ];
+    const shapes = ['●', '■', '▲'];
+    let bag;
+    let rack;
+    let board;
+    let selected;
+    let score;
+    let gameOver;
+
+    function makeBag() {
+      const tiles = [];
+      for (const color of colors) {
+        for (const shape of shapes) {
+          for (let copy = 0; copy < 2; copy++) tiles.push({ color: color.name, cls: color.cls, shape, id: `${color.name}-${shape}-${copy}` });
+        }
+      }
+      return tiles.sort(() => Math.random() - 0.5);
+    }
+
+    function resetGame() {
+      bag = makeBag();
+      rack = bag.splice(0, 6);
+      board = Array.from({ length: 7 }, () => Array(7).fill(null));
+      const seed = bag.pop();
+      board[3][3] = seed;
+      selected = null;
+      score = 1;
+      gameOver = false;
+      messageEl.textContent = 'Pick a rack tile, then click an empty board cell next to an existing tile.';
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < 7 && col >= 0 && col < 7;
+    }
+
+    function neighbors(row, col) {
+      return [[1, 0], [-1, 0], [0, 1], [0, -1]]
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([r, c]) => inBounds(r, c));
+    }
+
+    function lineTiles(row, col, dr, dc, placedTile) {
+      const tiles = [placedTile];
+      for (const dir of [-1, 1]) {
+        let r = row + dr * dir;
+        let c = col + dc * dir;
+        while (inBounds(r, c) && board[r][c]) {
+          tiles.push(board[r][c]);
+          r += dr * dir;
+          c += dc * dir;
+        }
+      }
+      return tiles;
+    }
+
+    function legalLine(tiles) {
+      if (tiles.length < 2) return true;
+      const sameColor = tiles.every(tile => tile.color === tiles[0].color);
+      const sameShape = tiles.every(tile => tile.shape === tiles[0].shape);
+      if (!sameColor && !sameShape) return false;
+      const seen = new Set(tiles.map(tile => sameColor ? tile.shape : tile.color));
+      return seen.size === tiles.length;
+    }
+
+    function isLegalPlacement(row, col, tile) {
+      if (!inBounds(row, col) || board[row][col]) return false;
+      const touching = neighbors(row, col).some(([r, c]) => board[r][c]);
+      if (!touching) return false;
+      const horizontal = lineTiles(row, col, 0, 1, tile);
+      const vertical = lineTiles(row, col, 1, 0, tile);
+      return legalLine(horizontal) && legalLine(vertical);
+    }
+
+    function placementScore(row, col, tile) {
+      const horizontal = lineTiles(row, col, 0, 1, tile).length;
+      const vertical = lineTiles(row, col, 1, 0, tile).length;
+      return (horizontal > 1 ? horizontal : 0) + (vertical > 1 ? vertical : 0) || 1;
+    }
+
+    function drawUp() {
+      while (rack.length < 6 && bag.length) rack.push(bag.pop());
+      if (!rack.length) {
+        gameOver = true;
+        messageEl.textContent = `Bag and rack are empty. Final score: ${score}.`;
+      }
+    }
+
+    function placeTile(row, col) {
+      if (gameOver || selected === null) return;
+      const tile = rack[selected];
+      if (!isLegalPlacement(row, col, tile)) {
+        messageEl.textContent = 'That spot would break the color-or-shape line rule.';
+        return;
+      }
+      board[row][col] = tile;
+      rack.splice(selected, 1);
+      score += placementScore(row, col, tile);
+      selected = null;
+      drawUp();
+      if (!gameOver) messageEl.textContent = 'Tile placed. Keep extending legal lines.';
+      render();
+    }
+
+    function swapRack() {
+      if (gameOver || !bag.length) return;
+      bag.unshift(...rack.splice(0));
+      bag.sort(() => Math.random() - 0.5);
+      rack = bag.splice(0, 6);
+      selected = null;
+      messageEl.textContent = 'Rack swapped. Try a new line.';
+      render();
+    }
+
+    function tileMarkup(tile) {
+      return `<span class="flex aspect-square items-center justify-center rounded ${tile.cls} text-2xl font-black">${tile.shape}</span>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 7; col++) {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'aspect-square rounded border border-indigo-800 bg-indigo-950 p-1 transition hover:bg-indigo-800';
+          if (board[row][col]) {
+            cell.innerHTML = tileMarkup(board[row][col]);
+          } else if (selected !== null && isLegalPlacement(row, col, rack[selected])) {
+            cell.className += ' ring-2 ring-fuchsia-300';
+          }
+          cell.addEventListener('click', () => placeTile(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+      rackEl.innerHTML = '';
+      rack.forEach((tile, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `rounded border p-1 ${selected === index ? 'border-fuchsia-200 bg-fuchsia-950' : 'border-indigo-700 bg-indigo-950'}`;
+        button.innerHTML = tileMarkup(tile);
+        button.addEventListener('click', () => {
+          selected = index;
+          messageEl.textContent = 'Now choose a highlighted board cell.';
+          render();
+        });
+        rackEl.appendChild(button);
+      });
+      scoreEl.textContent = score;
+      tilesLeftEl.textContent = bag.length;
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    document.getElementById('passBtn').addEventListener('click', swapRack);
+    resetGame();
+  </script>
+</body>
+</html>
