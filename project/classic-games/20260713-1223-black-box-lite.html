@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Black Box</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-cyan-300">classic deduction</p>
+          <h1 class="text-3xl font-bold">Mini Black Box</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+            <div class="text-cyan-200">Rays</div>
+            <div id="rayEl" class="text-xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+            <div class="text-cyan-200">Marks</div>
+            <div id="markEl" class="text-xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+            <div class="text-cyan-200">Atoms</div>
+            <div class="text-xl font-bold">3</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+        <div class="rounded border border-neutral-700 bg-neutral-900/80 p-4">
+          <div id="boardEl" class="mx-auto grid max-w-md grid-cols-6 gap-1"></div>
+          <p id="messageEl" class="mt-4 min-h-6 text-sm text-neutral-300"></p>
+        </div>
+        <aside class="flex flex-col gap-3 rounded border border-neutral-700 bg-neutral-900/80 p-4">
+          <button id="checkBtn" class="rounded bg-cyan-300 px-4 py-3 font-semibold text-neutral-950 hover:bg-cyan-200">
+            Check Marks
+          </button>
+          <button id="revealBtn" class="rounded bg-neutral-100 px-4 py-3 font-semibold text-neutral-950 hover:bg-white">
+            Reveal Atoms
+          </button>
+          <button id="newBtn" class="rounded border border-cyan-300 px-4 py-3 font-semibold text-cyan-100 hover:bg-neutral-800">
+            New Box
+          </button>
+          <div class="rounded bg-neutral-950 p-3 text-sm text-neutral-300">
+            Fire rays from edge cells. Mark the three hidden atoms inside the 4x4 box.
+          </div>
+        </aside>
+      </section>
+
+      <section class="rounded border border-neutral-800 p-4 text-sm text-neutral-300">
+        <h2 class="mb-2 font-semibold text-cyan-200">Ray Results</h2>
+        <p>Hit means the ray struck an atom. Exit gives the edge where it left. A ray can deflect around adjacent atoms.</p>
+      </section>
+    </main>
+
+    <script>
+      const size = 4;
+      const atomCount = 3;
+      const boardEl = document.getElementById("boardEl");
+      const rayEl = document.getElementById("rayEl");
+      const markEl = document.getElementById("markEl");
+      const messageEl = document.getElementById("messageEl");
+      const checkBtn = document.getElementById("checkBtn");
+      const revealBtn = document.getElementById("revealBtn");
+      const newBtn = document.getElementById("newBtn");
+
+      let atoms = new Set();
+      let marks = new Set();
+      let rays = 0;
+      let revealed = false;
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function placeAtoms() {
+        atoms = new Set();
+        while (atoms.size < atomCount) {
+          atoms.add(key(Math.floor(Math.random() * size), Math.floor(Math.random() * size)));
+        }
+      }
+
+      function edgeInfo(row, col) {
+        if (row === -1 && col >= 0 && col < size) return { row: 0, col, dr: 1, dc: 0, label: `N${col + 1}` };
+        if (row === size && col >= 0 && col < size) return { row: size - 1, col, dr: -1, dc: 0, label: `S${col + 1}` };
+        if (col === -1 && row >= 0 && row < size) return { row, col: 0, dr: 0, dc: 1, label: `W${row + 1}` };
+        if (col === size && row >= 0 && row < size) return { row, col: size - 1, dr: 0, dc: -1, label: `E${row + 1}` };
+        return null;
+      }
+
+      function exitLabel(row, col) {
+        if (row < 0) return `N${col + 1}`;
+        if (row >= size) return `S${col + 1}`;
+        if (col < 0) return `W${row + 1}`;
+        if (col >= size) return `E${row + 1}`;
+        return "?";
+      }
+
+      function rotateLeft(dir) {
+        return { dr: -dir.dc, dc: dir.dr };
+      }
+
+      function rotateRight(dir) {
+        return { dr: dir.dc, dc: -dir.dr };
+      }
+
+      function traceRay(start) {
+        let row = start.row;
+        let col = start.col;
+        let dr = start.dr;
+        let dc = start.dc;
+
+        for (let step = 0; step < 40; step++) {
+          if (atoms.has(key(row, col))) return "Hit";
+
+          const left = key(row + dr - dc, col + dc + dr);
+          const right = key(row + dr + dc, col + dc - dr);
+          const leftBlocked = atoms.has(left);
+          const rightBlocked = atoms.has(right);
+
+          if (leftBlocked && rightBlocked) {
+            dr *= -1;
+            dc *= -1;
+          } else if (leftBlocked) {
+            const turned = rotateRight({ dr, dc });
+            dr = turned.dr;
+            dc = turned.dc;
+          } else if (rightBlocked) {
+            const turned = rotateLeft({ dr, dc });
+            dr = turned.dr;
+            dc = turned.dc;
+          }
+
+          row += dr;
+          col += dc;
+          if (row < 0 || row >= size || col < 0 || col >= size) return `Exit ${exitLabel(row, col)}`;
+        }
+        return "Lost";
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        for (let viewRow = 0; viewRow < 6; viewRow++) {
+          for (let viewCol = 0; viewCol < 6; viewCol++) {
+            const innerRow = viewRow - 1;
+            const innerCol = viewCol - 1;
+            const isCorner = (viewRow === 0 || viewRow === 5) && (viewCol === 0 || viewCol === 5);
+            const edge = edgeInfo(innerRow, innerCol);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "aspect-square rounded border text-sm font-bold transition";
+
+            if (isCorner) {
+              button.disabled = true;
+              button.className += " border-neutral-800 bg-neutral-950";
+            } else if (edge) {
+              button.textContent = edge.label;
+              button.className += " border-cyan-500 bg-cyan-950 text-cyan-100 hover:bg-cyan-800";
+              button.addEventListener("click", () => fireRay(edge));
+            } else {
+              const cellKey = key(innerRow, innerCol);
+              const hasAtom = atoms.has(cellKey);
+              const marked = marks.has(cellKey);
+              button.textContent = revealed && hasAtom ? "A" : marked ? "?" : "";
+              button.className += marked
+                ? " border-amber-300 bg-amber-200 text-neutral-950"
+                : revealed && hasAtom
+                  ? " border-red-300 bg-red-400 text-neutral-950"
+                  : " border-neutral-700 bg-neutral-950 hover:bg-neutral-800";
+              button.addEventListener("click", () => toggleMark(cellKey));
+            }
+            boardEl.appendChild(button);
+          }
+        }
+        rayEl.textContent = rays;
+        markEl.textContent = marks.size;
+      }
+
+      function fireRay(edge) {
+        rays += 1;
+        const result = traceRay(edge);
+        messageEl.textContent = `${edge.label}: ${result}`;
+        render();
+      }
+
+      function toggleMark(cellKey) {
+        if (marks.has(cellKey)) marks.delete(cellKey);
+        else if (marks.size < atomCount) marks.add(cellKey);
+        messageEl.textContent = "Mark suspected atom cells.";
+        render();
+      }
+
+      function checkMarks() {
+        let correct = 0;
+        marks.forEach((cellKey) => {
+          if (atoms.has(cellKey)) correct += 1;
+        });
+        messageEl.textContent = correct === atomCount && marks.size === atomCount ? "All atoms found." : `${correct} of ${atomCount} marks are correct.`;
+      }
+
+      function newBox() {
+        placeAtoms();
+        marks = new Set();
+        rays = 0;
+        revealed = false;
+        messageEl.textContent = "Fire edge rays and mark three atoms.";
+        render();
+      }
+
+      checkBtn.addEventListener("click", checkMarks);
+      revealBtn.addEventListener("click", () => {
+        revealed = !revealed;
+        messageEl.textContent = revealed ? "Atoms revealed." : "Atoms hidden.";
+        render();
+      });
+      newBtn.addEventListener("click", newBox);
+
+      newBox();
+    </script>
+  </body>
+</html>
