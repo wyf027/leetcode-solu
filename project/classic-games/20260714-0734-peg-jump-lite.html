@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Peg Jump</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-widest text-amber-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Peg Jump</h1>
+          <p class="mt-2 text-sm text-slate-300">Jump over a neighboring peg into an empty hole. Leave one peg to win.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Pegs</div>
+            <div id="pegCount" class="text-xl font-bold text-white">14</div>
+          </div>
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Moves</div>
+            <div id="moveCount" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Best</div>
+            <div id="bestCount" class="text-xl font-bold text-white">--</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="board" class="mt-6 flex flex-col items-center gap-3 rounded-lg bg-slate-950 p-5"></div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <p id="status" class="min-h-6 text-sm font-medium text-slate-300">Select a peg, then jump into an empty hole.</p>
+        <div class="flex gap-2">
+          <button id="undoBtn" class="rounded-md bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-600">Undo</button>
+          <button id="resetBtn" class="rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-300">Reset</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const pegCountEl = document.getElementById('pegCount');
+    const moveCountEl = document.getElementById('moveCount');
+    const bestCountEl = document.getElementById('bestCount');
+    const statusEl = document.getElementById('status');
+    const undoBtn = document.getElementById('undoBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const holes = [];
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c <= r; c++) holes.push({ r, c, id: `${r}-${c}` });
+    }
+
+    let board = {};
+    let selected = null;
+    let moves = 0;
+    let history = [];
+    let best = Number(localStorage.getItem('miniPegJumpBest') || 0);
+
+    function resetGame() {
+      board = Object.fromEntries(holes.map((hole) => [hole.id, true]));
+      board['0-0'] = false;
+      selected = null;
+      moves = 0;
+      history = [];
+      statusEl.textContent = 'Select a peg, then jump into an empty hole.';
+      render();
+    }
+
+    function holeAt(id) {
+      return holes.find((hole) => hole.id === id);
+    }
+
+    function middleOf(from, to) {
+      const a = holeAt(from);
+      const b = holeAt(to);
+      const dr = b.r - a.r;
+      const dc = b.c - a.c;
+      if ((dr === 0 && Math.abs(dc) === 2) || (Math.abs(dr) === 2 && [0, 2, -2].includes(dc))) {
+        return `${a.r + dr / 2}-${a.c + dc / 2}`;
+      }
+      return null;
+    }
+
+    function legalJump(from, to) {
+      const mid = middleOf(from, to);
+      return Boolean(from && to && mid && board[from] && !board[to] && board[mid]);
+    }
+
+    function getLegalMoves() {
+      const movesList = [];
+      for (const from of holes) {
+        for (const to of holes) {
+          if (legalJump(from.id, to.id)) movesList.push([from.id, to.id]);
+        }
+      }
+      return movesList;
+    }
+
+    function playMove(to) {
+      const mid = middleOf(selected, to);
+      history.push({ board: { ...board }, selected, moves });
+      board[selected] = false;
+      board[mid] = false;
+      board[to] = true;
+      selected = null;
+      moves += 1;
+      updateStatus();
+      render();
+    }
+
+    function handleHole(id) {
+      if (selected && legalJump(selected, id)) {
+        playMove(id);
+        return;
+      }
+      if (board[id]) {
+        selected = selected === id ? null : id;
+        statusEl.textContent = selected ? 'Choose an empty hole two spaces away.' : 'Select a peg to jump.';
+      } else {
+        selected = null;
+        statusEl.textContent = 'That hole is empty. Select a peg first.';
+      }
+      render();
+    }
+
+    function updateStatus() {
+      const pegs = Object.values(board).filter(Boolean).length;
+      const legalMoves = getLegalMoves().length;
+      if (pegs === 1) {
+        statusEl.textContent = 'Perfect finish. One peg remains.';
+      } else if (legalMoves === 0) {
+        statusEl.textContent = `No legal jumps left. ${pegs} pegs remain.`;
+      } else {
+        statusEl.textContent = `${legalMoves} legal jump${legalMoves === 1 ? '' : 's'} available.`;
+      }
+      if (!best || pegs < best) {
+        best = pegs;
+        localStorage.setItem('miniPegJumpBest', String(best));
+      }
+    }
+
+    function undoMove() {
+      const last = history.pop();
+      if (!last) return;
+      board = last.board;
+      selected = last.selected;
+      moves = last.moves;
+      statusEl.textContent = 'Move undone.';
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      holes.reduce((rows, hole) => {
+        rows[hole.r] = rows[hole.r] || [];
+        rows[hole.r].push(hole);
+        return rows;
+      }, []).forEach((row) => {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'flex justify-center gap-3';
+        row.forEach((hole) => {
+          const button = document.createElement('button');
+          const isPeg = board[hole.id];
+          const isSelected = selected === hole.id;
+          button.type = 'button';
+          button.textContent = isPeg ? '●' : '';
+          button.setAttribute('aria-label', `Hole ${hole.id}`);
+          button.className = [
+            'h-12 w-12 rounded-full border text-2xl font-bold transition',
+            isSelected ? 'border-amber-200 bg-amber-400 text-slate-950 scale-110' : '',
+            !isSelected && isPeg ? 'border-cyan-300 bg-cyan-500 text-cyan-50 hover:bg-cyan-400' : '',
+            !isSelected && !isPeg ? 'border-slate-600 bg-slate-800 hover:bg-slate-700' : ''
+          ].join(' ');
+          button.addEventListener('click', () => handleHole(hole.id));
+          rowEl.appendChild(button);
+        });
+        boardEl.appendChild(rowEl);
+      });
+      const pegs = Object.values(board).filter(Boolean).length;
+      pegCountEl.textContent = pegs;
+      moveCountEl.textContent = moves;
+      bestCountEl.textContent = best || '--';
+      undoBtn.disabled = history.length === 0;
+      undoBtn.classList.toggle('opacity-50', history.length === 0);
+    }
+
+    undoBtn.addEventListener('click', undoMove);
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
