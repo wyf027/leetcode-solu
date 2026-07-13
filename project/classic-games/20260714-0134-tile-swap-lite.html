@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tile Swap</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-teal-950 text-teal-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-teal-800 bg-teal-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Tile Swap</h1>
+          <p class="mt-1 text-sm text-teal-300">Swap adjacent tiles to make a row or column of three matching colors.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-teal-700 px-3 py-2 text-sm">Score: <strong id="score">0</strong></span>
+          <span class="rounded border border-teal-700 px-3 py-2 text-sm">Moves: <strong id="moves">20</strong></span>
+          <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-teal-950 hover:bg-amber-200">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-6 grid-rows-6 gap-2 rounded-lg bg-teal-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-teal-800 bg-teal-950 p-3">
+          <div id="selectedLabel" class="rounded border border-teal-700 bg-teal-900 px-3 py-2 font-semibold">Select a tile</div>
+          <div id="message" class="min-h-24 rounded border border-teal-800 bg-teal-900 p-3 text-sm text-teal-200">Click a tile, then an adjacent tile. Matches of three clear automatically.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const colors = [
+      { name: 'red', className: 'bg-red-500' },
+      { name: 'blue', className: 'bg-blue-500' },
+      { name: 'yellow', className: 'bg-yellow-300' },
+      { name: 'violet', className: 'bg-violet-500' },
+      { name: 'lime', className: 'bg-lime-400' }
+    ];
+    const boardEl = document.getElementById('board');
+    const scoreEl = document.getElementById('score');
+    const movesEl = document.getElementById('moves');
+    const selectedLabel = document.getElementById('selectedLabel');
+    const message = document.getElementById('message');
+    let board = [];
+    let selected = null;
+    let score = 0;
+    let moves = 20;
+    let finished = false;
+
+    function resetGame() {
+      score = 0;
+      moves = 20;
+      finished = false;
+      selected = null;
+      board = Array.from({ length: size }, () => Array.from({ length: size }, randomColor));
+      while (clearMatches(false)) refillBoard();
+      message.textContent = 'Click a tile, then an adjacent tile. Matches of three clear automatically.';
+      render();
+    }
+
+    function randomColor() {
+      return colors[Math.floor(Math.random() * colors.length)].name;
+    }
+
+    function isAdjacent(a, b) {
+      return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
+    }
+
+    function selectTile(row, col) {
+      if (finished) return;
+      if (!selected) {
+        selected = { row, col };
+        message.textContent = `Selected row ${row + 1}, column ${col + 1}.`;
+        render();
+        return;
+      }
+      const target = { row, col };
+      if (selected.row === row && selected.col === col) {
+        selected = null;
+        message.textContent = 'Selection cleared.';
+        render();
+        return;
+      }
+      if (!isAdjacent(selected, target)) {
+        selected = target;
+        message.textContent = 'Select an adjacent tile to swap.';
+        render();
+        return;
+      }
+      swapTiles(selected, target);
+    }
+
+    function swapTiles(a, b) {
+      [board[a.row][a.col], board[b.row][b.col]] = [board[b.row][b.col], board[a.row][a.col]];
+      const cleared = clearMatches();
+      if (!cleared) {
+        [board[a.row][a.col], board[b.row][b.col]] = [board[b.row][b.col], board[a.row][a.col]];
+        message.textContent = 'That swap makes no match.';
+      } else {
+        moves -= 1;
+        refillBoard();
+        while (clearMatches()) refillBoard();
+        message.textContent = `Cleared ${cleared} tiles.`;
+      }
+      selected = null;
+      checkGameOver();
+      render();
+    }
+
+    function clearMatches(scorePoints = true) {
+      const clear = new Set();
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size - 2; col += 1) {
+          const value = board[row][col];
+          if (value && value === board[row][col + 1] && value === board[row][col + 2]) {
+            clear.add(`${row},${col}`);
+            clear.add(`${row},${col + 1}`);
+            clear.add(`${row},${col + 2}`);
+          }
+        }
+      }
+      for (let col = 0; col < size; col += 1) {
+        for (let row = 0; row < size - 2; row += 1) {
+          const value = board[row][col];
+          if (value && value === board[row + 1][col] && value === board[row + 2][col]) {
+            clear.add(`${row},${col}`);
+            clear.add(`${row + 1},${col}`);
+            clear.add(`${row + 2},${col}`);
+          }
+        }
+      }
+      clear.forEach(item => {
+        const [row, col] = item.split(',').map(Number);
+        board[row][col] = null;
+      });
+      if (clear.size && scorePoints) score += clear.size * 10;
+      return clear.size;
+    }
+
+    function refillBoard() {
+      for (let col = 0; col < size; col += 1) {
+        const stack = [];
+        for (let row = size - 1; row >= 0; row -= 1) {
+          if (board[row][col]) stack.push(board[row][col]);
+        }
+        for (let row = size - 1; row >= 0; row -= 1) {
+          board[row][col] = stack.shift() || randomColor();
+        }
+      }
+    }
+
+    function checkGameOver() {
+      if (score >= 300) {
+        finished = true;
+        message.textContent = 'Target score reached.';
+      } else if (moves <= 0) {
+        finished = true;
+        message.textContent = `No moves left. Final score: ${score}.`;
+      }
+    }
+
+    function colorClass(name) {
+      return colors.find(color => color.name === name).className;
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      scoreEl.textContent = score;
+      movesEl.textContent = moves;
+      selectedLabel.textContent = selected ? `Selected ${selected.row + 1}, ${selected.col + 1}` : 'Select a tile';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = `rounded-lg ${colorClass(board[row][col])} shadow ${selected && selected.row === row && selected.col === col ? 'ring-4 ring-white' : 'ring-1 ring-teal-950'}`;
+          button.addEventListener('click', () => selectTile(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
