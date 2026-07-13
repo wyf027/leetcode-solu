@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Ship Captain Crew</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-cyan-950 text-cyan-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Mini Ship Captain Crew</h1>
+        <p class="text-sm text-cyan-200/75">Roll five dice. Lock a 6 ship, a 5 captain, and a 4 crew before scoring cargo.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-cyan-950 hover:bg-amber-200">New Round</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="space-y-4 rounded border border-cyan-800 bg-cyan-900 p-4">
+        <div id="dice" class="grid grid-cols-5 gap-3"></div>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="rounded bg-cyan-950 p-4 text-center">
+            <div class="text-sm text-cyan-300">Ship</div>
+            <div id="ship" class="text-3xl font-black">-</div>
+          </div>
+          <div class="rounded bg-cyan-950 p-4 text-center">
+            <div class="text-sm text-cyan-300">Captain</div>
+            <div id="captain" class="text-3xl font-black">-</div>
+          </div>
+          <div class="rounded bg-cyan-950 p-4 text-center">
+            <div class="text-sm text-cyan-300">Crew</div>
+            <div id="crew" class="text-3xl font-black">-</div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-cyan-800 bg-cyan-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-cyan-950 p-3">
+            <div class="text-cyan-300">Rolls</div>
+            <div id="rolls" class="text-2xl font-bold">3</div>
+          </div>
+          <div class="rounded bg-cyan-950 p-3">
+            <div class="text-cyan-300">Cargo</div>
+            <div id="cargo" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="col-span-2 rounded bg-cyan-950 p-3">
+            <div class="text-cyan-300">Best Cargo</div>
+            <div id="best" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+        <button id="rollBtn" class="w-full rounded bg-sky-300 px-4 py-2 font-semibold text-cyan-950 hover:bg-sky-200">Roll Dice</button>
+        <div id="message" class="min-h-20 rounded bg-cyan-950 p-3 text-sm text-cyan-100">Roll to find 6, then 5, then 4. Cargo scores only after all three are locked.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const diceEl = document.getElementById('dice');
+    const shipEl = document.getElementById('ship');
+    const captainEl = document.getElementById('captain');
+    const crewEl = document.getElementById('crew');
+    const rollsEl = document.getElementById('rolls');
+    const cargoEl = document.getElementById('cargo');
+    const bestEl = document.getElementById('best');
+    const messageEl = document.getElementById('message');
+    const rollBtn = document.getElementById('rollBtn');
+    let dice;
+    let locks;
+    let rolls;
+    let best;
+    let roundOver;
+
+    function resetGame() {
+      dice = [1, 1, 1, 1, 1];
+      locks = { ship: null, captain: null, crew: null };
+      rolls = 3;
+      best = Number(localStorage.getItem('shipCaptainCrewBest') || 0);
+      roundOver = false;
+      messageEl.textContent = 'Roll to find 6, then 5, then 4. Cargo scores only after all three are locked.';
+      render();
+    }
+
+    function rollDie() {
+      return Math.floor(Math.random() * 6) + 1;
+    }
+
+    function rollDice() {
+      if (roundOver || rolls <= 0) return;
+      dice = dice.map((value, index) => isLocked(index) ? value : rollDie());
+      rolls -= 1;
+      autoLock();
+      if (hasShipCaptainCrew()) {
+        const cargo = cargoScore();
+        if (cargo > best) {
+          best = cargo;
+          localStorage.setItem('shipCaptainCrewBest', String(best));
+        }
+        messageEl.textContent = `Cargo scored: ${cargo}. You can roll remaining dice if rolls remain.`;
+      } else if (rolls === 0) {
+        roundOver = true;
+        messageEl.textContent = 'No complete ship, captain, and crew. Cargo lost.';
+      } else {
+        messageEl.textContent = nextTargetMessage();
+      }
+      if (rolls === 0 && hasShipCaptainCrew()) roundOver = true;
+      render();
+    }
+
+    function isLocked(index) {
+      return [locks.ship, locks.captain, locks.crew].includes(index);
+    }
+
+    function autoLock() {
+      if (locks.ship === null) {
+        const index = dice.findIndex((value, i) => value === 6 && !isLocked(i));
+        if (index !== -1) locks.ship = index;
+      }
+      if (locks.ship !== null && locks.captain === null) {
+        const index = dice.findIndex((value, i) => value === 5 && !isLocked(i));
+        if (index !== -1) locks.captain = index;
+      }
+      if (locks.captain !== null && locks.crew === null) {
+        const index = dice.findIndex((value, i) => value === 4 && !isLocked(i));
+        if (index !== -1) locks.crew = index;
+      }
+    }
+
+    function hasShipCaptainCrew() {
+      return locks.ship !== null && locks.captain !== null && locks.crew !== null;
+    }
+
+    function cargoScore() {
+      if (!hasShipCaptainCrew()) return 0;
+      return dice.reduce((sum, value, index) => isLocked(index) ? sum : sum + value, 0);
+    }
+
+    function nextTargetMessage() {
+      if (locks.ship === null) return 'Need a 6 for the ship.';
+      if (locks.captain === null) return 'Ship locked. Need a 5 for the captain.';
+      return 'Ship and captain locked. Need a 4 for the crew.';
+    }
+
+    function render() {
+      diceEl.innerHTML = '';
+      dice.forEach((value, index) => {
+        const tile = document.createElement('div');
+        tile.className = `flex aspect-square items-center justify-center rounded text-4xl font-black ${isLocked(index) ? 'bg-amber-300 text-cyan-950 ring-4 ring-amber-100' : 'bg-cyan-950 text-cyan-50'}`;
+        tile.textContent = value;
+        diceEl.appendChild(tile);
+      });
+      shipEl.textContent = locks.ship === null ? '-' : '6';
+      captainEl.textContent = locks.captain === null ? '-' : '5';
+      crewEl.textContent = locks.crew === null ? '-' : '4';
+      rollsEl.textContent = rolls;
+      cargoEl.textContent = cargoScore();
+      bestEl.textContent = best;
+      rollBtn.disabled = roundOver;
+      rollBtn.classList.toggle('opacity-50', roundOver);
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    rollBtn.addEventListener('click', rollDice);
+    resetGame();
+  </script>
+</body>
+</html>
