@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Dice Bid</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-violet-950 text-violet-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Mini Dice Bid</h1>
+        <p class="text-sm text-violet-200/75">A tiny liar's dice duel. Raise the bid or call bluff.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-amber-200">New Round</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="space-y-4 rounded border border-violet-800 bg-violet-900 p-4">
+        <div class="rounded bg-violet-950 p-4">
+          <div class="mb-2 text-sm text-violet-300">Your dice</div>
+          <div id="playerDice" class="grid grid-cols-5 gap-2"></div>
+        </div>
+        <div class="rounded bg-violet-950 p-4">
+          <div class="mb-2 text-sm text-violet-300">CPU dice</div>
+          <div id="cpuDice" class="grid grid-cols-5 gap-2"></div>
+        </div>
+        <div class="rounded bg-violet-950 p-4 text-center">
+          <div class="text-sm text-violet-300">Current bid</div>
+          <div id="currentBid" class="text-3xl font-black">None</div>
+        </div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-violet-800 bg-violet-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-violet-950 p-3">
+            <div class="text-violet-300">You</div>
+            <div id="playerScore" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded bg-violet-950 p-3">
+            <div class="text-violet-300">CPU</div>
+            <div id="cpuScore" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="text-sm text-violet-200">Qty
+            <select id="qty" class="mt-1 w-full rounded bg-violet-950 p-2 text-violet-50"></select>
+          </label>
+          <label class="text-sm text-violet-200">Face
+            <select id="face" class="mt-1 w-full rounded bg-violet-950 p-2 text-violet-50"></select>
+          </label>
+        </div>
+        <button id="bidBtn" class="w-full rounded bg-sky-300 px-4 py-2 font-semibold text-violet-950 hover:bg-sky-200">Raise Bid</button>
+        <button id="callBtn" class="w-full rounded bg-rose-300 px-4 py-2 font-semibold text-violet-950 hover:bg-rose-200">Call Bluff</button>
+        <div id="message" class="min-h-24 rounded bg-violet-950 p-3 text-sm text-violet-100">Make the first bid. Ones count as wild.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const playerDiceEl = document.getElementById('playerDice');
+    const cpuDiceEl = document.getElementById('cpuDice');
+    const currentBidEl = document.getElementById('currentBid');
+    const playerScoreEl = document.getElementById('playerScore');
+    const cpuScoreEl = document.getElementById('cpuScore');
+    const messageEl = document.getElementById('message');
+    const qtyEl = document.getElementById('qty');
+    const faceEl = document.getElementById('face');
+    const bidBtn = document.getElementById('bidBtn');
+    const callBtn = document.getElementById('callBtn');
+    let playerDice;
+    let cpuDice;
+    let bid;
+    let playerScore = 0;
+    let cpuScore = 0;
+    let revealed;
+    let roundOver;
+
+    function setupSelectors() {
+      qtyEl.innerHTML = '';
+      faceEl.innerHTML = '';
+      for (let i = 1; i <= 10; i++) qtyEl.appendChild(new Option(i, i));
+      for (let i = 2; i <= 6; i++) faceEl.appendChild(new Option(i, i));
+    }
+
+    function rollDie() {
+      return Math.floor(Math.random() * 6) + 1;
+    }
+
+    function resetRound() {
+      playerDice = Array.from({ length: 5 }, rollDie);
+      cpuDice = Array.from({ length: 5 }, rollDie);
+      bid = null;
+      revealed = false;
+      roundOver = false;
+      messageEl.textContent = 'Make the first bid. Ones count as wild.';
+      render();
+    }
+
+    function bidValue(next) {
+      return next.qty * 10 + next.face;
+    }
+
+    function canRaise(next) {
+      return !bid || bidValue(next) > bidValue(bid);
+    }
+
+    function raiseBid() {
+      if (roundOver) return;
+      const next = { qty: Number(qtyEl.value), face: Number(faceEl.value), owner: 'You' };
+      if (!canRaise(next)) {
+        messageEl.textContent = 'A raise must increase quantity, or increase face at the same quantity.';
+        return;
+      }
+      bid = next;
+      messageEl.textContent = `You bid ${bid.qty} dice showing ${bid.face}. CPU is deciding.`;
+      render();
+      setTimeout(cpuTurn, 450);
+    }
+
+    function cpuTurn() {
+      if (roundOver || !bid) return;
+      const actual = countFace(bid.face);
+      if (bid.qty > actual + 1 || bid.qty >= 8) {
+        resolveCall('CPU');
+        return;
+      }
+      const next = { qty: bid.qty, face: bid.face + 1, owner: 'CPU' };
+      if (next.face > 6) {
+        next.qty += 1;
+        next.face = 2;
+      }
+      bid = next;
+      messageEl.textContent = `CPU raises to ${bid.qty} dice showing ${bid.face}. Raise or call bluff.`;
+      tuneSelectors();
+      render();
+    }
+
+    function countFace(face) {
+      return [...playerDice, ...cpuDice].filter(value => value === face || value === 1).length;
+    }
+
+    function callBluff() {
+      if (!bid || roundOver) {
+        messageEl.textContent = 'There is no bid to challenge yet.';
+        return;
+      }
+      resolveCall('You');
+    }
+
+    function resolveCall(caller) {
+      const actual = countFace(bid.face);
+      const bidTrue = actual >= bid.qty;
+      revealed = true;
+      roundOver = true;
+      const bidderWins = bidTrue;
+      const youWin = caller === 'You' ? !bidderWins : bidderWins;
+      if (youWin) playerScore += 1;
+      else cpuScore += 1;
+      messageEl.textContent = `${caller} called. Actual wild count for ${bid.face}: ${actual}. ${youWin ? 'You win' : 'CPU wins'} the round.`;
+      render();
+    }
+
+    function tuneSelectors() {
+      if (!bid) return;
+      qtyEl.value = String(bid.face === 6 ? Math.min(10, bid.qty + 1) : bid.qty);
+      faceEl.value = String(bid.face === 6 ? 2 : bid.face + 1);
+    }
+
+    function dieMarkup(value, hidden) {
+      return `<span class="flex aspect-square items-center justify-center rounded bg-violet-50 text-3xl font-black text-violet-950">${hidden ? '?' : value}</span>`;
+    }
+
+    function render() {
+      playerDiceEl.innerHTML = playerDice.map(value => dieMarkup(value, false)).join('');
+      cpuDiceEl.innerHTML = cpuDice.map(value => dieMarkup(value, !revealed)).join('');
+      currentBidEl.textContent = bid ? `${bid.qty} x ${bid.face} (${bid.owner})` : 'None';
+      playerScoreEl.textContent = playerScore;
+      cpuScoreEl.textContent = cpuScore;
+      bidBtn.disabled = roundOver;
+      callBtn.disabled = roundOver;
+      bidBtn.classList.toggle('opacity-50', roundOver);
+      callBtn.classList.toggle('opacity-50', roundOver);
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetRound);
+    bidBtn.addEventListener('click', raiseBid);
+    callBtn.addEventListener('click', callBluff);
+    setupSelectors();
+    resetRound();
+  </script>
+</body>
+</html>
