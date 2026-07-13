@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bubble Pop</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Bubble Pop</h1>
+          <p class="mt-1 text-sm text-zinc-300">Pop connected bubbles of the same color. Larger groups score more.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-zinc-700 px-3 py-2 text-sm">Score: <strong id="score">0</strong></span>
+          <span class="rounded border border-zinc-700 px-3 py-2 text-sm">Pops: <strong id="moves">0</strong></span>
+          <button id="resetBtn" class="rounded bg-pink-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-pink-200">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[560px] grid-cols-8 grid-rows-8 gap-2 rounded-lg bg-zinc-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-zinc-700 bg-zinc-950 p-3">
+          <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+            <div class="text-xs uppercase text-zinc-400">Selected group</div>
+            <div id="groupSize" class="mt-1 text-4xl font-black">0</div>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+            <div class="text-xs uppercase text-zinc-400">Best pop</div>
+            <div id="bestPop" class="mt-1 text-4xl font-black">0</div>
+          </div>
+          <p id="message" class="min-h-24 rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-300">Click a bubble in a group of two or more to pop it.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 8;
+    const colors = [
+      { name: 'pink', className: 'bg-pink-400' },
+      { name: 'sky', className: 'bg-sky-400' },
+      { name: 'lime', className: 'bg-lime-300' },
+      { name: 'amber', className: 'bg-amber-300' },
+      { name: 'violet', className: 'bg-violet-400' }
+    ];
+    const boardEl = document.getElementById('board');
+    const scoreEl = document.getElementById('score');
+    const movesEl = document.getElementById('moves');
+    const groupSizeEl = document.getElementById('groupSize');
+    const bestPopEl = document.getElementById('bestPop');
+    const message = document.getElementById('message');
+    const resetBtn = document.getElementById('resetBtn');
+    let board = [];
+    let score = 0;
+    let moves = 0;
+    let bestPop = 0;
+    let hoverGroup = [];
+
+    function randomBubble() {
+      return colors[Math.floor(Math.random() * colors.length)].name;
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array.from({ length: size }, randomBubble));
+      score = 0;
+      moves = 0;
+      bestPop = 0;
+      hoverGroup = [];
+      message.textContent = 'Click a bubble in a group of two or more to pop it.';
+      render();
+    }
+
+    function neighbors(row, col) {
+      return [
+        [row - 1, col],
+        [row + 1, col],
+        [row, col - 1],
+        [row, col + 1]
+      ].filter(([r, c]) => r >= 0 && r < size && c >= 0 && c < size);
+    }
+
+    function findGroup(row, col) {
+      const target = board[row][col];
+      if (!target) return [];
+      const seen = new Set([`${row},${col}`]);
+      const queue = [[row, col]];
+      for (let index = 0; index < queue.length; index += 1) {
+        const [r, c] = queue[index];
+        neighbors(r, c).forEach(([nr, nc]) => {
+          const key = `${nr},${nc}`;
+          if (!seen.has(key) && board[nr][nc] === target) {
+            seen.add(key);
+            queue.push([nr, nc]);
+          }
+        });
+      }
+      return [...seen].map(item => item.split(',').map(Number));
+    }
+
+    function previewGroup(row, col) {
+      hoverGroup = findGroup(row, col);
+      groupSizeEl.textContent = hoverGroup.length;
+      render();
+    }
+
+    function popGroup(row, col) {
+      const group = findGroup(row, col);
+      if (group.length < 2) {
+        message.textContent = 'Pick a connected group of at least two bubbles.';
+        hoverGroup = [];
+        groupSizeEl.textContent = 0;
+        render();
+        return;
+      }
+      group.forEach(([r, c]) => {
+        board[r][c] = null;
+      });
+      score += group.length * group.length;
+      moves += 1;
+      bestPop = Math.max(bestPop, group.length);
+      collapseBoard();
+      hoverGroup = [];
+      message.textContent = `Popped ${group.length} bubbles.`;
+      render();
+      if (!hasMove()) message.textContent = `No groups left. Final score: ${score}.`;
+    }
+
+    function collapseBoard() {
+      for (let col = 0; col < size; col += 1) {
+        const stack = [];
+        for (let row = size - 1; row >= 0; row -= 1) {
+          if (board[row][col]) stack.push(board[row][col]);
+        }
+        for (let row = size - 1; row >= 0; row -= 1) {
+          board[row][col] = stack.shift() || null;
+        }
+      }
+    }
+
+    function hasMove() {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] && findGroup(row, col).length > 1) return true;
+        }
+      }
+      return false;
+    }
+
+    function colorClass(name) {
+      const color = colors.find(item => item.name === name);
+      return color ? color.className : 'bg-zinc-800';
+    }
+
+    function render() {
+      const highlighted = new Set(hoverGroup.map(([r, c]) => `${r},${c}`));
+      boardEl.innerHTML = '';
+      scoreEl.textContent = score;
+      movesEl.textContent = moves;
+      bestPopEl.textContent = bestPop;
+      groupSizeEl.textContent = hoverGroup.length;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = `rounded-full ${colorClass(board[row][col])} shadow ${highlighted.has(`${row},${col}`) ? 'ring-4 ring-white' : 'ring-1 ring-zinc-950'} ${board[row][col] ? 'hover:scale-105' : 'opacity-30'}`;
+          button.addEventListener('mouseenter', () => previewGroup(row, col));
+          button.addEventListener('focus', () => previewGroup(row, col));
+          button.addEventListener('click', () => popGroup(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
