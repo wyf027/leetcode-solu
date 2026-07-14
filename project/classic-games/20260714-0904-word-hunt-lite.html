@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Word Hunt</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-stone-700 bg-stone-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-widest text-teal-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Word Hunt</h1>
+          <p class="mt-2 text-sm text-stone-300">Trace adjacent letters to spell each target word before the deck runs out.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md bg-stone-800 px-3 py-2">
+            <div class="text-stone-400">Score</div>
+            <div id="score" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-stone-800 px-3 py-2">
+            <div class="text-stone-400">Found</div>
+            <div id="found" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-stone-800 px-3 py-2">
+            <div class="text-stone-400">Left</div>
+            <div id="left" class="text-xl font-bold text-white">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 rounded-lg bg-stone-950 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="text-sm text-stone-400">Target Word</div>
+            <div id="targetWord" class="text-3xl font-bold tracking-widest text-teal-200">CODE</div>
+          </div>
+          <div>
+            <div class="text-sm text-stone-400">Current Path</div>
+            <div id="currentWord" class="min-w-36 text-right text-2xl font-bold tracking-widest text-white">--</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="grid" class="mx-auto mt-5 grid w-full max-w-md grid-cols-5 gap-2"></div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <p id="status" class="min-h-6 text-sm font-medium text-stone-300">Select adjacent letters to build the target word.</p>
+        <div class="flex gap-2">
+          <button id="clearBtn" class="rounded-md bg-stone-700 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-600">Clear</button>
+          <button id="resetBtn" class="rounded-md bg-teal-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-teal-300">Restart</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const gridEl = document.getElementById('grid');
+    const scoreEl = document.getElementById('score');
+    const foundEl = document.getElementById('found');
+    const leftEl = document.getElementById('left');
+    const targetWordEl = document.getElementById('targetWord');
+    const currentWordEl = document.getElementById('currentWord');
+    const statusEl = document.getElementById('status');
+    const clearBtn = document.getElementById('clearBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const letters = [
+      ['C', 'O', 'D', 'E', 'R'],
+      ['G', 'A', 'M', 'E', 'S'],
+      ['T', 'I', 'L', 'E', 'P'],
+      ['J', 'U', 'M', 'P', 'A'],
+      ['S', 'C', 'O', 'R', 'E']
+    ];
+    const words = ['CODE', 'GAME', 'TILE', 'JUMP', 'SCORE', 'MAP', 'ROPE'];
+
+    let remaining = [];
+    let target = '';
+    let selected = [];
+    let score = 0;
+    let found = 0;
+
+    function resetGame() {
+      remaining = [...words];
+      score = 0;
+      found = 0;
+      selected = [];
+      pickNextWord();
+      renderGrid();
+      updateHud();
+      statusEl.textContent = 'Select adjacent letters to build the target word.';
+    }
+
+    function pickNextWord() {
+      target = remaining[0] || '';
+      targetWordEl.textContent = target || 'DONE';
+      selected = [];
+      updateCurrentWord();
+    }
+
+    function renderGrid() {
+      gridEl.innerHTML = '';
+      letters.forEach((row, r) => {
+        row.forEach((letter, c) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = letter;
+          button.dataset.r = String(r);
+          button.dataset.c = String(c);
+          button.className = 'aspect-square rounded-lg border border-stone-600 bg-stone-800 text-2xl font-bold text-white transition hover:bg-stone-700';
+          button.addEventListener('click', () => selectCell(r, c));
+          gridEl.appendChild(button);
+        });
+      });
+      paintSelection();
+    }
+
+    function selectCell(r, c) {
+      if (!target) return;
+      const key = `${r}-${c}`;
+      if (selected.some((cell) => cell.key === key)) {
+        statusEl.textContent = 'That letter is already in the path.';
+        return;
+      }
+      const last = selected[selected.length - 1];
+      if (last && !isAdjacent(last, { r, c })) {
+        statusEl.textContent = 'Letters must touch horizontally, vertically, or diagonally.';
+        return;
+      }
+      const nextLetter = target[selected.length];
+      if (letters[r][c] !== nextLetter) {
+        statusEl.textContent = `Need ${nextLetter} next.`;
+        return;
+      }
+      selected.push({ r, c, key, letter: letters[r][c] });
+      updateCurrentWord();
+      paintSelection();
+      if (selected.length === target.length) completeWord();
+    }
+
+    function isAdjacent(a, b) {
+      return Math.max(Math.abs(a.r - b.r), Math.abs(a.c - b.c)) === 1;
+    }
+
+    function completeWord() {
+      score += target.length * 10 + selected.length * 2;
+      found += 1;
+      remaining.shift();
+      statusEl.textContent = `Found ${target}.`;
+      pickNextWord();
+      paintSelection();
+      updateHud();
+      if (!target) {
+        statusEl.textContent = `All words found. Final score: ${score}.`;
+      }
+    }
+
+    function clearSelection() {
+      selected = [];
+      updateCurrentWord();
+      paintSelection();
+      statusEl.textContent = 'Path cleared.';
+    }
+
+    function updateCurrentWord() {
+      currentWordEl.textContent = selected.map((cell) => cell.letter).join('') || '--';
+    }
+
+    function paintSelection() {
+      [...gridEl.children].forEach((button) => {
+        const key = `${button.dataset.r}-${button.dataset.c}`;
+        const active = selected.some((cell) => cell.key === key);
+        button.className = active
+          ? 'aspect-square rounded-lg border border-teal-100 bg-teal-400 text-2xl font-bold text-stone-950 shadow-lg shadow-teal-900/40 transition'
+          : 'aspect-square rounded-lg border border-stone-600 bg-stone-800 text-2xl font-bold text-white transition hover:bg-stone-700';
+      });
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      foundEl.textContent = found;
+      leftEl.textContent = remaining.length;
+    }
+
+    clearBtn.addEventListener('click', clearSelection);
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
