@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Ring Toss</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-sky-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-cyan-300">Classic mini game</p>
+        <h1 class="mt-1 text-3xl font-bold">Mini Ring Toss</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-sky-950 hover:bg-cyan-200">New Round</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-sky-800 bg-sky-900 p-4">
+        <canvas id="field" width="660" height="760" class="h-[72vh] min-h-[560px] w-full rounded bg-sky-950"></canvas>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-sky-800 bg-sky-900 p-4">
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p class="text-xs text-sky-300">Score</p>
+              <p id="score" class="text-3xl font-bold text-cyan-300">0</p>
+            </div>
+            <div>
+              <p class="text-xs text-sky-300">Ring</p>
+              <p id="ringCount" class="text-3xl font-bold">1/5</p>
+            </div>
+            <div>
+              <p class="text-xs text-sky-300">Best</p>
+              <p id="best" class="text-3xl font-bold">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-sky-800 bg-sky-900 p-4">
+          <label for="angle" class="block text-sm font-medium text-sky-100">Angle</label>
+          <input id="angle" type="range" min="-42" max="42" value="0" class="mt-2 w-full accent-cyan-300">
+          <div class="mt-1 flex justify-between text-xs text-sky-300">
+            <span>Left</span>
+            <span id="angleText">0</span>
+            <span>Right</span>
+          </div>
+
+          <label for="power" class="mt-4 block text-sm font-medium text-sky-100">Power</label>
+          <input id="power" type="range" min="45" max="100" value="73" class="mt-2 w-full accent-cyan-300">
+          <div class="mt-1 flex justify-between text-xs text-sky-300">
+            <span>Soft</span>
+            <span id="powerText">73</span>
+            <span>Firm</span>
+          </div>
+
+          <label for="spin" class="mt-4 block text-sm font-medium text-sky-100">Spin</label>
+          <input id="spin" type="range" min="-30" max="30" value="0" class="mt-2 w-full accent-cyan-300">
+          <div class="mt-1 flex justify-between text-xs text-sky-300">
+            <span>Hook</span>
+            <span id="spinText">0</span>
+            <span>Slice</span>
+          </div>
+
+          <button id="throwBtn" class="mt-4 w-full rounded bg-cyan-300 px-4 py-3 font-bold text-sky-950 hover:bg-cyan-200">Toss Ring</button>
+        </div>
+
+        <div class="rounded border border-sky-800 bg-sky-900 p-4">
+          <p id="message" class="min-h-12 text-sm leading-6 text-sky-100">Toss five rings. Landing around a peg scores its label.</p>
+          <ol id="history" class="mt-3 max-h-52 space-y-2 overflow-auto text-sm text-sky-200"></ol>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("field");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const ringCountEl = document.getElementById("ringCount");
+    const bestEl = document.getElementById("best");
+    const angleEl = document.getElementById("angle");
+    const powerEl = document.getElementById("power");
+    const spinEl = document.getElementById("spin");
+    const angleText = document.getElementById("angleText");
+    const powerText = document.getElementById("powerText");
+    const spinText = document.getElementById("spinText");
+    const throwBtn = document.getElementById("throwBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const messageEl = document.getElementById("message");
+    const historyEl = document.getElementById("history");
+
+    const start = { x: 330, y: 690 };
+    const pegs = [
+      { x: 210, y: 205, points: 10 },
+      { x: 330, y: 150, points: 25 },
+      { x: 450, y: 205, points: 10 },
+      { x: 270, y: 330, points: 5 },
+      { x: 390, y: 330, points: 5 }
+    ];
+    let rings = [];
+    let score = 0;
+    let ringNumber = 1;
+    let best = Number(localStorage.getItem("mini-ring-toss-best") || 0);
+    let animating = false;
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawField();
+      drawAim();
+      pegs.forEach(drawPeg);
+      rings.forEach(drawRing);
+      updatePanel();
+    }
+
+    function drawField() {
+      ctx.fillStyle = "#082f49";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#0f766e";
+      ctx.fillRect(70, 70, 520, 620);
+      ctx.strokeStyle = "#67e8f9";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(70, 70, 520, 620);
+      ctx.fillStyle = "#164e63";
+      ctx.fillRect(90, 525, 480, 145);
+      ctx.fillStyle = "#bae6fd";
+      ctx.font = "14px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("Throw line", start.x, start.y - 24);
+    }
+
+    function drawAim() {
+      if (animating || ringNumber > 5) return;
+      const angle = (Number(angleEl.value) - 90) * Math.PI / 180;
+      const length = Number(powerEl.value) * 3.2;
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(start.x + Math.cos(angle) * length, start.y + Math.sin(angle) * length);
+      ctx.stroke();
+    }
+
+    function drawPeg(peg) {
+      ctx.beginPath();
+      ctx.arc(peg.x, peg.y, 26, 0, Math.PI * 2);
+      ctx.fillStyle = "#e0f2fe";
+      ctx.fill();
+      ctx.strokeStyle = "#0c4a6e";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(peg.x, peg.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = "#7c2d12";
+      ctx.fill();
+      ctx.fillStyle = "#082f49";
+      ctx.font = "bold 14px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(peg.points, peg.x, peg.y + 44);
+    }
+
+    function drawRing(ring) {
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, 24, 0, Math.PI * 2);
+      ctx.strokeStyle = ring.active ? "#fde047" : "#22d3ee";
+      ctx.lineWidth = 8;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, 12, 0, Math.PI * 2);
+      ctx.strokeStyle = "#0e7490";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function tossRing() {
+      if (animating || ringNumber > 5) return;
+      const angle = (Number(angleEl.value) - 90 + random(-5, 5)) * Math.PI / 180;
+      const power = Number(powerEl.value);
+      const spin = Number(spinEl.value);
+      const ring = {
+        x: start.x,
+        y: start.y,
+        targetX: start.x + Math.cos(angle) * power * 3.7 + spin * 2.2 + random(-18, 18),
+        targetY: start.y + Math.sin(angle) * power * 5.9 + random(-22, 22),
+        active: true
+      };
+      ring.targetX = clamp(ring.targetX, 94, 566);
+      ring.targetY = clamp(ring.targetY, 94, 666);
+      rings.push(ring);
+      animating = true;
+      animate(ring);
+    }
+
+    function animate(ring) {
+      const dx = (ring.targetX - ring.x) * 0.11;
+      const dy = (ring.targetY - ring.y) * 0.11;
+      ring.x += dx;
+      ring.y += dy;
+      draw();
+
+      if (Math.abs(dx) > 0.7 || Math.abs(dy) > 0.7) {
+        requestAnimationFrame(() => animate(ring));
+        return;
+      }
+
+      ring.x = ring.targetX;
+      ring.y = ring.targetY;
+      ring.active = false;
+      const hit = scoreRing(ring);
+      score += hit.points;
+      log(`Ring ${ringNumber}: ${hit.label}.`);
+      ringNumber += 1;
+      animating = false;
+      if (ringNumber > 5) finishRound();
+      else messageEl.textContent = `Ring ${ringNumber} is ready.`;
+      draw();
+    }
+
+    function scoreRing(ring) {
+      let bestPeg = null;
+      let bestDistance = Infinity;
+      pegs.forEach((peg) => {
+        const distance = Math.hypot(ring.x - peg.x, ring.y - peg.y);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestPeg = peg;
+        }
+      });
+      if (bestDistance <= 28) return { points: bestPeg.points, label: `${bestPeg.points} points` };
+      if (bestDistance <= 42) return { points: Math.floor(bestPeg.points / 2), label: `${Math.floor(bestPeg.points / 2)} leaner points` };
+      return { points: 0, label: "miss" };
+    }
+
+    function finishRound() {
+      if (score > best) {
+        best = score;
+        localStorage.setItem("mini-ring-toss-best", String(best));
+      }
+      messageEl.textContent = `Round complete with ${score} points.`;
+    }
+
+    function log(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      historyEl.prepend(item);
+    }
+
+    function updatePanel() {
+      scoreEl.textContent = score;
+      ringCountEl.textContent = `${Math.min(ringNumber, 5)}/5`;
+      bestEl.textContent = best;
+      angleText.textContent = angleEl.value;
+      powerText.textContent = powerEl.value;
+      spinText.textContent = spinEl.value;
+      throwBtn.disabled = animating || ringNumber > 5;
+      throwBtn.classList.toggle("opacity-50", throwBtn.disabled);
+    }
+
+    function resetGame() {
+      rings = [];
+      score = 0;
+      ringNumber = 1;
+      animating = false;
+      historyEl.innerHTML = "";
+      messageEl.textContent = "Toss five rings. Landing around a peg scores its label.";
+      draw();
+    }
+
+    function random(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    throwBtn.addEventListener("click", tossRing);
+    resetBtn.addEventListener("click", resetGame);
+    angleEl.addEventListener("input", draw);
+    powerEl.addEventListener("input", draw);
+    spinEl.addEventListener("input", draw);
+    draw();
+  </script>
+</body>
+</html>
