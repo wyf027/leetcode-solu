@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Mastermind</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-purple-950 text-purple-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-purple-800 bg-purple-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Mastermind</h1>
+          <p class="mt-1 text-sm text-purple-300">Crack the four-color code in eight guesses.</p>
+        </div>
+        <button id="resetBtn" class="rounded bg-pink-300 px-4 py-2 text-sm font-bold text-purple-950 hover:bg-pink-200">New Code</button>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_240px]">
+        <div class="rounded-lg bg-purple-950 p-3">
+          <div id="history" class="flex min-h-[360px] flex-col gap-2"></div>
+        </div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-purple-800 bg-purple-950 p-3">
+          <div id="guess" class="flex gap-2 rounded border border-purple-800 bg-purple-900 p-3"></div>
+          <div id="palette" class="grid grid-cols-3 gap-2"></div>
+          <button id="submitBtn" class="rounded bg-emerald-300 px-4 py-3 font-bold text-purple-950 hover:bg-emerald-200">Submit</button>
+          <div id="message" class="min-h-24 rounded border border-purple-800 bg-purple-900 p-3 text-sm text-purple-200">Pick four colors, then submit your guess.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const colors = [
+      { name: 'red', className: 'bg-red-500' },
+      { name: 'blue', className: 'bg-blue-500' },
+      { name: 'yellow', className: 'bg-yellow-300' },
+      { name: 'green', className: 'bg-green-500' },
+      { name: 'pink', className: 'bg-pink-400' },
+      { name: 'cyan', className: 'bg-cyan-400' }
+    ];
+    const historyEl = document.getElementById('history');
+    const guessEl = document.getElementById('guess');
+    const paletteEl = document.getElementById('palette');
+    const message = document.getElementById('message');
+    let code = [];
+    let guess = [];
+    let history = [];
+    let finished = false;
+
+    function resetGame() {
+      code = Array.from({ length: 4 }, () => colors[Math.floor(Math.random() * colors.length)].name);
+      guess = [];
+      history = [];
+      finished = false;
+      message.textContent = 'Pick four colors, then submit your guess.';
+      render();
+    }
+
+    function addColor(name) {
+      if (finished) return;
+      if (guess.length < 4) guess.push(name);
+      render();
+    }
+
+    function removeGuess(index) {
+      if (finished) return;
+      guess.splice(index, 1);
+      render();
+    }
+
+    function scoreGuess(entry) {
+      let exact = 0;
+      const codeRest = [];
+      const guessRest = [];
+      entry.forEach((item, index) => {
+        if (item === code[index]) exact += 1;
+        else {
+          codeRest.push(code[index]);
+          guessRest.push(item);
+        }
+      });
+      let colorOnly = 0;
+      guessRest.forEach(item => {
+        const index = codeRest.indexOf(item);
+        if (index >= 0) {
+          colorOnly += 1;
+          codeRest.splice(index, 1);
+        }
+      });
+      return { exact, colorOnly };
+    }
+
+    function submitGuess() {
+      if (finished) return;
+      if (guess.length !== 4) {
+        message.textContent = 'Choose exactly four colors.';
+        return;
+      }
+      const result = scoreGuess(guess);
+      history.unshift({ guess: [...guess], ...result });
+      if (result.exact === 4) {
+        finished = true;
+        message.textContent = `Solved in ${history.length} guesses.`;
+      } else if (history.length >= 8) {
+        finished = true;
+        message.textContent = `Out of guesses. Code was ${code.join(', ')}.`;
+      } else {
+        message.textContent = `${result.exact} exact, ${result.colorOnly} color-only.`;
+      }
+      guess = [];
+      render();
+    }
+
+    function colorClass(name) {
+      return colors.find(color => color.name === name).className;
+    }
+
+    function peg(name) {
+      return `<span class="h-9 w-9 rounded-full ${colorClass(name)} ring-2 ring-purple-950"></span>`;
+    }
+
+    function render() {
+      guessEl.innerHTML = Array.from({ length: 4 }, (_, index) => {
+        const item = guess[index];
+        return `<button class="flex h-12 w-12 items-center justify-center rounded bg-purple-800" data-remove="${index}">${item ? peg(item) : ''}</button>`;
+      }).join('');
+      guessEl.querySelectorAll('[data-remove]').forEach(button => {
+        button.addEventListener('click', () => removeGuess(Number(button.dataset.remove)));
+      });
+      paletteEl.innerHTML = colors.map(color => `<button class="flex items-center justify-center rounded bg-purple-800 p-3 hover:bg-purple-700" data-color="${color.name}">${peg(color.name)}</button>`).join('');
+      paletteEl.querySelectorAll('[data-color]').forEach(button => {
+        button.addEventListener('click', () => addColor(button.dataset.color));
+      });
+      historyEl.innerHTML = history.map((row, index) => `
+        <div class="flex items-center justify-between rounded bg-purple-900 p-2">
+          <div class="flex gap-2">${row.guess.map(peg).join('')}</div>
+          <div class="text-sm text-purple-200">#${history.length - index}: ${row.exact} exact, ${row.colorOnly} color</div>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('submitBtn').addEventListener('click', submitGuess);
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
