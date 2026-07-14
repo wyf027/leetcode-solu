@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Dots Boxes</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-indigo-800 bg-indigo-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Dots Boxes</h1>
+          <p class="mt-1 text-sm text-indigo-300">Claim lines around boxes. Completing a box earns a point and another turn.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-indigo-700 px-3 py-2 text-sm">You: <strong id="playerScore">0</strong></span>
+          <span class="rounded border border-indigo-700 px-3 py-2 text-sm">CPU: <strong id="cpuScore">0</strong></span>
+          <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-bold text-indigo-950 hover:bg-fuchsia-200">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid w-full max-w-[520px] rounded-lg bg-indigo-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-indigo-700 bg-indigo-950 p-3">
+          <div class="rounded border border-indigo-700 bg-indigo-900 p-3">
+            <div class="text-xs uppercase text-indigo-300">Turn</div>
+            <div id="turnLabel" class="mt-1 text-3xl font-black">You</div>
+          </div>
+          <p id="message" class="min-h-24 rounded border border-indigo-700 bg-indigo-900 p-3 text-sm text-indigo-200">Click a thin line to claim it.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const boxes = 4;
+    const dots = boxes + 1;
+    const boardEl = document.getElementById('board');
+    const playerScoreEl = document.getElementById('playerScore');
+    const cpuScoreEl = document.getElementById('cpuScore');
+    const turnLabel = document.getElementById('turnLabel');
+    const message = document.getElementById('message');
+    const resetBtn = document.getElementById('resetBtn');
+    let lines = new Set();
+    let claimedBoxes = new Map();
+    let turn = 'player';
+    let playerScore = 0;
+    let cpuScore = 0;
+    let finished = false;
+
+    function lineKey(type, row, col) {
+      return `${type}-${row}-${col}`;
+    }
+
+    function resetGame() {
+      lines = new Set();
+      claimedBoxes = new Map();
+      turn = 'player';
+      playerScore = 0;
+      cpuScore = 0;
+      finished = false;
+      message.textContent = 'Click a thin line to claim it.';
+      render();
+    }
+
+    function boxEdges(row, col) {
+      return [
+        lineKey('h', row, col),
+        lineKey('h', row + 1, col),
+        lineKey('v', row, col),
+        lineKey('v', row, col + 1)
+      ];
+    }
+
+    function scoreCompletedBoxes(owner) {
+      let gained = 0;
+      for (let row = 0; row < boxes; row += 1) {
+        for (let col = 0; col < boxes; col += 1) {
+          const key = `${row},${col}`;
+          if (!claimedBoxes.has(key) && boxEdges(row, col).every(edge => lines.has(edge))) {
+            claimedBoxes.set(key, owner);
+            gained += 1;
+          }
+        }
+      }
+      if (owner === 'player') playerScore += gained;
+      else cpuScore += gained;
+      return gained;
+    }
+
+    function claimLine(type, row, col, owner = turn) {
+      if (finished) return;
+      const key = lineKey(type, row, col);
+      if (lines.has(key)) return;
+      lines.add(key);
+      const gained = scoreCompletedBoxes(owner);
+      if (gained) {
+        message.textContent = `${owner === 'player' ? 'You' : 'CPU'} completed ${gained} box.`;
+      } else {
+        turn = owner === 'player' ? 'cpu' : 'player';
+        message.textContent = turn === 'player' ? 'Your turn.' : 'CPU is choosing.';
+      }
+      checkDone();
+      render();
+      if (!finished && turn === 'cpu') setTimeout(cpuMove, 350);
+    }
+
+    function availableLines() {
+      const options = [];
+      for (let row = 0; row <= boxes; row += 1) {
+        for (let col = 0; col < boxes; col += 1) {
+          const key = lineKey('h', row, col);
+          if (!lines.has(key)) options.push(['h', row, col]);
+        }
+      }
+      for (let row = 0; row < boxes; row += 1) {
+        for (let col = 0; col <= boxes; col += 1) {
+          const key = lineKey('v', row, col);
+          if (!lines.has(key)) options.push(['v', row, col]);
+        }
+      }
+      return options;
+    }
+
+    function cpuMove() {
+      if (finished || turn !== 'cpu') return;
+      const options = availableLines();
+      const completing = options.find(([type, row, col]) => {
+        const test = lineKey(type, row, col);
+        return [...Array(boxes).keys()].some(r => [...Array(boxes).keys()].some(c => {
+          const edges = boxEdges(r, c);
+          return edges.includes(test) && !claimedBoxes.has(`${r},${c}`) && edges.filter(edge => lines.has(edge) || edge === test).length === 4;
+        }));
+      });
+      const pick = completing || options[Math.floor(Math.random() * options.length)];
+      claimLine(pick[0], pick[1], pick[2], 'cpu');
+    }
+
+    function checkDone() {
+      if (claimedBoxes.size === boxes * boxes) {
+        finished = true;
+        if (playerScore === cpuScore) message.textContent = 'Game over. Draw.';
+        else message.textContent = playerScore > cpuScore ? 'Game over. You win.' : 'Game over. CPU wins.';
+      }
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      boardEl.style.gridTemplateColumns = `repeat(${dots * 2 - 1}, minmax(0, 1fr))`;
+      boardEl.style.gridTemplateRows = `repeat(${dots * 2 - 1}, minmax(0, 1fr))`;
+      playerScoreEl.textContent = playerScore;
+      cpuScoreEl.textContent = cpuScore;
+      turnLabel.textContent = turn === 'player' ? 'You' : 'CPU';
+      for (let r = 0; r < dots * 2 - 1; r += 1) {
+        for (let c = 0; c < dots * 2 - 1; c += 1) {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'flex aspect-square items-center justify-center rounded';
+          if (r % 2 === 0 && c % 2 === 0) {
+            cell.className += ' bg-indigo-200';
+          } else if (r % 2 === 0) {
+            const key = lineKey('h', r / 2, (c - 1) / 2);
+            cell.className += ` h-2 self-center ${lines.has(key) ? 'bg-fuchsia-300' : 'bg-indigo-800 hover:bg-indigo-600'}`;
+            cell.addEventListener('click', () => turn === 'player' && claimLine('h', r / 2, (c - 1) / 2));
+          } else if (c % 2 === 0) {
+            const key = lineKey('v', (r - 1) / 2, c / 2);
+            cell.className += ` w-2 justify-self-center ${lines.has(key) ? 'bg-fuchsia-300' : 'bg-indigo-800 hover:bg-indigo-600'}`;
+            cell.addEventListener('click', () => turn === 'player' && claimLine('v', (r - 1) / 2, c / 2));
+          } else {
+            const owner = claimedBoxes.get(`${(r - 1) / 2},${(c - 1) / 2}`);
+            cell.className += owner === 'player' ? ' bg-emerald-400/70' : owner === 'cpu' ? ' bg-rose-400/70' : ' bg-indigo-900';
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
