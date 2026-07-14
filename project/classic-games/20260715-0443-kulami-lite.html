@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kulami</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Kulami</h1>
+        <p class="mt-1 text-sm text-slate-300">轮流落子，下一手必须在上一手的同行或同列，结束后按区域多数得分。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-rose-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-rose-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 gap-1"></div>
+      </div>
+
+      <aside class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-slate-400">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">红方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-md bg-slate-800 p-3">
+              <p class="text-slate-400">红方</p>
+              <p id="redScore" class="text-xl font-semibold text-white">0</p>
+            </div>
+            <div class="rounded-md bg-slate-800 p-3">
+              <p class="text-slate-400">蓝方</p>
+              <p id="blueScore" class="text-xl font-semibold text-white">0</p>
+            </div>
+          </div>
+          <p id="statusText" class="rounded-md bg-slate-800 p-3 text-sm leading-6 text-slate-200">
+            红方先手，可放任意空格。之后必须跟随上一手的行或列。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const redScore = document.getElementById("redScore");
+    const blueScore = document.getElementById("blueScore");
+    const resetBtn = document.getElementById("resetBtn");
+    const size = 6;
+    const regions = [
+      [0, 0, 1, 1, 2, 2],
+      [0, 3, 3, 1, 2, 4],
+      [5, 5, 3, 6, 6, 4],
+      [5, 7, 7, 6, 8, 8],
+      [9, 9, 7, 10, 10, 8],
+      [9, 11, 11, 11, 10, 10]
+    ];
+    const regionColors = [
+      "bg-amber-600", "bg-emerald-600", "bg-sky-600", "bg-violet-600",
+      "bg-cyan-700", "bg-orange-700", "bg-lime-700", "bg-fuchsia-700",
+      "bg-teal-700", "bg-red-700", "bg-indigo-700", "bg-yellow-700"
+    ];
+
+    let marks = [];
+    let turn = "R";
+    let lastMove = null;
+    let winner = null;
+
+    function resetGame() {
+      marks = Array.from({ length: size }, () => Array(size).fill(""));
+      turn = "R";
+      lastMove = null;
+      winner = null;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "R" ? "红方" : "蓝方";
+    }
+
+    function legalCells() {
+      if (winner) return [];
+      const cells = [];
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          if (marks[row][col]) continue;
+          if (!lastMove || row === lastMove.row || col === lastMove.col) cells.push([row, col]);
+        }
+      }
+      return cells;
+    }
+
+    function calculateScore() {
+      const totals = { R: 0, B: 0 };
+      for (let region = 0; region < regionColors.length; region++) {
+        let red = 0;
+        let blue = 0;
+        let cells = 0;
+        for (let row = 0; row < size; row++) {
+          for (let col = 0; col < size; col++) {
+            if (regions[row][col] !== region) continue;
+            cells++;
+            if (marks[row][col] === "R") red++;
+            if (marks[row][col] === "B") blue++;
+          }
+        }
+        if (red > blue) totals.R += cells;
+        if (blue > red) totals.B += cells;
+      }
+      return totals;
+    }
+
+    function placeMark(row, col) {
+      if (winner) return;
+      if (!legalCells().some(([moveRow, moveCol]) => moveRow === row && moveCol === col)) return;
+      marks[row][col] = turn;
+      lastMove = { row, col };
+      turn = turn === "R" ? "B" : "R";
+      if (legalCells().length === 0) {
+        const scores = calculateScore();
+        winner = scores.R === scores.B ? "平局" : scores.R > scores.B ? "R" : "B";
+      }
+      render();
+    }
+
+    function render() {
+      const legal = legalCells();
+      const legalKeys = new Set(legal.map(([row, col]) => `${row},${col}`));
+      const scores = calculateScore();
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const button = document.createElement("button");
+          const region = regions[row][col];
+          const isLegal = legalKeys.has(`${row},${col}`);
+          const isLast = lastMove && lastMove.row === row && lastMove.col === col;
+          button.className = [
+            "flex aspect-square items-center justify-center rounded-md border border-slate-950 text-xl font-black shadow-inner transition",
+            regionColors[region],
+            isLegal ? "ring-2 ring-white ring-inset hover:brightness-125" : "opacity-80",
+            isLast ? "outline outline-4 outline-rose-200" : ""
+          ].join(" ");
+          button.setAttribute("aria-label", `${row + 1}-${col + 1}`);
+          button.addEventListener("click", () => placeMark(row, col));
+          if (marks[row][col]) {
+            const disk = document.createElement("span");
+            disk.className = [
+              "flex h-3/5 w-3/5 items-center justify-center rounded-full border-2 shadow-lg",
+              marks[row][col] === "R" ? "border-rose-100 bg-rose-500 text-white" : "border-sky-100 bg-sky-500 text-white"
+            ].join(" ");
+            disk.textContent = marks[row][col];
+            button.appendChild(disk);
+          }
+          boardEl.appendChild(button);
+        }
+      }
+      redScore.textContent = scores.R;
+      blueScore.textContent = scores.B;
+      turnText.textContent = winner ? (winner === "平局" ? "平局" : `${sideName(winner)}获胜`) : sideName(turn);
+      statusText.textContent = winner
+        ? `终局计分：红方 ${scores.R}，蓝方 ${scores.B}。点击重新开始再来一局。`
+        : lastMove
+          ? `${sideName(turn)}行动。必须落在第 ${lastMove.row + 1} 行或第 ${lastMove.col + 1} 列，可选 ${legal.length} 格。`
+          : `${sideName(turn)}先手，可选择任意空格。`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
