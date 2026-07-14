@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Arcade Jumper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-widest text-lime-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Arcade Jumper</h1>
+          <p class="mt-2 text-sm text-zinc-300">Jump over blocks, keep the runner moving, and chase a clean high score.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md bg-zinc-800 px-3 py-2">
+            <div class="text-zinc-400">Score</div>
+            <div id="score" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-zinc-800 px-3 py-2">
+            <div class="text-zinc-400">Best</div>
+            <div id="best" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-zinc-800 px-3 py-2">
+            <div class="text-zinc-400">Speed</div>
+            <div id="speed" class="text-xl font-bold text-white">1x</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 overflow-hidden rounded-lg border border-zinc-700 bg-sky-100">
+        <canvas id="game" width="720" height="320" class="block h-auto w-full"></canvas>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <p id="status" class="min-h-6 text-sm font-medium text-zinc-300">Press Space, Arrow Up, or tap the field to jump.</p>
+        <button id="resetBtn" class="rounded-md bg-lime-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-300">
+          Restart
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const speedEl = document.getElementById('speed');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const groundY = 250;
+    const runner = { x: 86, y: groundY - 44, width: 34, height: 44, vy: 0, grounded: true };
+    let obstacles = [];
+    let clouds = [];
+    let score = 0;
+    let best = Number(localStorage.getItem('miniArcadeJumperBest') || 0);
+    let speed = 4;
+    let spawnTimer = 0;
+    let gameOver = false;
+    let lastTime = 0;
+    let running = false;
+
+    function resetGame() {
+      runner.y = groundY - runner.height;
+      runner.vy = 0;
+      runner.grounded = true;
+      obstacles = [];
+      clouds = [
+        { x: 90, y: 62, w: 58 },
+        { x: 330, y: 38, w: 72 },
+        { x: 570, y: 78, w: 48 }
+      ];
+      score = 0;
+      speed = 4;
+      spawnTimer = 55;
+      gameOver = false;
+      running = true;
+      lastTime = performance.now();
+      statusEl.textContent = 'Jump over the blocks.';
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function jump() {
+      if (gameOver) {
+        resetGame();
+        return;
+      }
+      if (!running) resetGame();
+      if (runner.grounded) {
+        runner.vy = -12.5;
+        runner.grounded = false;
+      }
+    }
+
+    function spawnObstacle() {
+      const height = 28 + Math.floor(Math.random() * 34);
+      const width = 22 + Math.floor(Math.random() * 18);
+      obstacles.push({ x: canvas.width + 20, y: groundY - height, width, height });
+      spawnTimer = 58 + Math.floor(Math.random() * 45) - Math.min(22, Math.floor(score / 120));
+    }
+
+    function updateGame(delta) {
+      if (gameOver) return;
+      const frameScale = Math.min(2, delta / 16.67);
+      speed = 4 + Math.min(5, score / 260);
+      runner.vy += 0.62 * frameScale;
+      runner.y += runner.vy * frameScale;
+      if (runner.y >= groundY - runner.height) {
+        runner.y = groundY - runner.height;
+        runner.vy = 0;
+        runner.grounded = true;
+      }
+
+      spawnTimer -= frameScale;
+      if (spawnTimer <= 0) spawnObstacle();
+
+      obstacles.forEach((obstacle) => {
+        obstacle.x -= speed * frameScale;
+      });
+      obstacles = obstacles.filter((obstacle) => obstacle.x + obstacle.width > -10);
+
+      clouds.forEach((cloud) => {
+        cloud.x -= (0.45 + speed * 0.04) * frameScale;
+        if (cloud.x + cloud.w < 0) {
+          cloud.x = canvas.width + 30;
+          cloud.y = 34 + Math.random() * 56;
+        }
+      });
+
+      score += frameScale;
+      if (obstacles.some(collides)) endGame();
+      updateHud();
+    }
+
+    function collides(obstacle) {
+      const pad = 5;
+      return runner.x + pad < obstacle.x + obstacle.width &&
+        runner.x + runner.width - pad > obstacle.x &&
+        runner.y + pad < obstacle.y + obstacle.height &&
+        runner.y + runner.height - pad > obstacle.y;
+    }
+
+    function endGame() {
+      gameOver = true;
+      running = false;
+      best = Math.max(best, Math.floor(score));
+      localStorage.setItem('miniArcadeJumperBest', String(best));
+      statusEl.textContent = 'Crash. Press jump or Restart to play again.';
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = Math.floor(score);
+      bestEl.textContent = best;
+      speedEl.textContent = `${(speed / 4).toFixed(1)}x`;
+    }
+
+    function drawCloud(cloud) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.ellipse(cloud.x, cloud.y, cloud.w * 0.34, 14, 0, 0, Math.PI * 2);
+      ctx.ellipse(cloud.x + cloud.w * 0.26, cloud.y + 4, cloud.w * 0.31, 11, 0, 0, Math.PI * 2);
+      ctx.ellipse(cloud.x - cloud.w * 0.25, cloud.y + 5, cloud.w * 0.25, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawGame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#bae6fd';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      clouds.forEach(drawCloud);
+
+      ctx.fillStyle = '#84cc16';
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+      ctx.fillStyle = '#3f3f46';
+      ctx.fillRect(0, groundY - 5, canvas.width, 5);
+
+      ctx.fillStyle = '#18181b';
+      ctx.fillRect(runner.x, runner.y, runner.width, runner.height);
+      ctx.fillStyle = '#bef264';
+      ctx.fillRect(runner.x + 8, runner.y + 8, 8, 8);
+      ctx.fillRect(runner.x + 21, runner.y + 8, 8, 8);
+
+      obstacles.forEach((obstacle) => {
+        ctx.fillStyle = '#dc2626';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#991b1b';
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 4, obstacle.width - 8, 5);
+      });
+
+      if (gameOver) {
+        ctx.fillStyle = 'rgba(24,24,27,0.78)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f4f4f5';
+        ctx.font = 'bold 34px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over', canvas.width / 2, 142);
+        ctx.font = '18px sans-serif';
+        ctx.fillText('Jump again to restart', canvas.width / 2, 176);
+      }
+    }
+
+    function gameLoop(time) {
+      const delta = time - lastTime;
+      lastTime = time;
+      updateGame(delta);
+      drawGame();
+      if (running) requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Space' || event.code === 'ArrowUp') {
+        event.preventDefault();
+        jump();
+      }
+    });
+    canvas.addEventListener('pointerdown', jump);
+    resetBtn.addEventListener('click', resetGame);
+    bestEl.textContent = best;
+    resetGame();
+  </script>
+</body>
+</html>
