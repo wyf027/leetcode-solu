@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Khet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Khet</h1>
+        <p class="mt-1 text-sm text-neutral-300">旋转己方镜子后发射激光，反射光路并击中对方核心。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-red-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-red-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-3 shadow-xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 overflow-hidden rounded-md border border-neutral-700"></div>
+      </div>
+
+      <aside class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-neutral-400">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">红方</p>
+          </div>
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs uppercase text-neutral-400">上次激光</p>
+            <p id="laserText" class="mt-1 text-lg font-semibold text-white">尚未发射</p>
+          </div>
+          <p id="statusText" class="rounded-md bg-neutral-800 p-3 text-sm leading-6 text-neutral-200">
+            红方先手。点击己方镜子即可旋转，然后自动发射激光。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const laserText = document.getElementById("laserText");
+    const statusText = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+    const deltas = {
+      N: [-1, 0],
+      E: [0, 1],
+      S: [1, 0],
+      W: [0, -1]
+    };
+
+    let pieces = [];
+    let turn = "R";
+    let winner = null;
+    let laserPath = [];
+    let lastHit = "尚未发射";
+
+    function resetGame() {
+      pieces = [
+        { side: "R", type: "core", row: 5, col: 0 },
+        { side: "B", type: "core", row: 0, col: 5 },
+        { side: "R", type: "mirror", row: 4, col: 1, slash: "/" },
+        { side: "R", type: "mirror", row: 5, col: 3, slash: "\\" },
+        { side: "R", type: "mirror", row: 3, col: 2, slash: "/" },
+        { side: "B", type: "mirror", row: 1, col: 4, slash: "/" },
+        { side: "B", type: "mirror", row: 0, col: 2, slash: "\\" },
+        { side: "B", type: "mirror", row: 2, col: 3, slash: "\\" }
+      ];
+      turn = "R";
+      winner = null;
+      laserPath = [];
+      lastHit = "尚未发射";
+      render();
+    }
+
+    function sideName(side) {
+      return side === "R" ? "红方" : "蓝方";
+    }
+
+    function pieceAt(row, col) {
+      return pieces.find((piece) => piece.row === row && piece.col === col);
+    }
+
+    function reflect(direction, slash) {
+      const slashMap = { N: "E", E: "N", S: "W", W: "S" };
+      const backslashMap = { N: "W", W: "N", S: "E", E: "S" };
+      return slash === "/" ? slashMap[direction] : backslashMap[direction];
+    }
+
+    function rotatePiece(piece) {
+      if (winner || !piece || piece.side !== turn || piece.type !== "mirror") return;
+      piece.slash = piece.slash === "/" ? "\\" : "/";
+      fireLaser();
+      if (!winner) turn = turn === "R" ? "B" : "R";
+      render();
+    }
+
+    function fireLaser() {
+      const origin = turn === "R" ? { row: 5, col: -1, dir: "E" } : { row: 0, col: size, dir: "W" };
+      let row = origin.row;
+      let col = origin.col;
+      let dir = origin.dir;
+      laserPath = [];
+      lastHit = "射出棋盘";
+      for (let step = 0; step < 40; step++) {
+        row += deltas[dir][0];
+        col += deltas[dir][1];
+        if (row < 0 || row >= size || col < 0 || col >= size) break;
+        laserPath.push(`${row},${col}`);
+        const piece = pieceAt(row, col);
+        if (!piece) continue;
+        if (piece.type === "mirror") {
+          dir = reflect(dir, piece.slash);
+          lastHit = `${sideName(piece.side)}镜子反射`;
+          continue;
+        }
+        if (piece.type === "core") {
+          winner = piece.side === turn ? (turn === "R" ? "B" : "R") : turn;
+          lastHit = `${sideName(piece.side)}核心被击中`;
+          break;
+        }
+      }
+    }
+
+    function render() {
+      const path = new Set(laserPath);
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const piece = pieceAt(row, col);
+          const button = document.createElement("button");
+          button.className = [
+            "relative flex aspect-square items-center justify-center border border-neutral-800 text-2xl font-black transition",
+            (row + col) % 2 ? "bg-neutral-700" : "bg-neutral-600",
+            path.has(`${row},${col}`) ? "ring-4 ring-red-300 ring-inset" : "hover:brightness-110",
+            piece && piece.side === turn && piece.type === "mirror" && !winner ? "outline outline-4 outline-yellow-200" : ""
+          ].join(" ");
+          button.setAttribute("aria-label", `${row + 1}-${col + 1}`);
+          button.addEventListener("click", () => rotatePiece(piece));
+          if (path.has(`${row},${col}`)) {
+            const beam = document.createElement("span");
+            beam.className = "absolute h-2 w-2 rounded-full bg-red-200 shadow-[0_0_16px_rgba(254,202,202,0.95)]";
+            button.appendChild(beam);
+          }
+          if (piece) {
+            const disk = document.createElement("span");
+            disk.className = [
+              "z-10 flex h-3/5 w-3/5 items-center justify-center rounded-md border-2 shadow-lg",
+              piece.side === "R" ? "border-red-100 bg-red-500 text-white" : "border-sky-100 bg-sky-500 text-white"
+            ].join(" ");
+            disk.textContent = piece.type === "core" ? "◆" : piece.slash;
+            button.appendChild(disk);
+          }
+          boardEl.appendChild(button);
+        }
+      }
+      turnText.textContent = winner ? `${sideName(winner)}获胜` : sideName(turn);
+      laserText.textContent = lastHit;
+      statusText.textContent = winner
+        ? `${sideName(winner)}击中对方核心。点击重新开始再来一局。`
+        : `${sideName(turn)}行动。点击一枚己方镜子旋转，随后自动发射激光。`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
