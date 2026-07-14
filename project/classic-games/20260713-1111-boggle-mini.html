@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Boggle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-indigo-950 text-indigo-50">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-amber-300">classic word grid</p>
+          <h1 class="text-3xl font-bold">Mini Boggle</h1>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-indigo-700 bg-indigo-900 p-3">
+            <div class="text-amber-200">Score</div>
+            <div id="scoreEl" class="text-xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-indigo-700 bg-indigo-900 p-3">
+            <div class="text-amber-200">Words</div>
+            <div id="wordCountEl" class="text-xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-indigo-700 bg-indigo-900 p-3">
+            <div class="text-amber-200">Letters</div>
+            <div id="lettersEl" class="text-xl font-bold">0</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[1fr_260px]">
+        <div class="rounded border border-indigo-700 bg-indigo-900/80 p-4">
+          <div id="gridEl" class="mx-auto grid max-w-md grid-cols-4 gap-2"></div>
+          <p id="messageEl" class="mt-4 min-h-6 text-sm text-indigo-100"></p>
+        </div>
+        <aside class="flex flex-col gap-3 rounded border border-indigo-700 bg-indigo-900/80 p-4">
+          <div class="rounded bg-indigo-950 p-3">
+            <div class="text-sm text-amber-200">Current word</div>
+            <div id="currentEl" class="mt-1 min-h-8 break-all text-2xl font-bold"></div>
+          </div>
+          <button id="submitBtn" class="rounded bg-amber-300 px-4 py-3 font-semibold text-indigo-950 hover:bg-amber-200">
+            Submit Word
+          </button>
+          <button id="clearBtn" class="rounded bg-indigo-100 px-4 py-3 font-semibold text-indigo-950 hover:bg-white">
+            Clear Path
+          </button>
+          <button id="newBtn" class="rounded border border-amber-300 px-4 py-3 font-semibold text-amber-100 hover:bg-indigo-800">
+            New Board
+          </button>
+          <div>
+            <div class="mb-2 text-sm font-semibold text-amber-200">Found</div>
+            <ul id="foundEl" class="max-h-48 space-y-1 overflow-auto text-sm text-indigo-100"></ul>
+          </div>
+        </aside>
+      </section>
+
+      <section class="rounded border border-indigo-800 p-4 text-sm text-indigo-100">
+        <h2 class="mb-2 font-semibold text-amber-200">Goal</h2>
+        <p>Build words by selecting adjacent letters without reusing a tile. Words of three or more letters score their length.</p>
+      </section>
+    </main>
+
+    <script>
+      const size = 4;
+      const letters = "EEEEEEEEEEEEAAAAAAAIIIIIIIOOOOOONNNNNNRRRRRRTTTTTTLLLLSSSSUUUUDDDDGGGBBCCMMPPFFHHVVWWYYKJXQZ";
+      const gridEl = document.getElementById("gridEl");
+      const scoreEl = document.getElementById("scoreEl");
+      const wordCountEl = document.getElementById("wordCountEl");
+      const lettersEl = document.getElementById("lettersEl");
+      const currentEl = document.getElementById("currentEl");
+      const messageEl = document.getElementById("messageEl");
+      const foundEl = document.getElementById("foundEl");
+      const submitBtn = document.getElementById("submitBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const newBtn = document.getElementById("newBtn");
+
+      let board = [];
+      let path = [];
+      let foundWords = new Set();
+      let score = 0;
+
+      function keyFor(row, col) {
+        return `${row},${col}`;
+      }
+
+      function randomLetter() {
+        return letters[Math.floor(Math.random() * letters.length)];
+      }
+
+      function buildBoard() {
+        board = Array.from({ length: size }, () => Array.from({ length: size }, randomLetter));
+        path = [];
+        foundWords = new Set();
+        score = 0;
+        messageEl.textContent = "Select adjacent letters to spell a word.";
+        render();
+      }
+
+      function currentWord() {
+        return path.map((cell) => board[cell.row][cell.col]).join("");
+      }
+
+      function hasVisited(row, col) {
+        return path.some((cell) => cell.row === row && cell.col === col);
+      }
+
+      function isAdjacent(a, b) {
+        return Math.max(Math.abs(a.row - b.row), Math.abs(a.col - b.col)) === 1;
+      }
+
+      function renderGrid() {
+        gridEl.innerHTML = "";
+        for (let row = 0; row < size; row++) {
+          for (let col = 0; col < size; col++) {
+            const index = path.findIndex((cell) => cell.row === row && cell.col === col);
+            const isLast = index === path.length - 1;
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = [
+              "aspect-square rounded border text-3xl font-bold transition",
+              index >= 0
+                ? isLast
+                  ? "border-amber-100 bg-amber-300 text-indigo-950"
+                  : "border-amber-400 bg-indigo-700 text-amber-100"
+                : "border-indigo-700 bg-indigo-950 text-indigo-50 hover:bg-indigo-800",
+            ].join(" ");
+            button.textContent = board[row][col];
+            button.addEventListener("click", () => chooseLetter(row, col));
+            gridEl.appendChild(button);
+          }
+        }
+      }
+
+      function renderFoundWords() {
+        foundEl.innerHTML = "";
+        [...foundWords].sort().forEach((word) => {
+          const item = document.createElement("li");
+          item.textContent = word;
+          foundEl.appendChild(item);
+        });
+      }
+
+      function render() {
+        const word = currentWord();
+        scoreEl.textContent = score;
+        wordCountEl.textContent = foundWords.size;
+        lettersEl.textContent = path.length;
+        currentEl.textContent = word;
+        submitBtn.disabled = word.length < 3;
+        clearBtn.disabled = path.length === 0;
+        renderGrid();
+        renderFoundWords();
+      }
+
+      function chooseLetter(row, col) {
+        if (hasVisited(row, col)) return;
+        const next = { row, col };
+        if (path.length > 0 && !isAdjacent(path[path.length - 1], next)) {
+          messageEl.textContent = "Choose a neighboring tile.";
+          return;
+        }
+        path.push(next);
+        messageEl.textContent = "Keep building, or submit the word.";
+        render();
+      }
+
+      function submitWord() {
+        const word = currentWord();
+        if (word.length < 3) {
+          messageEl.textContent = "Words need at least three letters.";
+          return;
+        }
+        if (foundWords.has(word)) {
+          messageEl.textContent = "That word was already found.";
+          return;
+        }
+        foundWords.add(word);
+        score += word.length;
+        path = [];
+        messageEl.textContent = `${word} scored ${word.length}.`;
+        render();
+      }
+
+      function clearPath() {
+        path = [];
+        messageEl.textContent = "Path cleared.";
+        render();
+      }
+
+      submitBtn.addEventListener("click", submitWord);
+      clearBtn.addEventListener("click", clearPath);
+      newBtn.addEventListener("click", buildBoard);
+
+      buildBoard();
+    </script>
+  </body>
+</html>
