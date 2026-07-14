@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Color Chase</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-widest text-fuchsia-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Color Chase</h1>
+          <p class="mt-2 text-sm text-neutral-300">Click the moving tile that matches the target color before the timer runs out.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md bg-neutral-800 px-3 py-2">
+            <div class="text-neutral-400">Score</div>
+            <div id="score" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-neutral-800 px-3 py-2">
+            <div class="text-neutral-400">Streak</div>
+            <div id="streak" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-neutral-800 px-3 py-2">
+            <div class="text-neutral-400">Time</div>
+            <div id="time" class="text-xl font-bold text-white">30</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex items-center justify-between gap-3 rounded-lg bg-neutral-950 p-3">
+        <div class="text-sm text-neutral-300">Target</div>
+        <div class="flex items-center gap-3">
+          <div id="targetSwatch" class="h-10 w-10 rounded-md border border-white/30"></div>
+          <div id="targetName" class="w-24 text-lg font-bold text-white">Blue</div>
+        </div>
+      </div>
+
+      <div id="board" class="relative mt-5 h-80 overflow-hidden rounded-lg border border-neutral-700 bg-neutral-950"></div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <p id="status" class="min-h-6 text-sm font-medium text-neutral-300">Press Start, then chase the matching color.</p>
+        <button id="startBtn" class="rounded-md bg-fuchsia-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-fuchsia-300">
+          Start
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const board = document.getElementById('board');
+    const scoreEl = document.getElementById('score');
+    const streakEl = document.getElementById('streak');
+    const timeEl = document.getElementById('time');
+    const targetSwatch = document.getElementById('targetSwatch');
+    const targetName = document.getElementById('targetName');
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('startBtn');
+
+    const colors = [
+      { name: 'Red', className: 'bg-red-500', value: '#ef4444' },
+      { name: 'Blue', className: 'bg-blue-500', value: '#3b82f6' },
+      { name: 'Green', className: 'bg-emerald-500', value: '#10b981' },
+      { name: 'Yellow', className: 'bg-yellow-400', value: '#facc15' },
+      { name: 'Purple', className: 'bg-purple-500', value: '#a855f7' }
+    ];
+
+    let tiles = [];
+    let target = colors[1];
+    let score = 0;
+    let streak = 0;
+    let timeLeft = 30;
+    let running = false;
+    let lastTick = 0;
+    let timerId = 0;
+
+    function randomBetween(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function pickTarget() {
+      target = colors[Math.floor(Math.random() * colors.length)];
+      targetSwatch.style.backgroundColor = target.value;
+      targetName.textContent = target.name;
+    }
+
+    function createTile(index) {
+      const color = colors[index % colors.length];
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = `absolute h-12 w-12 rounded-lg border border-white/25 ${color.className} shadow-lg transition-transform hover:scale-110`;
+      tile.style.left = `${randomBetween(8, 88)}%`;
+      tile.style.top = `${randomBetween(8, 78)}%`;
+      tile.dataset.color = color.name;
+      tile.dataset.dx = String(randomBetween(-0.08, 0.08));
+      tile.dataset.dy = String(randomBetween(-0.08, 0.08));
+      tile.setAttribute('aria-label', `${color.name} tile`);
+      tile.addEventListener('click', () => handleTileClick(tile));
+      board.appendChild(tile);
+      return tile;
+    }
+
+    function resetRound() {
+      board.innerHTML = '';
+      tiles = [];
+      for (let i = 0; i < 10; i++) tiles.push(createTile(i));
+      pickTarget();
+    }
+
+    function startGame() {
+      score = 0;
+      streak = 0;
+      timeLeft = 30;
+      running = true;
+      startBtn.textContent = 'Restart';
+      statusEl.textContent = 'Click only the target color.';
+      resetRound();
+      updateHud();
+      clearInterval(timerId);
+      timerId = setInterval(countDown, 1000);
+      lastTick = performance.now();
+      requestAnimationFrame(moveTiles);
+    }
+
+    function countDown() {
+      if (!running) return;
+      timeLeft -= 1;
+      if (timeLeft <= 0) endGame();
+      updateHud();
+    }
+
+    function handleTileClick(tile) {
+      if (!running) return;
+      if (tile.dataset.color === target.name) {
+        streak += 1;
+        score += 10 + streak * 2;
+        statusEl.textContent = `Matched ${target.name}. Keep going.`;
+        tile.remove();
+        tiles = tiles.filter((item) => item !== tile);
+        if (!tiles.some((item) => item.dataset.color === target.name)) {
+          pickTarget();
+        }
+      } else {
+        streak = 0;
+        score = Math.max(0, score - 5);
+        statusEl.textContent = `Wrong color. Find ${target.name}.`;
+      }
+      updateHud();
+    }
+
+    function moveTiles(now) {
+      if (!running) return;
+      const delta = Math.min(32, now - lastTick);
+      lastTick = now;
+      tiles.forEach((tile) => {
+        let x = parseFloat(tile.style.left);
+        let y = parseFloat(tile.style.top);
+        let dx = Number(tile.dataset.dx);
+        let dy = Number(tile.dataset.dy);
+        x += dx * delta;
+        y += dy * delta;
+        if (x < 2 || x > 90) dx *= -1;
+        if (y < 4 || y > 82) dy *= -1;
+        tile.dataset.dx = String(dx);
+        tile.dataset.dy = String(dy);
+        tile.style.left = `${Math.max(2, Math.min(90, x))}%`;
+        tile.style.top = `${Math.max(4, Math.min(82, y))}%`;
+      });
+      if (tiles.length < 6) {
+        tiles.push(createTile(Math.floor(Math.random() * colors.length)));
+      }
+      requestAnimationFrame(moveTiles);
+    }
+
+    function endGame() {
+      running = false;
+      clearInterval(timerId);
+      timeLeft = 0;
+      statusEl.textContent = `Time. Final score: ${score}.`;
+      startBtn.textContent = 'Play Again';
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      streakEl.textContent = streak;
+      timeEl.textContent = timeLeft;
+    }
+
+    startBtn.addEventListener('click', startGame);
+    resetRound();
+    updateHud();
+  </script>
+</body>
+</html>
