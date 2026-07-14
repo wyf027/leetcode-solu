@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Circle Dodge</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-widest text-rose-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Circle Dodge</h1>
+          <p class="mt-2 text-sm text-slate-300">Guide the blue circle, dodge the red chasers, and survive as long as you can.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Time</div>
+            <div id="time" class="text-xl font-bold text-white">0.0</div>
+          </div>
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Best</div>
+            <div id="best" class="text-xl font-bold text-white">0.0</div>
+          </div>
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Level</div>
+            <div id="level" class="text-xl font-bold text-white">1</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 overflow-hidden rounded-lg border border-slate-700 bg-slate-950">
+        <canvas id="game" width="720" height="360" class="block h-auto w-full touch-none"></canvas>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <p id="status" class="min-h-6 text-sm font-medium text-slate-300">Use arrow keys, WASD, or drag inside the field.</p>
+        <button id="restartBtn" class="rounded-md bg-rose-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-rose-300">
+          Restart
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const timeEl = document.getElementById('time');
+    const bestEl = document.getElementById('best');
+    const levelEl = document.getElementById('level');
+    const statusEl = document.getElementById('status');
+    const restartBtn = document.getElementById('restartBtn');
+
+    const player = { x: 360, y: 180, r: 13, speed: 4.2 };
+    const keys = new Set();
+    let enemies = [];
+    let sparks = [];
+    let startTime = 0;
+    let lastTime = 0;
+    let elapsed = 0;
+    let level = 1;
+    let best = Number(localStorage.getItem('miniCircleDodgeBest') || 0);
+    let running = false;
+
+    function resetGame() {
+      player.x = canvas.width / 2;
+      player.y = canvas.height / 2;
+      enemies = [
+        makeEnemy(80, 70, 1.6, 1.2),
+        makeEnemy(620, 280, -1.4, -1.5)
+      ];
+      sparks = [];
+      startTime = performance.now();
+      lastTime = startTime;
+      elapsed = 0;
+      level = 1;
+      running = true;
+      statusEl.textContent = 'Stay away from the red circles.';
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function makeEnemy(x, y, dx, dy) {
+      return { x, y, dx, dy, r: 15 };
+    }
+
+    function addEnemy() {
+      const side = Math.floor(Math.random() * 4);
+      const x = side === 0 ? 20 : side === 1 ? canvas.width - 20 : Math.random() * canvas.width;
+      const y = side === 2 ? 20 : side === 3 ? canvas.height - 20 : Math.random() * canvas.height;
+      const angle = Math.atan2(player.y - y, player.x - x);
+      const speed = 1.5 + level * 0.18;
+      enemies.push(makeEnemy(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed));
+    }
+
+    function updateGame(delta) {
+      if (!running) return;
+      const frameScale = Math.min(2, delta / 16.67);
+      elapsed = (performance.now() - startTime) / 1000;
+      const nextLevel = 1 + Math.floor(elapsed / 8);
+      if (nextLevel > level) {
+        level = nextLevel;
+        addEnemy();
+        statusEl.textContent = `Level ${level}. Another chaser joined.`;
+      }
+
+      const move = getMoveVector();
+      player.x += move.x * player.speed * frameScale;
+      player.y += move.y * player.speed * frameScale;
+      player.x = Math.max(player.r, Math.min(canvas.width - player.r, player.x));
+      player.y = Math.max(player.r, Math.min(canvas.height - player.r, player.y));
+
+      enemies.forEach((enemy) => {
+        const chase = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+        enemy.dx += Math.cos(chase) * 0.018 * frameScale;
+        enemy.dy += Math.sin(chase) * 0.018 * frameScale;
+        const speed = Math.hypot(enemy.dx, enemy.dy);
+        const cap = 2.1 + level * 0.14;
+        if (speed > cap) {
+          enemy.dx = enemy.dx / speed * cap;
+          enemy.dy = enemy.dy / speed * cap;
+        }
+        enemy.x += enemy.dx * frameScale;
+        enemy.y += enemy.dy * frameScale;
+        if (enemy.x < enemy.r || enemy.x > canvas.width - enemy.r) enemy.dx *= -1;
+        if (enemy.y < enemy.r || enemy.y > canvas.height - enemy.r) enemy.dy *= -1;
+        enemy.x = Math.max(enemy.r, Math.min(canvas.width - enemy.r, enemy.x));
+        enemy.y = Math.max(enemy.r, Math.min(canvas.height - enemy.r, enemy.y));
+      });
+
+      sparks.push({ x: player.x, y: player.y, life: 18 });
+      sparks = sparks.filter((spark) => {
+        spark.life -= frameScale;
+        return spark.life > 0;
+      });
+
+      if (enemies.some(hitPlayer)) endGame();
+      updateHud();
+    }
+
+    function getMoveVector() {
+      let x = 0;
+      let y = 0;
+      if (keys.has('ArrowLeft') || keys.has('KeyA')) x -= 1;
+      if (keys.has('ArrowRight') || keys.has('KeyD')) x += 1;
+      if (keys.has('ArrowUp') || keys.has('KeyW')) y -= 1;
+      if (keys.has('ArrowDown') || keys.has('KeyS')) y += 1;
+      const length = Math.hypot(x, y) || 1;
+      return { x: x / length, y: y / length };
+    }
+
+    function hitPlayer(enemy) {
+      return Math.hypot(enemy.x - player.x, enemy.y - player.y) < enemy.r + player.r;
+    }
+
+    function endGame() {
+      running = false;
+      best = Math.max(best, elapsed);
+      localStorage.setItem('miniCircleDodgeBest', String(best));
+      statusEl.textContent = `Caught after ${elapsed.toFixed(1)} seconds.`;
+      updateHud();
+      drawGame();
+    }
+
+    function updateHud() {
+      timeEl.textContent = elapsed.toFixed(1);
+      bestEl.textContent = best.toFixed(1);
+      levelEl.textContent = level;
+    }
+
+    function drawGame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = 'rgba(148,163,184,0.18)';
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      sparks.forEach((spark) => {
+        ctx.fillStyle = `rgba(56,189,248,${spark.life / 22})`;
+        ctx.beginPath();
+        ctx.arc(spark.x, spark.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e0f2fe';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      enemies.forEach((enemy) => {
+        ctx.fillStyle = '#fb7185';
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y, enemy.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#be123c';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      });
+
+      if (!running) {
+        ctx.fillStyle = 'rgba(2,6,23,0.75)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = 'bold 34px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Caught', canvas.width / 2, 164);
+        ctx.font = '18px sans-serif';
+        ctx.fillText('Press Restart to dodge again', canvas.width / 2, 198);
+      }
+    }
+
+    function gameLoop(time) {
+      const delta = time - lastTime;
+      lastTime = time;
+      updateGame(delta);
+      drawGame();
+      if (running) requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+    document.addEventListener('keyup', (event) => keys.delete(event.code));
+    canvas.addEventListener('pointermove', (event) => {
+      if (!running || event.buttons === 0) return;
+      const rect = canvas.getBoundingClientRect();
+      player.x = (event.clientX - rect.left) / rect.width * canvas.width;
+      player.y = (event.clientY - rect.top) / rect.height * canvas.height;
+    });
+    canvas.addEventListener('pointerdown', (event) => {
+      if (!running) resetGame();
+      const rect = canvas.getBoundingClientRect();
+      player.x = (event.clientX - rect.left) / rect.width * canvas.width;
+      player.y = (event.clientY - rect.top) / rect.height * canvas.height;
+    });
+    restartBtn.addEventListener('click', resetGame);
+    bestEl.textContent = best.toFixed(1);
+    resetGame();
+  </script>
+</body>
+</html>
