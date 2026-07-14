@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Brandubh</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Brandubh</h1>
+        <p class="mt-1 text-sm text-stone-300">守方护送国王到角落，攻方用夹击和围堵夺取王位。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-stone-700 bg-stone-900 p-3 shadow-xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-7 overflow-hidden rounded-md border border-stone-700"></div>
+      </div>
+
+      <aside class="rounded-lg border border-stone-700 bg-stone-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-stone-400">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">守方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-md bg-stone-800 p-3">
+              <p class="text-stone-400">守方</p>
+              <p id="defenderCount" class="text-xl font-semibold text-white">5</p>
+            </div>
+            <div class="rounded-md bg-stone-800 p-3">
+              <p class="text-stone-400">攻方</p>
+              <p id="attackerCount" class="text-xl font-semibold text-white">8</p>
+            </div>
+          </div>
+          <p id="statusText" class="rounded-md bg-stone-800 p-3 text-sm leading-6 text-stone-200">
+            守方先手。棋子横纵滑行，夹住敌棋即可捕获。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const defenderCount = document.getElementById("defenderCount");
+    const attackerCount = document.getElementById("attackerCount");
+    const resetBtn = document.getElementById("resetBtn");
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const corners = new Set(["0,0", "0,6", "6,0", "6,6"]);
+    const throne = "3,3";
+
+    let pieces = [];
+    let turn = "D";
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      pieces = [
+        { side: "D", type: "king", row: 3, col: 3 },
+        { side: "D", type: "guard", row: 2, col: 3 },
+        { side: "D", type: "guard", row: 3, col: 2 },
+        { side: "D", type: "guard", row: 3, col: 4 },
+        { side: "D", type: "guard", row: 4, col: 3 },
+        { side: "A", type: "raider", row: 0, col: 3 },
+        { side: "A", type: "raider", row: 1, col: 3 },
+        { side: "A", type: "raider", row: 3, col: 0 },
+        { side: "A", type: "raider", row: 3, col: 1 },
+        { side: "A", type: "raider", row: 3, col: 5 },
+        { side: "A", type: "raider", row: 3, col: 6 },
+        { side: "A", type: "raider", row: 5, col: 3 },
+        { side: "A", type: "raider", row: 6, col: 3 }
+      ];
+      turn = "D";
+      selected = null;
+      winner = null;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "D" ? "守方" : "攻方";
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceAt(row, col) {
+      return pieces.find((piece) => piece.row === row && piece.col === col);
+    }
+
+    function isRestricted(row, col, piece) {
+      const square = key(row, col);
+      return (corners.has(square) || square === throne) && piece.type !== "king";
+    }
+
+    function legalMoves(piece) {
+      if (!piece || winner) return [];
+      const moves = [];
+      for (const [rowStep, colStep] of directions) {
+        let row = piece.row + rowStep;
+        let col = piece.col + colStep;
+        while (inBounds(row, col) && !pieceAt(row, col) && !isRestricted(row, col, piece)) {
+          moves.push([row, col]);
+          row += rowStep;
+          col += colStep;
+        }
+      }
+      return moves;
+    }
+
+    function hostileTo(side, row, col) {
+      const square = key(row, col);
+      if (!inBounds(row, col)) return true;
+      if (corners.has(square) || square === throne) return true;
+      const piece = pieceAt(row, col);
+      return Boolean(piece && piece.side === side);
+    }
+
+    function captureAround(row, col) {
+      const mover = pieceAt(row, col);
+      let captured = 0;
+      for (const [rowStep, colStep] of directions) {
+        const nearRow = row + rowStep;
+        const nearCol = col + colStep;
+        const farRow = row + rowStep * 2;
+        const farCol = col + colStep * 2;
+        const target = pieceAt(nearRow, nearCol);
+        if (!target || target.side === mover.side || target.type === "king") continue;
+        if (hostileTo(mover.side, farRow, farCol)) {
+          pieces = pieces.filter((piece) => piece !== target);
+          captured++;
+        }
+      }
+      return captured;
+    }
+
+    function isKingCaptured() {
+      const king = pieces.find((piece) => piece.type === "king");
+      if (!king) return true;
+      return directions.every(([rowStep, colStep]) => hostileTo("A", king.row + rowStep, king.col + colStep));
+    }
+
+    function movePiece(row, col) {
+      if (!selected) return;
+      const moves = legalMoves(selected);
+      if (!moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col)) return;
+      selected.row = row;
+      selected.col = col;
+      const captured = captureAround(row, col);
+      if (selected.type === "king" && corners.has(key(row, col))) {
+        winner = "D";
+      } else if (isKingCaptured()) {
+        winner = "A";
+      } else {
+        turn = turn === "D" ? "A" : "D";
+      }
+      selected = null;
+      render(captured);
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+      const piece = pieceAt(row, col);
+      if (selected && !piece) {
+        movePiece(row, col);
+        return;
+      }
+      if (piece && piece.side === turn) {
+        selected = piece;
+      } else {
+        selected = null;
+      }
+      render();
+    }
+
+    function render(captured = 0) {
+      const moves = selected ? legalMoves(selected) : [];
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const square = key(row, col);
+          const piece = pieceAt(row, col);
+          const isMove = moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col);
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const special = corners.has(square) || square === throne;
+          const button = document.createElement("button");
+          button.className = [
+            "flex aspect-square items-center justify-center border border-stone-800 text-xl font-black transition",
+            special ? "bg-amber-700" : (row + col) % 2 ? "bg-stone-700" : "bg-stone-600",
+            isMove ? "ring-4 ring-amber-200 ring-inset" : "hover:brightness-110",
+            isSelected ? "outline outline-4 outline-white" : ""
+          ].join(" ");
+          button.setAttribute("aria-label", `${row + 1}-${col + 1}`);
+          button.addEventListener("click", () => handleCell(row, col));
+          if (piece) {
+            const disk = document.createElement("span");
+            disk.className = [
+              "flex h-3/5 w-3/5 items-center justify-center rounded-full border-2 shadow-lg",
+              piece.side === "D" ? "border-white bg-stone-100 text-stone-950" : "border-stone-300 bg-stone-950 text-white"
+            ].join(" ");
+            disk.textContent = piece.type === "king" ? "K" : piece.side;
+            button.appendChild(disk);
+          }
+          boardEl.appendChild(button);
+        }
+      }
+      defenderCount.textContent = pieces.filter((piece) => piece.side === "D").length;
+      attackerCount.textContent = pieces.filter((piece) => piece.side === "A").length;
+      turnText.textContent = winner ? `${sideName(winner)}获胜` : sideName(turn);
+      statusText.textContent = winner
+        ? `${sideName(winner)}完成目标。点击重新开始再来一局。`
+        : selected
+          ? `${sideName(turn)}已选中棋子，可滑行到 ${moves.length} 个空格。`
+          : captured > 0
+            ? `刚刚夹击捕获 ${captured} 枚棋子。${sideName(turn)}行动。`
+            : `${sideName(turn)}行动。守方国王去角落，攻方围住国王。`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
