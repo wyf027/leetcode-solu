@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Isola</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal">Mini Isola</h1>
+        <p class="text-sm text-zinc-300">轮流移动到相邻格，离开的格子会封锁，无法移动的一方失败。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-emerald-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[620px] grid-cols-6 gap-2 rounded bg-zinc-800 p-3"></div>
+      </div>
+
+      <aside class="flex flex-col gap-3 rounded border border-zinc-700 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs text-zinc-400">当前回合</div>
+            <div id="turn" class="text-xl font-bold text-emerald-300">绿方</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs text-zinc-400">封锁格</div>
+            <div id="blockedCount" class="text-2xl font-bold text-amber-300">0</div>
+          </div>
+        </div>
+
+        <div class="rounded bg-zinc-800 p-3 text-sm leading-6">
+          <div class="flex justify-between"><span>绿方位置</span><span id="greenPos">A1</span></div>
+          <div class="flex justify-between"><span>紫方位置</span><span id="purplePos">F6</span></div>
+          <div class="flex justify-between"><span>可走步数</span><span id="moveCount">0</span></div>
+        </div>
+
+        <button id="hintBtn" class="rounded bg-sky-300 px-4 py-3 text-sm font-bold text-zinc-950 hover:bg-sky-200">显示可走格</button>
+        <p id="message" class="min-h-20 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200">点击当前玩家周围的空格移动。移动后原格会变成封锁格。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const blockedCountEl = document.getElementById("blockedCount");
+    const greenPosEl = document.getElementById("greenPos");
+    const purplePosEl = document.getElementById("purplePos");
+    const moveCountEl = document.getElementById("moveCount");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const hintBtn = document.getElementById("hintBtn");
+
+    const size = 6;
+    const players = [
+      { name: "绿方", color: "bg-emerald-400", text: "G", row: 0, col: 0 },
+      { name: "紫方", color: "bg-violet-400", text: "P", row: 5, col: 5 }
+    ];
+    let blocked = [];
+    let current = 0;
+    let showHints = false;
+    let gameOver = false;
+
+    function resetGame() {
+      players[0].row = 0;
+      players[0].col = 0;
+      players[1].row = 5;
+      players[1].col = 5;
+      blocked = Array.from({ length: size }, () => Array(size).fill(false));
+      current = 0;
+      showHints = false;
+      gameOver = false;
+      messageEl.textContent = "点击当前玩家周围的空格移动。移动后原格会变成封锁格。";
+      renderBoard();
+      updateHud();
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      const legal = legalMoves(players[current]);
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          const player = playerAt(row, col);
+          const isLegal = legal.some((move) => move.row === row && move.col === col);
+          button.className = cellClass(row, col, player, isLegal);
+          button.textContent = player ? player.text : "";
+          button.setAttribute("aria-label", `${toLabel(row, col)} ${player ? player.name : "空格"}`);
+          button.addEventListener("click", () => attemptMove(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function cellClass(row, col, player, isLegal) {
+      const base = "aspect-square rounded border text-xl font-bold transition";
+      if (player) return `${base} ${player.color} border-white/70 text-zinc-950`;
+      if (blocked[row][col]) return `${base} border-zinc-900 bg-zinc-950 text-zinc-700`;
+      if (showHints && isLegal && !gameOver) return `${base} border-emerald-200 bg-emerald-200/80 text-zinc-950 hover:bg-emerald-100`;
+      return `${base} border-zinc-600 bg-zinc-700 hover:bg-zinc-600`;
+    }
+
+    function attemptMove(row, col) {
+      if (gameOver) return;
+      const player = players[current];
+      const legal = legalMoves(player);
+      const allowed = legal.some((move) => move.row === row && move.col === col);
+      if (!allowed) {
+        messageEl.textContent = `${player.name} 只能走到相邻的空格。`;
+        return;
+      }
+      blocked[player.row][player.col] = true;
+      player.row = row;
+      player.col = col;
+      current = 1 - current;
+      showHints = false;
+      const nextMoves = legalMoves(players[current]);
+      if (nextMoves.length === 0) {
+        gameOver = true;
+        messageEl.textContent = `${players[1 - current].name} 封住了所有道路，获胜。`;
+      } else {
+        messageEl.textContent = `${player.name} 移动到 ${toLabel(row, col)}，轮到 ${players[current].name}。`;
+      }
+      renderBoard();
+      updateHud();
+    }
+
+    function legalMoves(player) {
+      const moves = [];
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          if (dr === 0 && dc === 0) continue;
+          const row = player.row + dr;
+          const col = player.col + dc;
+          if (isOpen(row, col)) moves.push({ row, col });
+        }
+      }
+      return moves;
+    }
+
+    function isOpen(row, col) {
+      return row >= 0
+        && row < size
+        && col >= 0
+        && col < size
+        && !blocked[row][col]
+        && !playerAt(row, col);
+    }
+
+    function playerAt(row, col) {
+      return players.find((player) => player.row === row && player.col === col);
+    }
+
+    function updateHud() {
+      const active = players[current];
+      const moves = legalMoves(active);
+      turnEl.textContent = gameOver ? "结束" : active.name;
+      turnEl.className = current === 0 ? "text-xl font-bold text-emerald-300" : "text-xl font-bold text-violet-300";
+      blockedCountEl.textContent = blocked.flat().filter(Boolean).length;
+      greenPosEl.textContent = toLabel(players[0].row, players[0].col);
+      purplePosEl.textContent = toLabel(players[1].row, players[1].col);
+      moveCountEl.textContent = gameOver ? 0 : moves.length;
+      hintBtn.disabled = gameOver;
+      hintBtn.className = gameOver
+        ? "rounded bg-zinc-700 px-4 py-3 text-sm font-bold text-zinc-400"
+        : "rounded bg-sky-300 px-4 py-3 text-sm font-bold text-zinc-950 hover:bg-sky-200";
+    }
+
+    function toLabel(row, col) {
+      return `${String.fromCharCode(65 + col)}${row + 1}`;
+    }
+
+    hintBtn.addEventListener("click", () => {
+      showHints = !showHints;
+      renderBoard();
+    });
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
