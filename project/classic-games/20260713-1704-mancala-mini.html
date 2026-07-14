@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Mancala</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Mini Mancala</h1>
+        <p class="text-sm text-emerald-200/75">Sow stones around the board. Capture from your side and fill your store.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-amber-200">New Game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+        <div class="grid grid-cols-[4rem_repeat(6,minmax(0,1fr))_4rem] gap-2">
+          <div id="cpuStore" class="row-span-2 flex min-h-40 items-center justify-center rounded-full bg-emerald-950 text-3xl font-bold ring-2 ring-emerald-700">0</div>
+          <div id="cpuPits" class="col-span-6 grid grid-cols-6 gap-2"></div>
+          <div id="playerStore" class="row-span-2 flex min-h-40 items-center justify-center rounded-full bg-amber-300 text-3xl font-bold text-emerald-950 ring-2 ring-amber-100">0</div>
+          <div id="playerPits" class="col-span-6 grid grid-cols-6 gap-2"></div>
+        </div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-emerald-800 bg-emerald-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-emerald-950 p-3">
+            <div class="text-emerald-300">Turn</div>
+            <div id="turn" class="text-xl font-bold">You</div>
+          </div>
+          <div class="rounded bg-emerald-950 p-3">
+            <div class="text-emerald-300">Moves</div>
+            <div id="moves" class="text-xl font-bold">0</div>
+          </div>
+        </div>
+        <div id="message" class="min-h-20 rounded bg-emerald-950 p-3 text-sm text-emerald-100">Choose one of your bottom pits to sow its stones counter-clockwise.</div>
+        <div class="space-y-2 text-sm text-emerald-100/80">
+          <p>Landing in your store grants another turn.</p>
+          <p>Landing in your empty pit captures the opposite pit.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const playerPitsEl = document.getElementById('playerPits');
+    const cpuPitsEl = document.getElementById('cpuPits');
+    const playerStoreEl = document.getElementById('playerStore');
+    const cpuStoreEl = document.getElementById('cpuStore');
+    const turnEl = document.getElementById('turn');
+    const movesEl = document.getElementById('moves');
+    const messageEl = document.getElementById('message');
+    let pits;
+    let playerStore;
+    let cpuStore;
+    let playerTurn;
+    let moves;
+    let gameOver;
+
+    function resetGame() {
+      pits = Array(12).fill(4);
+      playerStore = 0;
+      cpuStore = 0;
+      playerTurn = true;
+      moves = 0;
+      gameOver = false;
+      messageEl.textContent = 'Choose one of your bottom pits to sow its stones counter-clockwise.';
+      render();
+    }
+
+    function sideEmpty(start, end) {
+      return pits.slice(start, end).every(value => value === 0);
+    }
+
+    function finishGame() {
+      for (let i = 0; i < 6; i++) {
+        playerStore += pits[i];
+        pits[i] = 0;
+      }
+      for (let i = 6; i < 12; i++) {
+        cpuStore += pits[i];
+        pits[i] = 0;
+      }
+      gameOver = true;
+      if (playerStore > cpuStore) messageEl.textContent = `You win ${playerStore}-${cpuStore}.`;
+      else if (playerStore < cpuStore) messageEl.textContent = `CPU wins ${cpuStore}-${playerStore}.`;
+      else messageEl.textContent = `Draw ${playerStore}-${cpuStore}.`;
+    }
+
+    function nextSlot(slot, isPlayer) {
+      slot += 1;
+      if (slot === 6 && isPlayer) return 'playerStore';
+      if (slot === 12 && !isPlayer) return 'cpuStore';
+      if (slot >= 12) return 0;
+      return slot;
+    }
+
+    function sow(index, isPlayerMove) {
+      if (gameOver || pits[index] === 0) return false;
+      let stones = pits[index];
+      pits[index] = 0;
+      let slot = index;
+      let last = index;
+      while (stones > 0) {
+        slot = nextSlot(slot, isPlayerMove);
+        if (slot === 'playerStore') {
+          playerStore += 1;
+          last = slot;
+        } else if (slot === 'cpuStore') {
+          cpuStore += 1;
+          last = slot;
+        } else {
+          pits[slot] += 1;
+          last = slot;
+        }
+        stones -= 1;
+      }
+      if (typeof last === 'number') {
+        const ownEmpty = isPlayerMove ? last >= 0 && last < 6 : last >= 6 && last < 12;
+        const opposite = 11 - last;
+        if (ownEmpty && pits[last] === 1 && pits[opposite] > 0) {
+          const captured = pits[opposite] + 1;
+          pits[opposite] = 0;
+          pits[last] = 0;
+          if (isPlayerMove) playerStore += captured;
+          else cpuStore += captured;
+          messageEl.textContent = `${isPlayerMove ? 'You capture' : 'CPU captures'} ${captured} stones.`;
+        } else {
+          messageEl.textContent = isPlayerMove ? 'Move complete.' : 'CPU moved.';
+        }
+      }
+      if (sideEmpty(0, 6) || sideEmpty(6, 12)) {
+        finishGame();
+        return true;
+      }
+      const extra = last === (isPlayerMove ? 'playerStore' : 'cpuStore');
+      playerTurn = extra ? isPlayerMove : !isPlayerMove;
+      if (extra && !gameOver) messageEl.textContent = isPlayerMove ? 'You landed in your store. Play again.' : 'CPU gets another turn.';
+      return true;
+    }
+
+    function playerMove(index) {
+      if (!playerTurn || gameOver || index < 0 || index > 5) return;
+      if (!sow(index, true)) return;
+      moves += 1;
+      render();
+      if (!playerTurn && !gameOver) setTimeout(cpuMove, 500);
+    }
+
+    function cpuMove() {
+      if (playerTurn || gameOver) return;
+      const options = [];
+      for (let i = 6; i < 12; i++) if (pits[i] > 0) options.push(i);
+      const extra = options.find(i => {
+        let count = pits[i];
+        let slot = i;
+        while (count > 0) {
+          slot = nextSlot(slot, false);
+          count -= 1;
+        }
+        return slot === 'cpuStore';
+      });
+      const choice = extra || options[0];
+      sow(choice, false);
+      moves += 1;
+      render();
+      if (!playerTurn && !gameOver) setTimeout(cpuMove, 500);
+    }
+
+    function pitButton(value, index, isPlayerSide) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'aspect-square rounded-full border p-2 text-xl font-bold transition ';
+      if (isPlayerSide) {
+        button.className += playerTurn && value > 0 && !gameOver
+          ? 'border-amber-100 bg-amber-300 text-emerald-950 hover:bg-amber-200'
+          : 'border-emerald-700 bg-emerald-950 text-emerald-100';
+        button.addEventListener('click', () => playerMove(index));
+      } else {
+        button.className += 'border-emerald-700 bg-emerald-950 text-emerald-100';
+        button.disabled = true;
+      }
+      button.textContent = value;
+      return button;
+    }
+
+    function render() {
+      playerPitsEl.innerHTML = '';
+      cpuPitsEl.innerHTML = '';
+      for (let i = 11; i >= 6; i--) cpuPitsEl.appendChild(pitButton(pits[i], i, false));
+      for (let i = 0; i < 6; i++) playerPitsEl.appendChild(pitButton(pits[i], i, true));
+      playerStoreEl.textContent = playerStore;
+      cpuStoreEl.textContent = cpuStore;
+      turnEl.textContent = gameOver ? 'Done' : playerTurn ? 'You' : 'CPU';
+      movesEl.textContent = moves;
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
