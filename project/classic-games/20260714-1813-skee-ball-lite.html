@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Skee-Ball</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal">Mini Skee-Ball</h1>
+        <p class="text-sm text-zinc-300">控制角度和力度，沿坡道把 7 个球滚进高分洞。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+        <canvas id="lane" width="620" height="760" class="mx-auto aspect-[31/38] w-full max-w-[620px] rounded bg-zinc-100"></canvas>
+      </div>
+
+      <aside class="flex flex-col gap-3 rounded border border-zinc-700 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs text-zinc-400">总分</div>
+            <div id="score" class="text-2xl font-bold text-lime-300">0</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs text-zinc-400">剩余</div>
+            <div id="ballsLeft" class="text-2xl font-bold text-sky-300">7</div>
+          </div>
+        </div>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-zinc-300"><span>角度</span><span id="angleValue">0</span></span>
+          <input id="angle" type="range" min="-42" max="42" value="0" class="w-full accent-lime-300">
+        </label>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-zinc-300"><span>力度</span><span id="powerValue">72%</span></span>
+          <input id="power" type="range" min="45" max="100" value="72" class="w-full accent-sky-300">
+        </label>
+
+        <button id="rollBtn" class="rounded bg-lime-300 px-4 py-3 text-sm font-bold text-zinc-950 hover:bg-lime-200">滚球</button>
+        <p id="message" class="min-h-16 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200">中间洞稳定得分，两侧 50 分洞需要角度更精准。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("lane");
+    const ctx = canvas.getContext("2d");
+    const angleInput = document.getElementById("angle");
+    const powerInput = document.getElementById("power");
+    const angleValue = document.getElementById("angleValue");
+    const powerValue = document.getElementById("powerValue");
+    const scoreEl = document.getElementById("score");
+    const ballsLeftEl = document.getElementById("ballsLeft");
+    const messageEl = document.getElementById("message");
+    const rollBtn = document.getElementById("rollBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const lane = { x: 110, y: 54, w: 400, h: 650 };
+    const start = { x: 310, y: 674 };
+    const holes = [
+      { x: 310, y: 178, r: 34, points: 30 },
+      { x: 224, y: 226, r: 30, points: 20 },
+      { x: 396, y: 226, r: 30, points: 20 },
+      { x: 178, y: 124, r: 27, points: 50 },
+      { x: 442, y: 124, r: 27, points: 50 },
+      { x: 310, y: 292, r: 42, points: 10 }
+    ];
+    let score = 0;
+    let ballsLeft = 7;
+    let busy = false;
+    let ball = null;
+    let lastTrail = [];
+
+    function resetGame() {
+      score = 0;
+      ballsLeft = 7;
+      busy = false;
+      ball = null;
+      lastTrail = [];
+      messageEl.textContent = "中间洞稳定得分，两侧 50 分洞需要角度更精准。";
+      updateHud();
+      drawLane();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      ballsLeftEl.textContent = ballsLeft;
+      angleValue.textContent = angleInput.value;
+      powerValue.textContent = `${powerInput.value}%`;
+      rollBtn.disabled = busy || ballsLeft <= 0;
+      rollBtn.className = rollBtn.disabled
+        ? "rounded bg-zinc-700 px-4 py-3 text-sm font-bold text-zinc-400"
+        : "rounded bg-lime-300 px-4 py-3 text-sm font-bold text-zinc-950 hover:bg-lime-200";
+    }
+
+    function drawLane() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const wood = ctx.createLinearGradient(lane.x, lane.y, lane.x + lane.w, lane.y + lane.h);
+      wood.addColorStop(0, "#fef3c7");
+      wood.addColorStop(1, "#b45309");
+      ctx.fillStyle = wood;
+      roundRect(lane.x, lane.y, lane.w, lane.h, 26);
+      ctx.fill();
+      ctx.strokeStyle = "#78350f";
+      ctx.lineWidth = 8;
+      ctx.stroke();
+
+      drawRamp();
+      holes.forEach(drawHole);
+      drawAimLine();
+      drawTrail();
+      if (ball) drawBall(ball.x, ball.y, ball.scale);
+      else drawBall(start.x, start.y, 1);
+    }
+
+    function drawRamp() {
+      ctx.fillStyle = "rgba(255,255,255,0.28)";
+      ctx.beginPath();
+      ctx.moveTo(lane.x + 42, 356);
+      ctx.quadraticCurveTo(310, 532, lane.x + lane.w - 42, 356);
+      ctx.lineTo(lane.x + lane.w - 42, lane.y + lane.h - 38);
+      ctx.lineTo(lane.x + 42, lane.y + lane.h - 38);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(120,53,15,0.5)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(lane.x + 64, lane.y + lane.h - 70);
+      ctx.lineTo(256, 356);
+      ctx.moveTo(lane.x + lane.w - 64, lane.y + lane.h - 70);
+      ctx.lineTo(364, 356);
+      ctx.stroke();
+    }
+
+    function drawHole(hole) {
+      ctx.fillStyle = "#18181b";
+      ctx.beginPath();
+      ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = hole.points === 50 ? "#bef264" : "#fde68a";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = "#fafafa";
+      ctx.font = "bold 18px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(hole.points), hole.x, hole.y);
+    }
+
+    function drawAimLine() {
+      const prediction = predictLanding();
+      ctx.strokeStyle = "rgba(2,132,199,0.75)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 9]);
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.quadraticCurveTo(start.x + Number(angleInput.value) * 1.3, 445, prediction.x, prediction.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawTrail() {
+      lastTrail.forEach((point, index) => {
+        ctx.fillStyle = `rgba(14,165,233,${0.12 + index * 0.025})`;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawBall(x, y, scale) {
+      const radius = 17 * scale;
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0ea5e9";
+      ctx.lineWidth = Math.max(2, 4 * scale);
+      ctx.stroke();
+    }
+
+    function predictLanding() {
+      const angle = Number(angleInput.value);
+      const power = Number(powerInput.value);
+      const lift = (power - 45) * 5.25;
+      const wobble = Math.sin((angle + power) * 0.11) * 9;
+      return {
+        x: clamp(start.x + angle * 2.65 + wobble, lane.x + 46, lane.x + lane.w - 46),
+        y: clamp(start.y - 250 - lift, lane.y + 78, lane.y + lane.h - 155)
+      };
+    }
+
+    function rollBall() {
+      if (busy || ballsLeft <= 0) return;
+      busy = true;
+      ballsLeft -= 1;
+      lastTrail = [];
+      const target = predictLanding();
+      ball = { x: start.x, y: start.y, scale: 1 };
+      let frame = 0;
+      const frames = 58;
+      const animate = () => {
+        frame += 1;
+        const t = frame / frames;
+        const ease = 1 - Math.pow(1 - t, 2.1);
+        ball.x = start.x + (target.x - start.x) * ease;
+        ball.y = start.y + (target.y - start.y) * ease - Math.sin(t * Math.PI) * 18;
+        ball.scale = 1 - t * 0.35;
+        if (frame % 3 === 0) lastTrail.push({ x: ball.x, y: ball.y });
+        drawLane();
+        if (frame < frames) {
+          requestAnimationFrame(animate);
+          return;
+        }
+        settleBall(target);
+      };
+      updateHud();
+      requestAnimationFrame(animate);
+    }
+
+    function settleBall(target) {
+      const hit = scoreRoll(target);
+      ball = null;
+      busy = false;
+      if (hit) {
+        score += hit.points;
+        messageEl.textContent = `进洞，获得 ${hit.points} 分。`;
+      } else {
+        messageEl.textContent = "球滚过洞口，没有得分。";
+      }
+      if (ballsLeft === 0) {
+        messageEl.textContent += ` 游戏结束，总分 ${score}。`;
+      }
+      updateHud();
+      drawLane();
+    }
+
+    function scoreRoll(target) {
+      let best = null;
+      holes.forEach((hole) => {
+        const distance = Math.hypot(target.x - hole.x, target.y - hole.y);
+        if (distance < hole.r && (!best || hole.points > best.points)) {
+          best = hole;
+        }
+      });
+      return best;
+    }
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    angleInput.addEventListener("input", () => { updateHud(); drawLane(); });
+    powerInput.addEventListener("input", () => { updateHud(); drawLane(); });
+    rollBtn.addEventListener("click", rollBall);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
