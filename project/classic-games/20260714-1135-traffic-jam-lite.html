@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Traffic Jam</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-widest text-red-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Traffic Jam</h1>
+          <p class="mt-2 text-sm text-slate-300">Move the blocking cars and drive the red car to the exit.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Moves</div>
+            <div id="moves" class="text-xl font-bold text-white">0</div>
+          </div>
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Best</div>
+            <div id="best" class="text-xl font-bold text-white">--</div>
+          </div>
+          <div class="rounded-md bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">Cars</div>
+            <div class="text-xl font-bold text-white">6</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex justify-center">
+        <div class="relative rounded-lg bg-slate-950 p-3">
+          <div id="board" class="relative grid h-80 w-80 grid-cols-6 grid-rows-6 gap-1 rounded-md border-4 border-slate-700 bg-slate-800"></div>
+          <div class="absolute right-0 top-[calc(50%-1.25rem)] h-10 w-4 translate-x-3 rounded-r bg-red-400"></div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <p id="status" class="min-h-6 text-sm font-medium text-slate-300">Select a car, then use the arrow buttons.</p>
+        <div class="flex flex-wrap gap-2">
+          <button id="leftBtn" class="moveBtn rounded-md bg-slate-700 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-600">Left</button>
+          <button id="rightBtn" class="moveBtn rounded-md bg-slate-700 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-600">Right</button>
+          <button id="upBtn" class="moveBtn rounded-md bg-slate-700 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-600">Up</button>
+          <button id="downBtn" class="moveBtn rounded-md bg-slate-700 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-600">Down</button>
+          <button id="resetBtn" class="rounded-md bg-red-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-red-300">Reset</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const movesEl = document.getElementById('moves');
+    const bestEl = document.getElementById('best');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+    const controls = {
+      left: document.getElementById('leftBtn'),
+      right: document.getElementById('rightBtn'),
+      up: document.getElementById('upBtn'),
+      down: document.getElementById('downBtn')
+    };
+
+    const startCars = [
+      { id: 'red', r: 2, c: 1, len: 2, dir: 'h', color: 'bg-red-500' },
+      { id: 'blue', r: 0, c: 2, len: 3, dir: 'v', color: 'bg-blue-500' },
+      { id: 'green', r: 3, c: 0, len: 2, dir: 'h', color: 'bg-emerald-500' },
+      { id: 'yellow', r: 4, c: 3, len: 2, dir: 'v', color: 'bg-yellow-400' },
+      { id: 'purple', r: 0, c: 5, len: 2, dir: 'v', color: 'bg-purple-500' },
+      { id: 'orange', r: 5, c: 0, len: 3, dir: 'h', color: 'bg-orange-500' }
+    ];
+
+    let cars = [];
+    let selected = 'red';
+    let moves = 0;
+    let won = false;
+    let best = Number(localStorage.getItem('miniTrafficJamBest') || 0);
+
+    function resetGame() {
+      cars = startCars.map((car) => ({ ...car }));
+      selected = 'red';
+      moves = 0;
+      won = false;
+      statusEl.textContent = 'Clear the path and move the red car to the exit.';
+      render();
+    }
+
+    function cellSet(exceptId = '') {
+      const occupied = new Set();
+      cars.forEach((car) => {
+        if (car.id === exceptId) return;
+        for (let i = 0; i < car.len; i++) {
+          const r = car.r + (car.dir === 'v' ? i : 0);
+          const c = car.c + (car.dir === 'h' ? i : 0);
+          occupied.add(`${r}-${c}`);
+        }
+      });
+      return occupied;
+    }
+
+    function canMove(car, delta) {
+      if (won) return false;
+      const occupied = cellSet(car.id);
+      const next = { r: car.r + delta.r, c: car.c + delta.c };
+      if (car.dir === 'h' && delta.r !== 0) return false;
+      if (car.dir === 'v' && delta.c !== 0) return false;
+      for (let i = 0; i < car.len; i++) {
+        const r = next.r + (car.dir === 'v' ? i : 0);
+        const c = next.c + (car.dir === 'h' ? i : 0);
+        if (r < 0 || r > 5 || c < 0 || c > 5 || occupied.has(`${r}-${c}`)) return false;
+      }
+      return true;
+    }
+
+    function moveSelected(direction) {
+      const car = cars.find((item) => item.id === selected);
+      const deltaMap = {
+        left: { r: 0, c: -1 },
+        right: { r: 0, c: 1 },
+        up: { r: -1, c: 0 },
+        down: { r: 1, c: 0 }
+      };
+      const delta = deltaMap[direction];
+      if (!car || !canMove(car, delta)) {
+        statusEl.textContent = 'That car cannot move that way.';
+        return;
+      }
+      car.r += delta.r;
+      car.c += delta.c;
+      moves += 1;
+      checkWin();
+      render();
+    }
+
+    function checkWin() {
+      const red = cars.find((car) => car.id === 'red');
+      if (red.r === 2 && red.c + red.len - 1 === 5) {
+        won = true;
+        best = best ? Math.min(best, moves) : moves;
+        localStorage.setItem('miniTrafficJamBest', String(best));
+        statusEl.textContent = `Escaped in ${moves} moves.`;
+      } else {
+        statusEl.textContent = `${selected.toUpperCase()} moved.`;
+      }
+    }
+
+    function renderGrid() {
+      boardEl.innerHTML = '';
+      for (let i = 0; i < 36; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'rounded bg-slate-900';
+        boardEl.appendChild(cell);
+      }
+    }
+
+    function renderCars() {
+      cars.forEach((car) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = car.id === 'red' ? 'EXIT' : '';
+        button.className = `absolute rounded-md border-2 ${car.color} ${selected === car.id ? 'border-white' : 'border-black/20'} text-xs font-bold text-white shadow-lg`;
+        button.style.left = `calc(${car.c} * (100% / 6) + 3px)`;
+        button.style.top = `calc(${car.r} * (100% / 6) + 3px)`;
+        button.style.width = `calc(${car.dir === 'h' ? car.len : 1} * (100% / 6) - 6px)`;
+        button.style.height = `calc(${car.dir === 'v' ? car.len : 1} * (100% / 6) - 6px)`;
+        button.addEventListener('click', () => {
+          selected = car.id;
+          statusEl.textContent = `${car.id.toUpperCase()} selected.`;
+          render();
+        });
+        boardEl.appendChild(button);
+      });
+    }
+
+    function updateHud() {
+      movesEl.textContent = moves;
+      bestEl.textContent = best || '--';
+    }
+
+    function render() {
+      renderGrid();
+      renderCars();
+      updateHud();
+    }
+
+    controls.left.addEventListener('click', () => moveSelected('left'));
+    controls.right.addEventListener('click', () => moveSelected('right'));
+    controls.up.addEventListener('click', () => moveSelected('up'));
+    controls.down.addEventListener('click', () => moveSelected('down'));
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
