@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Color Lines</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Color Lines</h1>
+          <p class="mt-1 text-sm text-slate-400">Move balls to make a line of four matching colors.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-slate-700 px-3 py-2 text-sm">Score: <strong id="score">0</strong></span>
+          <button id="resetBtn" class="rounded bg-rose-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-rose-300">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[520px] grid-cols-6 grid-rows-6 gap-2 rounded-lg bg-slate-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+          <div id="selectedLabel" class="rounded border border-slate-700 bg-slate-900 px-3 py-2 font-semibold">Select a ball</div>
+          <div id="message" class="min-h-24 rounded border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">Click a ball, then click an empty square. Three new balls appear after moves that do not score.</div>
+          <div id="nextRow" class="flex gap-2 rounded border border-slate-800 bg-slate-900 p-3"></div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const colors = [
+      { name: 'red', className: 'bg-red-500' },
+      { name: 'cyan', className: 'bg-cyan-400' },
+      { name: 'lime', className: 'bg-lime-400' },
+      { name: 'violet', className: 'bg-violet-500' }
+    ];
+    const boardEl = document.getElementById('board');
+    const scoreEl = document.getElementById('score');
+    const message = document.getElementById('message');
+    const selectedLabel = document.getElementById('selectedLabel');
+    const nextRow = document.getElementById('nextRow');
+    let board = [];
+    let selected = null;
+    let nextColors = [];
+    let score = 0;
+    let gameOver = false;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      selected = null;
+      score = 0;
+      gameOver = false;
+      nextColors = randomColors(3);
+      spawnBalls(5);
+      nextColors = randomColors(3);
+      message.textContent = 'Click a ball, then click an empty square. Three new balls appear after moves that do not score.';
+      render();
+    }
+
+    function randomColors(count) {
+      return Array.from({ length: count }, () => colors[Math.floor(Math.random() * colors.length)].name);
+    }
+
+    function emptyCells() {
+      const cells = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (!board[row][col]) cells.push({ row, col });
+        }
+      }
+      return cells;
+    }
+
+    function spawnBalls(count, palette = nextColors) {
+      const cells = emptyCells();
+      for (let index = 0; index < count && cells.length; index += 1) {
+        const pick = Math.floor(Math.random() * cells.length);
+        const cell = cells.splice(pick, 1)[0];
+        board[cell.row][cell.col] = palette[index % palette.length];
+      }
+      checkLines();
+      if (!emptyCells().length) {
+        gameOver = true;
+        message.textContent = `Board full. Final score: ${score}.`;
+      }
+    }
+
+    function selectCell(row, col) {
+      if (gameOver) return;
+      const value = board[row][col];
+      if (value) {
+        selected = { row, col };
+        selectedLabel.textContent = `Selected ${value}`;
+        message.textContent = 'Choose an empty landing square.';
+        render();
+        return;
+      }
+      if (!selected) {
+        message.textContent = 'Select a ball first.';
+        return;
+      }
+      moveBall(row, col);
+    }
+
+    function moveBall(row, col) {
+      const moving = board[selected.row][selected.col];
+      board[selected.row][selected.col] = null;
+      board[row][col] = moving;
+      selected = null;
+      const cleared = checkLines();
+      if (!cleared) {
+        spawnBalls(3);
+        nextColors = randomColors(3);
+        message.textContent = 'No line yet. New balls appeared.';
+      } else {
+        message.textContent = `Cleared ${cleared} balls.`;
+      }
+      render();
+    }
+
+    function checkLines() {
+      const clear = new Set();
+      const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const color = board[row][col];
+          if (!color) continue;
+          directions.forEach(([dr, dc]) => {
+            const run = [];
+            let r = row;
+            let c = col;
+            while (r >= 0 && r < size && c >= 0 && c < size && board[r][c] === color) {
+              run.push(`${r},${c}`);
+              r += dr;
+              c += dc;
+            }
+            if (run.length >= 4) run.forEach(item => clear.add(item));
+          });
+        }
+      }
+      clear.forEach(item => {
+        const [row, col] = item.split(',').map(Number);
+        board[row][col] = null;
+      });
+      if (clear.size) score += clear.size * 10;
+      return clear.size;
+    }
+
+    function colorClass(name) {
+      return colors.find(color => color.name === name).className;
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      scoreEl.textContent = score;
+      selectedLabel.textContent = selected ? `Selected ${board[selected.row][selected.col]}` : 'Select a ball';
+      nextRow.innerHTML = nextColors.map(name => `<span class="h-8 w-8 rounded-full ${colorClass(name)} ring-2 ring-slate-700"></span>`).join('');
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = `flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 ${selected && selected.row === row && selected.col === col ? 'ring-4 ring-white' : ''}`;
+          if (board[row][col]) {
+            const ball = document.createElement('span');
+            ball.className = `h-10 w-10 rounded-full ${colorClass(board[row][col])} shadow-lg`;
+            cell.appendChild(ball);
+          }
+          cell.addEventListener('click', () => selectCell(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
