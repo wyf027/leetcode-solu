@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Quixo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-wide text-amber-200">Mini Quixo</h1>
+        <p class="mt-1 text-sm text-stone-400">选择边缘空格或己方棋子，再把整行或整列推入棋盘。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-500">当前</div>
+          <div id="turn" class="text-lg font-bold text-amber-200">X</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-500">X 胜</div>
+          <div id="xWins" class="text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-500">O 胜</div>
+          <div id="oWins" class="text-lg font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_260px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[560px] grid-cols-5 gap-2 rounded bg-stone-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-stone-400">推入方向</h2>
+          <div id="moveButtons" class="mt-3 grid grid-cols-2 gap-2"></div>
+        </div>
+
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-stone-400">状态</h2>
+          <p id="message" class="mt-3 min-h-12 text-sm leading-6 text-stone-300">点击棋盘外圈的方块开始。</p>
+          <button id="reset" class="mt-4 w-full rounded bg-amber-300 px-4 py-2 font-semibold text-stone-950 hover:bg-amber-200">重新开局</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById('board');
+    const turnEl = document.getElementById('turn');
+    const msgEl = document.getElementById('message');
+    const moveButtonsEl = document.getElementById('moveButtons');
+    const xWinsEl = document.getElementById('xWins');
+    const oWinsEl = document.getElementById('oWins');
+    const resetBtn = document.getElementById('reset');
+
+    let board = Array.from({ length: size }, () => Array(size).fill(''));
+    let current = 'X';
+    let selected = null;
+    let gameOver = false;
+    let wins = { X: 0, O: 0 };
+
+    const moveLabels = {
+      left: '从左推入',
+      right: '从右推入',
+      top: '从上推入',
+      bottom: '从下推入'
+    };
+
+    function isEdge(row, col) {
+      return row === 0 || row === size - 1 || col === 0 || col === size - 1;
+    }
+
+    function legalMoves(row, col) {
+      const moves = [];
+      if (col === 0) moves.push('left');
+      if (col === size - 1) moves.push('right');
+      if (row === 0) moves.push('top');
+      if (row === size - 1) moves.push('bottom');
+      return moves;
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const value = board[row][col];
+          const tile = document.createElement('button');
+          const active = selected && selected.row === row && selected.col === col;
+          tile.type = 'button';
+          tile.textContent = value || '·';
+          tile.className = [
+            'aspect-square rounded border text-3xl font-black transition',
+            value === 'X' ? 'border-amber-300 bg-amber-300 text-stone-950' : '',
+            value === 'O' ? 'border-cyan-300 bg-cyan-300 text-stone-950' : '',
+            value === '' ? 'border-stone-700 bg-stone-800 text-stone-600 hover:border-amber-200 hover:text-amber-200' : '',
+            isEdge(row, col) ? 'ring-1 ring-white/10' : 'opacity-80',
+            active ? 'outline outline-4 outline-amber-100' : ''
+          ].join(' ');
+          tile.addEventListener('click', () => selectCube(row, col));
+          boardEl.appendChild(tile);
+        }
+      }
+    }
+
+    function renderControls() {
+      turnEl.textContent = current;
+      xWinsEl.textContent = wins.X;
+      oWinsEl.textContent = wins.O;
+      moveButtonsEl.innerHTML = '';
+      const moves = selected ? legalMoves(selected.row, selected.col) : [];
+      const allMoves = ['left', 'right', 'top', 'bottom'];
+      allMoves.forEach((move) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = moveLabels[move];
+        btn.disabled = !moves.includes(move) || gameOver;
+        btn.className = 'rounded border border-stone-700 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-35 enabled:bg-stone-800 enabled:hover:border-amber-200 enabled:hover:text-amber-200';
+        btn.addEventListener('click', () => pushLine(move));
+        moveButtonsEl.appendChild(btn);
+      });
+    }
+
+    function selectCube(row, col) {
+      if (gameOver) return;
+      if (!isEdge(row, col)) {
+        msgEl.textContent = '只能选择棋盘外圈方块。';
+        return;
+      }
+      if (board[row][col] && board[row][col] !== current) {
+        msgEl.textContent = `只能移动空方块或 ${current} 的方块。`;
+        return;
+      }
+      selected = { row, col };
+      msgEl.textContent = `已选择第 ${row + 1} 行第 ${col + 1} 列，选择一个推入方向。`;
+      renderBoard();
+      renderControls();
+    }
+
+    function pushLine(move) {
+      if (!selected || gameOver) return;
+      const { row, col } = selected;
+      if (!legalMoves(row, col).includes(move)) return;
+
+      if (move === 'left') {
+        for (let c = 0; c < size - 1; c += 1) board[row][c] = board[row][c + 1];
+        board[row][size - 1] = current;
+      }
+      if (move === 'right') {
+        for (let c = size - 1; c > 0; c -= 1) board[row][c] = board[row][c - 1];
+        board[row][0] = current;
+      }
+      if (move === 'top') {
+        for (let r = 0; r < size - 1; r += 1) board[r][col] = board[r + 1][col];
+        board[size - 1][col] = current;
+      }
+      if (move === 'bottom') {
+        for (let r = size - 1; r > 0; r -= 1) board[r][col] = board[r - 1][col];
+        board[0][col] = current;
+      }
+
+      const winner = findWinner();
+      selected = null;
+      if (winner) {
+        gameOver = true;
+        wins[winner] += 1;
+        msgEl.textContent = `${winner} 连成五子，赢得本局。`;
+      } else if (board.flat().every(Boolean)) {
+        msgEl.textContent = '棋盘已满，继续推入来制造五连。';
+        current = current === 'X' ? 'O' : 'X';
+      } else {
+        current = current === 'X' ? 'O' : 'X';
+        msgEl.textContent = `轮到 ${current}，请选择外圈方块。`;
+      }
+      renderBoard();
+      renderControls();
+    }
+
+    function findWinner() {
+      const lines = [];
+      for (let i = 0; i < size; i += 1) {
+        lines.push(board[i]);
+        lines.push(board.map((row) => row[i]));
+      }
+      lines.push(board.map((row, i) => row[i]));
+      lines.push(board.map((row, i) => row[size - 1 - i]));
+      const winningLine = lines.find((line) => line[0] && line.every((cell) => cell === line[0]));
+      return winningLine ? winningLine[0] : '';
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(''));
+      current = 'X';
+      selected = null;
+      gameOver = false;
+      msgEl.textContent = '点击棋盘外圈的方块开始。';
+      renderBoard();
+      renderControls();
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
