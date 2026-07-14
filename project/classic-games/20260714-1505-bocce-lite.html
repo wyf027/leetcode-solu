@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bocce</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-lime-300">Classic mini game</p>
+        <h1 class="mt-1 text-3xl font-bold">Mini Bocce</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-lime-200">New Frame</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+        <canvas id="court" width="660" height="760" class="h-[72vh] min-h-[560px] w-full rounded bg-emerald-950"></canvas>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p class="text-xs text-emerald-300">Score</p>
+              <p id="score" class="text-3xl font-bold text-lime-300">0</p>
+            </div>
+            <div>
+              <p class="text-xs text-emerald-300">Ball</p>
+              <p id="ballCount" class="text-3xl font-bold">1/4</p>
+            </div>
+            <div>
+              <p class="text-xs text-emerald-300">Closest</p>
+              <p id="closest" class="text-3xl font-bold">--</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <label for="angle" class="block text-sm font-medium text-emerald-100">Angle</label>
+          <input id="angle" type="range" min="-36" max="36" value="0" class="mt-2 w-full accent-lime-300">
+          <div class="mt-1 flex justify-between text-xs text-emerald-300">
+            <span>Left</span>
+            <span id="angleText">0</span>
+            <span>Right</span>
+          </div>
+
+          <label for="power" class="mt-4 block text-sm font-medium text-emerald-100">Power</label>
+          <input id="power" type="range" min="44" max="100" value="76" class="mt-2 w-full accent-lime-300">
+          <div class="mt-1 flex justify-between text-xs text-emerald-300">
+            <span>Soft</span>
+            <span id="powerText">76</span>
+            <span>Firm</span>
+          </div>
+
+          <button id="rollBtn" class="mt-4 w-full rounded bg-lime-300 px-4 py-3 font-bold text-emerald-950 hover:bg-lime-200">Roll Ball</button>
+        </div>
+
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <p id="message" class="min-h-12 text-sm leading-6 text-emerald-100">Roll four bocce balls. The closer a ball stops to the pallino, the more it scores.</p>
+          <ol id="history" class="mt-3 max-h-52 space-y-2 overflow-auto text-sm text-emerald-200"></ol>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("court");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const ballCountEl = document.getElementById("ballCount");
+    const closestEl = document.getElementById("closest");
+    const angleEl = document.getElementById("angle");
+    const powerEl = document.getElementById("power");
+    const angleText = document.getElementById("angleText");
+    const powerText = document.getElementById("powerText");
+    const rollBtn = document.getElementById("rollBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const messageEl = document.getElementById("message");
+    const historyEl = document.getElementById("history");
+
+    const court = { x: 90, y: 44, w: 480, h: 660 };
+    const start = { x: 330, y: 675 };
+    const pallino = { x: 330, y: 150 };
+    let balls = [];
+    let score = 0;
+    let ballNumber = 1;
+    let animating = false;
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawCourt();
+      drawAim();
+      drawPallino();
+      balls.forEach(drawBall);
+      updatePanel();
+    }
+
+    function drawCourt() {
+      ctx.fillStyle = "#052e16";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#15803d";
+      ctx.fillRect(court.x, court.y, court.w, court.h);
+      ctx.strokeStyle = "#bbf7d0";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(court.x, court.y, court.w, court.h);
+
+      ctx.setLineDash([12, 10]);
+      ctx.strokeStyle = "#86efac";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(court.x, court.y + court.h - 96);
+      ctx.lineTo(court.x + court.w, court.y + court.h - 96);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      [60, 120, 190].forEach((radius, index) => {
+        ctx.beginPath();
+        ctx.arc(pallino.x, pallino.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = ["#dcfce7", "#86efac", "#4ade80"][index];
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    function drawAim() {
+      if (animating || ballNumber > 4) return;
+      const angle = (Number(angleEl.value) - 90) * Math.PI / 180;
+      const length = Number(powerEl.value) * 3.1;
+      ctx.strokeStyle = "#fef08a";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(start.x + Math.cos(angle) * length, start.y + Math.sin(angle) * length);
+      ctx.stroke();
+    }
+
+    function drawPallino() {
+      ctx.beginPath();
+      ctx.arc(pallino.x, pallino.y, 11, 0, Math.PI * 2);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fill();
+      ctx.strokeStyle = "#14532d";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    function drawBall(ball) {
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, 18, 0, Math.PI * 2);
+      ctx.fillStyle = ball.active ? "#fef08a" : "#84cc16";
+      ctx.fill();
+      ctx.strokeStyle = "#1a2e05";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = "#1a2e05";
+      ctx.font = "bold 13px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(ball.id, ball.x, ball.y + 1);
+    }
+
+    function rollBall() {
+      if (animating || ballNumber > 4) return;
+      const angle = (Number(angleEl.value) - 90 + random(-5, 5)) * Math.PI / 180;
+      const power = Number(powerEl.value);
+      const ball = {
+        id: ballNumber,
+        x: start.x,
+        y: start.y,
+        targetX: start.x + Math.cos(angle) * power * 4.2 + random(-18, 18),
+        targetY: start.y + Math.sin(angle) * power * 6.2 + random(-24, 24),
+        active: true
+      };
+      ball.targetX = clamp(ball.targetX, court.x + 22, court.x + court.w - 22);
+      ball.targetY = clamp(ball.targetY, court.y + 22, court.y + court.h - 22);
+      balls.push(ball);
+      animating = true;
+      animate(ball);
+    }
+
+    function animate(ball) {
+      const dx = (ball.targetX - ball.x) * 0.1;
+      const dy = (ball.targetY - ball.y) * 0.1;
+      ball.x += dx;
+      ball.y += dy;
+      draw();
+
+      if (Math.abs(dx) > 0.6 || Math.abs(dy) > 0.6) {
+        requestAnimationFrame(() => animate(ball));
+        return;
+      }
+
+      ball.x = ball.targetX;
+      ball.y = ball.targetY;
+      ball.active = false;
+      const gained = pointsFor(distance(ball, pallino));
+      score += gained;
+      log(`Ball ${ball.id}: ${gained} points.`);
+      ballNumber += 1;
+      animating = false;
+      messageEl.textContent = ballNumber > 4 ? `Frame complete with ${score} points.` : `Ball ${ballNumber} is ready.`;
+      draw();
+    }
+
+    function pointsFor(distanceValue) {
+      if (distanceValue <= 60) return 5;
+      if (distanceValue <= 120) return 3;
+      if (distanceValue <= 190) return 1;
+      return 0;
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function log(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      historyEl.prepend(item);
+    }
+
+    function closestDistance() {
+      if (!balls.length) return "--";
+      return Math.round(Math.min(...balls.map((ball) => distance(ball, pallino))));
+    }
+
+    function updatePanel() {
+      scoreEl.textContent = score;
+      ballCountEl.textContent = `${Math.min(ballNumber, 4)}/4`;
+      closestEl.textContent = closestDistance();
+      angleText.textContent = angleEl.value;
+      powerText.textContent = powerEl.value;
+      rollBtn.disabled = animating || ballNumber > 4;
+      rollBtn.classList.toggle("opacity-50", rollBtn.disabled);
+    }
+
+    function resetGame() {
+      balls = [];
+      score = 0;
+      ballNumber = 1;
+      animating = false;
+      historyEl.innerHTML = "";
+      messageEl.textContent = "Roll four bocce balls. The closer a ball stops to the pallino, the more it scores.";
+      draw();
+    }
+
+    function random(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    rollBtn.addEventListener("click", rollBall);
+    resetBtn.addEventListener("click", resetGame);
+    angleEl.addEventListener("input", draw);
+    powerEl.addEventListener("input", draw);
+    draw();
+  </script>
+</body>
+</html>
