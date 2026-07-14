@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gridlock</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-6 p-4">
+    <section class="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Gridlock</h1>
+          <p class="mt-1 text-sm text-zinc-400">Free the red car through the right-side exit.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="rounded border border-zinc-700 px-3 py-2 text-sm">Moves: <strong id="moveCount">0</strong></span>
+          <button id="resetBtn" class="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-cyan-400">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div class="relative mx-auto aspect-square w-full max-w-[520px]">
+          <div id="board" class="grid h-full w-full grid-cols-6 grid-rows-6 gap-1 rounded-lg bg-zinc-800 p-2"></div>
+          <div class="absolute right-[-18px] top-[39.5%] h-[16.5%] w-4 rounded-r bg-red-500"></div>
+        </div>
+
+        <aside class="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <div class="text-sm text-zinc-400">Selected</div>
+          <div id="selectedLabel" class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-semibold">Red car</div>
+          <div class="grid grid-cols-3 gap-2">
+            <button data-dir="up" class="col-start-2 rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Up</button>
+            <button data-dir="left" class="rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Left</button>
+            <button data-dir="down" class="rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Down</button>
+            <button data-dir="right" class="rounded bg-zinc-800 py-3 font-bold hover:bg-zinc-700">Right</button>
+          </div>
+          <p id="message" class="min-h-12 rounded border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-300">Click a car, then move it along its lane.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const initialCars = [
+      { id: 'red', name: 'Red car', row: 2, col: 0, len: 2, dir: 'h', color: 'bg-red-500' },
+      { id: 'blue', name: 'Blue van', row: 0, col: 2, len: 3, dir: 'v', color: 'bg-blue-500' },
+      { id: 'green', name: 'Green cab', row: 0, col: 4, len: 2, dir: 'v', color: 'bg-emerald-500' },
+      { id: 'amber', name: 'Amber truck', row: 3, col: 1, len: 3, dir: 'h', color: 'bg-amber-400' },
+      { id: 'violet', name: 'Violet car', row: 4, col: 3, len: 2, dir: 'v', color: 'bg-violet-500' },
+      { id: 'cyan', name: 'Cyan car', row: 5, col: 0, len: 2, dir: 'h', color: 'bg-cyan-500' }
+    ];
+
+    let cars = [];
+    let selectedId = 'red';
+    let moves = 0;
+    let won = false;
+
+    const board = document.getElementById('board');
+    const moveCount = document.getElementById('moveCount');
+    const selectedLabel = document.getElementById('selectedLabel');
+    const message = document.getElementById('message');
+
+    function resetGame() {
+      cars = initialCars.map(car => ({ ...car }));
+      selectedId = 'red';
+      moves = 0;
+      won = false;
+      message.textContent = 'Click a car, then move it along its lane.';
+      render();
+    }
+
+    function cellsFor(car) {
+      return Array.from({ length: car.len }, (_, index) => ({
+        row: car.row + (car.dir === 'v' ? index : 0),
+        col: car.col + (car.dir === 'h' ? index : 0)
+      }));
+    }
+
+    function occupancy(exceptId = null) {
+      const used = new Map();
+      cars.filter(car => car.id !== exceptId).forEach(car => {
+        cellsFor(car).forEach(cell => used.set(`${cell.row},${cell.col}`, car.id));
+      });
+      return used;
+    }
+
+    function canMove(car, dir) {
+      if (won) return false;
+      if ((car.dir === 'h' && !['left', 'right'].includes(dir)) || (car.dir === 'v' && !['up', 'down'].includes(dir))) {
+        return false;
+      }
+      const used = occupancy(car.id);
+      const target = { row: car.row, col: car.col };
+      if (dir === 'left') target.col -= 1;
+      if (dir === 'right') target.col += car.len;
+      if (dir === 'up') target.row -= 1;
+      if (dir === 'down') target.row += car.len;
+      if (car.id === 'red' && dir === 'right' && target.row === 2 && target.col === 6) return true;
+      return target.row >= 0 && target.row < 6 && target.col >= 0 && target.col < 6 && !used.has(`${target.row},${target.col}`);
+    }
+
+    function moveSelected(dir) {
+      const car = cars.find(item => item.id === selectedId);
+      if (!car || !canMove(car, dir)) {
+        message.textContent = 'That lane is blocked.';
+        return;
+      }
+      if (dir === 'left') car.col -= 1;
+      if (dir === 'right') car.col += 1;
+      if (dir === 'up') car.row -= 1;
+      if (dir === 'down') car.row += 1;
+      moves += 1;
+      if (car.id === 'red' && car.col + car.len >= 6) {
+        won = true;
+        message.textContent = `Escaped in ${moves} moves.`;
+      } else {
+        message.textContent = `${car.name} moved ${dir}.`;
+      }
+      render();
+    }
+
+    function selectCar(id) {
+      if (won) return;
+      selectedId = id;
+      const car = cars.find(item => item.id === id);
+      selectedLabel.textContent = car.name;
+      message.textContent = `${car.name} selected.`;
+      render();
+    }
+
+    function render() {
+      board.innerHTML = '';
+      moveCount.textContent = moves;
+      const selectedCar = cars.find(car => car.id === selectedId);
+      selectedLabel.textContent = selectedCar ? selectedCar.name : 'None';
+
+      for (let row = 0; row < 6; row += 1) {
+        for (let col = 0; col < 6; col += 1) {
+          const cell = document.createElement('div');
+          cell.className = 'rounded bg-zinc-950/80';
+          board.appendChild(cell);
+        }
+      }
+
+      cars.forEach(car => {
+        const piece = document.createElement('button');
+        piece.type = 'button';
+        piece.textContent = car.id === 'red' ? 'EXIT' : '';
+        piece.className = `${car.color} ${selectedId === car.id ? 'ring-4 ring-white' : 'ring-1 ring-black/30'} rounded-md text-xs font-black text-white shadow-lg transition hover:brightness-110`;
+        piece.style.gridColumn = `${car.col + 1} / span ${car.dir === 'h' ? car.len : 1}`;
+        piece.style.gridRow = `${car.row + 1} / span ${car.dir === 'v' ? car.len : 1}`;
+        piece.addEventListener('click', () => selectCar(car.id));
+        board.appendChild(piece);
+      });
+    }
+
+    document.querySelectorAll('[data-dir]').forEach(button => {
+      button.addEventListener('click', () => moveSelected(button.dataset.dir));
+    });
+    document.addEventListener('keydown', event => {
+      const keys = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+      if (keys[event.key]) moveSelected(keys[event.key]);
+    });
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
