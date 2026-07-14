@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kamisado</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Kamisado</h1>
+        <p class="mt-1 text-sm text-neutral-300">落点颜色指定对手下一枚塔，先把塔推进到对面底线获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-amber-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-3 shadow-xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 overflow-hidden rounded-md border border-neutral-700"></div>
+      </div>
+
+      <aside class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-neutral-400">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">白方</p>
+          </div>
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs uppercase text-neutral-400">指定颜色</p>
+            <p id="forcedText" class="mt-1 text-lg font-semibold text-white">任意</p>
+          </div>
+          <p id="statusText" class="rounded-md bg-neutral-800 p-3 text-sm leading-6 text-neutral-200">
+            白方先手，可选择任意塔。塔可向前、斜前任意距离移动。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const colors = [
+      { key: "red", label: "红", cell: "bg-red-500" },
+      { key: "orange", label: "橙", cell: "bg-orange-400" },
+      { key: "yellow", label: "黄", cell: "bg-yellow-300" },
+      { key: "green", label: "绿", cell: "bg-emerald-500" },
+      { key: "blue", label: "蓝", cell: "bg-sky-500" },
+      { key: "violet", label: "紫", cell: "bg-violet-500" }
+    ];
+    const boardPattern = [
+      [0, 1, 2, 3, 4, 5],
+      [3, 4, 5, 0, 1, 2],
+      [1, 2, 3, 4, 5, 0],
+      [4, 5, 0, 1, 2, 3],
+      [2, 3, 4, 5, 0, 1],
+      [5, 0, 1, 2, 3, 4]
+    ];
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const forcedText = document.getElementById("forcedText");
+    const statusText = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let pieces = [];
+    let turn = "W";
+    let forcedColor = null;
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      pieces = [];
+      for (let col = 0; col < size; col++) {
+        pieces.push({ side: "B", color: colors[col].key, row: 0, col });
+        pieces.push({ side: "W", color: colors[col].key, row: size - 1, col });
+      }
+      turn = "W";
+      forcedColor = null;
+      selected = null;
+      winner = null;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "W" ? "白方" : "黑方";
+    }
+
+    function colorLabel(key) {
+      return colors.find((color) => color.key === key)?.label || "任意";
+    }
+
+    function pieceAt(row, col) {
+      return pieces.find((piece) => piece.row === row && piece.col === col);
+    }
+
+    function availablePieces(side) {
+      let candidates = pieces.filter((piece) => piece.side === side);
+      if (forcedColor) candidates = candidates.filter((piece) => piece.color === forcedColor);
+      if (candidates.some((piece) => legalMoves(piece).length > 0)) return candidates;
+      return pieces.filter((piece) => piece.side === side);
+    }
+
+    function legalMoves(piece) {
+      if (!piece || winner) return [];
+      const direction = piece.side === "W" ? -1 : 1;
+      const moves = [];
+      for (const colStep of [-1, 0, 1]) {
+        let row = piece.row + direction;
+        let col = piece.col + colStep;
+        while (row >= 0 && row < size && col >= 0 && col < size && !pieceAt(row, col)) {
+          moves.push([row, col]);
+          row += direction;
+          col += colStep;
+        }
+      }
+      return moves;
+    }
+
+    function choosePiece(piece) {
+      if (winner || piece.side !== turn) return;
+      if (!availablePieces(turn).includes(piece)) return;
+      selected = piece;
+      render();
+    }
+
+    function moveSelected(row, col) {
+      if (!selected) return;
+      const moves = legalMoves(selected);
+      if (!moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col)) return;
+      selected.row = row;
+      selected.col = col;
+      if ((selected.side === "W" && row === 0) || (selected.side === "B" && row === size - 1)) {
+        winner = selected.side;
+      }
+      forcedColor = colors[boardPattern[row][col]].key;
+      turn = turn === "W" ? "B" : "W";
+      selected = null;
+      render();
+    }
+
+    function handleCell(row, col) {
+      const piece = pieceAt(row, col);
+      if (piece) {
+        choosePiece(piece);
+      } else {
+        moveSelected(row, col);
+      }
+    }
+
+    function render() {
+      const moves = selected ? legalMoves(selected) : [];
+      const allowed = availablePieces(turn);
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const color = colors[boardPattern[row][col]];
+          const piece = pieceAt(row, col);
+          const isMove = moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col);
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const button = document.createElement("button");
+          button.className = [
+            "relative flex aspect-square items-center justify-center border border-neutral-900 text-sm font-black transition",
+            color.cell,
+            isMove ? "ring-4 ring-white ring-inset brightness-125" : "hover:brightness-110",
+            isSelected ? "outline outline-4 outline-amber-200" : ""
+          ].join(" ");
+          button.setAttribute("aria-label", `${row + 1}-${col + 1} ${color.label}`);
+          button.addEventListener("click", () => handleCell(row, col));
+          if (piece) {
+            const disk = document.createElement("span");
+            disk.className = [
+              "flex h-3/5 w-3/5 items-center justify-center rounded-md border-2 shadow-lg",
+              piece.side === "W" ? "border-white bg-neutral-100 text-neutral-950" : "border-neutral-300 bg-neutral-950 text-white",
+              allowed.includes(piece) && piece.side === turn && !winner ? "ring-2 ring-amber-200" : ""
+            ].join(" ");
+            disk.textContent = colorLabel(piece.color);
+            button.appendChild(disk);
+          }
+          boardEl.appendChild(button);
+        }
+      }
+
+      const movable = winner ? 0 : allowed.reduce((sum, piece) => sum + legalMoves(piece).length, 0);
+      turnText.textContent = winner ? `${sideName(winner)}获胜` : sideName(turn);
+      forcedText.textContent = forcedColor ? colorLabel(forcedColor) : "任意";
+      statusText.textContent = winner
+        ? `${sideName(winner)}的塔抵达终点。点击重新开始再来一局。`
+        : selected
+          ? `${sideName(turn)}已选择${colorLabel(selected.color)}塔，可移动到 ${moves.length} 个目标格。`
+          : `${sideName(turn)}行动，${forcedColor ? `应选择${colorLabel(forcedColor)}塔` : "可选择任意塔"}，当前共有 ${movable} 个走法。`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
