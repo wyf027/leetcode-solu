@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Petteia</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Petteia</h1>
+        <p class="mt-1 text-sm text-zinc-300">古典夹击棋：棋子正交滑行，把对手夹在两枚己方棋子之间即可捕获。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-teal-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-7 overflow-hidden rounded-md border border-zinc-700"></div>
+      </div>
+
+      <aside class="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-zinc-400">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">白方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-md bg-zinc-800 p-3">
+              <p class="text-zinc-400">白方</p>
+              <p id="whiteCount" class="text-xl font-semibold text-white">7</p>
+            </div>
+            <div class="rounded-md bg-zinc-800 p-3">
+              <p class="text-zinc-400">黑方</p>
+              <p id="blackCount" class="text-xl font-semibold text-white">7</p>
+            </div>
+          </div>
+          <p id="statusText" class="rounded-md bg-zinc-800 p-3 text-sm leading-6 text-zinc-200">
+            白方先手。选择己方棋子，再沿横向或纵向滑到空格。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const whiteCount = document.getElementById("whiteCount");
+    const blackCount = document.getElementById("blackCount");
+    const resetBtn = document.getElementById("resetBtn");
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    let board = [];
+    let turn = "W";
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      for (let col = 0; col < size; col++) {
+        board[0][col] = "B";
+        board[size - 1][col] = "W";
+      }
+      turn = "W";
+      selected = null;
+      winner = null;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "W" ? "白方" : "黑方";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function legalMoves(row, col) {
+      const piece = board[row][col];
+      if (!piece || winner) return [];
+      const moves = [];
+      for (const [rowStep, colStep] of directions) {
+        let nextRow = row + rowStep;
+        let nextCol = col + colStep;
+        while (inBounds(nextRow, nextCol) && !board[nextRow][nextCol]) {
+          moves.push([nextRow, nextCol]);
+          nextRow += rowStep;
+          nextCol += colStep;
+        }
+      }
+      return moves;
+    }
+
+    function captureFrom(row, col) {
+      const piece = board[row][col];
+      const enemy = piece === "W" ? "B" : "W";
+      let captured = 0;
+      for (const [rowStep, colStep] of directions) {
+        const midRow = row + rowStep;
+        const midCol = col + colStep;
+        const farRow = row + rowStep * 2;
+        const farCol = col + colStep * 2;
+        if (inBounds(farRow, farCol) && board[midRow][midCol] === enemy && board[farRow][farCol] === piece) {
+          board[midRow][midCol] = "";
+          captured++;
+        }
+      }
+      return captured;
+    }
+
+    function countPieces(side) {
+      return board.flat().filter((cell) => cell === side).length;
+    }
+
+    function hasAnyMove(side) {
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          if (board[row][col] === side && legalMoves(row, col).length > 0) return true;
+        }
+      }
+      return false;
+    }
+
+    function checkWinner(nextTurn) {
+      const white = countPieces("W");
+      const black = countPieces("B");
+      if (white <= 1) return "B";
+      if (black <= 1) return "W";
+      if (!hasAnyMove(nextTurn)) return nextTurn === "W" ? "B" : "W";
+      return null;
+    }
+
+    function movePiece(row, col) {
+      if (!selected) return;
+      const moves = legalMoves(selected.row, selected.col);
+      if (!moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col)) return;
+      const piece = board[selected.row][selected.col];
+      board[selected.row][selected.col] = "";
+      board[row][col] = piece;
+      const captured = captureFrom(row, col);
+      const nextTurn = turn === "W" ? "B" : "W";
+      winner = checkWinner(nextTurn);
+      selected = null;
+      turn = nextTurn;
+      render(captured);
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+      if (selected && !board[row][col]) {
+        movePiece(row, col);
+        return;
+      }
+      if (board[row][col] === turn) {
+        selected = { row, col };
+      } else {
+        selected = null;
+      }
+      render();
+    }
+
+    function render(captured = 0) {
+      const moves = selected ? legalMoves(selected.row, selected.col) : [];
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const isMove = moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col);
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const button = document.createElement("button");
+          button.className = [
+            "flex aspect-square items-center justify-center border border-zinc-800 text-xl font-black transition",
+            (row + col) % 2 ? "bg-zinc-700" : "bg-zinc-600",
+            isMove ? "bg-teal-500 hover:bg-teal-400" : "hover:brightness-110",
+            isSelected ? "ring-4 ring-white ring-inset" : ""
+          ].join(" ");
+          button.setAttribute("aria-label", `${row + 1}-${col + 1}`);
+          button.addEventListener("click", () => handleCell(row, col));
+          if (board[row][col]) {
+            const disk = document.createElement("span");
+            disk.className = [
+              "flex h-3/5 w-3/5 items-center justify-center rounded-full border-2 shadow-lg",
+              board[row][col] === "W" ? "border-white bg-zinc-100 text-zinc-950" : "border-zinc-300 bg-zinc-950 text-white"
+            ].join(" ");
+            disk.textContent = board[row][col];
+            button.appendChild(disk);
+          }
+          boardEl.appendChild(button);
+        }
+      }
+      whiteCount.textContent = countPieces("W");
+      blackCount.textContent = countPieces("B");
+      turnText.textContent = winner ? `${sideName(winner)}获胜` : sideName(turn);
+      statusText.textContent = winner
+        ? `${sideName(winner)}完成夹击优势。点击重新开始再来一局。`
+        : selected
+          ? `${sideName(turn)}已选中棋子，可滑行到 ${moves.length} 个空格。`
+          : captured > 0
+            ? `刚刚夹击捕获 ${captured} 枚棋子。${sideName(turn)}行动。`
+            : `${sideName(turn)}行动。横向或纵向滑行，用己方棋子夹住对手。`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
