@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Tower Defense</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Mini Tower Defense</h1>
+        <p class="text-sm text-slate-400">Build arrow towers beside the road. Stop five waves before the base falls.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400">New Game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <canvas id="game" width="720" height="480" class="h-auto w-full rounded bg-slate-950"></canvas>
+      </div>
+
+      <aside class="space-y-3 rounded border border-slate-800 bg-slate-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-slate-400">Lives</div>
+            <div id="lives" class="text-2xl font-bold">20</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-slate-400">Coins</div>
+            <div id="coins" class="text-2xl font-bold">90</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-slate-400">Wave</div>
+            <div id="wave" class="text-2xl font-bold">1/5</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-slate-400">Score</div>
+            <div id="score" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+
+        <button id="waveBtn" class="w-full rounded bg-sky-500 px-4 py-2 font-semibold text-sky-950 hover:bg-sky-400">Start Wave</button>
+        <div id="message" class="min-h-12 rounded bg-slate-800 p-3 text-sm text-slate-300">Click an empty grass tile to build a tower for 35 coins. Click a tower to upgrade it for 25 coins.</div>
+
+        <div class="space-y-2 text-sm text-slate-300">
+          <div class="flex items-center gap-2"><span class="h-4 w-4 rounded bg-emerald-800"></span> Buildable grass</div>
+          <div class="flex items-center gap-2"><span class="h-4 w-4 rounded bg-amber-700"></span> Enemy road</div>
+          <div class="flex items-center gap-2"><span class="h-4 w-4 rounded-full bg-cyan-300"></span> Arrow tower</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const tile = 48;
+    const cols = 15;
+    const rows = 10;
+    const path = [
+      [0, 4], [1, 4], [2, 4], [3, 4], [4, 4], [4, 3], [5, 3], [6, 3],
+      [7, 3], [8, 3], [8, 4], [8, 5], [9, 5], [10, 5], [11, 5],
+      [12, 5], [13, 5], [14, 5]
+    ].map(([x, y]) => ({ x: x * tile + tile / 2, y: y * tile + tile / 2, gx: x, gy: y }));
+    const pathKeys = new Set(path.map(p => `${p.gx},${p.gy}`));
+    const ui = {
+      lives: document.getElementById('lives'),
+      coins: document.getElementById('coins'),
+      wave: document.getElementById('wave'),
+      score: document.getElementById('score'),
+      message: document.getElementById('message'),
+      waveBtn: document.getElementById('waveBtn')
+    };
+
+    let towers, enemies, shots, lives, coins, score, wave, spawning, spawnTimer, spawnLeft, running, gameOver;
+
+    function resetGame() {
+      towers = [];
+      enemies = [];
+      shots = [];
+      lives = 20;
+      coins = 90;
+      score = 0;
+      wave = 1;
+      spawning = false;
+      spawnTimer = 0;
+      spawnLeft = 0;
+      running = true;
+      gameOver = false;
+      ui.message.textContent = 'Click an empty grass tile to build a tower for 35 coins. Click a tower to upgrade it for 25 coins.';
+      ui.waveBtn.disabled = false;
+      ui.waveBtn.textContent = 'Start Wave';
+      updateUi();
+    }
+
+    function updateUi() {
+      ui.lives.textContent = lives;
+      ui.coins.textContent = coins;
+      ui.wave.textContent = `${Math.min(wave, 5)}/5`;
+      ui.score.textContent = score;
+    }
+
+    function startWave() {
+      if (gameOver || spawning || enemies.length) return;
+      if (wave > 5) return;
+      spawning = true;
+      spawnLeft = 6 + wave * 2;
+      spawnTimer = 0;
+      ui.waveBtn.disabled = true;
+      ui.message.textContent = `Wave ${wave} incoming. Build choices are locked until the road is clear.`;
+    }
+
+    function spawnEnemy() {
+      const hp = 35 + wave * 16;
+      enemies.push({
+        x: path[0].x,
+        y: path[0].y,
+        index: 0,
+        hp,
+        maxHp: hp,
+        speed: 42 + wave * 4,
+        reward: 8 + wave
+      });
+    }
+
+    function towerAt(gx, gy) {
+      return towers.find(t => t.gx === gx && t.gy === gy);
+    }
+
+    function handleBuild(event) {
+      if (gameOver || spawning || enemies.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor((event.clientX - rect.left) * (canvas.width / rect.width) / tile);
+      const y = Math.floor((event.clientY - rect.top) * (canvas.height / rect.height) / tile);
+      if (x < 0 || y < 0 || x >= cols || y >= rows || pathKeys.has(`${x},${y}`)) return;
+      const existing = towerAt(x, y);
+      if (existing) {
+        if (coins < 25 || existing.level >= 3) {
+          ui.message.textContent = existing.level >= 3 ? 'That tower is already fully upgraded.' : 'Not enough coins to upgrade.';
+          return;
+        }
+        coins -= 25;
+        existing.level += 1;
+        existing.range += 18;
+        existing.damage += 9;
+        ui.message.textContent = `Tower upgraded to level ${existing.level}.`;
+      } else {
+        if (coins < 35) {
+          ui.message.textContent = 'Not enough coins to build a tower.';
+          return;
+        }
+        coins -= 35;
+        towers.push({ gx: x, gy: y, x: x * tile + tile / 2, y: y * tile + tile / 2, range: 112, damage: 18, cooldown: 0, level: 1 });
+        ui.message.textContent = 'Tower built. Start the next wave when ready.';
+      }
+      updateUi();
+    }
+
+    function update(dt) {
+      if (!running) return;
+      if (spawning) {
+        spawnTimer -= dt;
+        if (spawnTimer <= 0 && spawnLeft > 0) {
+          spawnEnemy();
+          spawnLeft -= 1;
+          spawnTimer = Math.max(0.35, 0.8 - wave * 0.06);
+        }
+        if (spawnLeft === 0) spawning = false;
+      }
+
+      for (const enemy of enemies) {
+        const target = path[enemy.index + 1];
+        if (!target) {
+          enemy.done = true;
+          lives -= 1;
+          continue;
+        }
+        const dx = target.x - enemy.x;
+        const dy = target.y - enemy.y;
+        const dist = Math.hypot(dx, dy);
+        const step = enemy.speed * dt;
+        if (dist <= step) {
+          enemy.x = target.x;
+          enemy.y = target.y;
+          enemy.index += 1;
+        } else {
+          enemy.x += dx / dist * step;
+          enemy.y += dy / dist * step;
+        }
+      }
+
+      for (const tower of towers) {
+        tower.cooldown -= dt;
+        if (tower.cooldown > 0) continue;
+        const target = enemies.find(e => !e.done && Math.hypot(e.x - tower.x, e.y - tower.y) <= tower.range);
+        if (!target) continue;
+        target.hp -= tower.damage;
+        shots.push({ x1: tower.x, y1: tower.y, x2: target.x, y2: target.y, life: 0.12 });
+        tower.cooldown = 0.75 - tower.level * 0.08;
+      }
+
+      for (const shot of shots) shot.life -= dt;
+      shots = shots.filter(s => s.life > 0);
+
+      for (const enemy of enemies) {
+        if (enemy.hp <= 0 && !enemy.done) {
+          enemy.done = true;
+          coins += enemy.reward;
+          score += 10 + wave * 3;
+        }
+      }
+      enemies = enemies.filter(e => !e.done);
+
+      if (lives <= 0) {
+        gameOver = true;
+        running = false;
+        ui.message.textContent = 'Base destroyed. Start a new game to try again.';
+      } else if (!spawning && spawnLeft === 0 && enemies.length === 0 && ui.waveBtn.disabled) {
+        if (wave === 5) {
+          gameOver = true;
+          running = false;
+          ui.message.textContent = `Victory. Final score: ${score}.`;
+        } else {
+          wave += 1;
+          ui.waveBtn.disabled = false;
+          ui.message.textContent = `Wave cleared. Spend coins before wave ${wave}.`;
+        }
+      }
+      updateUi();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          ctx.fillStyle = pathKeys.has(`${x},${y}`) ? '#a16207' : '#065f46';
+          ctx.fillRect(x * tile + 1, y * tile + 1, tile - 2, tile - 2);
+        }
+      }
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, path[0].y - 18, 20, 36);
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(canvas.width - 20, path[path.length - 1].y - 20, 20, 40);
+
+      for (const tower of towers) {
+        ctx.beginPath();
+        ctx.fillStyle = '#67e8f9';
+        ctx.arc(tower.x, tower.y, 15 + tower.level * 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#0e7490';
+        ctx.fillRect(tower.x - 4, tower.y - 22, 8, 18);
+        ctx.fillStyle = '#082f49';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(tower.level, tower.x, tower.y + 4);
+      }
+
+      ctx.strokeStyle = '#f8fafc';
+      ctx.lineWidth = 3;
+      for (const shot of shots) {
+        ctx.globalAlpha = Math.max(0, shot.life / 0.12);
+        ctx.beginPath();
+        ctx.moveTo(shot.x1, shot.y1);
+        ctx.lineTo(shot.x2, shot.y2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      for (const enemy of enemies) {
+        ctx.beginPath();
+        ctx.fillStyle = '#fb7185';
+        ctx.arc(enemy.x, enemy.y, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(enemy.x - 16, enemy.y - 23, 32, 5);
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(enemy.x - 16, enemy.y - 23, 32 * Math.max(0, enemy.hp / enemy.maxHp), 5);
+      }
+    }
+
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener('click', handleBuild);
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    ui.waveBtn.addEventListener('click', startWave);
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
