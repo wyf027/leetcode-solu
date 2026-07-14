@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tower Stack</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Tower Stack</h1>
+          <p class="mt-1 text-sm text-slate-300">Drop the moving block onto the stack. Only the overlapping part survives.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-slate-700 px-3 py-2 text-sm">Score: <strong id="score">0</strong></span>
+          <button id="dropBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-200">Drop</button>
+          <button id="resetBtn" class="rounded border border-slate-600 px-4 py-2 text-sm font-bold hover:bg-slate-800">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_210px]">
+        <div id="stage" class="relative mx-auto h-[520px] w-full max-w-[360px] overflow-hidden rounded-lg border border-slate-700 bg-slate-950">
+          <div class="absolute inset-x-0 bottom-0 h-8 bg-slate-800"></div>
+        </div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
+          <div class="rounded border border-slate-700 bg-slate-900 p-3">
+            <div class="text-xs uppercase text-slate-400">Block width</div>
+            <div id="widthLabel" class="mt-1 text-3xl font-black">160</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-900 p-3">
+            <div class="text-xs uppercase text-slate-400">Speed</div>
+            <div id="speedLabel" class="mt-1 text-3xl font-black">2</div>
+          </div>
+          <p id="message" class="min-h-24 rounded border border-slate-700 bg-slate-900 p-3 text-sm text-slate-300">Press Drop when the moving block lines up with the tower.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const stage = document.getElementById('stage');
+    const scoreEl = document.getElementById('score');
+    const widthLabel = document.getElementById('widthLabel');
+    const speedLabel = document.getElementById('speedLabel');
+    const message = document.getElementById('message');
+    const dropBtn = document.getElementById('dropBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const stageWidth = 360;
+    const blockHeight = 22;
+    const colors = ['bg-cyan-400', 'bg-emerald-400', 'bg-amber-300', 'bg-rose-400', 'bg-violet-400'];
+    let blocks = [];
+    let active = null;
+    let score = 0;
+    let speed = 2;
+    let direction = 1;
+    let gameOver = false;
+    let animationId = null;
+
+    function resetGame() {
+      blocks = [{ x: 100, y: 30, width: 160, color: 'bg-slate-500' }];
+      score = 0;
+      speed = 2;
+      direction = 1;
+      gameOver = false;
+      dropBtn.disabled = false;
+      dropBtn.classList.remove('opacity-50');
+      spawnBlock();
+      message.textContent = 'Press Drop when the moving block lines up with the tower.';
+      render();
+      startLoop();
+    }
+
+    function spawnBlock() {
+      const base = blocks[blocks.length - 1];
+      active = {
+        x: 0,
+        y: base.y + blockHeight,
+        width: base.width,
+        color: colors[blocks.length % colors.length]
+      };
+    }
+
+    function startLoop() {
+      if (animationId) cancelAnimationFrame(animationId);
+      animationId = requestAnimationFrame(tick);
+    }
+
+    function tick() {
+      if (!gameOver && active) {
+        active.x += speed * direction;
+        if (active.x <= 0 || active.x + active.width >= stageWidth) {
+          direction *= -1;
+          active.x = Math.max(0, Math.min(stageWidth - active.width, active.x));
+        }
+        render();
+        animationId = requestAnimationFrame(tick);
+      }
+    }
+
+    function dropBlock() {
+      if (gameOver || !active) return;
+      const base = blocks[blocks.length - 1];
+      const left = Math.max(active.x, base.x);
+      const right = Math.min(active.x + active.width, base.x + base.width);
+      const overlap = Math.max(0, right - left);
+      if (overlap < 12) {
+        endGame('The tower missed. Final score: ' + score + '.');
+        return;
+      }
+      blocks.push({ x: left, y: active.y, width: overlap, color: active.color });
+      score += 1;
+      speed = Math.min(7, speed + 0.25);
+      message.textContent = `Stacked ${Math.round(overlap)} pixels.`;
+      spawnBlock();
+      if (active.y > 455) {
+        endGame('Tower topped out. Score: ' + score + '.');
+      }
+      render();
+    }
+
+    function endGame(text) {
+      gameOver = true;
+      active = null;
+      dropBtn.disabled = true;
+      dropBtn.classList.add('opacity-50');
+      message.textContent = text;
+      if (animationId) cancelAnimationFrame(animationId);
+    }
+
+    function blockMarkup(block, faded = false) {
+      const div = document.createElement('div');
+      div.className = `absolute rounded ${block.color} ${faded ? 'opacity-90' : ''}`;
+      div.style.left = `${block.x}px`;
+      div.style.bottom = `${block.y}px`;
+      div.style.width = `${block.width}px`;
+      div.style.height = `${blockHeight}px`;
+      return div;
+    }
+
+    function render() {
+      stage.querySelectorAll('[data-block]').forEach(node => node.remove());
+      blocks.forEach(block => {
+        const div = blockMarkup(block);
+        div.dataset.block = 'stack';
+        stage.appendChild(div);
+      });
+      if (active) {
+        const div = blockMarkup(active, true);
+        div.dataset.block = 'active';
+        stage.appendChild(div);
+      }
+      scoreEl.textContent = score;
+      widthLabel.textContent = active ? Math.round(active.width) : '0';
+      speedLabel.textContent = speed.toFixed(1);
+    }
+
+    dropBtn.addEventListener('click', dropBlock);
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
