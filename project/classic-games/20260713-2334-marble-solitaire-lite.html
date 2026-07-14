@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Marble Solitaire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 p-4">
+    <section class="w-full rounded-lg border border-emerald-800 bg-emerald-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal">Mini Marble Solitaire</h1>
+          <p class="mt-1 text-sm text-emerald-300">Jump marbles over neighbors into empty holes. The jumped marble disappears.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="rounded border border-emerald-700 px-3 py-2 text-sm">Marbles: <strong id="count">0</strong></span>
+          <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-lime-200">Reset</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[540px] grid-cols-7 grid-rows-7 gap-2 rounded-lg bg-emerald-950 p-3"></div>
+        <aside class="flex flex-col gap-3 rounded-lg border border-emerald-800 bg-emerald-950 p-3">
+          <div id="selectedLabel" class="rounded border border-emerald-700 bg-emerald-900 px-3 py-2 font-semibold">Select a marble</div>
+          <div id="message" class="min-h-24 rounded border border-emerald-800 bg-emerald-900 p-3 text-sm text-emerald-200">Select a marble, then click an empty hole two spaces away.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const valid = new Set();
+    const boardEl = document.getElementById('board');
+    const countEl = document.getElementById('count');
+    const selectedLabel = document.getElementById('selectedLabel');
+    const message = document.getElementById('message');
+    let marbles = new Set();
+    let selected = null;
+
+    for (let row = 0; row < 7; row += 1) {
+      for (let col = 0; col < 7; col += 1) {
+        if ((row >= 2 && row <= 4) || (col >= 2 && col <= 4)) valid.add(key(row, col));
+      }
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function parseKey(value) {
+      const [row, col] = value.split(',').map(Number);
+      return { row, col };
+    }
+
+    function resetGame() {
+      marbles = new Set(valid);
+      marbles.delete(key(3, 3));
+      selected = null;
+      message.textContent = 'Select a marble, then click an empty hole two spaces away.';
+      render();
+    }
+
+    function selectCell(row, col) {
+      const cellKey = key(row, col);
+      if (!valid.has(cellKey)) return;
+      if (marbles.has(cellKey)) {
+        selected = cellKey;
+        selectedLabel.textContent = `Selected ${row + 1}, ${col + 1}`;
+        message.textContent = 'Now click a valid empty landing hole.';
+        render();
+        return;
+      }
+      if (!selected) {
+        message.textContent = 'Pick a marble first.';
+        return;
+      }
+      moveMarble(cellKey);
+    }
+
+    function moveMarble(targetKey) {
+      const from = parseKey(selected);
+      const to = parseKey(targetKey);
+      const dr = to.row - from.row;
+      const dc = to.col - from.col;
+      const middle = key(from.row + dr / 2, from.col + dc / 2);
+      if ((Math.abs(dr) === 2 && dc === 0 || Math.abs(dc) === 2 && dr === 0) && !marbles.has(targetKey) && marbles.has(middle)) {
+        marbles.delete(selected);
+        marbles.delete(middle);
+        marbles.add(targetKey);
+        selected = null;
+        message.textContent = marbles.size === 1 ? 'Perfect finish: one marble left.' : 'Jump completed.';
+      } else {
+        message.textContent = 'That jump is not legal.';
+      }
+      render();
+    }
+
+    function hasMove() {
+      for (const item of marbles) {
+        const cell = parseKey(item);
+        for (const [dr, dc] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
+          const target = key(cell.row + dr, cell.col + dc);
+          const middle = key(cell.row + dr / 2, cell.col + dc / 2);
+          if (valid.has(target) && !marbles.has(target) && marbles.has(middle)) return true;
+        }
+      }
+      return false;
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      countEl.textContent = marbles.size;
+      selectedLabel.textContent = selected ? `Selected ${parseKey(selected).row + 1}, ${parseKey(selected).col + 1}` : 'Select a marble';
+      if (!hasMove() && marbles.size > 1) message.textContent = `No jumps remain. ${marbles.size} marbles left.`;
+      for (let row = 0; row < 7; row += 1) {
+        for (let col = 0; col < 7; col += 1) {
+          const cellKey = key(row, col);
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          const playable = valid.has(cellKey);
+          const occupied = marbles.has(cellKey);
+          cell.className = `flex items-center justify-center rounded ${playable ? 'bg-emerald-800 hover:bg-emerald-700' : 'bg-transparent'} ${selected === cellKey ? 'ring-4 ring-white' : ''}`;
+          if (occupied) {
+            const marble = document.createElement('span');
+            marble.className = 'h-10 w-10 rounded-full bg-lime-300 shadow-lg ring-2 ring-emerald-950';
+            cell.appendChild(marble);
+          } else if (playable) {
+            cell.innerHTML = '<span class="h-5 w-5 rounded-full bg-emerald-950 ring-2 ring-emerald-600"></span>';
+          }
+          cell.addEventListener('click', () => selectCell(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
