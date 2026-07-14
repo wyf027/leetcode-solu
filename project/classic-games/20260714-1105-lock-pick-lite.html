@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Lock Pick</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-widest text-cyan-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Lock Pick</h1>
+          <p class="mt-2 text-sm text-neutral-300">Stop the rotating pick inside the sweet spot to set every pin.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded-md bg-neutral-800 px-3 py-2">
+            <div class="text-neutral-400">Pins</div>
+            <div id="pins" class="text-xl font-bold text-white">0/5</div>
+          </div>
+          <div class="rounded-md bg-neutral-800 px-3 py-2">
+            <div class="text-neutral-400">Tries</div>
+            <div id="tries" class="text-xl font-bold text-white">8</div>
+          </div>
+          <div class="rounded-md bg-neutral-800 px-3 py-2">
+            <div class="text-neutral-400">Best</div>
+            <div id="best" class="text-xl font-bold text-white">--</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-col items-center rounded-lg bg-neutral-950 p-5">
+        <canvas id="dial" width="360" height="360" class="h-auto w-full max-w-sm"></canvas>
+        <div id="pinTrack" class="mt-4 flex gap-2"></div>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <p id="status" class="min-h-6 text-sm font-medium text-neutral-300">Click Pick when the pointer enters the cyan arc.</p>
+        <div class="flex gap-2">
+          <button id="pickBtn" class="rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-cyan-300">Pick</button>
+          <button id="resetBtn" class="rounded-md bg-neutral-700 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-600">Reset</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('dial');
+    const ctx = canvas.getContext('2d');
+    const pinsEl = document.getElementById('pins');
+    const triesEl = document.getElementById('tries');
+    const bestEl = document.getElementById('best');
+    const statusEl = document.getElementById('status');
+    const pinTrack = document.getElementById('pinTrack');
+    const pickBtn = document.getElementById('pickBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const totalPins = 5;
+    let angle = 0;
+    let speed = 0.025;
+    let sweetStart = 0;
+    let sweetSize = 0.48;
+    let pins = 0;
+    let tries = 8;
+    let best = Number(localStorage.getItem('miniLockPickBest') || 0);
+    let running = true;
+    let lastTime = 0;
+
+    function resetGame() {
+      angle = 0;
+      speed = 0.025;
+      pins = 0;
+      tries = 8;
+      running = true;
+      pickBtn.disabled = false;
+      pickBtn.classList.remove('opacity-50');
+      setSweetSpot();
+      statusEl.textContent = 'Click Pick when the pointer enters the cyan arc.';
+      updateHud();
+      renderPins();
+      lastTime = performance.now();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function setSweetSpot() {
+      sweetSize = Math.max(0.22, 0.5 - pins * 0.055);
+      sweetStart = Math.random() * (Math.PI * 2 - sweetSize);
+    }
+
+    function tryPick() {
+      if (!running) return;
+      if (insideSweetSpot()) {
+        pins += 1;
+        statusEl.textContent = pins === totalPins ? 'Unlocked.' : `Pin ${pins} set. Next pin is tighter.`;
+        if (pins === totalPins) {
+          finishGame(true);
+          return;
+        }
+        speed += 0.006;
+        setSweetSpot();
+      } else {
+        tries -= 1;
+        statusEl.textContent = tries > 0 ? 'Miss. The lock resists.' : 'The pick snapped.';
+        if (tries === 0) {
+          finishGame(false);
+          return;
+        }
+      }
+      updateHud();
+      renderPins();
+    }
+
+    function insideSweetSpot() {
+      const normalized = (angle % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+      return normalized >= sweetStart && normalized <= sweetStart + sweetSize;
+    }
+
+    function finishGame(won) {
+      running = false;
+      pickBtn.disabled = true;
+      pickBtn.classList.add('opacity-50');
+      if (won) {
+        const used = 8 - tries + totalPins;
+        best = best ? Math.min(best, used) : used;
+        localStorage.setItem('miniLockPickBest', String(best));
+        statusEl.textContent = `Unlocked in ${used} pick moves.`;
+      } else {
+        statusEl.textContent = 'Pick snapped. Reset to try again.';
+      }
+      updateHud();
+      drawDial();
+    }
+
+    function updateHud() {
+      pinsEl.textContent = `${pins}/${totalPins}`;
+      triesEl.textContent = tries;
+      bestEl.textContent = best || '--';
+    }
+
+    function renderPins() {
+      pinTrack.innerHTML = '';
+      for (let i = 0; i < totalPins; i++) {
+        const pin = document.createElement('div');
+        pin.className = i < pins
+          ? 'h-4 w-10 rounded-full bg-cyan-300'
+          : 'h-4 w-10 rounded-full bg-neutral-700';
+        pinTrack.appendChild(pin);
+      }
+    }
+
+    function drawDial() {
+      const center = canvas.width / 2;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#404040';
+      ctx.lineWidth = 30;
+      ctx.beginPath();
+      ctx.arc(center, center, 118, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 30;
+      ctx.beginPath();
+      ctx.arc(center, center, 118, sweetStart, sweetStart + sweetSize);
+      ctx.stroke();
+
+      const px = center + Math.cos(angle) * 118;
+      const py = center + Math.sin(angle) * 118;
+      ctx.strokeStyle = '#f8fafc';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(center, center);
+      ctx.lineTo(px, py);
+      ctx.stroke();
+      ctx.fillStyle = '#f97316';
+      ctx.beginPath();
+      ctx.arc(px, py, 13, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#e5e5e5';
+      ctx.font = 'bold 22px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(running ? 'PICK' : 'LOCK', center, center + 8);
+    }
+
+    function gameLoop(time) {
+      const delta = Math.min(32, time - lastTime);
+      lastTime = time;
+      if (running) angle += speed * delta;
+      drawDial();
+      if (running) requestAnimationFrame(gameLoop);
+    }
+
+    pickBtn.addEventListener('click', tryPick);
+    canvas.addEventListener('pointerdown', tryPick);
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
