@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Crokinole</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-yellow-300">Classic mini game</p>
+        <h1 class="mt-1 text-3xl font-bold">Mini Crokinole</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-yellow-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-yellow-200">New Board</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+        <canvas id="board" width="700" height="700" class="aspect-square w-full rounded bg-neutral-950"></canvas>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p class="text-xs text-neutral-400">Score</p>
+              <p id="score" class="text-3xl font-bold text-yellow-300">0</p>
+            </div>
+            <div>
+              <p class="text-xs text-neutral-400">Disk</p>
+              <p id="diskCount" class="text-3xl font-bold">1/5</p>
+            </div>
+            <div>
+              <p class="text-xs text-neutral-400">Best</p>
+              <p id="best" class="text-3xl font-bold">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <label for="aim" class="block text-sm font-medium text-neutral-200">Aim</label>
+          <input id="aim" type="range" min="-48" max="48" value="0" class="mt-2 w-full accent-yellow-300">
+          <div class="mt-1 flex justify-between text-xs text-neutral-500">
+            <span>Left</span>
+            <span id="aimText">0</span>
+            <span>Right</span>
+          </div>
+
+          <label for="power" class="mt-4 block text-sm font-medium text-neutral-200">Power</label>
+          <input id="power" type="range" min="42" max="100" value="72" class="mt-2 w-full accent-yellow-300">
+          <div class="mt-1 flex justify-between text-xs text-neutral-500">
+            <span>Soft</span>
+            <span id="powerText">72</span>
+            <span>Hard</span>
+          </div>
+
+          <button id="shootBtn" class="mt-4 w-full rounded bg-yellow-300 px-4 py-3 font-bold text-neutral-950 hover:bg-yellow-200">Flick Disk</button>
+        </div>
+
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p id="message" class="min-h-12 text-sm leading-6 text-neutral-300">Flick five disks. Center hole scores 20; inner rings score 15, 10, and 5.</p>
+          <ol id="history" class="mt-3 max-h-52 space-y-2 overflow-auto text-sm text-neutral-400"></ol>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const diskCountEl = document.getElementById("diskCount");
+    const bestEl = document.getElementById("best");
+    const aimEl = document.getElementById("aim");
+    const powerEl = document.getElementById("power");
+    const aimText = document.getElementById("aimText");
+    const powerText = document.getElementById("powerText");
+    const shootBtn = document.getElementById("shootBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const messageEl = document.getElementById("message");
+    const historyEl = document.getElementById("history");
+
+    const center = { x: 350, y: 350 };
+    const start = { x: 350, y: 630 };
+    const rings = [
+      { radius: 42, points: 20, color: "#78350f" },
+      { radius: 118, points: 15, color: "#a16207" },
+      { radius: 210, points: 10, color: "#ca8a04" },
+      { radius: 285, points: 5, color: "#854d0e" }
+    ];
+    let disks = [];
+    let score = 0;
+    let diskNumber = 1;
+    let best = Number(localStorage.getItem("mini-crokinole-best") || 0);
+    let animating = false;
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBoard();
+      drawAim();
+      disks.forEach(drawDisk);
+      updatePanel();
+    }
+
+    function drawBoard() {
+      ctx.fillStyle = "#171717";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, 320, 0, Math.PI * 2);
+      ctx.fillStyle = "#713f12";
+      ctx.fill();
+      ctx.strokeStyle = "#fef3c7";
+      ctx.lineWidth = 5;
+      ctx.stroke();
+
+      rings.slice().reverse().forEach((ring) => {
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, ring.radius, 0, Math.PI * 2);
+        ctx.fillStyle = ring.color;
+        ctx.fill();
+        ctx.strokeStyle = "#fef3c7";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      for (let i = 0; i < 8; i += 1) {
+        const angle = i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.arc(center.x + Math.cos(angle) * 154, center.y + Math.sin(angle) * 154, 9, 0, Math.PI * 2);
+        ctx.fillStyle = "#292524";
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#fef3c7";
+      ctx.font = "bold 16px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("20", center.x, center.y + 5);
+      ctx.fillText("Flick line", start.x, start.y + 38);
+    }
+
+    function drawAim() {
+      if (animating || diskNumber > 5) return;
+      const angle = (Number(aimEl.value) - 90) * Math.PI / 180;
+      const length = Number(powerEl.value) * 2.8;
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(start.x + Math.cos(angle) * length, start.y + Math.sin(angle) * length);
+      ctx.stroke();
+    }
+
+    function drawDisk(disk) {
+      ctx.beginPath();
+      ctx.arc(disk.x, disk.y, 16, 0, Math.PI * 2);
+      ctx.fillStyle = disk.active ? "#facc15" : "#e5e5e5";
+      ctx.fill();
+      ctx.strokeStyle = "#1c1917";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    function flickDisk() {
+      if (animating || diskNumber > 5) return;
+      const angle = (Number(aimEl.value) - 90 + random(-4, 4)) * Math.PI / 180;
+      const power = Number(powerEl.value);
+      const disk = {
+        x: start.x,
+        y: start.y,
+        targetX: start.x + Math.cos(angle) * power * 3.3 + random(-20, 20),
+        targetY: start.y + Math.sin(angle) * power * 4.7 + random(-20, 20),
+        active: true
+      };
+      const limited = keepOnBoard(disk.targetX, disk.targetY);
+      disk.targetX = limited.x;
+      disk.targetY = limited.y;
+      disks.push(disk);
+      animating = true;
+      animate(disk);
+    }
+
+    function keepOnBoard(x, y) {
+      const dx = x - center.x;
+      const dy = y - center.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance <= 304) return { x, y };
+      const scale = 304 / distance;
+      return { x: center.x + dx * scale, y: center.y + dy * scale };
+    }
+
+    function animate(disk) {
+      const dx = (disk.targetX - disk.x) * 0.11;
+      const dy = (disk.targetY - disk.y) * 0.11;
+      disk.x += dx;
+      disk.y += dy;
+      draw();
+
+      if (Math.abs(dx) > 0.7 || Math.abs(dy) > 0.7) {
+        requestAnimationFrame(() => animate(disk));
+        return;
+      }
+
+      disk.x = disk.targetX;
+      disk.y = disk.targetY;
+      disk.active = false;
+      const points = scoreDisk(disk);
+      score += points;
+      log(`Disk ${diskNumber}: ${points} points.`);
+      diskNumber += 1;
+      animating = false;
+      if (diskNumber > 5) finishBoard();
+      else messageEl.textContent = `Disk ${diskNumber} is ready.`;
+      draw();
+    }
+
+    function scoreDisk(disk) {
+      const distance = Math.hypot(disk.x - center.x, disk.y - center.y);
+      if (distance <= 42) return 20;
+      if (distance <= 118) return 15;
+      if (distance <= 210) return 10;
+      if (distance <= 285) return 5;
+      return 0;
+    }
+
+    function finishBoard() {
+      if (score > best) {
+        best = score;
+        localStorage.setItem("mini-crokinole-best", String(best));
+      }
+      messageEl.textContent = `Board complete with ${score} points.`;
+    }
+
+    function log(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      historyEl.prepend(item);
+    }
+
+    function updatePanel() {
+      scoreEl.textContent = score;
+      diskCountEl.textContent = `${Math.min(diskNumber, 5)}/5`;
+      bestEl.textContent = best;
+      aimText.textContent = aimEl.value;
+      powerText.textContent = powerEl.value;
+      shootBtn.disabled = animating || diskNumber > 5;
+      shootBtn.classList.toggle("opacity-50", shootBtn.disabled);
+    }
+
+    function resetGame() {
+      disks = [];
+      score = 0;
+      diskNumber = 1;
+      animating = false;
+      historyEl.innerHTML = "";
+      messageEl.textContent = "Flick five disks. Center hole scores 20; inner rings score 15, 10, and 5.";
+      draw();
+    }
+
+    function random(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    shootBtn.addEventListener("click", flickDisk);
+    resetBtn.addEventListener("click", resetGame);
+    aimEl.addEventListener("input", draw);
+    powerEl.addEventListener("input", draw);
+    draw();
+  </script>
+</body>
+</html>
