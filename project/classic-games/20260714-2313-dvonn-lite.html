@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini DVONN</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-red-200">Mini DVONN</h1>
+        <p class="mt-1 text-sm text-neutral-400">移动己方顶子的堆叠；离开红色 DVONN 石连通区的堆叠会被移除。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-neutral-700 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-500">当前</div>
+          <div id="turn" class="text-lg font-bold text-stone-100">White</div>
+        </div>
+        <div class="rounded border border-neutral-700 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-500">White</div>
+          <div id="whiteScore" class="text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-neutral-700 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-500">Black</div>
+          <div id="blackScore" class="text-lg font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid w-full max-w-[680px] grid-cols-7 gap-2 rounded bg-neutral-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-neutral-400">状态</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-neutral-300">选择一个己方顶子的堆叠，再点同一直线距离等于堆高的目标格。</p>
+          <button id="pass" class="mt-4 w-full rounded bg-neutral-800 px-4 py-2 font-semibold hover:bg-neutral-700">跳过</button>
+          <button id="reset" class="mt-2 w-full rounded bg-red-300 px-4 py-2 font-semibold text-neutral-950 hover:bg-red-200">重新开局</button>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+          <div class="font-semibold text-neutral-100">规则简化</div>
+          <div class="mt-2">顶子颜色决定归属。</div>
+          <div>堆高几层，就必须移动几格。</div>
+          <div>红色堆叠是 DVONN 生命线。</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const rows = 5;
+    const cols = 7;
+    const boardEl = document.getElementById('board');
+    const turnEl = document.getElementById('turn');
+    const whiteScoreEl = document.getElementById('whiteScore');
+    const blackScoreEl = document.getElementById('blackScore');
+    const msgEl = document.getElementById('message');
+    const passBtn = document.getElementById('pass');
+    const resetBtn = document.getElementById('reset');
+
+    let board;
+    let current;
+    let selected;
+    let gameOver;
+
+    const directions = [
+      [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]
+    ];
+
+    function resetGame() {
+      const layout = [
+        ['W', 'B', 'W', 'R', 'B', 'W', 'B'],
+        ['B', 'W', 'B', 'W', 'R', 'B', 'W'],
+        ['W', 'B', 'R', 'B', 'W', 'B', 'W'],
+        ['B', 'W', 'B', 'W', 'B', 'W', 'B'],
+        ['W', 'B', 'W', 'B', 'W', 'B', 'W']
+      ];
+      board = layout.map((row) => row.map((mark) => [mark]));
+      current = 'W';
+      selected = null;
+      gameOver = false;
+      msgEl.textContent = '选择一个己方顶子的堆叠，再点同一直线距离等于堆高的目标格。';
+      render();
+    }
+
+    function playerName(mark) {
+      return mark === 'W' ? 'White' : 'Black';
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < rows && col >= 0 && col < cols;
+    }
+
+    function topOf(stack) {
+      return stack.length ? stack[stack.length - 1] : '';
+    }
+
+    function score(mark) {
+      return board.flat().reduce((total, stack) => total + stack.filter((stone) => stone === mark).length, 0);
+    }
+
+    function isStraightLine(from, to) {
+      const dr = to.row - from.row;
+      const dc = to.col - from.col;
+      return directions.some(([r, c]) => dr === r * Math.abs(dr || dc) && dc === c * Math.abs(dr || dc));
+    }
+
+    function pathClear(from, to) {
+      const height = board[from.row][from.col].length;
+      const dr = to.row - from.row;
+      const dc = to.col - from.col;
+      const distance = Math.max(Math.abs(dr), Math.abs(dc));
+      if (distance !== height || !isStraightLine(from, to)) return false;
+      const stepRow = Math.sign(dr);
+      const stepCol = Math.sign(dc);
+      let row = from.row + stepRow;
+      let col = from.col + stepCol;
+      while (row !== to.row || col !== to.col) {
+        if (!inBounds(row, col) || board[row][col].length === 0) return false;
+        row += stepRow;
+        col += stepCol;
+      }
+      return inBounds(to.row, to.col) && board[to.row][to.col].length > 0;
+    }
+
+    function canMoveFrom(row, col, mark) {
+      const stack = board[row][col];
+      if (!stack.length || topOf(stack) !== mark) return false;
+      return directions.some(([dr, dc]) => {
+        const distance = stack.length;
+        const to = { row: row + dr * distance, col: col + dc * distance };
+        return inBounds(to.row, to.col) && pathClear({ row, col }, to);
+      });
+    }
+
+    function hasMove(mark) {
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          if (canMoveFrom(row, col, mark)) return true;
+        }
+      }
+      return false;
+    }
+
+    function pruneDisconnected() {
+      const seen = Array.from({ length: rows }, () => Array(cols).fill(false));
+      const queue = [];
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          if (board[row][col].includes('R')) {
+            seen[row][col] = true;
+            queue.push({ row, col });
+          }
+        }
+      }
+      while (queue.length) {
+        const cell = queue.shift();
+        directions.forEach(([dr, dc]) => {
+          const nr = cell.row + dr;
+          const nc = cell.col + dc;
+          if (inBounds(nr, nc) && !seen[nr][nc] && board[nr][nc].length) {
+            seen[nr][nc] = true;
+            queue.push({ row: nr, col: nc });
+          }
+        });
+      }
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          if (board[row][col].length && !seen[row][col]) board[row][col] = [];
+        }
+      }
+    }
+
+    function render() {
+      turnEl.textContent = playerName(current);
+      turnEl.className = current === 'W' ? 'text-lg font-bold text-stone-100' : 'text-lg font-bold text-neutral-400';
+      whiteScoreEl.textContent = score('W');
+      blackScoreEl.textContent = score('B');
+      boardEl.innerHTML = '';
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const stack = board[row][col];
+          const top = topOf(stack);
+          const active = selected && selected.row === row && selected.col === col;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = stack.length ? `${top === 'R' ? '●' : top}${stack.length}` : '';
+          btn.className = [
+            'aspect-square rounded-full border text-lg font-black transition',
+            stack.length ? 'bg-neutral-800' : 'bg-neutral-950/70',
+            top === 'W' ? 'border-stone-100 text-stone-100' : '',
+            top === 'B' ? 'border-neutral-500 text-neutral-500' : '',
+            top === 'R' ? 'border-red-300 text-red-300' : '',
+            !stack.length ? 'border-neutral-800 text-neutral-700' : 'hover:border-red-200',
+            active ? 'outline outline-4 outline-red-200' : ''
+          ].join(' ');
+          btn.addEventListener('click', () => handleCell(row, col));
+          boardEl.appendChild(btn);
+        }
+      }
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      const stack = board[row][col];
+      if (!selected) {
+        if (!canMoveFrom(row, col, current)) {
+          msgEl.textContent = '请选择一个可移动且顶子属于自己的堆叠。';
+          return;
+        }
+        selected = { row, col };
+        msgEl.textContent = `已选择高度 ${stack.length} 的堆叠，移动距离也必须是 ${stack.length}。`;
+        render();
+        return;
+      }
+
+      const target = { row, col };
+      if (!pathClear(selected, target)) {
+        msgEl.textContent = '目标必须在同一直线，距离等于堆高，且路径不能经过空格。';
+        return;
+      }
+      const moving = board[selected.row][selected.col];
+      board[selected.row][selected.col] = [];
+      board[row][col] = board[row][col].concat(moving);
+      selected = null;
+      pruneDisconnected();
+      advanceTurn();
+    }
+
+    function advanceTurn() {
+      const next = current === 'W' ? 'B' : 'W';
+      if (!hasMove(next) && !hasMove(current)) {
+        gameOver = true;
+        const white = score('W');
+        const black = score('B');
+        msgEl.textContent = white === black ? `平局：双方各 ${white}。` : `${white > black ? 'White' : 'Black'} 获胜：${white} - ${black}。`;
+      } else {
+        current = hasMove(next) ? next : current;
+        msgEl.textContent = `轮到 ${playerName(current)}。`;
+      }
+      render();
+    }
+
+    passBtn.addEventListener('click', () => {
+      if (gameOver) return;
+      selected = null;
+      advanceTurn();
+    });
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
