@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Terni Lapilli</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-red-300">Classic Mini Game</p>
+        <h1 class="text-3xl font-bold">Mini Terni Lapilli</h1>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-red-300 px-4 py-2 font-semibold text-stone-950 hover:bg-red-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_280px]">
+      <div class="rounded-lg border border-stone-700 bg-stone-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-3 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-stone-700 bg-stone-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs text-stone-400">红石</p>
+            <p id="redLeft" class="text-2xl font-bold text-red-300">3</p>
+          </div>
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs text-stone-400">白石</p>
+            <p id="whiteLeft" class="text-2xl font-bold text-white">3</p>
+          </div>
+        </div>
+        <div class="mt-4 rounded-md bg-stone-800 p-3">
+          <p class="text-xs text-stone-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-lg font-semibold">红方</p>
+        </div>
+        <div class="mt-4 rounded-md bg-stone-800 p-3">
+          <p id="statusText" class="text-sm leading-6 text-stone-100">双方先各放 3 枚石子，然后轮流沿相邻点移动。率先三子连线获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const redLeftEl = document.getElementById("redLeft");
+    const whiteLeftEl = document.getElementById("whiteLeft");
+    const turnTextEl = document.getElementById("turnText");
+    const statusTextEl = document.getElementById("statusText");
+    const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+    let cells;
+    let turn;
+    let remaining;
+    let selected;
+    let gameOver;
+
+    function resetGame() {
+      cells = Array(9).fill("");
+      turn = "R";
+      remaining = { R: 3, W: 3 };
+      selected = null;
+      gameOver = false;
+      render("红方先放置一枚石子。");
+    }
+
+    function nameOf(player) {
+      return player === "R" ? "红方" : "白方";
+    }
+
+    function opponent(player) {
+      return player === "R" ? "W" : "R";
+    }
+
+    function adjacent(a, b) {
+      const ar = Math.floor(a / 3), ac = a % 3;
+      const br = Math.floor(b / 3), bc = b % 3;
+      return Math.max(Math.abs(ar - br), Math.abs(ac - bc)) === 1;
+    }
+
+    function winner() {
+      for (const [a, b, c] of lines) {
+        if (cells[a] && cells[a] === cells[b] && cells[a] === cells[c]) return cells[a];
+      }
+      return "";
+    }
+
+    function endIfWon() {
+      const win = winner();
+      if (!win) return false;
+      gameOver = true;
+      selected = null;
+      render(nameOf(win) + "三子连线，获胜。");
+      return true;
+    }
+
+    function handleCell(index) {
+      if (gameOver) return;
+      if (remaining[turn] > 0) {
+        if (cells[index]) {
+          render("请选择空点放置石子。");
+          return;
+        }
+        cells[index] = turn;
+        remaining[turn]--;
+        if (endIfWon()) return;
+        turn = opponent(turn);
+        render(nameOf(turn) + "放置石子。");
+        return;
+      }
+      if (selected === null) {
+        if (cells[index] === turn) {
+          selected = index;
+          render("选择一个相邻空点移动。");
+        }
+        return;
+      }
+      if (index === selected) {
+        selected = null;
+        render("已取消选择。");
+        return;
+      }
+      if (cells[index] === turn) {
+        selected = index;
+        render("已切换石子。");
+        return;
+      }
+      if (cells[index] || !adjacent(selected, index)) {
+        render("只能移动到相邻空点。");
+        return;
+      }
+      cells[index] = turn;
+      cells[selected] = "";
+      selected = null;
+      if (endIfWon()) return;
+      turn = opponent(turn);
+      render(nameOf(turn) + "移动石子。");
+    }
+
+    function render(message) {
+      redLeftEl.textContent = remaining.R;
+      whiteLeftEl.textContent = remaining.W;
+      turnTextEl.textContent = gameOver ? "游戏结束" : nameOf(turn);
+      statusTextEl.textContent = message;
+      boardEl.innerHTML = "";
+      cells.forEach((piece, index) => {
+        const button = document.createElement("button");
+        button.className = [
+          "flex aspect-square items-center justify-center rounded-md border text-5xl font-black transition",
+          selected === index ? "border-red-200 bg-red-300/20" : "border-stone-700 bg-stone-800 hover:bg-stone-700",
+          piece === "R" ? "text-red-300" : piece === "W" ? "text-white" : "text-stone-600"
+        ].join(" ");
+        button.textContent = piece === "R" ? "●" : piece === "W" ? "○" : "·";
+        button.setAttribute("aria-label", "point " + (index + 1));
+        button.addEventListener("click", () => handleCell(index));
+        boardEl.appendChild(button);
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
