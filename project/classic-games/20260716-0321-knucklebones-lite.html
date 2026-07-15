@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Knucklebones</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-amber-300">Classic Mini Game</p>
+        <h1 class="text-3xl font-bold">Mini Knucklebones</h1>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-amber-400 px-4 py-2 font-semibold text-slate-950 hover:bg-amber-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div class="mb-3 rounded-md bg-slate-800 p-3">
+          <div class="mb-2 flex items-center justify-between">
+            <span class="font-semibold text-rose-300">北方</span>
+            <span>得分 <strong id="scoreNorth" class="text-2xl">0</strong></span>
+          </div>
+          <div id="northGrid" class="grid grid-cols-3 gap-2"></div>
+        </div>
+        <div class="rounded-md bg-slate-800 p-3">
+          <div id="southGrid" class="mb-2 grid grid-cols-3 gap-2"></div>
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-sky-300">南方</span>
+            <span>得分 <strong id="scoreSouth" class="text-2xl">0</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <aside class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div class="rounded-md bg-slate-800 p-3 text-center">
+          <p class="text-xs text-slate-400">当前骰子</p>
+          <p id="dieText" class="mt-1 text-5xl font-black text-amber-300">1</p>
+        </div>
+        <div class="mt-4 rounded-md bg-slate-800 p-3">
+          <p class="text-xs text-slate-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-lg font-semibold">南方</p>
+        </div>
+        <div class="mt-4 grid grid-cols-3 gap-2">
+          <button data-col="0" class="colBtn rounded-md bg-sky-500 px-3 py-2 font-semibold text-slate-950 hover:bg-sky-400">左列</button>
+          <button data-col="1" class="colBtn rounded-md bg-sky-500 px-3 py-2 font-semibold text-slate-950 hover:bg-sky-400">中列</button>
+          <button data-col="2" class="colBtn rounded-md bg-sky-500 px-3 py-2 font-semibold text-slate-950 hover:bg-sky-400">右列</button>
+        </div>
+        <div class="mt-4 rounded-md bg-slate-800 p-3">
+          <p id="statusText" class="text-sm leading-6 text-slate-200">选择一列放入当前骰子。同列相同点数会成倍计分，并清除对手该列相同点数。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const northGrid = document.getElementById("northGrid");
+    const southGrid = document.getElementById("southGrid");
+    const scoreNorthEl = document.getElementById("scoreNorth");
+    const scoreSouthEl = document.getElementById("scoreSouth");
+    const dieTextEl = document.getElementById("dieText");
+    const turnTextEl = document.getElementById("turnText");
+    const statusTextEl = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+    const columnButtons = [...document.querySelectorAll(".colBtn")];
+    const rows = 3;
+    const cols = 3;
+    let boards;
+    let turn;
+    let die;
+    let gameOver;
+
+    function rollDie() {
+      return Math.floor(Math.random() * 6) + 1;
+    }
+
+    function resetGame() {
+      boards = {
+        north: Array.from({ length: cols }, () => []),
+        south: Array.from({ length: cols }, () => [])
+      };
+      turn = "south";
+      die = rollDie();
+      gameOver = false;
+      render("南方先手：选择一列放入骰子。");
+    }
+
+    function opponent(player) {
+      return player === "south" ? "north" : "south";
+    }
+
+    function playerName(player) {
+      return player === "south" ? "南方" : "北方";
+    }
+
+    function columnScore(values) {
+      const counts = {};
+      values.forEach((value) => {
+        counts[value] = (counts[value] || 0) + 1;
+      });
+      return Object.entries(counts).reduce((sum, [value, count]) => sum + Number(value) * count * count, 0);
+    }
+
+    function totalScore(player) {
+      return boards[player].reduce((sum, col) => sum + columnScore(col), 0);
+    }
+
+    function boardFull(player) {
+      return boards[player].every((col) => col.length >= rows);
+    }
+
+    function endGame() {
+      gameOver = true;
+      const south = totalScore("south");
+      const north = totalScore("north");
+      const result = south === north ? "平局" : south > north ? "南方获胜" : "北方获胜";
+      render(result + "，最终比分 " + south + " : " + north + "。");
+    }
+
+    function placeDie(col) {
+      if (gameOver) return;
+      if (boards[turn][col].length >= rows) {
+        render("这一列已满，请选择其他列。");
+        return;
+      }
+      boards[turn][col].push(die);
+      const rival = opponent(turn);
+      const before = boards[rival][col].length;
+      boards[rival][col] = boards[rival][col].filter((value) => value !== die);
+      const removed = before - boards[rival][col].length;
+      const message = removed > 0
+        ? playerName(turn) + "放入 " + die + "，清除对手同列 " + removed + " 枚。"
+        : playerName(turn) + "放入 " + die + "。";
+      if (boardFull(turn)) {
+        endGame();
+        return;
+      }
+      turn = rival;
+      die = rollDie();
+      render(message);
+    }
+
+    function cellMarkup(value, player) {
+      const color = player === "south" ? "text-sky-200 bg-sky-500/20 border-sky-400/40" : "text-rose-200 bg-rose-500/20 border-rose-400/40";
+      return "<div class=\"flex aspect-square items-center justify-center rounded-md border text-2xl font-black " + (value ? color : "border-slate-700 bg-slate-900 text-slate-700") + "\">" + (value || "·") + "</div>";
+    }
+
+    function renderGrid(player, root) {
+      root.innerHTML = "";
+      const reverseRows = player === "north";
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const values = boards[player][col];
+          const slot = reverseRows ? rows - 1 - row : row;
+          root.insertAdjacentHTML("beforeend", cellMarkup(values[slot], player));
+        }
+      }
+    }
+
+    function render(message) {
+      scoreNorthEl.textContent = totalScore("north");
+      scoreSouthEl.textContent = totalScore("south");
+      dieTextEl.textContent = die;
+      turnTextEl.textContent = gameOver ? "游戏结束" : playerName(turn);
+      statusTextEl.textContent = message;
+      columnButtons.forEach((button) => {
+        button.disabled = gameOver || boards[turn][Number(button.dataset.col)].length >= rows;
+        button.classList.toggle("opacity-40", button.disabled);
+      });
+      renderGrid("north", northGrid);
+      renderGrid("south", southGrid);
+    }
+
+    columnButtons.forEach((button) => {
+      button.addEventListener("click", () => placeDie(Number(button.dataset.col)));
+    });
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
