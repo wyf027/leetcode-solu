@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Hyena Chase</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-yellow-950 text-yellow-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-yellow-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Hyena Chase</h1>
+        <p class="mt-1 max-w-2xl text-sm text-yellow-200">掷棍沿沙路前进。旅人先到井边再返回营地获胜；鬣狗被放出后会沿路追赶，追上旅人则失败。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-yellow-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-yellow-800 bg-yellow-900/60 p-4 shadow">
+        <div id="track" class="grid grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-yellow-800 bg-yellow-900/60 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-yellow-300">状态</div>
+          <p id="statusText" class="mt-3 min-h-20 text-sm leading-6 text-yellow-100"></p>
+          <button id="rollBtn" class="mt-3 w-full rounded bg-emerald-400 px-4 py-3 font-bold text-yellow-950 hover:bg-emerald-300">掷棍</button>
+        </div>
+
+        <div class="rounded border border-yellow-800 bg-yellow-900/60 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-yellow-300">掷棍</div>
+          <div id="sticks" class="mt-3 grid grid-cols-3 gap-2"></div>
+          <div id="rollText" class="mt-3 text-center text-xl font-black text-amber-200">等待掷出</div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-yellow-800 bg-yellow-900/60 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-yellow-300">旅人</div>
+            <div id="runnerText" class="mt-2 text-2xl font-black text-emerald-300"></div>
+          </div>
+          <div class="rounded border border-yellow-800 bg-yellow-900/60 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-yellow-300">鬣狗</div>
+            <div id="hyenaText" class="mt-2 text-2xl font-black text-rose-300"></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const trackEl = document.getElementById('track');
+    const statusText = document.getElementById('statusText');
+    const rollBtn = document.getElementById('rollBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const sticksEl = document.getElementById('sticks');
+    const rollText = document.getElementById('rollText');
+    const runnerText = document.getElementById('runnerText');
+    const hyenaText = document.getElementById('hyenaText');
+    const pathLength = 15;
+    let game;
+
+    function resetGame() {
+      game = {
+        runner: 0,
+        returning: false,
+        hyena: -1,
+        hyenaReleased: false,
+        sticks: [false, false, false],
+        roll: 0,
+        winner: null,
+        message: '旅人从营地出发。到达第 15 格井边后折返；首次到井边会放出鬣狗。'
+      };
+      render();
+    }
+
+    function throwSticks() {
+      const sticks = Array.from({ length: 3 }, () => Math.random() < 0.5);
+      const open = sticks.filter(Boolean).length;
+      return { sticks, move: open === 0 ? 6 : open };
+    }
+
+    function rollTurn() {
+      if (game.winner) return;
+      const result = throwSticks();
+      game.sticks = result.sticks;
+      game.roll = result.move;
+      moveRunner(game.roll);
+      if (!game.winner && game.hyenaReleased) moveHyena(Math.max(1, Math.floor(game.roll / 2)));
+      checkWinner();
+      render();
+    }
+
+    function moveRunner(steps) {
+      if (!game.returning) {
+        game.runner += steps;
+        if (game.runner >= pathLength - 1) {
+          game.runner = pathLength - 1;
+          game.returning = true;
+          game.hyenaReleased = true;
+          if (game.hyena < 0) game.hyena = 0;
+          game.message = `掷出 ${steps}。旅人抵达井边，鬣狗从营地出发。`;
+        } else {
+          game.message = `掷出 ${steps}。旅人向井边前进。`;
+        }
+      } else {
+        game.runner -= steps;
+        if (game.runner <= 0) {
+          game.runner = 0;
+          game.winner = 'runner';
+          game.message = `掷出 ${steps}。旅人安全回到营地，获得胜利。`;
+        } else {
+          game.message = `掷出 ${steps}。旅人正在返回营地。`;
+        }
+      }
+    }
+
+    function moveHyena(steps) {
+      if (game.hyena < 0) return;
+      game.hyena += steps;
+      if (game.hyena >= pathLength) game.hyena = pathLength - 1;
+      game.message += ` 鬣狗追了 ${steps} 格。`;
+    }
+
+    function checkWinner() {
+      if (game.winner) return;
+      if (game.hyenaReleased && game.hyena >= game.runner) {
+        game.winner = 'hyena';
+        game.message = '鬣狗追上旅人，追猎获胜。';
+      }
+    }
+
+    function cellContent(index) {
+      const items = [];
+      if (game.runner === index) items.push('<span class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-400 text-sm font-black text-yellow-950">人</span>');
+      if (game.hyena === index) items.push('<span class="flex h-9 w-9 items-center justify-center rounded-full bg-rose-500 text-sm font-black text-white">鬣</span>');
+      return items.join('');
+    }
+
+    function render() {
+      statusText.textContent = game.message;
+      rollBtn.disabled = Boolean(game.winner);
+      rollBtn.className = `mt-3 w-full rounded px-4 py-3 font-bold ${game.winner ? 'bg-yellow-800 text-yellow-500' : 'bg-emerald-400 text-yellow-950 hover:bg-emerald-300'}`;
+      rollText.textContent = game.roll ? `本次点数：${game.roll}` : '等待掷出';
+      runnerText.textContent = game.returning ? `${game.runner + 1} 返程` : `${game.runner + 1} 去程`;
+      hyenaText.textContent = game.hyenaReleased ? `${game.hyena + 1}` : '未放出';
+      sticksEl.innerHTML = game.sticks.map((open) => `
+        <div class="flex h-16 items-center justify-center rounded border ${open ? 'border-amber-200 bg-amber-100 text-yellow-950' : 'border-yellow-700 bg-yellow-950 text-yellow-300'}">
+          <span class="text-lg font-black">${open ? '开' : '合'}</span>
+        </div>
+      `).join('');
+      trackEl.innerHTML = Array.from({ length: pathLength }, (_, index) => {
+        const isCamp = index === 0;
+        const isWell = index === pathLength - 1;
+        return `
+          <div class="relative flex aspect-square min-h-16 items-center justify-center rounded border ${isCamp || isWell ? 'border-amber-300 bg-amber-300/20' : 'border-yellow-800 bg-yellow-950/60'}">
+            <span class="absolute left-1 top-1 text-xs font-semibold text-yellow-500">${isCamp ? '营地' : isWell ? '井' : index + 1}</span>
+            <div class="flex gap-1">${cellContent(index)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    rollBtn.addEventListener('click', rollTurn);
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
