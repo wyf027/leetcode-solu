@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pentalpha</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-cyan-300">Classic Puzzle</p>
+        <h1 class="text-3xl font-bold">Mini Pentalpha</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-4">
+        <div id="board" class="relative mx-auto aspect-square w-full max-w-xl">
+          <svg viewBox="0 0 100 100" class="absolute inset-0 h-full w-full" aria-hidden="true">
+            <polygon points="50,6 61,39 95,39 67,59 78,92 50,72 22,92 33,59 5,39 39,39"
+              fill="none" stroke="rgb(103 232 249)" stroke-width="1.4" stroke-linejoin="round" opacity="0.8" />
+            <line x1="50" y1="6" x2="22" y2="92" stroke="rgb(51 65 85)" stroke-width="1" />
+            <line x1="50" y1="6" x2="78" y2="92" stroke="rgb(51 65 85)" stroke-width="1" />
+            <line x1="5" y1="39" x2="95" y2="39" stroke="rgb(51 65 85)" stroke-width="1" />
+            <line x1="22" y1="92" x2="95" y2="39" stroke="rgb(51 65 85)" stroke-width="1" />
+            <line x1="78" y1="92" x2="5" y2="39" stroke="rgb(51 65 85)" stroke-width="1" />
+          </svg>
+        </div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-slate-400">剩余棋子</span>
+            <span id="stonesText" class="rounded bg-cyan-300 px-3 py-1 text-sm font-bold text-slate-950">9</span>
+          </div>
+          <p id="statusText" class="min-h-20 text-sm leading-6 text-slate-200"></p>
+        </div>
+
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-xs text-slate-400">星线得分</p>
+          <p id="scoreText" class="mt-1 text-3xl font-bold text-cyan-300">0</p>
+        </div>
+
+        <div class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <p>在 10 个交点中放入 9 枚棋子。第一手任意放置，之后每手必须贴着已有棋子延伸一条星线。</p>
+          <p class="mt-2">完成 5 条以上连续三点星线即解开谜题。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const stonesText = document.getElementById("stonesText");
+    const scoreText = document.getElementById("scoreText");
+    const statusText = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const points = [
+      { x: 50, y: 6 },
+      { x: 61, y: 39 },
+      { x: 95, y: 39 },
+      { x: 67, y: 59 },
+      { x: 78, y: 92 },
+      { x: 50, y: 72 },
+      { x: 22, y: 92 },
+      { x: 33, y: 59 },
+      { x: 5, y: 39 },
+      { x: 39, y: 39 }
+    ];
+    const starLines = [
+      [0, 1, 2],
+      [2, 3, 4],
+      [4, 5, 6],
+      [6, 7, 8],
+      [8, 9, 0],
+      [0, 7, 6],
+      [0, 3, 4],
+      [2, 9, 8],
+      [2, 5, 6],
+      [4, 1, 8]
+    ];
+
+    let occupied;
+    let history;
+    let finished;
+
+    function resetGame() {
+      occupied = Array(points.length).fill(false);
+      history = [];
+      finished = false;
+      render();
+    }
+
+    function stonesLeft() {
+      return 9 - history.length;
+    }
+
+    function isLegalPoint(index) {
+      if (occupied[index] || finished) return false;
+      if (history.length === 0) return true;
+      return starLines.some((line) => {
+        const pos = line.indexOf(index);
+        if (pos === -1) return false;
+        const left = line[pos - 1];
+        const right = line[pos + 1];
+        return occupied[left] || occupied[right];
+      });
+    }
+
+    function completedLines() {
+      return starLines.filter((line) => line.every((index) => occupied[index]));
+    }
+
+    function legalMoves() {
+      return points.map((_, index) => index).filter(isLegalPoint);
+    }
+
+    function placeStone(index) {
+      if (!isLegalPoint(index)) return;
+      occupied[index] = true;
+      history.push(index);
+      if (stonesLeft() === 0) finished = true;
+      render();
+    }
+
+    function undoMove() {
+      if (!history.length || finished) return;
+      const last = history.pop();
+      occupied[last] = false;
+      render();
+    }
+
+    function statusMessage() {
+      const score = completedLines().length;
+      if (finished && score >= 5) return `谜题完成：你做出了 ${score} 条连续三点星线。`;
+      if (finished) return `棋子已用完，但只有 ${score} 条星线。重新开始试试更紧凑的布局。`;
+      if (!legalMoves().length) return "没有可延伸的星线位置了，重新开始或撤销一步。";
+      if (history.length === 0) return "第一枚棋子可放在任意交点。";
+      return "选择一个发光交点，贴着已有棋子延伸星线。";
+    }
+
+    function render() {
+      boardEl.querySelectorAll("button").forEach((button) => button.remove());
+      stonesText.textContent = stonesLeft();
+      scoreText.textContent = completedLines().length;
+      statusText.textContent = statusMessage();
+
+      points.forEach((point, index) => {
+        const button = document.createElement("button");
+        const legal = isLegalPoint(index);
+        button.type = "button";
+        button.setAttribute("aria-label", `point ${index + 1}`);
+        button.className = [
+          "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition sm:h-12 sm:w-12",
+          occupied[index] ? "border-cyan-100 bg-cyan-200 shadow-lg shadow-cyan-500/20" : "border-slate-600 bg-slate-950",
+          legal ? "ring-2 ring-cyan-300/70 hover:bg-cyan-300/20" : "opacity-80"
+        ].join(" ");
+        button.style.left = `${point.x}%`;
+        button.style.top = `${point.y}%`;
+        button.disabled = !legal;
+        button.addEventListener("click", () => placeStone(index));
+
+        const label = document.createElement("span");
+        label.className = occupied[index] ? "h-5 w-5 rounded-full bg-slate-950" : "h-2 w-2 rounded-full bg-slate-500";
+        button.appendChild(label);
+        boardEl.appendChild(button);
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    document.addEventListener("keydown", (event) => {
+      if (event.key.toLowerCase() === "u") undoMove();
+    });
+    resetGame();
+  </script>
+</body>
+</html>
