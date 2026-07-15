@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kayles</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-fuchsia-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Kayles</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-fuchsia-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div id="lane" class="grid grid-cols-6 gap-3 sm:grid-cols-12"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-zinc-400">当前玩家</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="statusText" class="min-h-16 text-sm leading-6 text-zinc-200"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-fuchsia-500/40 bg-fuchsia-500/10 p-3">
+            <p class="text-xs text-fuchsia-200">紫方得分</p>
+            <p id="purpleScore" class="text-2xl font-bold text-fuchsia-300">0</p>
+          </div>
+          <div class="rounded border border-cyan-500/40 bg-cyan-500/10 p-3">
+            <p class="text-xs text-cyan-200">青方得分</p>
+            <p id="cyanScore" class="text-2xl font-bold text-cyan-300">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <p>每回合击倒 1 个瓶柱，或击倒 2 个相邻瓶柱。</p>
+          <p class="mt-2">无法行动时游戏结束，完成最后一次合法行动的玩家获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const laneEl = document.getElementById("lane");
+    const turnBadge = document.getElementById("turnBadge");
+    const statusText = document.getElementById("statusText");
+    const purpleScore = document.getElementById("purpleScore");
+    const cyanScore = document.getElementById("cyanScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const totalPins = 12;
+    const players = {
+      P: { label: "紫方", badge: "bg-fuchsia-300 text-zinc-950" },
+      C: { label: "青方", badge: "bg-cyan-300 text-zinc-950" }
+    };
+
+    let pins;
+    let current;
+    let selected;
+    let score;
+    let winner;
+
+    function resetGame() {
+      pins = Array(totalPins).fill(true);
+      current = "P";
+      selected = [];
+      score = { P: 0, C: 0 };
+      winner = "";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "P" ? "C" : "P";
+    }
+
+    function legalPairs() {
+      const pairs = [];
+      for (let index = 0; index < pins.length - 1; index += 1) {
+        if (pins[index] && pins[index + 1]) pairs.push([index, index + 1]);
+      }
+      return pairs;
+    }
+
+    function hasMove() {
+      return pins.some(Boolean);
+    }
+
+    function isAdjacentSelection(nextIndex) {
+      return selected.length === 1 && Math.abs(selected[0] - nextIndex) === 1 && pins[nextIndex];
+    }
+
+    function togglePin(index) {
+      if (winner || !pins[index]) return;
+      if (selected.includes(index)) {
+        selected = selected.filter((item) => item !== index);
+      } else if (selected.length === 0 || isAdjacentSelection(index)) {
+        selected.push(index);
+      } else {
+        selected = [index];
+      }
+      render();
+    }
+
+    function takeSelection() {
+      if (!selected.length) return;
+      selected.forEach((index) => {
+        pins[index] = false;
+      });
+      score[current] += selected.length;
+      selected = [];
+      if (!hasMove()) {
+        winner = current;
+      } else {
+        current = opponent(current);
+      }
+      render();
+    }
+
+    function smartMove() {
+      const pair = legalPairs()[0];
+      if (pair) {
+        selected = pair;
+      } else {
+        selected = [pins.findIndex(Boolean)];
+      }
+      render();
+    }
+
+    function statusMessage() {
+      if (winner) return `${players[winner].label}完成最后一次击倒，获得胜利。`;
+      if (selected.length === 2) return `${players[current].label}已选择相邻两个瓶柱，可以确认击倒。`;
+      if (selected.length === 1) return `${players[current].label}可确认击倒 1 个，或再选相邻瓶柱。`;
+      return `${players[current].label}选择 1 个瓶柱，或选择相邻的 2 个。`;
+    }
+
+    function render() {
+      laneEl.innerHTML = "";
+      turnBadge.textContent = winner ? players[winner].label : players[current].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${players[winner || current].badge}`;
+      statusText.textContent = statusMessage();
+      purpleScore.textContent = score.P;
+      cyanScore.textContent = score.C;
+
+      pins.forEach((standing, index) => {
+        const button = document.createElement("button");
+        const active = selected.includes(index);
+        button.type = "button";
+        button.setAttribute("aria-label", `pin ${index + 1}`);
+        button.className = [
+          "flex aspect-[3/5] min-h-20 items-end justify-center rounded border p-2 transition",
+          standing ? "border-zinc-700 bg-zinc-800 hover:border-fuchsia-200" : "border-zinc-800 bg-zinc-900 opacity-45",
+          active ? "border-fuchsia-300 bg-fuchsia-300/15" : ""
+        ].join(" ");
+        button.disabled = !standing || Boolean(winner);
+        button.addEventListener("click", () => togglePin(index));
+
+        const pin = document.createElement("span");
+        pin.className = standing
+          ? "block h-14 w-5 rounded-t-full rounded-b bg-zinc-100 shadow"
+          : "block h-4 w-10 rounded bg-zinc-700";
+        button.appendChild(pin);
+        laneEl.appendChild(button);
+      });
+
+      const actions = document.createElement("div");
+      actions.className = "col-span-full mt-2 flex flex-wrap gap-3";
+      actions.innerHTML = `
+        <button id="takeBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-40">确认击倒</button>
+        <button id="hintBtn" class="rounded border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:border-zinc-500">选一手</button>
+      `;
+      laneEl.appendChild(actions);
+      document.getElementById("takeBtn").disabled = selected.length === 0 || Boolean(winner);
+      document.getElementById("takeBtn").addEventListener("click", takeSelection);
+      document.getElementById("hintBtn").disabled = Boolean(winner);
+      document.getElementById("hintBtn").addEventListener("click", smartMove);
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
