@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Fox and Geese</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-orange-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Fox and Geese</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-orange-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-neutral-400">当前阵营</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="statusText" class="min-h-16 text-sm leading-6 text-neutral-200"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-orange-500/40 bg-orange-500/10 p-3">
+            <p class="text-xs text-orange-200">狐狸吃鹅</p>
+            <p id="captureText" class="text-2xl font-bold text-orange-300">0</p>
+          </div>
+          <div class="rounded border border-slate-400/40 bg-slate-400/10 p-3">
+            <p class="text-xs text-slate-200">剩余鹅群</p>
+            <p id="geeseText" class="text-2xl font-bold text-slate-200">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+          <p>狐狸可走相邻空格，也可跳过相邻鹅到空格完成吃子。</p>
+          <p class="mt-2">鹅只能走相邻空格，目标是困住狐狸；狐狸吃到 4 只鹅获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnBadge = document.getElementById("turnBadge");
+    const statusText = document.getElementById("statusText");
+    const captureText = document.getElementById("captureText");
+    const geeseText = document.getElementById("geeseText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const validCells = new Set([
+      "0,2",
+      "1,1", "1,2", "1,3",
+      "2,0", "2,1", "2,2", "2,3", "2,4",
+      "3,1", "3,2", "3,3",
+      "4,2"
+    ]);
+    const sides = {
+      F: { label: "狐狸", badge: "bg-orange-300 text-neutral-950", piece: "bg-orange-400" },
+      G: { label: "鹅群", badge: "bg-slate-200 text-neutral-950", piece: "bg-slate-200" }
+    };
+
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      board[2][2] = "F";
+      [[0, 2], [1, 1], [1, 2], [1, 3], [2, 0], [2, 4], [4, 2]].forEach(([row, col]) => {
+        board[row][col] = "G";
+      });
+      turn = "F";
+      selected = null;
+      captures = 0;
+      winner = "";
+      render();
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function isValid(row, col) {
+      return validCells.has(key(row, col));
+    }
+
+    function directions() {
+      return [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    }
+
+    function findFox() {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === "F") return { row, col };
+        }
+      }
+      return null;
+    }
+
+    function simpleMoves(row, col) {
+      return directions()
+        .map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+        .filter((next) => isValid(next.row, next.col) && !board[next.row][next.col]);
+    }
+
+    function foxJumps(row, col) {
+      return directions().map(([dRow, dCol]) => {
+        const mid = { row: row + dRow, col: col + dCol };
+        const land = { row: row + dRow * 2, col: col + dCol * 2 };
+        return { mid, land };
+      }).filter(({ mid, land }) => (
+        isValid(mid.row, mid.col) &&
+        isValid(land.row, land.col) &&
+        board[mid.row][mid.col] === "G" &&
+        !board[land.row][land.col]
+      ));
+    }
+
+    function legalMoves(row, col) {
+      if (board[row][col] === "F") {
+        return [
+          ...simpleMoves(row, col).map((to) => ({ to })),
+          ...foxJumps(row, col).map(({ mid, land }) => ({ to: land, capture: mid }))
+        ];
+      }
+      return simpleMoves(row, col).map((to) => ({ to }));
+    }
+
+    function countGeese() {
+      return board.flat().filter((cell) => cell === "G").length;
+    }
+
+    function checkWinner() {
+      const fox = findFox();
+      if (captures >= 4 || countGeese() <= 3) {
+        winner = "F";
+      } else if (fox && legalMoves(fox.row, fox.col).length === 0) {
+        winner = "G";
+      }
+    }
+
+    function endTurn() {
+      selected = null;
+      checkWinner();
+      if (!winner) turn = turn === "F" ? "G" : "F";
+      render();
+    }
+
+    function movePiece(from, move) {
+      const piece = board[from.row][from.col];
+      board[move.to.row][move.to.col] = piece;
+      board[from.row][from.col] = "";
+      if (move.capture) {
+        board[move.capture.row][move.capture.col] = "";
+        captures += 1;
+      }
+      endTurn();
+    }
+
+    function handleCell(row, col) {
+      if (winner || !isValid(row, col)) return;
+      if (selected) {
+        if (selected.row === row && selected.col === col) {
+          selected = null;
+          render();
+          return;
+        }
+        const move = legalMoves(selected.row, selected.col).find(({ to }) => to.row === row && to.col === col);
+        if (move) movePiece(selected, move);
+        return;
+      }
+      if (board[row][col] === turn && legalMoves(row, col).length > 0) {
+        selected = { row, col };
+        render();
+      }
+    }
+
+    function statusMessage() {
+      if (winner === "F") return "狐狸突破鹅群，获得胜利。";
+      if (winner === "G") return "鹅群困住狐狸，获得胜利。";
+      if (selected) return `${sides[turn].label}已选中，点击高亮线路上的目标空格。`;
+      return `${sides[turn].label}行动，选择一枚可移动棋子。`;
+    }
+
+    function isTarget(row, col) {
+      return selected && legalMoves(selected.row, selected.col).some(({ to }) => to.row === row && to.col === col);
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnBadge.textContent = winner ? sides[winner].label : sides[turn].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${sides[winner || turn].badge}`;
+      statusText.textContent = statusMessage();
+      captureText.textContent = captures;
+      geeseText.textContent = countGeese();
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = document.createElement("button");
+          const value = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          const target = isTarget(row, col);
+          cell.type = "button";
+          cell.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          cell.className = [
+            "flex aspect-square items-center justify-center rounded border transition",
+            isValid(row, col) ? "border-neutral-700 bg-neutral-800" : "border-transparent bg-transparent",
+            active ? "border-orange-300 bg-orange-300/15" : "",
+            target ? "border-emerald-300 bg-emerald-300/15" : "",
+            isValid(row, col) && !winner ? "hover:border-orange-200 hover:bg-neutral-700" : ""
+          ].join(" ");
+          cell.disabled = !isValid(row, col);
+          cell.addEventListener("click", () => handleCell(row, col));
+
+          if (value) {
+            const piece = document.createElement("span");
+            piece.className = `block h-3/5 w-3/5 rounded-full shadow ${sides[value].piece}`;
+            cell.appendChild(piece);
+          } else if (isValid(row, col)) {
+            const dot = document.createElement("span");
+            dot.className = "block h-2 w-2 rounded-full bg-neutral-600";
+            cell.appendChild(dot);
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
