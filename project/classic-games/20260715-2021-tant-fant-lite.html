@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tant Fant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-lime-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Tant Fant</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 md:grid-cols-[1fr_16rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-3 gap-3"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-zinc-400">当前玩家</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="statusText" class="min-h-16 text-sm leading-6 text-zinc-200"></p>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <p>双方各有 3 枚棋子，先轮流放入空格。</p>
+          <p class="mt-2">全部放完后，选择自己的棋子滑到相邻空格。横、竖或斜向连成 3 枚即获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnBadge = document.getElementById("turnBadge");
+    const statusText = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 3;
+    const maxPieces = 3;
+    const players = {
+      X: { label: "黑方", piece: "bg-zinc-100", badge: "bg-zinc-100 text-zinc-950" },
+      O: { label: "绿方", piece: "bg-lime-300", badge: "bg-lime-300 text-zinc-950" }
+    };
+    const winLines = [
+      [[0, 0], [0, 1], [0, 2]],
+      [[1, 0], [1, 1], [1, 2]],
+      [[2, 0], [2, 1], [2, 2]],
+      [[0, 0], [1, 0], [2, 0]],
+      [[0, 1], [1, 1], [2, 1]],
+      [[0, 2], [1, 2], [2, 2]],
+      [[0, 0], [1, 1], [2, 2]],
+      [[0, 2], [1, 1], [2, 0]]
+    ];
+
+    let board;
+    let current;
+    let placed;
+    let selected;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      current = "X";
+      placed = { X: 0, O: 0 };
+      selected = null;
+      winner = "";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "X" ? "O" : "X";
+    }
+
+    function placementPhase() {
+      return placed.X < maxPieces || placed.O < maxPieces;
+    }
+
+    function isAdjacent(from, to) {
+      return Math.abs(from.row - to.row) <= 1 && Math.abs(from.col - to.col) <= 1;
+    }
+
+    function hasWon(player) {
+      return winLines.some((line) => line.every(([row, col]) => board[row][col] === player));
+    }
+
+    function legalMoves(row, col) {
+      const moves = [];
+      for (let dRow = -1; dRow <= 1; dRow += 1) {
+        for (let dCol = -1; dCol <= 1; dCol += 1) {
+          if (dRow === 0 && dCol === 0) continue;
+          const nextRow = row + dRow;
+          const nextCol = col + dCol;
+          if (nextRow >= 0 && nextRow < size && nextCol >= 0 && nextCol < size && !board[nextRow][nextCol]) {
+            moves.push([nextRow, nextCol]);
+          }
+        }
+      }
+      return moves;
+    }
+
+    function hasAnyMove(player) {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === player && legalMoves(row, col).length > 0) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function finishTurn() {
+      if (hasWon(current)) {
+        winner = current;
+      } else if (!placementPhase() && !hasAnyMove(opponent(current))) {
+        winner = current;
+      } else {
+        current = opponent(current);
+      }
+      selected = null;
+      render();
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+
+      if (placementPhase()) {
+        if (placed[current] >= maxPieces || board[row][col]) return;
+        board[row][col] = current;
+        placed[current] += 1;
+        finishTurn();
+        return;
+      }
+
+      if (selected) {
+        if (selected.row === row && selected.col === col) {
+          selected = null;
+          render();
+          return;
+        }
+        if (!board[row][col] && isAdjacent(selected, { row, col })) {
+          board[row][col] = current;
+          board[selected.row][selected.col] = "";
+          finishTurn();
+        }
+        return;
+      }
+
+      if (board[row][col] === current && legalMoves(row, col).length > 0) {
+        selected = { row, col };
+        render();
+      }
+    }
+
+    function message() {
+      if (winner) return `${players[winner].label}连成三枚，获得胜利。`;
+      if (placementPhase()) {
+        return `${players[current].label}放置棋子，剩余 ${maxPieces - placed[current]} 枚。`;
+      }
+      if (selected) return `${players[current].label}把已选棋子滑到相邻空格。`;
+      return `${players[current].label}选择一枚可移动棋子。`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnBadge.textContent = winner ? players[winner].label : players[current].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${players[winner || current].badge}`;
+      statusText.textContent = message();
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const value = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          cell.className = [
+            "flex aspect-square items-center justify-center rounded border transition",
+            active ? "border-lime-300 bg-lime-300/15" : "border-zinc-700 bg-zinc-800",
+            winner ? "opacity-90" : "hover:border-lime-200 hover:bg-zinc-700"
+          ].join(" ");
+          cell.addEventListener("click", () => handleCell(row, col));
+
+          const marker = document.createElement("span");
+          if (value) {
+            marker.className = `block h-3/5 w-3/5 rounded-full shadow ${players[value].piece}`;
+          } else {
+            marker.className = "block h-2 w-2 rounded-full bg-zinc-600";
+          }
+          cell.appendChild(marker);
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
