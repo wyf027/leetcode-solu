@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Jarmo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-yellow-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Jarmo</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-yellow-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-yellow-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-stone-800 bg-stone-900 p-4">
+        <div id="board" class="relative mx-auto aspect-square w-full max-w-xl">
+          <svg viewBox="0 0 100 100" class="absolute inset-0 h-full w-full" aria-hidden="true">
+            <g stroke="rgb(120 113 108)" stroke-width="1.1" opacity="0.8">
+              <line x1="10" y1="10" x2="90" y2="10" />
+              <line x1="10" y1="30" x2="90" y2="30" />
+              <line x1="10" y1="50" x2="90" y2="50" />
+              <line x1="10" y1="70" x2="90" y2="70" />
+              <line x1="10" y1="90" x2="90" y2="90" />
+              <line x1="10" y1="10" x2="10" y2="90" />
+              <line x1="30" y1="10" x2="30" y2="90" />
+              <line x1="50" y1="10" x2="50" y2="90" />
+              <line x1="70" y1="10" x2="70" y2="90" />
+              <line x1="90" y1="10" x2="90" y2="90" />
+              <line x1="10" y1="10" x2="90" y2="90" />
+              <line x1="90" y1="10" x2="10" y2="90" />
+              <line x1="10" y1="50" x2="50" y2="10" />
+              <line x1="50" y1="10" x2="90" y2="50" />
+              <line x1="10" y1="50" x2="50" y2="90" />
+              <line x1="50" y1="90" x2="90" y2="50" />
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-stone-400">当前玩家</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="statusText" class="min-h-20 text-sm leading-6 text-stone-200"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-red-500/40 bg-red-500/10 p-3">
+            <p class="text-xs text-red-200">赤方到达</p>
+            <p id="redGoal" class="text-2xl font-bold text-red-300">0</p>
+          </div>
+          <div class="rounded border border-sky-500/40 bg-sky-500/10 p-3">
+            <p class="text-xs text-sky-200">蓝方到达</p>
+            <p id="blueGoal" class="text-2xl font-bold text-sky-300">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <p>沿线移动到相邻交点，可以吃掉目标点上的对手棋。</p>
+          <p class="mt-2">把更多棋子送到对方底线。任一方到达 3 枚，或对手无棋可走时获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnBadge = document.getElementById("turnBadge");
+    const statusText = document.getElementById("statusText");
+    const redGoal = document.getElementById("redGoal");
+    const blueGoal = document.getElementById("blueGoal");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const coords = [10, 30, 50, 70, 90];
+    const players = {
+      R: { label: "赤方", badge: "bg-red-300 text-stone-950", piece: "bg-red-300", goalRow: 4 },
+      B: { label: "蓝方", badge: "bg-sky-300 text-stone-950", piece: "bg-sky-300", goalRow: 0 }
+    };
+
+    let board;
+    let current;
+    let selected;
+    let reached;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: 5 }, () => Array(5).fill(""));
+      [0, 1, 2, 3, 4].forEach((col) => {
+        board[0][col] = "R";
+        board[4][col] = "B";
+      });
+      current = "R";
+      selected = null;
+      reached = { R: 0, B: 0 };
+      winner = "";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "R" ? "B" : "R";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < 5 && col >= 0 && col < 5;
+    }
+
+    function linked(from, to) {
+      const dRow = Math.abs(from.row - to.row);
+      const dCol = Math.abs(from.col - to.col);
+      if (dRow + dCol === 1) return true;
+      if (dRow === 1 && dCol === 1) {
+        const sum = from.row + from.col + to.row + to.col;
+        return sum % 2 === 0;
+      }
+      return false;
+    }
+
+    function legalMoves(row, col) {
+      const moves = [];
+      for (let r = row - 1; r <= row + 1; r += 1) {
+        for (let c = col - 1; c <= col + 1; c += 1) {
+          if ((r !== row || c !== col) && inBounds(r, c) && linked({ row, col }, { row: r, col: c })) {
+            if (board[r][c] !== board[row][col]) moves.push({ row: r, col: c });
+          }
+        }
+      }
+      return moves;
+    }
+
+    function countPieces(player) {
+      return board.flat().filter((cell) => cell === player).length;
+    }
+
+    function hasAnyMove(player) {
+      for (let row = 0; row < 5; row += 1) {
+        for (let col = 0; col < 5; col += 1) {
+          if (board[row][col] === player && legalMoves(row, col).length > 0) return true;
+        }
+      }
+      return false;
+    }
+
+    function checkWinner() {
+      if (reached.R >= 3 || countPieces("B") === 0 || !hasAnyMove("B")) winner = "R";
+      if (reached.B >= 3 || countPieces("R") === 0 || !hasAnyMove("R")) winner = "B";
+    }
+
+    function movePiece(toRow, toCol) {
+      const piece = board[selected.row][selected.col];
+      board[selected.row][selected.col] = "";
+      board[toRow][toCol] = piece;
+      if (toRow === players[piece].goalRow) {
+        board[toRow][toCol] = "";
+        reached[piece] += 1;
+      }
+      selected = null;
+      current = opponent(current);
+      checkWinner();
+      render();
+    }
+
+    function handlePoint(row, col) {
+      if (winner) return;
+      if (selected) {
+        if (selected.row === row && selected.col === col) {
+          selected = null;
+          render();
+          return;
+        }
+        if (legalMoves(selected.row, selected.col).some((move) => move.row === row && move.col === col)) {
+          movePiece(row, col);
+        }
+        return;
+      }
+      if (board[row][col] === current && legalMoves(row, col).length > 0) {
+        selected = { row, col };
+        render();
+      }
+    }
+
+    function targets() {
+      return selected ? legalMoves(selected.row, selected.col) : [];
+    }
+
+    function statusMessage() {
+      if (winner) return `${players[winner].label}完成优势，获得胜利。`;
+      if (selected) return `${players[current].label}已选中，点击高亮交点移动或吃子。`;
+      return `${players[current].label}选择一枚可以沿线移动的棋子。`;
+    }
+
+    function render() {
+      boardEl.querySelectorAll("button").forEach((button) => button.remove());
+      const moveTargets = targets();
+      turnBadge.textContent = winner ? players[winner].label : players[current].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${players[winner || current].badge}`;
+      statusText.textContent = statusMessage();
+      redGoal.textContent = reached.R;
+      blueGoal.textContent = reached.B;
+
+      for (let row = 0; row < 5; row += 1) {
+        for (let col = 0; col < 5; col += 1) {
+          const piece = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          const target = moveTargets.some((move) => move.row === row && move.col === col);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          button.className = [
+            "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition",
+            "border-stone-700 bg-stone-950",
+            active ? "border-yellow-300 bg-yellow-300/20" : "",
+            target ? "border-emerald-300 bg-emerald-300/20" : "",
+            !winner ? "hover:border-yellow-200" : "opacity-80"
+          ].join(" ");
+          button.style.left = `${coords[col]}%`;
+          button.style.top = `${coords[row]}%`;
+          button.addEventListener("click", () => handlePoint(row, col));
+
+          const marker = document.createElement("span");
+          marker.className = piece
+            ? `block h-7 w-7 rounded-full shadow ${players[piece].piece}`
+            : "block h-2 w-2 rounded-full bg-stone-600";
+          button.appendChild(marker);
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
