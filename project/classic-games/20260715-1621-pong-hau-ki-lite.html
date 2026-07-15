@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pong Hau K'i</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Pong Hau K'i</h1>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-300">轮流沿线移动一枚棋子到空点。让对手两枚棋都没有合法移动，即可获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 md:grid-cols-[1fr_280px]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-4 shadow">
+        <div id="board" class="relative mx-auto aspect-square max-w-xl"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-zinc-700 bg-zinc-900 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-zinc-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold"></div>
+          <p id="statusText" class="mt-3 min-h-20 text-sm leading-6 text-zinc-300"></p>
+        </div>
+
+        <div class="rounded border border-zinc-700 bg-zinc-900 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-zinc-400">规则</div>
+          <p class="mt-2 text-sm leading-6 text-zinc-300">先点自己的棋，再点相邻空点。中心点是关键通道，堵住对手两枚棋的所有路线就赢。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnText = document.getElementById('turnText');
+    const statusText = document.getElementById('statusText');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const points = [
+      { x: 15, y: 15 },
+      { x: 85, y: 15 },
+      { x: 50, y: 50 },
+      { x: 15, y: 85 },
+      { x: 85, y: 85 }
+    ];
+    const edges = [
+      [0, 2], [1, 2], [3, 2], [4, 2],
+      [0, 1], [3, 4], [0, 3], [1, 4]
+    ];
+    const players = [
+      { name: '红方', mark: '红', color: 'bg-rose-500', text: 'text-rose-300' },
+      { name: '蓝方', mark: '蓝', color: 'bg-sky-500', text: 'text-sky-300' }
+    ];
+    let game;
+
+    function resetGame() {
+      game = {
+        turn: 0,
+        selected: null,
+        winner: null,
+        cells: ['red', 'red', null, 'blue', 'blue'],
+        message: '红方先手。选择一枚红棋移动到相邻空点。'
+      };
+      render();
+    }
+
+    function ownerAt(index) {
+      return game.cells[index] === 'red' ? 0 : game.cells[index] === 'blue' ? 1 : null;
+    }
+
+    function neighbors(index) {
+      return edges
+        .filter(([a, b]) => a === index || b === index)
+        .map(([a, b]) => a === index ? b : a);
+    }
+
+    function legalMovesFor(index) {
+      return neighbors(index).filter((next) => game.cells[next] === null);
+    }
+
+    function playerHasMove(playerIndex) {
+      return game.cells.some((piece, index) => ownerAt(index) === playerIndex && legalMovesFor(index).length > 0);
+    }
+
+    function selectPoint(index) {
+      if (game.winner !== null) return;
+      const owner = ownerAt(index);
+      if (game.selected === null) {
+        if (owner !== game.turn) {
+          game.message = `请选择${players[game.turn].name}自己的棋子。`;
+          render();
+          return;
+        }
+        if (!legalMovesFor(index).length) {
+          game.message = '这枚棋子暂时没有可走路线。';
+          render();
+          return;
+        }
+        game.selected = index;
+        game.message = '现在点击一个高亮空点完成移动。';
+        render();
+        return;
+      }
+
+      if (owner === game.turn) {
+        game.selected = index;
+        game.message = '已改选棋子。';
+        render();
+        return;
+      }
+
+      if (!legalMovesFor(game.selected).includes(index)) {
+        game.message = '只能移动到沿线相邻的空点。';
+        render();
+        return;
+      }
+
+      game.cells[index] = game.cells[game.selected];
+      game.cells[game.selected] = null;
+      game.selected = null;
+      game.turn = 1 - game.turn;
+      checkWinner();
+      if (game.winner === null) {
+        game.message = `轮到${players[game.turn].name}。`;
+      }
+      render();
+    }
+
+    function checkWinner() {
+      if (!playerHasMove(game.turn)) {
+        game.winner = 1 - game.turn;
+        game.message = `${players[game.winner].name} 封死对手，获得胜利。`;
+      }
+    }
+
+    function svgLines() {
+      return `
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          ${edges.map(([a, b]) => `<line x1="${points[a].x}" y1="${points[a].y}" x2="${points[b].x}" y2="${points[b].y}" stroke="rgb(113 113 122)" stroke-width="2" />`).join('')}
+        </svg>
+      `;
+    }
+
+    function renderPoint(point, index, targets) {
+      const owner = ownerAt(index);
+      const selected = game.selected === index;
+      const target = targets.includes(index);
+      const piece = owner !== null ? players[owner] : null;
+      return `
+        <button class="absolute flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-sm font-black transition ${selected ? 'border-amber-300 bg-amber-300/20' : target ? 'border-emerald-300 bg-emerald-300/20' : 'border-zinc-600 bg-zinc-900 hover:bg-zinc-800'}" style="left:${point.x}%;top:${point.y}%;" data-index="${index}">
+          ${piece ? `<span class="flex h-11 w-11 items-center justify-center rounded-full ${piece.color} text-white">${piece.mark}</span>` : target ? '<span class="h-5 w-5 rounded-full bg-emerald-300"></span>' : ''}
+        </button>
+      `;
+    }
+
+    function render() {
+      const targets = game.selected === null ? [] : legalMovesFor(game.selected);
+      turnText.textContent = game.winner === null ? players[game.turn].name : `${players[game.winner].name}胜利`;
+      turnText.className = `mt-1 text-2xl font-bold ${players[game.winner ?? game.turn].text}`;
+      statusText.textContent = game.message;
+      boardEl.innerHTML = svgLines() + points.map((point, index) => renderPoint(point, index, targets)).join('');
+      boardEl.querySelectorAll('button[data-index]').forEach((button) => {
+        button.addEventListener('click', () => selectPoint(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
