@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Dablot Prejjesne</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-orange-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Dablot Prejjesne</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-orange-300 px-4 py-2 font-semibold text-stone-950 transition hover:bg-orange-200">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_280px]">
+        <div class="relative aspect-square w-full rounded-lg border border-stone-700 bg-stone-950 p-3">
+          <div id="board" class="grid h-full w-full grid-cols-5 grid-rows-5 gap-1"></div>
+        </div>
+
+        <aside class="rounded-lg border border-stone-800 bg-stone-950 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-stone-900 p-3">
+              <p class="text-xs text-stone-400">北方吃子</p>
+              <p id="northScore" class="text-2xl font-bold text-sky-300">0</p>
+            </div>
+            <div class="rounded-md bg-stone-900 p-3">
+              <p class="text-xs text-stone-400">南方吃子</p>
+              <p id="southScore" class="text-2xl font-bold text-orange-300">0</p>
+            </div>
+          </div>
+          <p id="turnText" class="mt-4 rounded-md bg-stone-900 p-3 text-sm leading-6 text-stone-200"></p>
+          <p class="mt-4 text-sm leading-6 text-stone-400">选择己方棋子移动到相邻空格；若相邻格是对方棋子且后方为空，可跳吃。带冠棋子是国王，可斜向移动和跳吃。</p>
+          <p class="mt-3 text-sm leading-6 text-stone-400">率先吃掉 4 子，或让对方无合法走法即获胜。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const orthogonal = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1]
+    ];
+    const diagonal = [
+      [-1, -1],
+      [-1, 1],
+      [1, -1],
+      [1, 1]
+    ];
+
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const northScore = document.getElementById("northScore");
+    const southScore = document.getElementById("southScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function startGame() {
+      board = Array.from({ length: size * size }, () => null);
+      [0, 1, 2, 3, 4].forEach((index) => board[index] = { side: "north", king: index === 2 });
+      [20, 21, 22, 23, 24].forEach((index) => board[index] = { side: "south", king: index === 22 });
+      board[6] = { side: "north", king: false };
+      board[18] = { side: "south", king: false };
+      turn = "south";
+      selected = null;
+      captures = { north: 0, south: 0 };
+      winner = null;
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((piece, index) => {
+        const row = Math.floor(index / size);
+        const col = index % size;
+        const target = selected !== null && isLegalMove(selected, index);
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+        cell.className = [
+          "flex items-center justify-center rounded-md border text-lg font-bold transition",
+          (row + col) % 2 === 0 ? "bg-stone-800" : "bg-stone-700",
+          piece?.side === "north" ? "border-sky-200 text-sky-200 shadow-inner shadow-sky-950" : "",
+          piece?.side === "south" ? "border-orange-200 text-orange-200 shadow-inner shadow-orange-950" : "",
+          !piece ? "border-stone-600 text-stone-500" : "",
+          selected === index ? "ring-4 ring-white" : "",
+          target ? "border-emerald-200 bg-emerald-400 text-stone-950" : ""
+        ].join(" ");
+        cell.textContent = piece ? (piece.king ? "冠" : piece.side === "north" ? "北" : "南") : "";
+        cell.addEventListener("click", () => handleCell(index));
+        boardEl.appendChild(cell);
+      });
+
+      northScore.textContent = captures.north;
+      southScore.textContent = captures.south;
+      turnText.textContent = winner
+        ? `${winner === "north" ? "北方" : "南方"}获胜。`
+        : `${turn === "north" ? "北方" : "南方"}行动：选择棋子后移动到高亮格。`;
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      if (board[index]?.side === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (selected === null || !isLegalMove(selected, index)) return;
+      movePiece(selected, index);
+      selected = null;
+      updateWinner();
+      if (!winner) turn = turn === "north" ? "south" : "north";
+      render();
+    }
+
+    function directionsFor(piece) {
+      return piece.king ? orthogonal.concat(diagonal) : orthogonal;
+    }
+
+    function isLegalMove(from, to) {
+      const piece = board[from];
+      if (!piece || piece.side !== turn || board[to]) return false;
+      const fromRow = Math.floor(from / size);
+      const fromCol = from % size;
+      const toRow = Math.floor(to / size);
+      const toCol = to % size;
+      return directionsFor(piece).some(([dr, dc]) => {
+        const step = findIndex(fromRow + dr, fromCol + dc);
+        const jump = findIndex(fromRow + dr * 2, fromCol + dc * 2);
+        if (step === to) return true;
+        return jump === to && board[step]?.side && board[step].side !== turn;
+      });
+    }
+
+    function findIndex(row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return null;
+      return row * size + col;
+    }
+
+    function movePiece(from, to) {
+      const piece = board[from];
+      const fromRow = Math.floor(from / size);
+      const fromCol = from % size;
+      const toRow = Math.floor(to / size);
+      const toCol = to % size;
+      const jumped = Math.max(Math.abs(toRow - fromRow), Math.abs(toCol - fromCol)) === 2;
+      board[to] = piece;
+      board[from] = null;
+      if (jumped) {
+        const mid = findIndex((fromRow + toRow) / 2, (fromCol + toCol) / 2);
+        board[mid] = null;
+        captures[turn] += 1;
+      }
+    }
+
+    function updateWinner() {
+      const rival = turn === "north" ? "south" : "north";
+      if (captures[turn] >= 4 || !hasMove(rival)) {
+        winner = turn;
+      }
+    }
+
+    function hasMove(side) {
+      const saved = turn;
+      turn = side;
+      const movable = board.some((piece, from) => piece?.side === side && board.some((_, to) => isLegalMove(from, to)));
+      turn = saved;
+      return movable;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
