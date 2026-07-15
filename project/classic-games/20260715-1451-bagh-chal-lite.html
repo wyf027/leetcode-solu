@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bagh Chal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Bagh Chal</h1>
+        <p class="mt-1 max-w-2xl text-sm text-slate-300">虎试图跳吃羊，羊先下满 8 枚后移动并围住虎。虎吃 4 羊获胜，羊让所有虎无路可走获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4 shadow">
+        <div id="board" class="grid aspect-square grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-slate-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold"></div>
+          <p id="statusText" class="mt-3 min-h-20 text-sm leading-6 text-slate-300"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-slate-700 bg-slate-900 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-slate-400">羊已放置</div>
+            <div id="goatCount" class="mt-2 text-3xl font-black text-emerald-300"></div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-900 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-slate-400">羊被吃</div>
+            <div id="captureCount" class="mt-2 text-3xl font-black text-rose-300"></div>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-700 bg-slate-900 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-slate-400">操作</div>
+          <p class="mt-2 text-sm leading-6 text-slate-300">羊方：放置阶段点击空位，下满后选择羊再移动。虎方：选择虎，再点相邻空位或越过羊跳吃。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnText = document.getElementById('turnText');
+    const statusText = document.getElementById('statusText');
+    const goatCount = document.getElementById('goatCount');
+    const captureCount = document.getElementById('captureCount');
+    const resetBtn = document.getElementById('resetBtn');
+    const size = 5;
+    const totalGoats = 8;
+    let game;
+
+    function resetGame() {
+      game = {
+        turn: 'goat',
+        goatsToPlace: totalGoats,
+        captured: 0,
+        selected: null,
+        winner: null,
+        cells: Array.from({ length: size * size }, () => null),
+        message: '羊方先手。点击空格放置羊，尽量封住四角的虎。'
+      };
+      [0, 4, 20, 24].forEach((index) => {
+        game.cells[index] = 'tiger';
+      });
+      render();
+    }
+
+    function row(index) {
+      return Math.floor(index / size);
+    }
+
+    function col(index) {
+      return index % size;
+    }
+
+    function indexAt(r, c) {
+      if (r < 0 || r >= size || c < 0 || c >= size) return -1;
+      return r * size + c;
+    }
+
+    function adjacentIndexes(index) {
+      const results = [];
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          if (dr === 0 && dc === 0) continue;
+          const next = indexAt(row(index) + dr, col(index) + dc);
+          if (next !== -1) results.push(next);
+        }
+      }
+      return results;
+    }
+
+    function tigerMoves(index) {
+      const moves = [];
+      adjacentIndexes(index).forEach((next) => {
+        if (game.cells[next] === null) {
+          moves.push({ to: next, capture: null });
+          return;
+        }
+        if (game.cells[next] === 'goat') {
+          const dr = row(next) - row(index);
+          const dc = col(next) - col(index);
+          const landing = indexAt(row(next) + dr, col(next) + dc);
+          if (landing !== -1 && game.cells[landing] === null) {
+            moves.push({ to: landing, capture: next });
+          }
+        }
+      });
+      return moves;
+    }
+
+    function goatMoves(index) {
+      return adjacentIndexes(index)
+        .filter((next) => game.cells[next] === null)
+        .map((next) => ({ to: next, capture: null }));
+    }
+
+    function allTigerMoves() {
+      return game.cells.flatMap((piece, index) => piece === 'tiger' ? tigerMoves(index) : []);
+    }
+
+    function selectCell(index) {
+      if (game.winner) return;
+      const piece = game.cells[index];
+      if (game.turn === 'goat') handleGoatClick(index, piece);
+      if (game.turn === 'tiger') handleTigerClick(index, piece);
+      render();
+    }
+
+    function handleGoatClick(index, piece) {
+      if (game.goatsToPlace > 0) {
+        if (piece !== null) {
+          game.message = '放置阶段只能把羊放在空位。';
+          return;
+        }
+        game.cells[index] = 'goat';
+        game.goatsToPlace -= 1;
+        game.message = game.goatsToPlace ? `羊已落子，还剩 ${game.goatsToPlace} 枚待放。` : '所有羊已放置，之后羊可以移动。';
+        endTurn();
+        return;
+      }
+      if (game.selected === null) {
+        if (piece === 'goat') {
+          game.selected = index;
+          game.message = '选择一个相邻空位移动羊。';
+        } else {
+          game.message = '请选择一枚羊。';
+        }
+        return;
+      }
+      const move = goatMoves(game.selected).find((item) => item.to === index);
+      if (!move) {
+        game.selected = piece === 'goat' ? index : null;
+        game.message = piece === 'goat' ? '已改选另一枚羊。' : '羊只能移动到相邻空位。';
+        return;
+      }
+      game.cells[index] = 'goat';
+      game.cells[game.selected] = null;
+      game.selected = null;
+      game.message = '羊移动完成。';
+      endTurn();
+    }
+
+    function handleTigerClick(index, piece) {
+      if (game.selected === null) {
+        if (piece === 'tiger') {
+          game.selected = index;
+          game.message = '选择相邻空位移动，或跳过羊进行捕获。';
+        } else {
+          game.message = '请选择一只虎。';
+        }
+        return;
+      }
+      const move = tigerMoves(game.selected).find((item) => item.to === index);
+      if (!move) {
+        game.selected = piece === 'tiger' ? index : null;
+        game.message = piece === 'tiger' ? '已改选另一只虎。' : '虎不能走到这里。';
+        return;
+      }
+      game.cells[index] = 'tiger';
+      game.cells[game.selected] = null;
+      if (move.capture !== null) {
+        game.cells[move.capture] = null;
+        game.captured += 1;
+        game.message = '虎跳吃一枚羊。';
+      } else {
+        game.message = '虎移动完成。';
+      }
+      game.selected = null;
+      endTurn();
+    }
+
+    function endTurn() {
+      checkWinner();
+      if (game.winner) return;
+      game.turn = game.turn === 'goat' ? 'tiger' : 'goat';
+      game.message += game.turn === 'goat' ? ' 轮到羊方。' : ' 轮到虎方。';
+    }
+
+    function checkWinner() {
+      if (game.captured >= 4) {
+        game.winner = 'tiger';
+        game.message = '虎方吃掉 4 枚羊，虎方获胜。';
+        return;
+      }
+      if (game.goatsToPlace === 0 && allTigerMoves().length === 0) {
+        game.winner = 'goat';
+        game.message = '所有虎都被围住，羊方获胜。';
+      }
+    }
+
+    function legalTargets() {
+      if (game.selected === null) return [];
+      return (game.cells[game.selected] === 'tiger' ? tigerMoves(game.selected) : goatMoves(game.selected)).map((move) => move.to);
+    }
+
+    function render() {
+      const targets = legalTargets();
+      turnText.textContent = game.winner ? (game.winner === 'tiger' ? '虎方获胜' : '羊方获胜') : (game.turn === 'goat' ? '羊方' : '虎方');
+      turnText.className = `mt-1 text-2xl font-bold ${game.turn === 'goat' ? 'text-emerald-300' : 'text-rose-300'}`;
+      statusText.textContent = game.message;
+      goatCount.textContent = `${totalGoats - game.goatsToPlace}/${totalGoats}`;
+      captureCount.textContent = `${game.captured}/4`;
+      boardEl.innerHTML = game.cells.map((piece, index) => {
+        const selected = game.selected === index;
+        const target = targets.includes(index);
+        const marker = piece === 'tiger' ? '虎' : piece === 'goat' ? '羊' : '';
+        const pieceClass = piece === 'tiger' ? 'bg-rose-500 text-white' : piece === 'goat' ? 'bg-emerald-300 text-slate-950' : '';
+        return `
+          <button class="relative flex items-center justify-center rounded border text-2xl font-black transition ${selected ? 'border-amber-300 bg-amber-300/20' : target ? 'border-sky-300 bg-sky-300/20' : 'border-slate-700 bg-slate-950/60 hover:bg-slate-800'}" data-index="${index}">
+            <span class="absolute left-1 top-1 text-xs font-semibold text-slate-500">${index + 1}</span>
+            ${marker ? `<span class="flex h-12 w-12 items-center justify-center rounded-full ${pieceClass}">${marker}</span>` : target ? '<span class="h-4 w-4 rounded-full bg-sky-300"></span>' : ''}
+          </button>
+        `;
+      }).join('');
+      boardEl.querySelectorAll('button[data-index]').forEach((button) => {
+        button.addEventListener('click', () => selectCell(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
