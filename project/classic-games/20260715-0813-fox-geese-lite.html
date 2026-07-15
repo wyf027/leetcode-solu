@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Fox and Geese</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Fox and Geese</h1>
+        <p class="mt-1 text-sm text-emerald-200">狐狸跳吃鹅，鹅群围堵狐狸；一方达成目标即获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-lime-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-emerald-700 bg-emerald-900 p-3 shadow-xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-7 gap-1"></div>
+      </div>
+
+      <aside class="rounded-lg border border-emerald-700 bg-emerald-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-emerald-300">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">狐狸</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-md bg-emerald-800 p-3">
+              <p class="text-emerald-300">鹅群</p>
+              <p id="gooseCount" class="text-xl font-semibold text-white">13</p>
+            </div>
+            <div class="rounded-md bg-emerald-800 p-3">
+              <p class="text-emerald-300">狐狸走法</p>
+              <p id="foxMoves" class="text-xl font-semibold text-white">0</p>
+            </div>
+          </div>
+          <p id="statusText" class="rounded-md bg-emerald-800 p-3 text-sm leading-6 text-emerald-100">
+            狐狸先手。狐狸可走一步或跳吃；鹅只能向下或横向移动。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const gooseCount = document.getElementById("gooseCount");
+    const foxMoves = document.getElementById("foxMoves");
+    const resetBtn = document.getElementById("resetBtn");
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const valid = new Set();
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        if ((row >= 2 && row <= 4) || (col >= 2 && col <= 4)) valid.add(`${row},${col}`);
+      }
+    }
+
+    let fox = { row: 6, col: 3 };
+    let geese = [];
+    let turn = "F";
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      fox = { row: 6, col: 3 };
+      geese = [
+        [0, 2], [0, 3], [0, 4],
+        [1, 2], [1, 3], [1, 4],
+        [2, 0], [2, 1], [2, 2], [2, 4], [2, 5], [2, 6],
+        [3, 3]
+      ].map(([row, col]) => ({ row, col }));
+      turn = "F";
+      selected = null;
+      winner = null;
+      render();
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function isValid(row, col) {
+      return valid.has(key(row, col));
+    }
+
+    function gooseAt(row, col) {
+      return geese.find((goose) => goose.row === row && goose.col === col);
+    }
+
+    function occupied(row, col) {
+      return (fox.row === row && fox.col === col) || Boolean(gooseAt(row, col));
+    }
+
+    function foxLegalMoves() {
+      const moves = [];
+      for (const [rowStep, colStep] of dirs) {
+        const row = fox.row + rowStep;
+        const col = fox.col + colStep;
+        if (isValid(row, col) && !occupied(row, col)) moves.push({ row, col, jump: false });
+        const mid = gooseAt(row, col);
+        const jumpRow = fox.row + rowStep * 2;
+        const jumpCol = fox.col + colStep * 2;
+        if (mid && isValid(jumpRow, jumpCol) && !occupied(jumpRow, jumpCol)) {
+          moves.push({ row: jumpRow, col: jumpCol, jump: true, capture: mid });
+        }
+      }
+      return moves;
+    }
+
+    function gooseLegalMoves(goose) {
+      return [[1, 0], [0, 1], [0, -1]]
+        .map(([rowStep, colStep]) => ({ row: goose.row + rowStep, col: goose.col + colStep }))
+        .filter((move) => isValid(move.row, move.col) && !occupied(move.row, move.col));
+    }
+
+    function checkWinner() {
+      if (geese.length <= 6) return "F";
+      if (foxLegalMoves().length === 0) return "G";
+      return null;
+    }
+
+    function moveFox(row, col) {
+      const move = foxLegalMoves().find((item) => item.row === row && item.col === col);
+      if (!move) return;
+      fox = { row, col };
+      if (move.jump) geese = geese.filter((goose) => goose !== move.capture);
+      winner = checkWinner();
+      if (!winner) turn = "G";
+      selected = null;
+      render(move.jump ? 1 : 0);
+    }
+
+    function moveGoose(row, col) {
+      if (!selected) return;
+      const move = gooseLegalMoves(selected).find((item) => item.row === row && item.col === col);
+      if (!move) return;
+      selected.row = row;
+      selected.col = col;
+      turn = "F";
+      selected = null;
+      winner = checkWinner();
+      render();
+    }
+
+    function handleCell(row, col) {
+      if (winner || !isValid(row, col)) return;
+      if (turn === "F") {
+        moveFox(row, col);
+        return;
+      }
+      const goose = gooseAt(row, col);
+      if (selected && !occupied(row, col)) {
+        moveGoose(row, col);
+        return;
+      }
+      selected = goose || null;
+      render();
+    }
+
+    function render(captured = 0) {
+      const foxMovesList = foxLegalMoves();
+      const foxMoveKeys = new Set(turn === "F" ? foxMovesList.map((move) => key(move.row, move.col)) : []);
+      const gooseMoveKeys = new Set(selected ? gooseLegalMoves(selected).map((move) => key(move.row, move.col)) : []);
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const cell = document.createElement("button");
+          const allowed = isValid(row, col);
+          const goose = gooseAt(row, col);
+          const isFox = fox.row === row && fox.col === col;
+          const isMove = foxMoveKeys.has(key(row, col)) || gooseMoveKeys.has(key(row, col));
+          const isSelected = selected && selected.row === row && selected.col === col;
+          cell.className = [
+            "flex aspect-square items-center justify-center rounded-md border text-xl font-black transition",
+            allowed ? ((row + col) % 2 ? "border-emerald-800 bg-emerald-700" : "border-emerald-800 bg-emerald-600") : "border-emerald-950 bg-emerald-950",
+            isMove ? "ring-4 ring-lime-200 ring-inset" : allowed ? "hover:brightness-110" : "",
+            isSelected ? "outline outline-4 outline-white" : ""
+          ].join(" ");
+          cell.setAttribute("aria-label", `${row + 1}-${col + 1}`);
+          cell.addEventListener("click", () => handleCell(row, col));
+          if (isFox || goose) {
+            const disk = document.createElement("span");
+            disk.className = [
+              "flex h-3/5 w-3/5 items-center justify-center rounded-full border-2 shadow-lg",
+              isFox ? "border-orange-100 bg-orange-500 text-white" : "border-white bg-emerald-50 text-emerald-950"
+            ].join(" ");
+            disk.textContent = isFox ? "F" : "G";
+            cell.appendChild(disk);
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+      gooseCount.textContent = geese.length;
+      foxMoves.textContent = foxMovesList.length;
+      turnText.textContent = winner ? (winner === "F" ? "狐狸获胜" : "鹅群获胜") : (turn === "F" ? "狐狸" : "鹅群");
+      statusText.textContent = winner
+        ? `${winner === "F" ? "狐狸吃掉足够多的鹅" : "鹅群围住狐狸"}。点击重新开始再来一局。`
+        : turn === "F"
+          ? `狐狸行动，可走 ${foxMovesList.length} 格。${captured ? "刚刚跳吃 1 只鹅。" : ""}`
+          : selected
+            ? `鹅已选中，可移动到 ${gooseMoveKeys.size} 个目标格。`
+            : "鹅群行动。选择一只鹅向下或横向移动。";
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
