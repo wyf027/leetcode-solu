@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kalah</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-emerald-800 bg-emerald-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-yellow-200">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Kalah</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-yellow-200 px-4 py-2 font-semibold text-emerald-950 transition hover:bg-yellow-100">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_260px]">
+        <div class="rounded-lg border border-emerald-700 bg-emerald-950 p-4">
+          <div class="grid grid-cols-[72px_repeat(6,minmax(44px,1fr))_72px] gap-2">
+            <div id="northStore" class="row-span-2 flex min-h-48 flex-col items-center justify-center rounded-lg border border-sky-300 bg-sky-900/50 text-2xl font-bold"></div>
+            <div id="northPits" class="col-span-6 grid grid-cols-6 gap-2"></div>
+            <div id="southStore" class="row-span-2 flex min-h-48 flex-col items-center justify-center rounded-lg border border-orange-300 bg-orange-900/50 text-2xl font-bold"></div>
+            <div id="southPits" class="col-span-6 grid grid-cols-6 gap-2"></div>
+          </div>
+        </div>
+
+        <aside class="rounded-lg border border-emerald-800 bg-emerald-950 p-4">
+          <p id="turnText" class="rounded-md bg-emerald-900 p-3 text-sm leading-6 text-emerald-100"></p>
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-emerald-900 p-3">
+              <p class="text-xs text-emerald-300">北方粮仓</p>
+              <p id="northScore" class="text-2xl font-bold text-sky-200">0</p>
+            </div>
+            <div class="rounded-md bg-emerald-900 p-3">
+              <p class="text-xs text-emerald-300">南方粮仓</p>
+              <p id="southScore" class="text-2xl font-bold text-orange-200">0</p>
+            </div>
+          </div>
+          <p class="mt-4 text-sm leading-6 text-emerald-200/80">点击己方非空小坑，从该坑逆时针逐颗播种。最后一颗落入己方粮仓可继续行动；一侧小坑清空时，另一侧剩余棋子收入粮仓并结算。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let pits;
+    let stores;
+    let turn;
+    let winner;
+
+    const northPits = document.getElementById("northPits");
+    const southPits = document.getElementById("southPits");
+    const northStore = document.getElementById("northStore");
+    const southStore = document.getElementById("southStore");
+    const northScore = document.getElementById("northScore");
+    const southScore = document.getElementById("southScore");
+    const turnText = document.getElementById("turnText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function startGame() {
+      pits = {
+        north: Array(6).fill(4),
+        south: Array(6).fill(4)
+      };
+      stores = { north: 0, south: 0 };
+      turn = "south";
+      winner = null;
+      render();
+    }
+
+    function render() {
+      northPits.innerHTML = "";
+      southPits.innerHTML = "";
+      pits.north.slice().reverse().forEach((stones, displayIndex) => {
+        const index = 5 - displayIndex;
+        northPits.appendChild(createPit("north", index, stones));
+      });
+      pits.south.forEach((stones, index) => {
+        southPits.appendChild(createPit("south", index, stones));
+      });
+      northStore.textContent = stores.north;
+      southStore.textContent = stores.south;
+      northScore.textContent = stores.north;
+      southScore.textContent = stores.south;
+      turnText.textContent = winner
+        ? `${winner === "tie" ? "平局" : winner === "north" ? "北方获胜" : "南方获胜"}。`
+        : `${turn === "north" ? "北方" : "南方"}行动：选择己方非空小坑。`;
+    }
+
+    function createPit(side, index, stones) {
+      const pit = document.createElement("button");
+      pit.type = "button";
+      pit.disabled = Boolean(winner) || side !== turn || stones === 0;
+      pit.className = [
+        "min-h-24 rounded-lg border p-2 text-center transition",
+        side === "north" ? "border-sky-300 bg-sky-900/40" : "border-orange-300 bg-orange-900/40",
+        !pit.disabled ? "hover:bg-yellow-200 hover:text-emerald-950" : "opacity-80"
+      ].join(" ");
+      pit.innerHTML = `<span class="block text-2xl font-bold">${stones}</span><span class="text-xs">坑 ${index + 1}</span>`;
+      pit.addEventListener("click", () => playMove(side, index));
+      return pit;
+    }
+
+    function playMove(side, index) {
+      let stones = pits[side][index];
+      if (!stones || side !== turn || winner) return;
+      pits[side][index] = 0;
+      const order = buildOrder(side, index);
+      let cursor = 0;
+      let last = null;
+      while (stones > 0) {
+        last = order[cursor % order.length];
+        if (last.type === "pit") {
+          pits[last.side][last.index] += 1;
+        } else {
+          stores[last.side] += 1;
+        }
+        stones -= 1;
+        cursor += 1;
+      }
+
+      checkGameEnd();
+      if (!winner && !(last.type === "store" && last.side === side)) {
+        turn = side === "north" ? "south" : "north";
+      }
+      render();
+    }
+
+    function buildOrder(side, index) {
+      const order = [];
+      if (side === "south") {
+        for (let i = index + 1; i < 6; i++) order.push({ type: "pit", side: "south", index: i });
+        order.push({ type: "store", side: "south" });
+        for (let i = 5; i >= 0; i--) order.push({ type: "pit", side: "north", index: i });
+        for (let i = 0; i <= index; i++) order.push({ type: "pit", side: "south", index: i });
+      } else {
+        for (let i = index - 1; i >= 0; i--) order.push({ type: "pit", side: "north", index: i });
+        order.push({ type: "store", side: "north" });
+        for (let i = 0; i < 6; i++) order.push({ type: "pit", side: "south", index: i });
+        for (let i = 5; i >= index; i--) order.push({ type: "pit", side: "north", index: i });
+      }
+      return order;
+    }
+
+    function checkGameEnd() {
+      const northEmpty = pits.north.every((stones) => stones === 0);
+      const southEmpty = pits.south.every((stones) => stones === 0);
+      if (!northEmpty && !southEmpty) return;
+      stores.north += pits.north.reduce((sum, stones) => sum + stones, 0);
+      stores.south += pits.south.reduce((sum, stones) => sum + stones, 0);
+      pits.north.fill(0);
+      pits.south.fill(0);
+      winner = stores.north === stores.south ? "tie" : stores.north > stores.south ? "north" : "south";
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
