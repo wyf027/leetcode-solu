@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Shobu</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-medium uppercase tracking-widest text-amber-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Shobu</h1>
+      </div>
+      <button id="reset" class="w-fit rounded-md bg-amber-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div id="boards" class="grid gap-4 sm:grid-cols-2"></div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <div class="text-sm text-stone-400">当前回合</div>
+          <div id="turn" class="mt-1 text-2xl font-bold"></div>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-stone-300"></p>
+        </div>
+
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <p>先移动任意己方棋子 1-2 格，不能推子；再在相反颜色棋盘上用同方向同距离移动另一枚己方棋子。</p>
+          <p class="mt-2">主动移动可以推走一枚对手棋子。任一棋盘清空对手棋子即获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardsEl = document.getElementById("boards");
+    const turnEl = document.getElementById("turn");
+    const statusEl = document.getElementById("status");
+    const resetEl = document.getElementById("reset");
+    const players = [
+      { name: "蓝方", mark: "●", color: "text-sky-300", bg: "bg-sky-400" },
+      { name: "橙方", mark: "●", color: "text-orange-300", bg: "bg-orange-400" }
+    ];
+    const boardMeta = [
+      { id: 0, name: "深色近岸", shade: "dark", tint: "bg-stone-900" },
+      { id: 1, name: "浅色近岸", shade: "light", tint: "bg-neutral-800" },
+      { id: 2, name: "深色远岸", shade: "dark", tint: "bg-stone-900" },
+      { id: 3, name: "浅色远岸", shade: "light", tint: "bg-neutral-800" }
+    ];
+    let boards;
+    let current;
+    let selected;
+    let phase;
+    let vector;
+    let winner;
+
+    function startGame() {
+      boards = boardMeta.map(() => Array.from({ length: 16 }, (_, index) => {
+        const row = Math.floor(index / 4);
+        if (row === 0) return 1;
+        if (row === 3) return 0;
+        return null;
+      }));
+      current = 0;
+      selected = null;
+      phase = "passive";
+      vector = null;
+      winner = null;
+      statusEl.textContent = "选择己方棋子，完成被动移动。";
+      render();
+    }
+
+    function coords(index) {
+      return { row: Math.floor(index / 4), col: index % 4 };
+    }
+
+    function indexOf(row, col) {
+      return row >= 0 && row < 4 && col >= 0 && col < 4 ? row * 4 + col : -1;
+    }
+
+    function sameShade(boardId) {
+      return boardMeta.filter(board => board.shade === boardMeta[boardId].shade).map(board => board.id);
+    }
+
+    function moveVector(from, to) {
+      const a = coords(from);
+      const b = coords(to);
+      const dr = b.row - a.row;
+      const dc = b.col - a.col;
+      const distance = Math.max(Math.abs(dr), Math.abs(dc));
+      if (distance < 1 || distance > 2) return null;
+      const straight = dr === 0 || dc === 0 || Math.abs(dr) === Math.abs(dc);
+      if (!straight) return null;
+      return { dr, dc, distance };
+    }
+
+    function canPassive(boardId, from, to) {
+      const vec = moveVector(from, to);
+      if (!vec || boards[boardId][to] !== null) return false;
+      return boards[boardId][from] === current;
+    }
+
+    function canAggressive(boardId, from) {
+      if (!vector || boards[boardId][from] !== current) return false;
+      if (!sameShade(vector.boardId).includes(boardId) || boardId === vector.boardId) return false;
+      const start = coords(from);
+      const target = indexOf(start.row + vector.dr, start.col + vector.dc);
+      if (target < 0) return false;
+      const targetPiece = boards[boardId][target];
+      if (targetPiece === null) return true;
+      if (targetPiece === current) return false;
+      const beyond = indexOf(start.row + vector.dr * 2, start.col + vector.dc * 2);
+      return beyond < 0 || boards[boardId][beyond] === null;
+    }
+
+    function applyAggressive(boardId, from) {
+      const start = coords(from);
+      const target = indexOf(start.row + vector.dr, start.col + vector.dc);
+      const beyond = indexOf(start.row + vector.dr * 2, start.col + vector.dc * 2);
+      if (boards[boardId][target] === 1 - current && beyond >= 0) {
+        boards[boardId][beyond] = 1 - current;
+      }
+      boards[boardId][target] = current;
+      boards[boardId][from] = null;
+    }
+
+    function findWin() {
+      for (const board of boards) {
+        if (!board.includes(1 - current)) return current;
+      }
+      return null;
+    }
+
+    function handleCell(boardId, cell) {
+      if (winner !== null) return;
+      if (!selected) {
+        if (boards[boardId][cell] !== current) {
+          statusEl.textContent = "请选择当前玩家自己的棋子。";
+          return;
+        }
+        if (phase === "aggressive" && canAggressive(boardId, cell)) {
+          applyAggressive(boardId, cell);
+          winner = findWin();
+          if (winner !== null) {
+            statusEl.textContent = players[winner].name + "清空了一块棋盘上的对手棋子。";
+          } else {
+            current = 1 - current;
+            phase = "passive";
+            vector = null;
+            statusEl.textContent = "选择己方棋子，完成被动移动。";
+          }
+          render();
+          return;
+        }
+        selected = { boardId, cell };
+        statusEl.textContent = phase === "passive" ? "选择空位完成被动移动。" : "选择同色另一棋盘上的己方棋子执行主动移动。";
+        render();
+        return;
+      }
+
+      if (phase === "passive") {
+        if (selected.boardId === boardId && canPassive(boardId, selected.cell, cell)) {
+          vector = { ...moveVector(selected.cell, cell), boardId };
+          boards[boardId][cell] = current;
+          boards[boardId][selected.cell] = null;
+          selected = null;
+          phase = "aggressive";
+          statusEl.textContent = "现在在相同颜色的另一块棋盘上执行同方向同距离的主动移动。";
+        } else {
+          statusEl.textContent = "被动移动必须是 1-2 格直线或斜线，且目标为空。";
+        }
+      } else if (selected.boardId === boardId && selected.cell === cell && canAggressive(boardId, cell)) {
+        applyAggressive(boardId, cell);
+        winner = findWin();
+        if (winner !== null) {
+          statusEl.textContent = players[winner].name + "清空了一块棋盘上的对手棋子。";
+        } else {
+          current = 1 - current;
+          phase = "passive";
+          vector = null;
+          statusEl.textContent = "选择己方棋子，完成被动移动。";
+        }
+        selected = null;
+      } else {
+        selected = boards[boardId][cell] === current ? { boardId, cell } : selected;
+        statusEl.textContent = "主动移动要选相同颜色的另一块棋盘，并且同方向同距离。";
+      }
+      render();
+    }
+
+    function render() {
+      const active = winner === null ? current : winner;
+      turnEl.textContent = winner === null ? players[current].name : players[winner].name + "获胜";
+      turnEl.className = "mt-1 text-2xl font-bold " + players[active].color;
+      boardsEl.innerHTML = "";
+      boardMeta.forEach(meta => {
+        const wrap = document.createElement("div");
+        wrap.className = "rounded-lg border border-stone-800 p-3 shadow-xl shadow-black/20 " + meta.tint;
+        wrap.innerHTML = '<div class="mb-2 flex items-center justify-between text-sm"><span class="font-semibold text-stone-200">' + meta.name + '</span><span class="text-stone-400">' + meta.shade + '</span></div>';
+        const grid = document.createElement("div");
+        grid.className = "grid aspect-square grid-cols-4 gap-1";
+        boards[meta.id].forEach((piece, cell) => {
+          const button = document.createElement("button");
+          const isSelected = selected && selected.boardId === meta.id && selected.cell === cell;
+          button.className = [
+            "flex aspect-square items-center justify-center rounded-md border text-2xl font-black transition",
+            (Math.floor(cell / 4) + cell) % 2 ? "bg-stone-800/80" : "bg-stone-700/80",
+            isSelected ? "border-amber-300 ring-2 ring-amber-300" : "border-stone-600",
+            piece === null ? "text-transparent hover:border-amber-200" : players[piece].color
+          ].join(" ");
+          button.textContent = piece === null ? "." : players[piece].mark;
+          button.addEventListener("click", () => handleCell(meta.id, cell));
+          grid.appendChild(button);
+        });
+        wrap.appendChild(grid);
+        boardsEl.appendChild(wrap);
+      });
+    }
+
+    resetEl.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
