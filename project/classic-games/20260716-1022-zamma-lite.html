@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Zamma</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-emerald-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Zamma</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-emerald-300 px-4 py-2 font-semibold text-neutral-950 transition hover:bg-emerald-200">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_270px]">
+        <div class="relative aspect-square rounded-lg border border-neutral-700 bg-neutral-950">
+          <svg id="lines" class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true"></svg>
+          <div id="board" class="absolute inset-0"></div>
+        </div>
+
+        <aside class="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-neutral-900 p-3">
+              <p class="text-xs text-neutral-400">黑方吃子</p>
+              <p id="blackScore" class="text-2xl font-bold text-stone-200">0</p>
+            </div>
+            <div class="rounded-md bg-neutral-900 p-3">
+              <p class="text-xs text-neutral-400">绿方吃子</p>
+              <p id="greenScore" class="text-2xl font-bold text-emerald-300">0</p>
+            </div>
+          </div>
+          <p id="turnText" class="mt-4 rounded-md bg-neutral-900 p-3 text-sm leading-6 text-neutral-200"></p>
+          <p class="mt-4 text-sm leading-6 text-neutral-400">选择己方棋子沿线移动到相邻空点；若同线相邻点是对方棋子且下一点为空，可以跳吃。存在跳吃时必须跳吃。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const points = Array.from({ length: size * size }, (_, index) => ({
+      x: 10 + (index % size) * 20,
+      y: 10 + Math.floor(index / size) * 20,
+      row: Math.floor(index / size),
+      col: index % size
+    }));
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const blackScore = document.getElementById("blackScore");
+    const greenScore = document.getElementById("greenScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function startGame() {
+      board = Array.from({ length: size * size }, (_, index) => {
+        const row = Math.floor(index / size);
+        if (row < 2) return "black";
+        if (row > 2) return "green";
+        return null;
+      });
+      board[10] = "green";
+      board[14] = "black";
+      turn = "green";
+      selected = null;
+      captures = { black: 0, green: 0 };
+      winner = null;
+      render();
+    }
+
+    function drawLines() {
+      linesEl.innerHTML = "";
+      const seen = new Set();
+      points.forEach((point, index) => {
+        directions.forEach(([dr, dc]) => {
+          const to = findIndex(point.row + dr, point.col + dc);
+          if (to === null) return;
+          const key = [Math.min(index, to), Math.max(index, to)].join("-");
+          if (seen.has(key)) return;
+          seen.add(key);
+          const target = points[to];
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", point.x);
+          line.setAttribute("y1", point.y);
+          line.setAttribute("x2", target.x);
+          line.setAttribute("y2", target.y);
+          line.setAttribute("stroke", "#404040");
+          line.setAttribute("stroke-width", "1.2");
+          line.setAttribute("stroke-linecap", "round");
+          linesEl.appendChild(line);
+        });
+      });
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      const jumpRequired = hasAnyCapture(turn);
+      points.forEach((point, index) => {
+        const piece = board[index];
+        const target = selected !== null && isLegalMove(selected, index, jumpRequired);
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.setAttribute("aria-label", `point ${index + 1}`);
+        cell.className = [
+          "absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition sm:h-11 sm:w-11",
+          piece === "black" ? "border-stone-100 bg-stone-800 text-white shadow-lg shadow-black/70" : "",
+          piece === "green" ? "border-emerald-100 bg-emerald-500 text-neutral-950 shadow-lg shadow-emerald-950/60" : "",
+          !piece ? "border-neutral-600 bg-neutral-800 text-neutral-500" : "",
+          selected === index ? "ring-4 ring-white" : "",
+          target ? "border-yellow-100 bg-yellow-300 text-neutral-950" : ""
+        ].join(" ");
+        cell.style.left = `${point.x}%`;
+        cell.style.top = `${point.y}%`;
+        cell.textContent = piece ? (piece === "black" ? "黑" : "绿") : "";
+        cell.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(cell);
+      });
+      blackScore.textContent = captures.black;
+      greenScore.textContent = captures.green;
+      turnText.textContent = winner
+        ? `${winner === "black" ? "黑方" : "绿方"}获胜。`
+        : `${turn === "black" ? "黑方" : "绿方"}行动：${jumpRequired ? "必须跳吃。" : "选择棋子移动。"}`;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (selected === null || !isLegalMove(selected, index, hasAnyCapture(turn))) return;
+      movePiece(selected, index);
+      selected = null;
+      updateWinner();
+      if (!winner) turn = turn === "black" ? "green" : "black";
+      render();
+    }
+
+    function findIndex(row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return null;
+      return row * size + col;
+    }
+
+    function isLegalMove(from, to, jumpRequired) {
+      if (board[from] !== turn || board[to]) return false;
+      const move = moveInfo(from, to);
+      if (!move) return false;
+      return jumpRequired ? Boolean(move.capture) : true;
+    }
+
+    function moveInfo(from, to) {
+      const a = points[from];
+      const b = points[to];
+      const dr = Math.sign(b.row - a.row);
+      const dc = Math.sign(b.col - a.col);
+      const distance = Math.max(Math.abs(b.row - a.row), Math.abs(b.col - a.col));
+      if (!directions.some(([r, c]) => r === dr && c === dc) || distance > 2 || distance === 0) return null;
+      if (distance === 1) return { capture: null };
+      const mid = findIndex(a.row + dr, a.col + dc);
+      const rival = turn === "black" ? "green" : "black";
+      return board[mid] === rival ? { capture: mid } : null;
+    }
+
+    function movePiece(from, to) {
+      const info = moveInfo(from, to);
+      board[to] = board[from];
+      board[from] = null;
+      if (info.capture !== null) {
+        board[info.capture] = null;
+        captures[turn] += 1;
+      }
+    }
+
+    function hasAnyCapture(side) {
+      const saved = turn;
+      turn = side;
+      const found = board.some((piece, from) => piece === side && points.some((_, to) => !board[to] && moveInfo(from, to)?.capture !== null));
+      turn = saved;
+      return found;
+    }
+
+    function updateWinner() {
+      const rival = turn === "black" ? "green" : "black";
+      if (captures[turn] >= 5 || !hasMove(rival)) winner = turn;
+    }
+
+    function hasMove(side) {
+      const saved = turn;
+      turn = side;
+      const jumpRequired = hasAnyCapture(side);
+      const movable = board.some((piece, from) => piece === side && points.some((_, to) => !board[to] && isLegalMove(from, to, jumpRequired)));
+      turn = saved;
+      return movable;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    drawLines();
+    startGame();
+  </script>
+</body>
+</html>
