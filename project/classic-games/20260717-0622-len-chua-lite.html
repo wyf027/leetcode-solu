@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Len Chua</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-orange-300">classic hunt game</p>
+        <h1 class="text-3xl font-bold text-white">Mini Len Chua</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-orange-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-neutral-300"></p>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="font-semibold text-white">State</p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded bg-neutral-800 p-3">
+              <p class="text-neutral-400">Dogs left</p>
+              <p id="dogCount" class="text-2xl font-bold text-sky-300"></p>
+            </div>
+            <div class="rounded bg-neutral-800 p-3">
+              <p class="text-neutral-400">Captured</p>
+              <p id="captureCount" class="text-2xl font-bold text-orange-300"></p>
+            </div>
+          </div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-neutral-300">
+            <li>Tiger moves one point or jumps over a dog to capture.</li>
+            <li>Dogs move one point and cannot jump.</li>
+            <li>Tiger wins after capturing three dogs.</li>
+            <li>Dogs win by leaving the tiger with no legal move.</li>
+          </ul>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const statusEl = document.getElementById("status");
+    const dogCount = document.getElementById("dogCount");
+    const captureCount = document.getElementById("captureCount");
+    const resetBtn = document.getElementById("resetBtn");
+    const points = new Set(["0,2", "1,1", "1,2", "1,3", "2,0", "2,1", "2,2", "2,3", "2,4", "3,1", "3,2", "3,3", "4,2"]);
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+    let board = [];
+    let turn = "T";
+    let selected = null;
+    let captured = 0;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      board[2][2] = "T";
+      [[0, 2], [1, 1], [1, 3], [2, 0], [2, 4], [3, 1], [3, 3]].forEach(([row, col]) => {
+        board[row][col] = "D";
+      });
+      turn = "T";
+      selected = null;
+      captured = 0;
+      gameOver = false;
+      render("Tiger starts. Select the tiger to move or jump.");
+    }
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function isPoint(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size && points.has(key(row, col));
+    }
+
+    function nameOf(side) {
+      return side === "T" ? "Tiger" : "Dogs";
+    }
+
+    function legalMoves(row, col) {
+      if (gameOver || board[row][col] !== turn) return [];
+      const moves = [];
+      dirs.forEach(([dr, dc]) => {
+        const stepRow = row + dr;
+        const stepCol = col + dc;
+        if (isPoint(stepRow, stepCol) && board[stepRow][stepCol] === "") {
+          moves.push({ row: stepRow, col: stepCol, capture: null });
+        }
+        if (turn === "T") {
+          const jumpRow = row + dr * 2;
+          const jumpCol = col + dc * 2;
+          if (isPoint(jumpRow, jumpCol) && board[stepRow]?.[stepCol] === "D" && board[jumpRow][jumpCol] === "") {
+            moves.push({ row: jumpRow, col: jumpCol, capture: [stepRow, stepCol] });
+          }
+        }
+      });
+      return moves;
+    }
+
+    function allMoves(side) {
+      const previous = turn;
+      turn = side;
+      const moves = [];
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          if (piece === side) legalMoves(rowIndex, colIndex).forEach((move) => moves.push(move));
+        });
+      });
+      turn = previous;
+      return moves;
+    }
+
+    function finishTurn(message) {
+      if (captured >= 3) {
+        gameOver = true;
+        selected = null;
+        render("Tiger wins after capturing three dogs.");
+        return;
+      }
+      const next = turn === "T" ? "D" : "T";
+      if (allMoves(next).length === 0) {
+        gameOver = true;
+        selected = null;
+        render(`${nameOf(turn)} win. ${nameOf(next)} have no legal move.`);
+        return;
+      }
+      turn = next;
+      selected = null;
+      render(message || `${nameOf(turn)} to move.`);
+    }
+
+    function sameCell(move, row, col) {
+      return move.row === row && move.col === col;
+    }
+
+    function handleCell(row, col) {
+      if (gameOver || !isPoint(row, col)) return;
+      if (board[row][col] === turn) {
+        selected = [row, col];
+        render(`Choose a highlighted point for ${nameOf(turn)}.`);
+        return;
+      }
+      if (!selected) return;
+      const moves = legalMoves(selected[0], selected[1]);
+      const move = moves.find((candidate) => sameCell(candidate, row, col));
+      if (!move) return;
+      board[row][col] = board[selected[0]][selected[1]];
+      board[selected[0]][selected[1]] = "";
+      if (move.capture) {
+        board[move.capture[0]][move.capture[1]] = "";
+        captured += 1;
+      }
+      finishTurn(move.capture ? "Tiger leaps and captures a dog." : `${nameOf(turn)} move.`);
+    }
+
+    function cellClasses(row, col) {
+      if (!isPoint(row, col)) return "aspect-square";
+      const piece = board[row][col];
+      const moves = selected ? legalMoves(selected[0], selected[1]) : [];
+      const isSelected = selected && selected[0] === row && selected[1] === col;
+      const isMove = moves.some((move) => sameCell(move, row, col));
+      const base = "flex aspect-square items-center justify-center rounded-full border text-3xl font-black transition";
+      const color = piece === "T"
+        ? "border-orange-400 bg-orange-950 text-orange-200"
+        : piece === "D"
+          ? "border-sky-400 bg-sky-950 text-sky-200"
+          : "border-neutral-700 bg-neutral-800 text-neutral-500";
+      const state = isSelected ? " ring-4 ring-white" : isMove ? " ring-4 ring-lime-300" : " hover:border-orange-300";
+      return `${base} ${color}${state}`;
+    }
+
+    function render(message) {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(row, col);
+          button.textContent = board[row][col];
+          button.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+      turnLabel.textContent = gameOver ? "Game over" : nameOf(turn);
+      statusEl.textContent = message;
+      dogCount.textContent = board.flat().filter((piece) => piece === "D").length;
+      captureCount.textContent = captured;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
