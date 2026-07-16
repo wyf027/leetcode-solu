@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gomoku Capture</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-medium uppercase tracking-widest text-orange-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Gomoku Capture</h1>
+      </div>
+      <button id="reset" class="w-fit rounded-md bg-orange-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-orange-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-neutral-800 bg-neutral-900/80 p-4 shadow-2xl shadow-black/30">
+        <div id="board" class="grid aspect-square w-full grid-cols-9 gap-1"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <div class="text-sm text-neutral-400">当前回合</div>
+          <div id="turn" class="mt-1 text-2xl font-bold"></div>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-neutral-300"></p>
+        </div>
+
+        <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <div class="mb-3 text-sm font-semibold text-neutral-200">吃子计数</div>
+          <div id="captures" class="grid grid-cols-2 gap-2"></div>
+        </div>
+
+        <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+          <p>轮流落子。五子连线获胜。</p>
+          <p class="mt-2">若新落子夹住连续两枚对手棋子，则吃掉这两枚；累计吃掉五对也获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 9;
+    const targetCaptures = 5;
+    const dirs = [
+      [1, 0], [0, 1], [1, 1], [1, -1],
+      [-1, 0], [0, -1], [-1, -1], [-1, 1]
+    ];
+    const lineDirs = [[1, 0], [0, 1], [1, 1], [1, -1]];
+    const players = [
+      { name: "黑方", bg: "bg-neutral-950", ring: "ring-neutral-300", text: "text-neutral-100" },
+      { name: "白方", bg: "bg-stone-100", ring: "ring-stone-500", text: "text-stone-200" }
+    ];
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const statusEl = document.getElementById("status");
+    const capturesEl = document.getElementById("captures");
+    const resetEl = document.getElementById("reset");
+    let board;
+    let current;
+    let captures;
+    let winner;
+    let lastMove;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      current = 0;
+      captures = [0, 0];
+      winner = null;
+      lastMove = null;
+      statusEl.textContent = "黑方先手，点击棋盘落子。";
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function applyCaptures(row, col) {
+      let captured = 0;
+      for (const [dr, dc] of dirs) {
+        const a = { row: row + dr, col: col + dc };
+        const b = { row: row + dr * 2, col: col + dc * 2 };
+        const c = { row: row + dr * 3, col: col + dc * 3 };
+        if (!inBounds(c.row, c.col)) continue;
+        if (board[a.row][a.col] === 1 - current && board[b.row][b.col] === 1 - current && board[c.row][c.col] === current) {
+          board[a.row][a.col] = null;
+          board[b.row][b.col] = null;
+          captured++;
+        }
+      }
+      captures[current] += captured;
+      return captured;
+    }
+
+    function countLine(row, col, dr, dc) {
+      let total = 1;
+      for (const sign of [1, -1]) {
+        let r = row + dr * sign;
+        let c = col + dc * sign;
+        while (inBounds(r, c) && board[r][c] === current) {
+          total++;
+          r += dr * sign;
+          c += dc * sign;
+        }
+      }
+      return total;
+    }
+
+    function hasFive(row, col) {
+      return lineDirs.some(([dr, dc]) => countLine(row, col, dr, dc) >= 5);
+    }
+
+    function placeStone(row, col) {
+      if (winner !== null) return;
+      if (board[row][col] !== null) {
+        statusEl.textContent = "这个交点已经有棋子。";
+        return;
+      }
+      board[row][col] = current;
+      lastMove = { row, col };
+      const captured = applyCaptures(row, col);
+      if (hasFive(row, col)) {
+        winner = current;
+        statusEl.textContent = players[current].name + "连成五子。";
+      } else if (captures[current] >= targetCaptures) {
+        winner = current;
+        statusEl.textContent = players[current].name + "累计吃掉五对棋子。";
+      } else {
+        const note = captured ? "，吃掉 " + captured + " 对棋子。" : "。";
+        current = 1 - current;
+        statusEl.textContent = players[current].name + "落子" + note;
+      }
+      render();
+    }
+
+    function renderCaptures() {
+      capturesEl.innerHTML = "";
+      players.forEach((player, index) => {
+        const card = document.createElement("div");
+        card.className = "rounded-md border border-neutral-700 bg-neutral-950 p-3";
+        card.innerHTML = '<div class="text-xs text-neutral-400">' + player.name + '</div><div class="mt-1 text-xl font-bold ' + player.text + '">' + captures[index] + ' / ' + targetCaptures + '</div>';
+        capturesEl.appendChild(card);
+      });
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const owner = board[row][col];
+          const isLast = lastMove && lastMove.row === row && lastMove.col === col;
+          const button = document.createElement("button");
+          button.className = [
+            "flex aspect-square items-center justify-center rounded border transition",
+            (row + col) % 2 ? "bg-amber-700" : "bg-amber-600",
+            isLast ? "border-orange-200 ring-2 ring-orange-200" : "border-amber-900",
+            owner === null ? "hover:border-orange-200" : ""
+          ].join(" ");
+          if (owner !== null) {
+            const stone = document.createElement("span");
+            stone.className = "h-4/5 w-4/5 rounded-full shadow-lg ring-2 " + players[owner].bg + " " + players[owner].ring;
+            button.appendChild(stone);
+          }
+          button.addEventListener("click", () => placeStone(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render() {
+      const active = winner === null ? current : winner;
+      turnEl.textContent = winner === null ? players[current].name : players[winner].name + "获胜";
+      turnEl.className = "mt-1 text-2xl font-bold " + players[active].text;
+      renderCaptures();
+      renderBoard();
+    }
+
+    resetEl.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
