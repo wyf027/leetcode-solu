@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Four Field Kono</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-100 text-stone-900">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-300 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-emerald-700">Classic board game</p>
+        <h1 class="text-3xl font-bold">Mini Four Field Kono</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700">
+        New game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_260px]">
+      <div class="rounded border border-stone-300 bg-white p-4 shadow-sm">
+        <div id="board" class="mx-auto grid aspect-square max-w-[520px] grid-cols-4 gap-2 rounded bg-stone-800 p-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-stone-300 bg-white p-4 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wide text-stone-500">Turn</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold">Black</p>
+          <p id="statusText" class="mt-3 min-h-12 text-sm leading-6 text-stone-700"></p>
+        </div>
+
+        <div class="rounded border border-stone-300 bg-white p-4 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wide text-stone-500">Pieces in target</p>
+          <div class="mt-3 space-y-3">
+            <div>
+              <div class="mb-1 flex justify-between text-sm font-semibold">
+                <span>Black</span>
+                <span id="blackScore">0 / 8</span>
+              </div>
+              <div class="h-2 rounded bg-stone-200">
+                <div id="blackBar" class="h-2 rounded bg-stone-900" style="width:0%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="mb-1 flex justify-between text-sm font-semibold">
+                <span>White</span>
+                <span id="whiteScore">0 / 8</span>
+              </div>
+              <div class="h-2 rounded bg-stone-200">
+                <div id="whiteBar" class="h-2 rounded bg-emerald-600" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700 shadow-sm">
+          Move one of your stones diagonally into an empty square. Black wins by filling the bottom two rows; White wins by filling the top two rows. A player also wins if the opponent has no legal move.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const blackScore = document.getElementById("blackScore");
+    const whiteScore = document.getElementById("whiteScore");
+    const blackBar = document.getElementById("blackBar");
+    const whiteBar = document.getElementById("whiteBar");
+    const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+    let board = [];
+    let turn = "B";
+    let selected = null;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array.from({ length: size }, (_, row) =>
+        Array.from({ length: size }, () => row < 2 ? "B" : "W")
+      );
+      turn = "B";
+      selected = null;
+      gameOver = false;
+      statusText.textContent = "Black starts. Select a stone, then an empty diagonal square.";
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceName(piece) {
+      return piece === "B" ? "Black" : "White";
+    }
+
+    function legalMoves(row, col) {
+      const piece = board[row][col];
+      if (!piece) return [];
+      return dirs
+        .map(([dr, dc]) => ({ row: row + dr, col: col + dc }))
+        .filter((pos) => inBounds(pos.row, pos.col) && !board[pos.row][pos.col]);
+    }
+
+    function allMoves(piece) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === piece) {
+            legalMoves(row, col).forEach((to) => moves.push({ from: { row, col }, to }));
+          }
+        }
+      }
+      return moves;
+    }
+
+    function targetCount(piece) {
+      const targetRows = piece === "B" ? [2, 3] : [0, 1];
+      let count = 0;
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === piece && targetRows.includes(row)) count += 1;
+        }
+      }
+      return count;
+    }
+
+    function hasReachedHome(piece) {
+      return targetCount(piece) === 8;
+    }
+
+    function sameCell(a, b) {
+      return a && b && a.row === b.row && a.col === b.col;
+    }
+
+    function canMoveTo(row, col) {
+      if (!selected) return false;
+      return legalMoves(selected.row, selected.col).some((move) => move.row === row && move.col === col);
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      const piece = board[row][col];
+
+      if (piece === turn) {
+        selected = sameCell(selected, { row, col }) ? null : { row, col };
+        statusText.textContent = selected
+          ? `${pieceName(turn)} selected. Choose an empty diagonal square.`
+          : `${pieceName(turn)} selection cleared.`;
+        render();
+        return;
+      }
+
+      if (selected && !piece && canMoveTo(row, col)) {
+        board[row][col] = turn;
+        board[selected.row][selected.col] = "";
+        selected = null;
+        finishTurn();
+      }
+    }
+
+    function finishTurn() {
+      if (hasReachedHome(turn)) {
+        gameOver = true;
+        statusText.textContent = `${pieceName(turn)} wins by occupying the opposite two rows.`;
+        render();
+        return;
+      }
+
+      const next = turn === "B" ? "W" : "B";
+      if (allMoves(next).length === 0) {
+        gameOver = true;
+        statusText.textContent = `${pieceName(turn)} wins by blocking every ${pieceName(next)} move.`;
+        render();
+        return;
+      }
+
+      turn = next;
+      statusText.textContent = `${pieceName(turn)} to move.`;
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      const moves = selected ? legalMoves(selected.row, selected.col) : [];
+
+      board.forEach((rowCells, row) => {
+        rowCells.forEach((piece, col) => {
+          const cell = document.createElement("button");
+          const isSelected = sameCell(selected, { row, col });
+          const isMove = moves.some((move) => move.row === row && move.col === col);
+          const dark = (row + col) % 2 === 0;
+          cell.type = "button";
+          cell.className = [
+            "aspect-square rounded border text-3xl font-black transition",
+            dark ? "bg-stone-200" : "bg-stone-100",
+            isSelected ? "border-amber-500 ring-4 ring-amber-300" : "border-stone-400",
+            isMove ? "outline outline-4 outline-emerald-400" : "",
+            gameOver ? "cursor-default" : "hover:scale-[1.02]"
+          ].join(" ");
+          cell.setAttribute("aria-label", `Row ${row + 1}, column ${col + 1}`);
+          cell.addEventListener("click", () => handleCell(row, col));
+
+          if (piece) {
+            const stone = document.createElement("span");
+            stone.className = [
+              "mx-auto block h-12 w-12 rounded-full border-4 shadow sm:h-16 sm:w-16",
+              piece === "B" ? "border-stone-500 bg-stone-950" : "border-emerald-300 bg-white"
+            ].join(" ");
+            cell.appendChild(stone);
+          } else if (isMove) {
+            const dot = document.createElement("span");
+            dot.className = "mx-auto block h-4 w-4 rounded-full bg-emerald-500";
+            cell.appendChild(dot);
+          }
+
+          boardEl.appendChild(cell);
+        });
+      });
+
+      const bTarget = targetCount("B");
+      const wTarget = targetCount("W");
+      turnText.textContent = gameOver ? "Game over" : pieceName(turn);
+      blackScore.textContent = `${bTarget} / 8`;
+      whiteScore.textContent = `${wTarget} / 8`;
+      blackBar.style.width = `${(bTarget / 8) * 100}%`;
+      whiteBar.style.width = `${(wTarget / 8) * 100}%`;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
