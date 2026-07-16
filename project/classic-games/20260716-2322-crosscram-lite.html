@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Crosscram</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-medium uppercase tracking-widest text-amber-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Crosscram</h1>
+      </div>
+      <button id="reset" class="w-fit rounded-md bg-amber-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900/80 p-4 shadow-2xl shadow-black/30">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 gap-1"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div class="text-sm text-zinc-400">当前回合</div>
+          <div id="turn" class="mt-1 text-2xl font-bold"></div>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-zinc-300"></p>
+        </div>
+
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div class="mb-3 text-sm font-semibold text-zinc-200">落子方向</div>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="horizontal" class="rounded-md border px-3 py-2 text-sm font-semibold">横放</button>
+            <button id="vertical" class="rounded-md border px-3 py-2 text-sm font-semibold">竖放</button>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <p>每回合放置一个 1x2 多米诺。蓝方只能横放，红方只能竖放。</p>
+          <p class="mt-2">当前玩家没有合法位置时立即失败。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const players = [
+      { name: "蓝方", mark: "H", color: "bg-sky-300", text: "text-sky-300", dir: "h" },
+      { name: "红方", mark: "V", color: "bg-rose-300", text: "text-rose-300", dir: "v" }
+    ];
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const statusEl = document.getElementById("status");
+    const resetEl = document.getElementById("reset");
+    const horizontalEl = document.getElementById("horizontal");
+    const verticalEl = document.getElementById("vertical");
+    let board;
+    let current;
+    let winner;
+    let hoverCell;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      current = 0;
+      winner = null;
+      hoverCell = null;
+      statusEl.textContent = "蓝方横放多米诺。";
+      render();
+    }
+
+    function cellsFor(row, col, dir) {
+      const next = dir === "h" ? { row, col: col + 1 } : { row: row + 1, col };
+      return [{ row, col }, next];
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function canPlace(row, col, dir = players[current].dir) {
+      return cellsFor(row, col, dir).every(cell => inBounds(cell.row, cell.col) && board[cell.row][cell.col] === null);
+    }
+
+    function hasMoves(player = current) {
+      const dir = players[player].dir;
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          if (canPlace(row, col, dir)) return true;
+        }
+      }
+      return false;
+    }
+
+    function placeDomino(row, col) {
+      if (winner !== null) return;
+      const player = players[current];
+      if (!canPlace(row, col, player.dir)) {
+        statusEl.textContent = "这里放不下当前方向的多米诺。";
+        return;
+      }
+      cellsFor(row, col, player.dir).forEach(cell => {
+        board[cell.row][cell.col] = current;
+      });
+      current = 1 - current;
+      hoverCell = null;
+      if (!hasMoves(current)) {
+        winner = 1 - current;
+        statusEl.textContent = players[current].name + "没有合法位置，" + players[winner].name + "获胜。";
+      } else {
+        statusEl.textContent = players[current].name + (players[current].dir === "h" ? "横放" : "竖放") + "多米诺。";
+      }
+      render();
+    }
+
+    function previewSet() {
+      if (!hoverCell || winner !== null) return new Set();
+      if (!canPlace(hoverCell.row, hoverCell.col)) return new Set();
+      return new Set(cellsFor(hoverCell.row, hoverCell.col, players[current].dir).map(cell => cell.row + "," + cell.col));
+    }
+
+    function renderControls() {
+      const active = players[current].dir;
+      horizontalEl.className = "rounded-md border px-3 py-2 text-sm font-semibold " + (active === "h" ? "border-sky-300 bg-sky-300 text-zinc-950" : "border-zinc-700 bg-zinc-950 text-zinc-300");
+      verticalEl.className = "rounded-md border px-3 py-2 text-sm font-semibold " + (active === "v" ? "border-rose-300 bg-rose-300 text-zinc-950" : "border-zinc-700 bg-zinc-950 text-zinc-300");
+    }
+
+    function renderBoard() {
+      const preview = previewSet();
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const owner = board[row][col];
+          const key = row + "," + col;
+          const button = document.createElement("button");
+          button.className = [
+            "flex aspect-square items-center justify-center rounded-md border text-lg font-black transition",
+            (row + col) % 2 ? "bg-zinc-800" : "bg-zinc-700",
+            preview.has(key) ? "border-amber-200 ring-2 ring-amber-200" : "border-zinc-900",
+            owner === null && canPlace(row, col) ? "hover:border-amber-300" : ""
+          ].join(" ");
+          if (owner !== null) {
+            const stone = document.createElement("span");
+            stone.className = "flex h-4/5 w-4/5 items-center justify-center rounded " + players[owner].color + " text-zinc-950";
+            stone.textContent = players[owner].mark;
+            button.appendChild(stone);
+          }
+          button.addEventListener("mouseenter", () => {
+            hoverCell = { row, col };
+            renderBoard();
+          });
+          button.addEventListener("click", () => placeDomino(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render() {
+      const active = winner === null ? current : winner;
+      turnEl.textContent = winner === null ? players[current].name : players[winner].name + "获胜";
+      turnEl.className = "mt-1 text-2xl font-bold " + players[active].text;
+      renderControls();
+      renderBoard();
+    }
+
+    resetEl.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
