@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Push Fight</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-medium uppercase tracking-widest text-teal-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Push Fight</h1>
+      </div>
+      <button id="reset" class="w-fit rounded-md bg-teal-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-teal-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-slate-800 bg-slate-900/80 p-4 shadow-2xl shadow-black/30">
+        <div id="board" class="grid aspect-[7/5] w-full grid-cols-7 gap-1"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <div class="text-sm text-slate-400">当前回合</div>
+          <div id="turn" class="mt-1 text-2xl font-bold"></div>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-slate-300"></p>
+        </div>
+
+        <div class="rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <div class="mb-3 text-sm font-semibold text-slate-200">本回合步骤</div>
+          <div id="steps" class="space-y-2 text-sm text-slate-300"></div>
+        </div>
+
+        <div class="rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <p>先选择一枚己方棋子移动到相邻空格，再选择任意己方棋子向一个方向推挤整条队列。</p>
+          <p class="mt-2">只要把对手棋子推出棋盘边缘，即赢得本局。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const rows = 5;
+    const cols = 7;
+    const dirs = [
+      { name: "上", dr: -1, dc: 0 },
+      { name: "下", dr: 1, dc: 0 },
+      { name: "左", dr: 0, dc: -1 },
+      { name: "右", dr: 0, dc: 1 }
+    ];
+    const players = [
+      { name: "蓝方", bg: "bg-sky-300", text: "text-sky-300" },
+      { name: "红方", bg: "bg-rose-300", text: "text-rose-300" }
+    ];
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const statusEl = document.getElementById("status");
+    const stepsEl = document.getElementById("steps");
+    const resetEl = document.getElementById("reset");
+    let board;
+    let current;
+    let selected;
+    let phase;
+    let winner;
+
+    function inBounds(row, col) {
+      return row >= 0 && row < rows && col >= 0 && col < cols;
+    }
+
+    function makeBoard() {
+      return Array.from({ length: rows }, () => Array(cols).fill(null));
+    }
+
+    function startGame() {
+      board = makeBoard();
+      [[1, 1], [2, 1], [3, 1], [2, 2]].forEach(([r, c]) => board[r][c] = 0);
+      [[1, 5], [2, 5], [3, 5], [2, 4]].forEach(([r, c]) => board[r][c] = 1);
+      current = 0;
+      selected = null;
+      phase = "move";
+      winner = null;
+      statusEl.textContent = "选择一枚己方棋子移动到相邻空格。";
+      render();
+    }
+
+    function neighbors(row, col) {
+      return dirs.map(dir => ({ row: row + dir.dr, col: col + dir.dc })).filter(cell => inBounds(cell.row, cell.col));
+    }
+
+    function canMove(from, to) {
+      if (!from || !to || board[from.row][from.col] !== current) return false;
+      const adjacent = Math.abs(from.row - to.row) + Math.abs(from.col - to.col) === 1;
+      return adjacent && inBounds(to.row, to.col) && board[to.row][to.col] === null;
+    }
+
+    function pushPreview(row, col, dir) {
+      if (board[row][col] !== current) return null;
+      const line = [];
+      let r = row;
+      let c = col;
+      while (inBounds(r, c) && board[r][c] !== null) {
+        line.push({ row: r, col: c, piece: board[r][c] });
+        r += dir.dr;
+        c += dir.dc;
+      }
+      if (line.length < 2) return null;
+      const exitPiece = inBounds(r, c) ? null : line[line.length - 1].piece;
+      return { line, empty: inBounds(r, c) ? { row: r, col: c } : null, exitPiece };
+    }
+
+    function canPush(row, col, dir) {
+      const preview = pushPreview(row, col, dir);
+      return Boolean(preview && (preview.empty || preview.exitPiece !== current));
+    }
+
+    function applyPush(row, col, dir) {
+      const preview = pushPreview(row, col, dir);
+      if (!preview) return false;
+      if (!preview.empty && preview.exitPiece === current) return false;
+      for (let i = preview.line.length - 1; i >= 0; i--) {
+        const source = preview.line[i];
+        const target = { row: source.row + dir.dr, col: source.col + dir.dc };
+        if (inBounds(target.row, target.col)) {
+          board[target.row][target.col] = source.piece;
+        } else if (source.piece === 1 - current) {
+          winner = current;
+        }
+      }
+      board[row][col] = null;
+      return true;
+    }
+
+    function handleCell(row, col) {
+      if (winner !== null) return;
+      if (phase === "move") {
+        if (!selected) {
+          if (board[row][col] === current) {
+            selected = { row, col };
+            statusEl.textContent = "选择相邻空格完成移动。";
+          } else {
+            statusEl.textContent = "请选择当前玩家自己的棋子。";
+          }
+        } else if (selected.row === row && selected.col === col) {
+          selected = null;
+          statusEl.textContent = "已取消选择。";
+        } else if (canMove(selected, { row, col })) {
+          board[row][col] = current;
+          board[selected.row][selected.col] = null;
+          selected = null;
+          phase = "push";
+          statusEl.textContent = "选择己方棋子，再点方向按钮完成推挤。";
+        } else if (board[row][col] === current) {
+          selected = { row, col };
+          statusEl.textContent = "已改选棋子。";
+        } else {
+          statusEl.textContent = "移动目标必须是相邻空格。";
+        }
+      } else if (board[row][col] === current) {
+        selected = { row, col };
+        statusEl.textContent = "选择一个可推方向。";
+      } else {
+        statusEl.textContent = "推挤阶段只能选择己方棋子。";
+      }
+      render();
+    }
+
+    function handlePush(dirIndex) {
+      if (winner !== null || phase !== "push" || !selected) return;
+      const dir = dirs[dirIndex];
+      if (!canPush(selected.row, selected.col, dir)) {
+        statusEl.textContent = "这个方向无法形成有效推挤。";
+        return;
+      }
+      applyPush(selected.row, selected.col, dir);
+      selected = null;
+      if (winner !== null) {
+        statusEl.textContent = players[winner].name + "把对手棋子推出棋盘。";
+      } else {
+        current = 1 - current;
+        phase = "move";
+        statusEl.textContent = "选择一枚己方棋子移动到相邻空格。";
+      }
+      render();
+    }
+
+    function renderSteps() {
+      stepsEl.innerHTML = "";
+      ["1. 移动一枚己方棋子", "2. 选择己方棋子推挤"].forEach((label, index) => {
+        const active = (phase === "move" && index === 0) || (phase === "push" && index === 1);
+        const row = document.createElement("div");
+        row.className = "rounded-md border px-3 py-2 " + (active ? "border-teal-300 bg-teal-300 text-slate-950" : "border-slate-700 bg-slate-950");
+        row.textContent = label;
+        stepsEl.appendChild(row);
+      });
+      if (phase === "push") {
+        const controls = document.createElement("div");
+        controls.className = "grid grid-cols-2 gap-2 pt-2";
+        dirs.forEach((dir, index) => {
+          const button = document.createElement("button");
+          button.className = "rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold hover:border-teal-300";
+          button.textContent = dir.name;
+          button.addEventListener("click", () => handlePush(index));
+          controls.appendChild(button);
+        });
+        stepsEl.appendChild(controls);
+      }
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const piece = board[row][col];
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const canMoveHere = phase === "move" && selected && canMove(selected, { row, col });
+          const button = document.createElement("button");
+          button.className = [
+            "flex aspect-square items-center justify-center rounded-md border transition",
+            (row + col) % 2 ? "bg-slate-800" : "bg-slate-700",
+            isSelected ? "border-teal-300 ring-2 ring-teal-300" : "border-slate-900",
+            canMoveHere ? "outline outline-2 outline-amber-300" : ""
+          ].join(" ");
+          if (piece !== null) {
+            const stone = document.createElement("span");
+            stone.className = "h-4/5 w-4/5 rounded-full shadow-inner " + players[piece].bg;
+            button.appendChild(stone);
+          }
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render() {
+      const active = winner === null ? current : winner;
+      turnEl.textContent = winner === null ? players[current].name : players[winner].name + "获胜";
+      turnEl.className = "mt-1 text-2xl font-bold " + players[active].text;
+      renderBoard();
+      renderSteps();
+    }
+
+    resetEl.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
