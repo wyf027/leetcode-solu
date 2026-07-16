@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Ashta Kashte</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-indigo-800 bg-indigo-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-pink-200">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Ashta Kashte</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-pink-200 px-4 py-2 font-semibold text-indigo-950 transition hover:bg-pink-100">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_280px]">
+        <div class="rounded-lg border border-indigo-700 bg-indigo-950 p-4">
+          <div id="board" class="grid aspect-square grid-cols-5 grid-rows-5 gap-1"></div>
+        </div>
+
+        <aside class="rounded-lg border border-indigo-800 bg-indigo-950 p-4">
+          <button id="rollBtn" class="w-full rounded-md bg-pink-200 px-4 py-3 font-semibold text-indigo-950 transition hover:bg-pink-100">掷贝壳</button>
+          <p id="turnText" class="mt-4 rounded-md bg-indigo-900 p-3 text-sm leading-6 text-indigo-100"></p>
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-indigo-900 p-3">
+              <p class="text-xs text-indigo-300">红方回家</p>
+              <p id="redHome" class="text-2xl font-bold text-rose-200">0</p>
+            </div>
+            <div class="rounded-md bg-indigo-900 p-3">
+              <p class="text-xs text-indigo-300">蓝方回家</p>
+              <p id="blueHome" class="text-2xl font-bold text-sky-200">0</p>
+            </div>
+          </div>
+          <p class="mt-4 text-sm leading-6 text-indigo-200/80">掷出 1-4 步后选择己方棋子沿环形赛道前进。落到对方棋子所在格可将其送回起点；棋子走满一圈回家得分。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const path = [0, 1, 2, 3, 4, 9, 14, 19, 24, 23, 22, 21, 20, 15, 10, 5];
+    const players = ["red", "blue"];
+    const starts = { red: 0, blue: 8 };
+    const labels = { red: "红方", blue: "蓝方" };
+
+    let pieces;
+    let home;
+    let turn;
+    let roll;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const rollBtn = document.getElementById("rollBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const redHome = document.getElementById("redHome");
+    const blueHome = document.getElementById("blueHome");
+
+    function startGame() {
+      pieces = {
+        red: [{ pos: 0, done: false }, { pos: 0, done: false }],
+        blue: [{ pos: 8, done: false }, { pos: 8, done: false }]
+      };
+      home = { red: 0, blue: 0 };
+      turn = "red";
+      roll = null;
+      winner = null;
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let index = 0; index < 25; index++) {
+        const pathIndex = path.indexOf(index);
+        const cell = document.createElement("div");
+        cell.className = [
+          "relative flex items-center justify-center rounded-md border text-xs",
+          pathIndex >= 0 ? "border-indigo-400 bg-indigo-800" : "border-indigo-900 bg-indigo-950",
+          index === path[starts.red] ? "ring-2 ring-rose-300" : "",
+          index === path[starts.blue] ? "ring-2 ring-sky-300" : ""
+        ].join(" ");
+        cell.textContent = pathIndex >= 0 ? pathIndex + 1 : "";
+        addPieces(cell, pathIndex);
+        boardEl.appendChild(cell);
+      }
+      redHome.textContent = home.red;
+      blueHome.textContent = home.blue;
+      rollBtn.disabled = Boolean(winner) || roll !== null;
+      rollBtn.classList.toggle("opacity-60", rollBtn.disabled);
+      turnText.textContent = winner
+        ? `${labels[winner]}获胜。`
+        : roll === null
+          ? `${labels[turn]}行动：先掷贝壳。`
+          : `${labels[turn]}掷出 ${roll}，选择可移动棋子。`;
+    }
+
+    function addPieces(cell, pathIndex) {
+      const stack = [];
+      players.forEach((side) => {
+        pieces[side].forEach((piece, pieceIndex) => {
+          if (!piece.done && piece.pos === pathIndex) {
+            stack.push({ side, pieceIndex });
+          }
+        });
+      });
+      if (!stack.length) return;
+      const wrap = document.createElement("div");
+      wrap.className = "absolute inset-1 flex flex-wrap items-center justify-center gap-1";
+      stack.forEach(({ side, pieceIndex }) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = [
+          "h-6 w-6 rounded-full border text-[10px] font-bold shadow",
+          side === "red" ? "border-rose-100 bg-rose-500 text-white" : "border-sky-100 bg-sky-500 text-white",
+          side === turn && roll !== null && canMove(side, pieceIndex) ? "ring-2 ring-white" : ""
+        ].join(" ");
+        button.textContent = pieceIndex + 1;
+        button.addEventListener("click", () => movePiece(side, pieceIndex));
+        wrap.appendChild(button);
+      });
+      cell.appendChild(wrap);
+    }
+
+    function rollShells() {
+      if (winner || roll !== null) return;
+      roll = 1 + Math.floor(Math.random() * 4);
+      if (!pieces[turn].some((_, index) => canMove(turn, index))) {
+        turn = turn === "red" ? "blue" : "red";
+        roll = null;
+      }
+      render();
+    }
+
+    function canMove(side, pieceIndex) {
+      const piece = pieces[side][pieceIndex];
+      if (side !== turn || piece.done || roll === null) return false;
+      return piece.pos + roll <= path.length;
+    }
+
+    function movePiece(side, pieceIndex) {
+      if (!canMove(side, pieceIndex)) return;
+      const piece = pieces[side][pieceIndex];
+      const next = piece.pos + roll;
+      if (next === path.length) {
+        piece.done = true;
+        home[side] += 1;
+      } else {
+        piece.pos = next;
+        captureAt(side, next);
+      }
+      if (home[side] >= 2) {
+        winner = side;
+      } else {
+        turn = side === "red" ? "blue" : "red";
+        roll = null;
+      }
+      render();
+    }
+
+    function captureAt(side, position) {
+      const rival = side === "red" ? "blue" : "red";
+      pieces[rival].forEach((piece) => {
+        if (!piece.done && piece.pos === position) {
+          piece.pos = starts[rival];
+        }
+      });
+    }
+
+    rollBtn.addEventListener("click", rollShells);
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
