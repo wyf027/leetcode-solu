@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Hackenbush</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-lime-300">classic graph game</p>
+        <h1 class="text-3xl font-bold text-white">Mini Hackenbush</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-lime-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+        <svg id="scene" viewBox="0 0 420 360" class="aspect-square w-full rounded bg-emerald-950"></svg>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <p class="text-sm text-emerald-300">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-emerald-100"></p>
+        </div>
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <p class="font-semibold text-white">Branches</p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded bg-emerald-950 p-3">
+              <p class="text-emerald-300">Blue</p>
+              <p id="blueCount" class="text-2xl font-bold text-sky-300"></p>
+            </div>
+            <div class="rounded bg-emerald-950 p-3">
+              <p class="text-emerald-300">Red</p>
+              <p id="redCount" class="text-2xl font-bold text-rose-300"></p>
+            </div>
+          </div>
+        </div>
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-emerald-100">
+            <li>Blue cuts blue branches; Red cuts red branches.</li>
+            <li>Branches no longer connected to the ground disappear.</li>
+            <li>If your color has no grounded branch on your turn, you lose.</li>
+          </ul>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const scene = document.getElementById("scene");
+    const turnLabel = document.getElementById("turnLabel");
+    const statusEl = document.getElementById("status");
+    const blueCount = document.getElementById("blueCount");
+    const redCount = document.getElementById("redCount");
+    const resetBtn = document.getElementById("resetBtn");
+    const nodes = {
+      g: [40, 320], a: [80, 250], b: [135, 190], c: [100, 120],
+      d: [200, 260], e: [245, 195], f: [285, 130],
+      h: [330, 250], i: [355, 175], j: [300, 70]
+    };
+
+    let edges = [];
+    let turn = "blue";
+    let gameOver = false;
+
+    function startGame() {
+      edges = [
+        edge("g", "a", "blue"), edge("a", "b", "red"), edge("b", "c", "blue"),
+        edge("g", "d", "red"), edge("d", "e", "blue"), edge("e", "f", "red"),
+        edge("g", "h", "blue"), edge("h", "i", "red"), edge("i", "j", "blue"),
+        edge("b", "e", "blue"), edge("e", "i", "red")
+      ];
+      turn = "blue";
+      gameOver = false;
+      render("Blue starts. Cut one grounded blue branch.");
+    }
+
+    function edge(from, to, color) {
+      return { id: `${from}-${to}`, from, to, color, alive: true };
+    }
+
+    function groundedNodeSet() {
+      const graph = {};
+      Object.keys(nodes).forEach((node) => { graph[node] = []; });
+      edges.filter((item) => item.alive).forEach(({ from, to }) => {
+        graph[from].push(to);
+        graph[to].push(from);
+      });
+      const seen = new Set(["g"]);
+      const queue = ["g"];
+      while (queue.length) {
+        const node = queue.shift();
+        graph[node].forEach((next) => {
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        });
+      }
+      return seen;
+    }
+
+    function pruneFloatingBranches() {
+      const grounded = groundedNodeSet();
+      edges.forEach((item) => {
+        if (item.alive && (!grounded.has(item.from) || !grounded.has(item.to))) item.alive = false;
+      });
+    }
+
+    function groundedEdges(color) {
+      const grounded = groundedNodeSet();
+      return edges.filter((item) => item.alive && item.color === color && grounded.has(item.from) && grounded.has(item.to));
+    }
+
+    function opponent(color) {
+      return color === "blue" ? "red" : "blue";
+    }
+
+    function finishTurn(message) {
+      pruneFloatingBranches();
+      const next = opponent(turn);
+      if (groundedEdges(next).length === 0) {
+        gameOver = true;
+        render(`${turn === "blue" ? "Blue" : "Red"} wins. ${next === "blue" ? "Blue" : "Red"} has no grounded branch.`);
+        return;
+      }
+      turn = next;
+      render(message || `${turn === "blue" ? "Blue" : "Red"} to cut.`);
+    }
+
+    function cutEdge(id) {
+      if (gameOver) return;
+      const item = edges.find((candidate) => candidate.id === id);
+      if (!item || !item.alive || item.color !== turn) return;
+      item.alive = false;
+      finishTurn(`${turn === "blue" ? "Blue" : "Red"} cuts a branch.`);
+    }
+
+    function drawLine(item) {
+      const [x1, y1] = nodes[item.from];
+      const [x2, y2] = nodes[item.to];
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", x1);
+      line.setAttribute("y1", y1);
+      line.setAttribute("x2", x2);
+      line.setAttribute("y2", y2);
+      line.setAttribute("stroke", item.color === "blue" ? "#38bdf8" : "#fb7185");
+      line.setAttribute("stroke-width", "14");
+      line.setAttribute("stroke-linecap", "round");
+      line.classList.add("cursor-pointer", "transition", "hover:opacity-70");
+      line.addEventListener("click", () => cutEdge(item.id));
+      scene.appendChild(line);
+    }
+
+    function drawNode(point) {
+      const [x, y] = point;
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", x);
+      circle.setAttribute("cy", y);
+      circle.setAttribute("r", "8");
+      circle.setAttribute("fill", "#ecfccb");
+      scene.appendChild(circle);
+    }
+
+    function render(message) {
+      scene.innerHTML = "";
+      const ground = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      ground.setAttribute("x1", "20");
+      ground.setAttribute("y1", "335");
+      ground.setAttribute("x2", "395");
+      ground.setAttribute("y2", "335");
+      ground.setAttribute("stroke", "#a3e635");
+      ground.setAttribute("stroke-width", "8");
+      scene.appendChild(ground);
+      edges.filter((item) => item.alive).forEach(drawLine);
+      Object.values(nodes).forEach(drawNode);
+      turnLabel.textContent = gameOver ? "Game over" : turn === "blue" ? "Blue" : "Red";
+      statusEl.textContent = message;
+      blueCount.textContent = groundedEdges("blue").length;
+      redCount.textContent = groundedEdges("red").length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
