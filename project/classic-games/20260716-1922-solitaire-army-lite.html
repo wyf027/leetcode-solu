@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Solitaire Army</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl shadow-black/30">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-teal-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Solitaire Army</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+            单人跳棋谜题：选择棋子，跳过相邻棋子到空格并移除被跳棋子。把任意棋子推进到最上排即可获胜。
+          </p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-teal-300 px-4 py-2 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">
+          重新开始
+        </button>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">剩余棋子</p>
+            <p id="pieceLabel" class="mt-1 text-2xl font-bold text-white">0</p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">可行动作</p>
+            <p id="moveLabel" class="mt-1 text-2xl font-bold text-white">0</p>
+          </div>
+          <div class="rounded-md bg-zinc-800 p-3">
+            <p id="status" class="text-sm leading-6 text-zinc-200">选择任意棋子查看可跳位置。</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const pieceLabel = document.getElementById('pieceLabel');
+    const moveLabel = document.getElementById('moveLabel');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const size = 5;
+    const directions = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1]
+    ];
+
+    let board = [];
+    let selected = null;
+    let moves = [];
+    let ended = false;
+
+    function startGame() {
+      board = Array(size * size).fill(false);
+      for (let row = 2; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          board[idx(row, col)] = true;
+        }
+      }
+      board[idx(4, 2)] = false;
+      selected = null;
+      moves = [];
+      ended = false;
+      statusEl.textContent = '选择任意棋子查看可跳位置。';
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const index = idx(row, col);
+          const hasPiece = board[index];
+          const isSelected = selected === index;
+          const isMove = moves.some(move => move.to === index);
+          const button = document.createElement('button');
+          button.className = [
+            'flex aspect-square items-center justify-center rounded-md border text-3xl font-black transition sm:text-5xl',
+            row === 0 ? 'border-teal-400/70 bg-teal-500/10' : 'border-zinc-700 bg-zinc-800',
+            hasPiece ? 'text-teal-100' : 'text-zinc-500',
+            isSelected ? 'ring-4 ring-yellow-300' : '',
+            isMove ? 'ring-4 ring-emerald-300' : '',
+            !ended ? 'hover:border-teal-300' : 'cursor-default'
+          ].join(' ');
+          button.textContent = hasPiece ? '●' : '';
+          button.disabled = ended;
+          button.setAttribute('aria-label', hasPiece ? `棋子 ${row + 1}-${col + 1}` : `空格 ${row + 1}-${col + 1}`);
+          button.addEventListener('click', () => handleCell(index));
+          boardEl.appendChild(button);
+        }
+      }
+
+      pieceLabel.textContent = board.filter(Boolean).length;
+      moveLabel.textContent = allMoves().length;
+    }
+
+    function handleCell(index) {
+      if (ended) {
+        return;
+      }
+
+      const chosenMove = moves.find(move => move.to === index);
+      if (selected !== null && chosenMove) {
+        applyMove(chosenMove);
+        return;
+      }
+
+      if (board[index]) {
+        selected = index;
+        moves = legalMoves(index);
+        statusEl.textContent = moves.length ? '点击高亮空格完成跳跃。' : '这个棋子没有可跳位置。';
+      } else {
+        selected = null;
+        moves = [];
+        statusEl.textContent = '请选择带棋子的格子。';
+      }
+      render();
+    }
+
+    function applyMove(move) {
+      board[move.from] = false;
+      board[move.over] = false;
+      board[move.to] = true;
+      selected = null;
+      moves = [];
+
+      if (rowOf(move.to) === 0) {
+        ended = true;
+        statusEl.textContent = '成功把棋子推进到最上排，挑战完成。';
+      } else if (allMoves().length === 0) {
+        ended = true;
+        statusEl.textContent = '没有可跳动作了，本局失败。';
+      } else {
+        statusEl.textContent = '继续寻找下一次跳跃。';
+      }
+      render();
+    }
+
+    function legalMoves(index) {
+      if (!board[index]) {
+        return [];
+      }
+      const row = rowOf(index);
+      const col = colOf(index);
+      return directions
+        .map(([dr, dc]) => {
+          const overRow = row + dr;
+          const overCol = col + dc;
+          const toRow = row + dr * 2;
+          const toCol = col + dc * 2;
+          if (!inBounds(toRow, toCol) || !inBounds(overRow, overCol)) {
+            return null;
+          }
+          const over = idx(overRow, overCol);
+          const to = idx(toRow, toCol);
+          return board[over] && !board[to] ? { from: index, over, to } : null;
+        })
+        .filter(Boolean);
+    }
+
+    function allMoves() {
+      return board.flatMap((hasPiece, index) => hasPiece ? legalMoves(index) : []);
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function idx(row, col) {
+      return row * size + col;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    resetBtn.addEventListener('click', startGame);
+    startGame();
+  </script>
+</body>
+</html>
