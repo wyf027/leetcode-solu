@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Ard Ri</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-slate-800 bg-slate-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-violet-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Ard Ri</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-violet-300 px-4 py-2 font-semibold text-slate-950 transition hover:bg-violet-200">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_280px]">
+        <div class="rounded-lg border border-slate-700 bg-slate-950 p-4">
+          <div id="board" class="grid aspect-square grid-cols-7 grid-rows-7 gap-1"></div>
+        </div>
+
+        <aside class="rounded-lg border border-slate-800 bg-slate-950 p-4">
+          <p id="turnText" class="rounded-md bg-slate-900 p-3 text-sm leading-6 text-slate-200"></p>
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-slate-900 p-3">
+              <p class="text-xs text-slate-400">国王状态</p>
+              <p id="kingStatus" class="text-xl font-bold text-amber-200">中心</p>
+            </div>
+            <div class="rounded-md bg-slate-900 p-3">
+              <p class="text-xs text-slate-400">守卫数量</p>
+              <p id="guardCount" class="text-xl font-bold text-violet-200">8</p>
+            </div>
+          </div>
+          <p class="mt-4 text-sm leading-6 text-slate-400">进攻方移动国王或友军，目标是让国王到达四个角落。守卫沿直线滑行，若国王四向相邻格都被棋子或边界封住，守卫获胜。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const corners = new Set([0, 6, 42, 48]);
+    const throne = 24;
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    let board;
+    let turn;
+    let selected;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const kingStatus = document.getElementById("kingStatus");
+    const guardCount = document.getElementById("guardCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function startGame() {
+      board = Array.from({ length: size * size }, () => null);
+      board[throne] = "king";
+      [17, 23, 25, 31].forEach((index) => board[index] = "ally");
+      [3, 21, 27, 45, 5, 13, 35, 43].forEach((index) => board[index] = "guard");
+      turn = "king";
+      selected = null;
+      winner = null;
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((piece, index) => {
+        const target = selected !== null && isLegalMove(selected, index);
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.setAttribute("aria-label", `cell ${index + 1}`);
+        cell.className = [
+          "relative flex items-center justify-center rounded-md border text-lg font-bold transition",
+          corners.has(index) ? "border-amber-300 bg-amber-900/40" : index === throne ? "border-violet-300 bg-violet-900/40" : "border-slate-700 bg-slate-800",
+          piece === "king" ? "text-amber-200" : "",
+          piece === "ally" ? "text-emerald-200" : "",
+          piece === "guard" ? "text-violet-200" : "",
+          selected === index ? "ring-4 ring-white" : "",
+          target ? "bg-emerald-400 text-slate-950" : ""
+        ].join(" ");
+        cell.textContent = pieceLabel(piece);
+        cell.addEventListener("click", () => handleCell(index));
+        boardEl.appendChild(cell);
+      });
+      const kingIndex = board.indexOf("king");
+      kingStatus.textContent = corners.has(kingIndex) ? "已逃脱" : `${Math.floor(kingIndex / size) + 1},${kingIndex % size + 1}`;
+      guardCount.textContent = board.filter((piece) => piece === "guard").length;
+      turnText.textContent = winner
+        ? `${winner === "king" ? "国王方" : "守卫方"}获胜。`
+        : `${turn === "king" ? "国王方" : "守卫方"}行动：选择棋子沿直线滑行。`;
+    }
+
+    function pieceLabel(piece) {
+      if (piece === "king") return "王";
+      if (piece === "ally") return "兵";
+      if (piece === "guard") return "卫";
+      return "";
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      const piece = board[index];
+      if (piece && belongsToTurn(piece)) {
+        selected = index;
+        render();
+        return;
+      }
+      if (selected === null || !isLegalMove(selected, index)) return;
+      board[index] = board[selected];
+      board[selected] = null;
+      selected = null;
+      updateWinner();
+      if (!winner) turn = turn === "king" ? "guard" : "king";
+      render();
+    }
+
+    function belongsToTurn(piece) {
+      return turn === "king" ? piece === "king" || piece === "ally" : piece === "guard";
+    }
+
+    function isLegalMove(from, to) {
+      if (from === to || board[to]) return false;
+      const piece = board[from];
+      if (!piece || !belongsToTurn(piece)) return false;
+      const fromRow = Math.floor(from / size);
+      const fromCol = from % size;
+      const toRow = Math.floor(to / size);
+      const toCol = to % size;
+      if (fromRow !== toRow && fromCol !== toCol) return false;
+      const stepRow = Math.sign(toRow - fromRow);
+      const stepCol = Math.sign(toCol - fromCol);
+      let row = fromRow + stepRow;
+      let col = fromCol + stepCol;
+      while (row !== toRow || col !== toCol) {
+        if (board[row * size + col]) return false;
+        row += stepRow;
+        col += stepCol;
+      }
+      return true;
+    }
+
+    function updateWinner() {
+      const kingIndex = board.indexOf("king");
+      if (corners.has(kingIndex)) {
+        winner = "king";
+        return;
+      }
+      const row = Math.floor(kingIndex / size);
+      const col = kingIndex % size;
+      const trapped = directions.every(([dr, dc]) => {
+        const nextRow = row + dr;
+        const nextCol = col + dc;
+        if (nextRow < 0 || nextRow >= size || nextCol < 0 || nextCol >= size) return true;
+        return Boolean(board[nextRow * size + nextCol]);
+      });
+      if (trapped) winner = "guard";
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
