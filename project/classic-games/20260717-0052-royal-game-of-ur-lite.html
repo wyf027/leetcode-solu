@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Royal Game of Ur</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-indigo-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-medium uppercase tracking-widest text-cyan-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Royal Game of Ur</h1>
+      </div>
+      <button id="reset" class="w-fit rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-cyan-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-indigo-800 bg-indigo-900/80 p-4 shadow-2xl shadow-black/30">
+        <div id="track" class="grid grid-cols-8 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-indigo-800 bg-indigo-900 p-4">
+          <div class="text-sm text-indigo-300">当前回合</div>
+          <div id="turn" class="mt-1 text-2xl font-bold"></div>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-indigo-100"></p>
+        </div>
+
+        <div class="rounded-lg border border-indigo-800 bg-indigo-900 p-4">
+          <button id="roll" class="w-full rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-cyan-200">掷骰</button>
+          <div id="dice" class="mt-3 grid grid-cols-4 gap-2"></div>
+        </div>
+
+        <div class="rounded-lg border border-indigo-800 bg-indigo-900 p-4">
+          <div class="mb-3 text-sm font-semibold text-indigo-100">得分</div>
+          <div id="score" class="grid grid-cols-2 gap-2"></div>
+        </div>
+
+        <div class="rounded-lg border border-indigo-800 bg-indigo-900 p-4 text-sm leading-6 text-indigo-100">
+          <p>每方 4 枚棋，掷四枚二值骰决定步数。选可移动棋子沿路线前进，落到对手棋上会将其送回起点。</p>
+          <p class="mt-2">花格安全且奖励再走一回合，率先让 4 枚棋出盘者获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const players = [
+      { name: "蓝方", bg: "bg-sky-300", text: "text-sky-200" },
+      { name: "金方", bg: "bg-amber-300", text: "text-amber-200" }
+    ];
+    const path = [
+      [0, 0], [0, 1], [0, 2], [1, 2],
+      [1, 3], [1, 4], [1, 5], [1, 6],
+      [1, 7], [2, 7], [2, 6], [2, 5]
+    ];
+    const rosettes = new Set([3, 7, 11]);
+    const trackEl = document.getElementById("track");
+    const turnEl = document.getElementById("turn");
+    const statusEl = document.getElementById("status");
+    const diceEl = document.getElementById("dice");
+    const rollEl = document.getElementById("roll");
+    const resetEl = document.getElementById("reset");
+    const scoreEl = document.getElementById("score");
+    let pieces;
+    let current;
+    let rollValue;
+    let dice;
+    let winner;
+
+    function startGame() {
+      pieces = [
+        Array.from({ length: 4 }, () => -1),
+        Array.from({ length: 4 }, () => -1)
+      ];
+      current = 0;
+      rollValue = null;
+      dice = [0, 0, 0, 0];
+      winner = null;
+      statusEl.textContent = "点击掷骰开始回合。";
+      render();
+    }
+
+    function finished(player) {
+      return pieces[player].filter(position => position >= path.length).length;
+    }
+
+    function occupiedAt(position) {
+      for (let player = 0; player < 2; player++) {
+        for (let index = 0; index < pieces[player].length; index++) {
+          if (pieces[player][index] === position) return { player, index };
+        }
+      }
+      return null;
+    }
+
+    function canMove(index) {
+      if (rollValue === null || rollValue === 0 || winner !== null) return false;
+      const from = pieces[current][index];
+      if (from >= path.length) return false;
+      const to = from + rollValue;
+      if (to > path.length) return false;
+      const occupant = occupiedAt(to);
+      if (!occupant) return true;
+      if (occupant.player === current) return false;
+      return !rosettes.has(to);
+    }
+
+    function availableMoves() {
+      return pieces[current].map((_, index) => index).filter(canMove);
+    }
+
+    function rollDice() {
+      if (winner !== null || rollValue !== null) return;
+      dice = Array.from({ length: 4 }, () => Math.random() < 0.5 ? 0 : 1);
+      rollValue = dice.reduce((sum, value) => sum + value, 0);
+      const moves = availableMoves();
+      if (rollValue === 0 || moves.length === 0) {
+        statusEl.textContent = players[current].name + "掷出 " + rollValue + "，无可移动棋子。";
+        current = 1 - current;
+        rollValue = null;
+      } else {
+        statusEl.textContent = players[current].name + "掷出 " + rollValue + "，选择一枚棋子。";
+      }
+      render();
+    }
+
+    function movePiece(index) {
+      if (!canMove(index)) return;
+      const to = pieces[current][index] + rollValue;
+      const occupant = occupiedAt(to);
+      if (occupant && occupant.player !== current) {
+        pieces[occupant.player][occupant.index] = -1;
+      }
+      pieces[current][index] = to;
+      if (finished(current) === 4) {
+        winner = current;
+        statusEl.textContent = players[current].name + "让全部棋子出盘。";
+      } else if (rosettes.has(to)) {
+        statusEl.textContent = players[current].name + "落在花格，奖励再走一回合。";
+      } else {
+        current = 1 - current;
+        statusEl.textContent = "点击掷骰开始回合。";
+      }
+      rollValue = null;
+      render();
+    }
+
+    function renderDice() {
+      diceEl.innerHTML = "";
+      dice.forEach(value => {
+        const box = document.createElement("div");
+        box.className = "flex aspect-square items-center justify-center rounded-md border border-indigo-700 bg-indigo-950 text-lg font-bold";
+        box.textContent = value ? "●" : "·";
+        diceEl.appendChild(box);
+      });
+    }
+
+    function renderScore() {
+      scoreEl.innerHTML = "";
+      players.forEach((player, index) => {
+        const card = document.createElement("div");
+        card.className = "rounded-md border border-indigo-700 bg-indigo-950 p-3";
+        card.innerHTML = '<div class="text-xs text-indigo-300">' + player.name + '</div><div class="mt-1 text-xl font-bold ' + player.text + '">' + finished(index) + ' / 4</div>';
+        scoreEl.appendChild(card);
+      });
+    }
+
+    function renderTrack() {
+      trackEl.innerHTML = "";
+      for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 8; col++) {
+          const pathIndex = path.findIndex(([r, c]) => r === row && c === col);
+          const cell = document.createElement("div");
+          cell.className = "relative flex aspect-square items-center justify-center rounded-md border text-xs font-semibold " + (pathIndex >= 0 ? "border-indigo-700 bg-indigo-800" : "border-indigo-950 bg-indigo-950/40");
+          if (pathIndex >= 0 && rosettes.has(pathIndex)) cell.className += " ring-2 ring-cyan-300";
+          const occupant = pathIndex >= 0 ? occupiedAt(pathIndex) : null;
+          if (occupant) {
+            const stone = document.createElement("button");
+            stone.className = "h-4/5 w-4/5 rounded-full shadow-lg " + players[occupant.player].bg;
+            stone.disabled = occupant.player !== current || !canMove(occupant.index);
+            stone.addEventListener("click", () => movePiece(occupant.index));
+            cell.appendChild(stone);
+          } else if (pathIndex >= 0) {
+            cell.textContent = rosettes.has(pathIndex) ? "✦" : String(pathIndex + 1);
+          }
+          trackEl.appendChild(cell);
+        }
+      }
+      players[current].name;
+      const tray = document.createElement("div");
+      tray.className = "col-span-8 mt-2 grid grid-cols-4 gap-2";
+      pieces[current].forEach((position, index) => {
+        if (position !== -1) return;
+        const button = document.createElement("button");
+        button.className = "rounded-md border border-indigo-700 bg-indigo-950 px-3 py-2 text-sm font-semibold hover:border-cyan-300";
+        button.textContent = players[current].name + " 入场 " + (index + 1);
+        button.disabled = !canMove(index);
+        button.addEventListener("click", () => movePiece(index));
+        tray.appendChild(button);
+      });
+      trackEl.appendChild(tray);
+    }
+
+    function render() {
+      const active = winner === null ? current : winner;
+      turnEl.textContent = winner === null ? players[current].name : players[winner].name + "获胜";
+      turnEl.className = "mt-1 text-2xl font-bold " + players[active].text;
+      rollEl.disabled = winner !== null || rollValue !== null;
+      renderDice();
+      renderScore();
+      renderTrack();
+    }
+
+    rollEl.addEventListener("click", rollDice);
+    resetEl.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
