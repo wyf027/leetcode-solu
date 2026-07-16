@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Gyges</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-cyan-300">classic abstract game</p>
+        <h1 class="text-3xl font-bold text-white">Mini Gyges</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div class="mb-2 grid grid-cols-5 gap-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <span></span><span></span><span class="rounded bg-emerald-900 py-1 text-emerald-200">North Goal</span><span></span><span></span>
+        </div>
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+        <div class="mt-2 grid grid-cols-5 gap-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <span></span><span></span><span class="rounded bg-amber-900 py-1 text-amber-200">South Goal</span><span></span><span></span>
+        </div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-slate-300"></p>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+            <li>Only pieces in your nearest occupied row may move.</li>
+            <li>A piece moves exactly its pip value in straight or turning paths.</li>
+            <li>Land on an occupied square to continue a relay from that piece.</li>
+            <li>Move off the far goal square to win.</li>
+          </ul>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="font-semibold text-white">Selected</p>
+          <p id="selectedLabel" class="mt-2 text-sm leading-6 text-slate-300"></p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const statusEl = document.getElementById("status");
+    const selectedLabel = document.getElementById("selectedLabel");
+    const resetBtn = document.getElementById("resetBtn");
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    let board = [];
+    let turn = "S";
+    let selected = null;
+    let relay = null;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(0));
+      board[0] = [1, 2, 3, 2, 1];
+      board[4] = [1, 2, 3, 2, 1];
+      turn = "S";
+      selected = null;
+      relay = null;
+      gameOver = false;
+      render("South starts. Select a piece from the nearest occupied row.");
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function nearestRow(side) {
+      if (side === "S") {
+        for (let row = size - 1; row >= 0; row -= 1) {
+          if (board[row].some(Boolean)) return row;
+        }
+      } else {
+        for (let row = 0; row < size; row += 1) {
+          if (board[row].some(Boolean)) return row;
+        }
+      }
+      return -1;
+    }
+
+    function canMovePiece(row, col) {
+      if (!board[row][col] || gameOver) return false;
+      if (relay) return relay.row === row && relay.col === col;
+      return row === nearestRow(turn);
+    }
+
+    function pathKey(path) {
+      return path.map(([row, col]) => `${row},${col}`).join("|");
+    }
+
+    function explore(row, col, steps, seen, results) {
+      if (steps === 0) {
+        results.push([row, col]);
+        return;
+      }
+      directions.forEach(([dr, dc]) => {
+        const nextRow = row + dr;
+        const nextCol = col + dc;
+        if (!inBounds(nextRow, nextCol)) return;
+        const key = `${nextRow},${nextCol}`;
+        if (seen.has(key)) return;
+        const nextSeen = new Set(seen);
+        nextSeen.add(key);
+        explore(nextRow, nextCol, steps - 1, nextSeen, results);
+      });
+    }
+
+    function legalMoves(row, col) {
+      if (!canMovePiece(row, col)) return [];
+      const results = [];
+      explore(row, col, board[row][col], new Set([`${row},${col}`]), results);
+      const unique = new Map();
+      results.forEach(([nextRow, nextCol]) => unique.set(`${nextRow},${nextCol}`, [nextRow, nextCol]));
+      return [...unique.values()].filter(([nextRow, nextCol]) => !(nextRow === row && nextCol === col));
+    }
+
+    function goalReached(row, col) {
+      return (turn === "S" && row === 0 && col === 2) || (turn === "N" && row === size - 1 && col === 2);
+    }
+
+    function finishTurn(message) {
+      selected = null;
+      relay = null;
+      turn = turn === "S" ? "N" : "S";
+      render(message || `${turn === "S" ? "South" : "North"} to move.`);
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (canMovePiece(row, col)) {
+        selected = { row, col };
+        render(`Move this ${board[row][col]}-pip piece exactly ${board[row][col]} spaces.`);
+        return;
+      }
+      if (!selected) return;
+      const moves = legalMoves(selected.row, selected.col);
+      const isLegal = moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col);
+      if (!isLegal) return;
+      const value = board[selected.row][selected.col];
+      board[selected.row][selected.col] = 0;
+      if (goalReached(row, col)) {
+        gameOver = true;
+        board[row][col] = value;
+        selected = null;
+        relay = null;
+        render(`${turn === "S" ? "South" : "North"} wins by reaching the far goal.`);
+        return;
+      }
+      if (board[row][col]) {
+        relay = { row, col };
+        selected = { row, col };
+        render(`Relay from the landed ${board[row][col]}-pip piece.`);
+        return;
+      }
+      board[row][col] = value;
+      finishTurn(`${turn === "S" ? "South" : "North"} completes the move.`);
+    }
+
+    function cellClasses(row, col) {
+      const value = board[row][col];
+      const moves = selected ? legalMoves(selected.row, selected.col) : [];
+      const isSelected = selected && selected.row === row && selected.col === col;
+      const isMove = moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col);
+      const isGoal = (row === 0 && col === 2) || (row === size - 1 && col === 2);
+      const base = "flex aspect-square items-center justify-center rounded border text-3xl font-black transition";
+      const color = value
+        ? "border-cyan-500 bg-cyan-950 text-cyan-100"
+        : isGoal
+          ? "border-emerald-500 bg-emerald-950 text-emerald-200"
+          : "border-slate-700 bg-slate-800 text-slate-500";
+      const state = isSelected ? " ring-4 ring-amber-300" : isMove ? " ring-4 ring-lime-300" : " hover:border-cyan-300";
+      return `${base} ${color}${state}`;
+    }
+
+    function render(message) {
+      boardEl.innerHTML = "";
+      board.forEach((row, rowIndex) => {
+        row.forEach((value, colIndex) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(rowIndex, colIndex);
+          button.textContent = value ? String(value) : (rowIndex === 0 && colIndex === 2) || (rowIndex === 4 && colIndex === 2) ? "G" : "";
+          button.setAttribute("aria-label", `row ${rowIndex + 1} column ${colIndex + 1}`);
+          button.addEventListener("click", () => handleCell(rowIndex, colIndex));
+          boardEl.appendChild(button);
+        });
+      });
+      turnLabel.textContent = gameOver ? "Game over" : turn === "S" ? "South" : "North";
+      statusEl.textContent = message;
+      selectedLabel.textContent = selected
+        ? `Row ${selected.row + 1}, column ${selected.col + 1}${relay ? " relay required" : ""}`
+        : "No piece selected.";
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
