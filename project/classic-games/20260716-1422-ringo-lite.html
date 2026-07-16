@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Ringo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-teal-950 text-teal-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center">
+    <section class="flex-1">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Ringo</h1>
+          <p id="status" class="mt-1 text-sm text-teal-200">Pearl moves first. Reach the opposite gate to win.</p>
+        </div>
+        <button id="reset" class="rounded-md bg-orange-300 px-4 py-2 text-sm font-semibold text-teal-950 hover:bg-orange-200">Reset</button>
+      </div>
+      <div class="rounded-lg border border-teal-700 bg-teal-900 p-3">
+        <svg id="board" viewBox="0 0 420 420" class="aspect-square w-full" role="img" aria-label="Mini Ringo ring board"></svg>
+      </div>
+    </section>
+
+    <aside class="w-full rounded-lg border border-teal-700 bg-teal-900 p-4 md:w-72">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-md bg-teal-800 p-3">
+          <div class="text-teal-200">Pearl pieces</div>
+          <div id="pearlCount" class="mt-1 text-2xl font-semibold">4</div>
+        </div>
+        <div class="rounded-md bg-teal-800 p-3">
+          <div class="text-teal-200">Coral pieces</div>
+          <div id="coralCount" class="mt-1 text-2xl font-semibold">4</div>
+        </div>
+      </div>
+      <div class="mt-4 space-y-2 text-sm text-teal-200">
+        <p>Select one of your pieces, then move to an adjacent empty point.</p>
+        <p>Move around the ring or through the center hub.</p>
+        <p>First side to occupy the opposite gate wins.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const svg = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const resetBtn = document.getElementById("reset");
+    const pearlCountEl = document.getElementById("pearlCount");
+    const coralCountEl = document.getElementById("coralCount");
+
+    const points = [
+      [210, 35], [300, 64], [356, 140], [356, 280], [300, 356], [210, 385],
+      [120, 356], [64, 280], [64, 140], [120, 64], [210, 210]
+    ];
+    const gates = { pearl: 5, coral: 0 };
+    const lines = [
+      [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 0],
+      [0, 10], [2, 10], [5, 10], [7, 10]
+    ];
+    const neighbors = points.map(() => new Set());
+    lines.forEach(([a, b]) => {
+      neighbors[a].add(b);
+      neighbors[b].add(a);
+    });
+
+    let board;
+    let turn;
+    let selected;
+    let gameOver;
+
+    function startGame() {
+      board = Array(points.length).fill(null);
+      [0, 1, 9, 10].forEach((index) => board[index] = "pearl");
+      [4, 5, 6, 7].forEach((index) => board[index] = "coral");
+      turn = "pearl";
+      selected = null;
+      gameOver = false;
+      setStatus("Pearl turn: select a piece.");
+      render();
+    }
+
+    function render() {
+      svg.innerHTML = "";
+      lines.forEach(([a, b]) => drawLine(points[a], points[b]));
+      points.forEach(([x, y], index) => {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        node.setAttribute("cx", x);
+        node.setAttribute("cy", y);
+        node.setAttribute("r", selected === index ? 18 : 13);
+        node.setAttribute("fill", selected === index ? "#fdba74" : "#0f766e");
+        node.setAttribute("stroke", index === gates.pearl || index === gates.coral ? "#fdba74" : "#99f6e4");
+        node.setAttribute("stroke-width", index === gates.pearl || index === gates.coral ? "4" : "2");
+        node.classList.add("cursor-pointer");
+        node.addEventListener("click", () => handlePoint(index));
+        svg.appendChild(node);
+        if (board[index]) drawPiece(x, y, board[index]);
+      });
+      pearlCountEl.textContent = countPieces("pearl");
+      coralCountEl.textContent = countPieces("coral");
+    }
+
+    function drawLine(from, to) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", from[0]);
+      line.setAttribute("y1", from[1]);
+      line.setAttribute("x2", to[0]);
+      line.setAttribute("y2", to[1]);
+      line.setAttribute("stroke", "#14b8a6");
+      line.setAttribute("stroke-width", "5");
+      line.setAttribute("stroke-linecap", "round");
+      svg.appendChild(line);
+    }
+
+    function drawPiece(x, y, side) {
+      const piece = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      piece.setAttribute("cx", x);
+      piece.setAttribute("cy", y);
+      piece.setAttribute("r", "20");
+      piece.setAttribute("fill", side === "pearl" ? "#f8fafc" : "#fb7185");
+      piece.setAttribute("stroke", side === "pearl" ? "#38bdf8" : "#fecdd3");
+      piece.setAttribute("stroke-width", "4");
+      piece.classList.add("pointer-events-none");
+      svg.appendChild(piece);
+    }
+
+    function handlePoint(index) {
+      if (gameOver) return;
+      if (selected === null) {
+        if (board[index] === turn) {
+          selected = index;
+          setStatus(`${label(turn)}: choose an adjacent empty point.`);
+          render();
+        }
+        return;
+      }
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (board[index] || !neighbors[selected].has(index)) return;
+      board[index] = turn;
+      board[selected] = null;
+      selected = null;
+      if (checkWinner()) {
+        render();
+        return;
+      }
+      turn = turn === "pearl" ? "coral" : "pearl";
+      setStatus(`${label(turn)} turn: select a piece.`);
+      render();
+    }
+
+    function checkWinner() {
+      if (board[gates.pearl] === "pearl") {
+        gameOver = true;
+        setStatus("Pearl wins by reaching the far gate.");
+        return true;
+      }
+      if (board[gates.coral] === "coral") {
+        gameOver = true;
+        setStatus("Coral wins by reaching the far gate.");
+        return true;
+      }
+      if (!hasMove(turn === "pearl" ? "coral" : "pearl")) {
+        gameOver = true;
+        setStatus(`${label(turn)} wins by blocking every rival move.`);
+        return true;
+      }
+      return false;
+    }
+
+    function hasMove(side) {
+      return board.some((piece, index) => piece === side && [...neighbors[index]].some((next) => !board[next]));
+    }
+
+    function countPieces(side) {
+      return board.filter((piece) => piece === side).length;
+    }
+
+    function label(side) {
+      return side === "pearl" ? "Pearl" : "Coral";
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
