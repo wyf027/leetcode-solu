@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Phutball</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-emerald-800 bg-emerald-900 p-5 shadow-2xl shadow-black/30">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Phutball</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-emerald-100">
+            每回合可放一个白子，或让足球沿八方向跳过连续白子并清除它们。足球到达上边或下边即得分。
+          </p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 text-sm font-bold text-emerald-950 transition hover:bg-lime-200">
+          重新开始
+        </button>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-emerald-800 bg-emerald-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-emerald-200">模式</p>
+            <div class="mt-2 grid grid-cols-2 gap-2">
+              <button id="placeBtn" class="rounded-md bg-lime-300 px-3 py-2 text-sm font-bold text-emerald-950">放白子</button>
+              <button id="jumpBtn" class="rounded-md bg-emerald-800 px-3 py-2 text-sm font-bold text-emerald-100">跳足球</button>
+            </div>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-emerald-200">白子数量</p>
+            <p id="stoneLabel" class="mt-1 text-2xl font-bold text-white">0</p>
+          </div>
+          <div class="rounded-md bg-emerald-800 p-3">
+            <p id="status" class="text-sm leading-6 text-emerald-50">先放白子，再切换跳足球。</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const placeBtn = document.getElementById('placeBtn');
+    const jumpBtn = document.getElementById('jumpBtn');
+    const stoneLabel = document.getElementById('stoneLabel');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const size = 5;
+    const dirs = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1], [0, 1],
+      [1, -1], [1, 0], [1, 1]
+    ];
+
+    let stones = new Set();
+    let ball = idx(2, 2);
+    let mode = 'place';
+    let ended = false;
+    let jumps = [];
+
+    function startGame() {
+      stones = new Set([idx(1, 2), idx(2, 1), idx(2, 3), idx(3, 2)]);
+      ball = idx(2, 2);
+      mode = 'place';
+      ended = false;
+      statusEl.textContent = '先放白子，再切换跳足球。';
+      render();
+    }
+
+    function render() {
+      jumps = mode === 'jump' ? legalJumps() : [];
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const index = idx(row, col);
+          const isBall = index === ball;
+          const isStone = stones.has(index);
+          const canJump = jumps.some(jump => jump.to === index);
+          const button = document.createElement('button');
+          button.className = [
+            'flex aspect-square items-center justify-center rounded-md border text-3xl font-black transition sm:text-5xl',
+            row === 0 || row === size - 1 ? 'border-lime-300 bg-lime-400/15' : 'border-emerald-700 bg-emerald-800',
+            isBall ? 'text-amber-200' : isStone ? 'text-white' : 'text-emerald-500',
+            canJump ? 'ring-4 ring-yellow-300' : '',
+            !ended ? 'hover:border-lime-200' : 'cursor-default'
+          ].join(' ');
+          button.textContent = isBall ? '●' : isStone ? '○' : '';
+          button.disabled = ended;
+          button.setAttribute('aria-label', isBall ? '足球' : isStone ? '白子' : `空格 ${row + 1}-${col + 1}`);
+          button.addEventListener('click', () => handleCell(index));
+          boardEl.appendChild(button);
+        }
+      }
+
+      stoneLabel.textContent = stones.size;
+      placeBtn.className = mode === 'place'
+        ? 'rounded-md bg-lime-300 px-3 py-2 text-sm font-bold text-emerald-950'
+        : 'rounded-md bg-emerald-800 px-3 py-2 text-sm font-bold text-emerald-100';
+      jumpBtn.className = mode === 'jump'
+        ? 'rounded-md bg-lime-300 px-3 py-2 text-sm font-bold text-emerald-950'
+        : 'rounded-md bg-emerald-800 px-3 py-2 text-sm font-bold text-emerald-100';
+    }
+
+    function handleCell(index) {
+      if (ended) {
+        return;
+      }
+
+      if (mode === 'place') {
+        if (index === ball || stones.has(index)) {
+          statusEl.textContent = '只能在空格放白子。';
+          return;
+        }
+        stones.add(index);
+        statusEl.textContent = '已放白子。可以继续布局，或切换到跳足球。';
+      } else {
+        const jump = jumps.find(item => item.to === index);
+        if (!jump) {
+          statusEl.textContent = jumps.length ? '请选择高亮落点。' : '当前没有可跳路线，先放更多白子。';
+          return;
+        }
+        jump.over.forEach(cell => stones.delete(cell));
+        ball = jump.to;
+        if (rowOf(ball) === 0 || rowOf(ball) === size - 1) {
+          ended = true;
+          statusEl.textContent = '足球到达边线，得分成功。';
+        } else {
+          statusEl.textContent = '跳跃完成，被跳过的白子已清除。';
+        }
+      }
+      render();
+    }
+
+    function legalJumps() {
+      const row = rowOf(ball);
+      const col = colOf(ball);
+      return dirs.map(([dr, dc]) => {
+        const over = [];
+        let nextRow = row + dr;
+        let nextCol = col + dc;
+        while (inBounds(nextRow, nextCol) && stones.has(idx(nextRow, nextCol))) {
+          over.push(idx(nextRow, nextCol));
+          nextRow += dr;
+          nextCol += dc;
+        }
+        if (over.length && inBounds(nextRow, nextCol) && !stones.has(idx(nextRow, nextCol))) {
+          return { to: idx(nextRow, nextCol), over };
+        }
+        return null;
+      }).filter(Boolean);
+    }
+
+    function setMode(nextMode) {
+      mode = nextMode;
+      statusEl.textContent = mode === 'place' ? '点击空格放白子。' : '点击高亮格让足球跳跃。';
+      render();
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function idx(row, col) {
+      return row * size + col;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    placeBtn.addEventListener('click', () => setMode('place'));
+    jumpBtn.addEventListener('click', () => setMode('jump'));
+    resetBtn.addEventListener('click', startGame);
+    startGame();
+  </script>
+</body>
+</html>
