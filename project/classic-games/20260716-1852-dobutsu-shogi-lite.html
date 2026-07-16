@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Dobutsu Shogi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/30">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-yellow-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Dobutsu Shogi</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+            3x4 小棋盘动物将棋。选中己方棋子后移动一步；捕获对方狮子，或让自己的狮子走到对方底线即可获胜。
+          </p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-yellow-300 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-yellow-200">
+          重新开始
+        </button>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div id="board" class="grid aspect-[3/4] w-full grid-cols-3 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-white">玩家 A</p>
+          </div>
+          <div class="rounded-md bg-slate-800 p-3">
+            <p id="status" class="text-sm leading-6 text-slate-200">选择己方棋子查看可走位置。</p>
+          </div>
+          <div class="space-y-2 text-sm text-slate-300">
+            <p><span class="font-bold text-white">狮</span>：八方向一步</p>
+            <p><span class="font-bold text-white">鸡</span>：向前一步</p>
+            <p><span class="font-bold text-white">象</span>：斜向一步</p>
+            <p><span class="font-bold text-white">鹿</span>：正交一步</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnLabel = document.getElementById('turnLabel');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const rows = 4;
+    const cols = 3;
+    const pieceNames = { lion: '狮', chick: '鸡', elephant: '象', giraffe: '鹿' };
+    const playerNames = ['玩家 A', '玩家 B'];
+
+    let board = [];
+    let player = 0;
+    let selected = null;
+    let moves = [];
+    let ended = false;
+
+    function startGame() {
+      board = [
+        [{ type: 'giraffe', owner: 1 }, { type: 'lion', owner: 1 }, { type: 'elephant', owner: 1 }],
+        [null, { type: 'chick', owner: 1 }, null],
+        [null, { type: 'chick', owner: 0 }, null],
+        [{ type: 'elephant', owner: 0 }, { type: 'lion', owner: 0 }, { type: 'giraffe', owner: 0 }]
+      ];
+      player = 0;
+      selected = null;
+      moves = [];
+      ended = false;
+      statusEl.textContent = '选择己方棋子查看可走位置。';
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const button = document.createElement('button');
+          const piece = board[row][col];
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const isMove = moves.some(move => move.row === row && move.col === col);
+          button.className = [
+            'flex min-h-20 flex-col items-center justify-center rounded-md border text-lg font-black transition sm:min-h-28 sm:text-2xl',
+            piece ? pieceClass(piece.owner) : 'border-slate-700 bg-slate-800 text-slate-400',
+            isSelected ? 'ring-4 ring-yellow-300' : '',
+            isMove ? 'ring-4 ring-emerald-300' : '',
+            !ended ? 'hover:border-yellow-300' : 'cursor-default'
+          ].join(' ');
+          button.innerHTML = piece ? `<span>${pieceNames[piece.type]}</span><span class="mt-1 text-xs font-bold">${playerNames[piece.owner]}</span>` : '';
+          button.disabled = ended;
+          button.setAttribute('aria-label', piece ? `${playerNames[piece.owner]} ${pieceNames[piece.type]}` : `空格 ${row + 1}-${col + 1}`);
+          button.addEventListener('click', () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+      turnLabel.textContent = ended ? '本局结束' : playerNames[player];
+    }
+
+    function pieceClass(owner) {
+      return owner === 0
+        ? 'border-yellow-400 bg-yellow-500/20 text-yellow-100'
+        : 'border-sky-400 bg-sky-500/20 text-sky-100';
+    }
+
+    function handleCell(row, col) {
+      if (ended) {
+        return;
+      }
+
+      const piece = board[row][col];
+      const canMoveHere = moves.some(move => move.row === row && move.col === col);
+      if (selected && canMoveHere) {
+        movePiece(row, col);
+        return;
+      }
+
+      if (piece && piece.owner === player) {
+        selected = { row, col };
+        moves = legalMoves(row, col);
+        statusEl.textContent = `${playerNames[player]} 选择了 ${pieceNames[piece.type]}。`;
+      } else {
+        selected = null;
+        moves = [];
+        statusEl.textContent = '只能选择己方棋子，或点击高亮格移动。';
+      }
+      render();
+    }
+
+    function movePiece(toRow, toCol) {
+      const from = selected;
+      const piece = board[from.row][from.col];
+      const target = board[toRow][toCol];
+      board[toRow][toCol] = piece;
+      board[from.row][from.col] = null;
+      selected = null;
+      moves = [];
+
+      if (target && target.type === 'lion') {
+        ended = true;
+        statusEl.textContent = `${playerNames[player]} 捕获狮子，赢得本局。`;
+      } else if (piece.type === 'lion' && ((piece.owner === 0 && toRow === 0) || (piece.owner === 1 && toRow === rows - 1))) {
+        ended = true;
+        statusEl.textContent = `${playerNames[player]} 的狮子到达底线，赢得本局。`;
+      } else {
+        player = 1 - player;
+        statusEl.textContent = `轮到 ${playerNames[player]}。`;
+      }
+      render();
+    }
+
+    function legalMoves(row, col) {
+      const piece = board[row][col];
+      const forward = piece.owner === 0 ? -1 : 1;
+      const patterns = {
+        lion: [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]],
+        chick: [[forward, 0]],
+        elephant: [[-1, -1], [-1, 1], [1, -1], [1, 1]],
+        giraffe: [[-1, 0], [0, -1], [0, 1], [1, 0]]
+      };
+      return patterns[piece.type]
+        .map(([dr, dc]) => ({ row: row + dr, col: col + dc }))
+        .filter(pos => inBounds(pos.row, pos.col))
+        .filter(pos => !board[pos.row][pos.col] || board[pos.row][pos.col].owner !== piece.owner);
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < rows && col >= 0 && col < cols;
+    }
+
+    resetBtn.addEventListener('click', startGame);
+    startGame();
+  </script>
+</body>
+</html>
