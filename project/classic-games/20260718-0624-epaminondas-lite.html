@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Epaminondas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic abstract</p>
+        <h1 class="text-3xl font-black text-white">Mini Epaminondas</h1>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-300">Move a front piece to slide its phalanx. A longer phalanx can break through a shorter enemy line.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-amber-200">Reset</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div id="board" class="grid grid-cols-6 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-3">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm font-semibold text-zinc-400">Status</p>
+          <p id="statusText" class="mt-2 text-xl font-black text-white">Select a red front piece.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-xs font-semibold uppercase text-zinc-500">Red</p>
+            <p id="redCount" class="mt-1 text-2xl font-black text-rose-300">12</p>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-xs font-semibold uppercase text-zinc-500">Blue</p>
+            <p id="blueCount" class="mt-1 text-2xl font-black text-sky-300">12</p>
+          </div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm font-bold text-white">Directions</p>
+          <div id="moveList" class="mt-3 grid grid-cols-2 gap-2"></div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-300">
+          <p class="font-bold text-white">How to play</p>
+          <p class="mt-2">Choose a red piece at the front of a same-color line. Move that phalanx one square. If the next enemy line is shorter, it is captured.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const directions = [
+      { label: "N", dr: -1, dc: 0 },
+      { label: "NE", dr: -1, dc: 1 },
+      { label: "E", dr: 0, dc: 1 },
+      { label: "SE", dr: 1, dc: 1 },
+      { label: "S", dr: 1, dc: 0 },
+      { label: "SW", dr: 1, dc: -1 },
+      { label: "W", dr: 0, dc: -1 },
+      { label: "NW", dr: -1, dc: -1 }
+    ];
+    const boardEl = document.getElementById("board");
+    const moveList = document.getElementById("moveList");
+    const statusText = document.getElementById("statusText");
+    const redCount = document.getElementById("redCount");
+    const blueCount = document.getElementById("blueCount");
+    const resetBtn = document.getElementById("resetBtn");
+    let board = [];
+    let selected = null;
+    let gameOver = false;
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function freshBoard() {
+      return Array.from({ length: size }, (_, row) =>
+        Array.from({ length: size }, () => {
+          if (row < 2) return "B";
+          if (row > 3) return "R";
+          return "";
+        })
+      );
+    }
+
+    function countPieces(color) {
+      return board.flat().filter((cell) => cell === color).length;
+    }
+
+    function phalanxCells(row, col, dir, color) {
+      const cells = [[row, col]];
+      let nextRow = row - dir.dr;
+      let nextCol = col - dir.dc;
+      while (inBounds(nextRow, nextCol) && board[nextRow][nextCol] === color && cells.length < 3) {
+        cells.push([nextRow, nextCol]);
+        nextRow -= dir.dr;
+        nextCol -= dir.dc;
+      }
+      return cells;
+    }
+
+    function enemyLine(row, col, dir, enemy) {
+      const cells = [];
+      let nextRow = row;
+      let nextCol = col;
+      while (inBounds(nextRow, nextCol) && board[nextRow][nextCol] === enemy) {
+        cells.push([nextRow, nextCol]);
+        nextRow += dir.dr;
+        nextCol += dir.dc;
+      }
+      return cells;
+    }
+
+    function legalMovesFor(row, col, color) {
+      if (board[row][col] !== color || gameOver) return [];
+      const enemy = color === "R" ? "B" : "R";
+      return directions.flatMap((dir) => {
+        const backRow = row - dir.dr;
+        const backCol = col - dir.dc;
+        if (inBounds(backRow, backCol) && board[backRow][backCol] === color) return [];
+        const phalanx = phalanxCells(row, col, dir, color);
+        const targetRow = row + dir.dr;
+        const targetCol = col + dir.dc;
+        if (!inBounds(targetRow, targetCol)) return [];
+        const target = board[targetRow][targetCol];
+        if (target === "") {
+          return [{ dir, phalanx, captures: [] }];
+        }
+        if (target === enemy) {
+          const captures = enemyLine(targetRow, targetCol, dir, enemy);
+          if (phalanx.length > captures.length) {
+            return [{ dir, phalanx, captures }];
+          }
+        }
+        return [];
+      });
+    }
+
+    function allLegalMoves(color) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          for (const move of legalMovesFor(row, col, color)) {
+            moves.push({ row, col, ...move });
+          }
+        }
+      }
+      return moves;
+    }
+
+    function applyMove(row, col, move) {
+      const color = board[row][col];
+      for (const [captureRow, captureCol] of move.captures) {
+        board[captureRow][captureCol] = "";
+      }
+      for (let index = move.phalanx.length - 1; index >= 0; index -= 1) {
+        const [fromRow, fromCol] = move.phalanx[index];
+        const toRow = fromRow + move.dir.dr;
+        const toCol = fromCol + move.dir.dc;
+        board[fromRow][fromCol] = "";
+        board[toRow][toCol] = color;
+      }
+      selected = null;
+      checkGame();
+    }
+
+    function chooseAiMove() {
+      const moves = allLegalMoves("B");
+      if (!moves.length) {
+        gameOver = true;
+        statusText.textContent = "Red wins. Blue has no move.";
+        return;
+      }
+      moves.sort((a, b) => b.captures.length - a.captures.length);
+      const bestCaptures = moves[0].captures.length;
+      const best = moves.filter((move) => move.captures.length === bestCaptures);
+      return best[Math.floor(Math.random() * best.length)];
+    }
+
+    function playComputerTurn() {
+      if (gameOver) return;
+      const move = chooseAiMove();
+      if (!move) return;
+      applyMove(move.row, move.col, move);
+      if (!gameOver) {
+        statusText.textContent = "Select a red front piece.";
+      }
+      render();
+    }
+
+    function checkGame() {
+      const red = countPieces("R");
+      const blue = countPieces("B");
+      const redReached = board[0].includes("R");
+      const blueReached = board[size - 1].includes("B");
+      if (red === 0 || blueReached) {
+        gameOver = true;
+        statusText.textContent = "Blue wins.";
+      } else if (blue === 0 || redReached) {
+        gameOver = true;
+        statusText.textContent = "Red wins.";
+      }
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (board[row][col] === "R") {
+        selected = { row, col };
+        statusText.textContent = "Pick a direction.";
+      } else {
+        selected = null;
+        statusText.textContent = "Select a red front piece.";
+      }
+      render();
+    }
+
+    function renderMoves() {
+      moveList.innerHTML = "";
+      if (!selected || gameOver) {
+        moveList.innerHTML = '<p class="col-span-2 text-sm text-zinc-500">No piece selected.</p>';
+        return;
+      }
+      const moves = legalMovesFor(selected.row, selected.col, "R");
+      if (!moves.length) {
+        moveList.innerHTML = '<p class="col-span-2 text-sm text-zinc-500">That piece has no legal phalanx move.</p>';
+        return;
+      }
+      for (const move of moves) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "rounded border border-amber-300 px-3 py-2 text-sm font-bold text-amber-200 hover:bg-amber-300 hover:text-zinc-950";
+        button.textContent = `${move.dir.label}${move.captures.length ? " x" + move.captures.length : ""}`;
+        button.addEventListener("click", () => {
+          applyMove(selected.row, selected.col, move);
+          render();
+          window.setTimeout(playComputerTurn, 300);
+        });
+        moveList.appendChild(button);
+      }
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = board[row][col];
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.setAttribute("aria-label", `row ${row + 1}, column ${col + 1}`);
+          button.className = [
+            "aspect-square rounded border text-lg font-black transition focus:outline-none focus:ring-2 focus:ring-amber-200",
+            (row + col) % 2 === 0 ? "border-zinc-700 bg-zinc-800" : "border-zinc-700 bg-zinc-700",
+            cell === "R" ? "text-rose-300" : "",
+            cell === "B" ? "text-sky-300" : "",
+            isSelected ? "ring-2 ring-amber-300" : "",
+            !cell ? "hover:bg-zinc-600" : "hover:bg-zinc-600"
+          ].join(" ");
+          button.textContent = cell;
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render() {
+      redCount.textContent = String(countPieces("R"));
+      blueCount.textContent = String(countPieces("B"));
+      renderBoard();
+      renderMoves();
+    }
+
+    function resetGame() {
+      board = freshBoard();
+      selected = null;
+      gameOver = false;
+      statusText.textContent = "Select a red front piece.";
+      render();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
