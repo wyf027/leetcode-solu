@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Qubic</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6 md:px-6">
+    <header class="flex flex-col gap-3 border-b border-indigo-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-cyan-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Qubic</h1>
+      </div>
+      <button id="resetBtn" class="w-fit rounded bg-cyan-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-cyan-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_300px]">
+      <div id="boards" class="grid gap-3 sm:grid-cols-2"></div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+          <h2 class="text-lg font-semibold text-white">战况</h2>
+          <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-indigo-800 p-3">
+              <p class="text-indigo-300">你的棋子</p>
+              <p id="xCount" class="mt-1 text-2xl font-bold text-cyan-300">0</p>
+            </div>
+            <div class="rounded bg-indigo-800 p-3">
+              <p class="text-indigo-300">电脑棋子</p>
+              <p id="oCount" class="mt-1 text-2xl font-bold text-amber-300">0</p>
+            </div>
+          </div>
+          <p id="status" class="mt-4 min-h-12 rounded bg-indigo-800 p-3 text-sm leading-6 text-indigo-100"></p>
+        </div>
+
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4 text-sm leading-6 text-indigo-200">
+          <h2 class="text-lg font-semibold text-white">规则</h2>
+          <p class="mt-3">Qubic 是 4×4×4 的三维井字棋。你下 X，电脑下 O。</p>
+          <p class="mt-2">任意水平、垂直、层间或空间对角线连成 4 枚即获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const boardsEl = document.getElementById("boards");
+    const statusEl = document.getElementById("status");
+    const xCountEl = document.getElementById("xCount");
+    const oCountEl = document.getElementById("oCount");
+    const resetBtn = document.getElementById("resetBtn");
+    let cells;
+    let lines;
+    let gameOver;
+
+    function keyOf(z, r, c) {
+      return `${z},${r},${c}`;
+    }
+
+    function startGame() {
+      cells = {};
+      lines = buildLines();
+      gameOver = false;
+      setStatus("选择任意空格落 X。目标是在 3D 空间里连成四枚。");
+      render();
+    }
+
+    function buildLines() {
+      const result = [];
+      const dirs = [];
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dz || dr || dc) dirs.push([dz, dr, dc]);
+          }
+        }
+      }
+      for (let z = 0; z < size; z++) {
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            for (const [dz, dr, dc] of dirs) {
+              const prev = [z - dz, r - dr, c - dc];
+              if (inside(...prev)) continue;
+              const line = [];
+              for (let i = 0; i < size; i++) {
+                const nz = z + dz * i;
+                const nr = r + dr * i;
+                const nc = c + dc * i;
+                if (!inside(nz, nr, nc)) break;
+                line.push(keyOf(nz, nr, nc));
+              }
+              if (line.length === size) result.push(line);
+            }
+          }
+        }
+      }
+      return result;
+    }
+
+    function inside(z, r, c) {
+      return z >= 0 && r >= 0 && c >= 0 && z < size && r < size && c < size;
+    }
+
+    function playCell(z, r, c) {
+      const key = keyOf(z, r, c);
+      if (gameOver || cells[key]) return;
+      cells[key] = "X";
+      if (resolveTurn("X")) return;
+      window.setTimeout(cpuMove, 300);
+      render();
+    }
+
+    function cpuMove() {
+      if (gameOver) return;
+      const empty = allKeys().filter(key => !cells[key]);
+      const winning = findMove("O", empty);
+      const blocking = findMove("X", empty);
+      const center = empty.find(key => key === keyOf(1, 1, 1) || key === keyOf(2, 2, 2));
+      const choice = winning || blocking || center || empty[Math.floor(Math.random() * empty.length)];
+      if (choice) cells[choice] = "O";
+      resolveTurn("O");
+      render();
+    }
+
+    function findMove(side, empty) {
+      return empty.find(key => {
+        cells[key] = side;
+        const wins = Boolean(winningLine(side));
+        delete cells[key];
+        return wins;
+      });
+    }
+
+    function resolveTurn(side) {
+      const win = winningLine(side);
+      if (win) {
+        gameOver = true;
+        setStatus(side === "X" ? "你连成四枚，获胜。" : "电脑连成四枚，电脑获胜。");
+        render(win);
+        return true;
+      }
+      if (allKeys().every(key => cells[key])) {
+        gameOver = true;
+        setStatus("棋盘已满，平局。");
+        return true;
+      }
+      setStatus(side === "X" ? "电脑思考中..." : "轮到你落子。");
+      return false;
+    }
+
+    function winningLine(side) {
+      return lines.find(line => line.every(key => cells[key] === side));
+    }
+
+    function allKeys() {
+      const keys = [];
+      for (let z = 0; z < size; z++) {
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) keys.push(keyOf(z, r, c));
+        }
+      }
+      return keys;
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function render(highlight = winningLine("X") || winningLine("O")) {
+      boardsEl.innerHTML = "";
+      xCountEl.textContent = Object.values(cells).filter(v => v === "X").length;
+      oCountEl.textContent = Object.values(cells).filter(v => v === "O").length;
+      const lit = new Set(highlight || []);
+
+      for (let z = 0; z < size; z++) {
+        const layer = document.createElement("section");
+        layer.className = "rounded border border-indigo-800 bg-indigo-900 p-3";
+        layer.innerHTML = `<h2 class="mb-2 text-sm font-semibold text-indigo-200">第 ${z + 1} 层</h2>`;
+        const grid = document.createElement("div");
+        grid.className = "grid grid-cols-4 gap-2";
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            const key = keyOf(z, r, c);
+            const value = cells[key] || "";
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = [
+              "aspect-square rounded border text-2xl font-black transition",
+              value === "X" ? "border-cyan-200 bg-cyan-400 text-indigo-950" : "",
+              value === "O" ? "border-amber-200 bg-amber-300 text-indigo-950" : "",
+              !value ? "border-indigo-700 bg-indigo-800 hover:bg-indigo-700" : "",
+              lit.has(key) ? "ring-4 ring-white" : ""
+            ].join(" ");
+            btn.textContent = value;
+            btn.addEventListener("click", () => playCell(z, r, c));
+            grid.appendChild(btn);
+          }
+        }
+        layer.appendChild(grid);
+        boardsEl.appendChild(layer);
+      }
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
