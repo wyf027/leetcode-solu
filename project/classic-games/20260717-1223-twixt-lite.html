@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Twixt</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-950 text-gray-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-gray-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">classic games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Twixt</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-sky-300 px-4 py-2 text-sm font-bold text-gray-950 hover:bg-sky-200">New game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-gray-800 bg-gray-900 p-4">
+        <div id="board" class="relative mx-auto grid aspect-square w-full max-w-[34rem] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-gray-800 bg-gray-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-gray-800 p-3">
+            <div class="text-xs uppercase text-gray-400">Turn</div>
+            <div id="turnLabel" class="mt-1 text-lg font-bold text-white">Blue</div>
+          </div>
+          <div class="rounded bg-gray-800 p-3">
+            <div class="text-xs uppercase text-gray-400">Moves</div>
+            <div id="moveCount" class="mt-1 text-lg font-bold text-white">0</div>
+          </div>
+          <div class="rounded bg-gray-800 p-3">
+            <div class="text-xs uppercase text-gray-400">Blue</div>
+            <div class="mt-1 text-sm font-bold text-sky-300">left to right</div>
+          </div>
+          <div class="rounded bg-gray-800 p-3">
+            <div class="text-xs uppercase text-gray-400">Rose</div>
+            <div class="mt-1 text-sm font-bold text-rose-300">top to bottom</div>
+          </div>
+        </div>
+        <div id="message" class="mt-4 rounded border border-gray-700 bg-gray-800 p-3 text-sm font-semibold text-gray-100"></div>
+        <div class="mt-4 rounded bg-gray-950 p-3 text-sm leading-6 text-gray-300">
+          Place one peg per turn. Pegs of the same color connect automatically at knight-move distance. Blue wins by connecting left to right; Rose wins top to bottom.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const moveCountEl = document.getElementById("moveCount");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const players = {
+      B: { name: "Blue", color: "bg-sky-300 text-gray-950", line: "bg-sky-300" },
+      R: { name: "Rose", color: "bg-rose-300 text-gray-950", line: "bg-rose-300" }
+    };
+    const knightSteps = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
+
+    let board;
+    let turn;
+    let winner;
+    let moves;
+
+    function startGame() {
+      board = Array(25).fill(null);
+      turn = "B";
+      winner = null;
+      moves = 0;
+      setMessage("Blue places the first peg.");
+      render();
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / 5);
+    }
+
+    function colOf(index) {
+      return index % 5;
+    }
+
+    function indexOf(row, col) {
+      return row * 5 + col;
+    }
+
+    function linkedNeighbors(index, player) {
+      const row = rowOf(index);
+      const col = colOf(index);
+      return knightSteps
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([r, c]) => r >= 0 && r < 5 && c >= 0 && c < 5)
+        .map(([r, c]) => indexOf(r, c))
+        .filter((target) => board[target] === player);
+    }
+
+    function hasPath(player) {
+      const queue = [];
+      const seen = new Set();
+      for (let index = 0; index < board.length; index++) {
+        if (board[index] !== player) continue;
+        if ((player === "B" && colOf(index) === 0) || (player === "R" && rowOf(index) === 0)) {
+          queue.push(index);
+          seen.add(index);
+        }
+      }
+      while (queue.length) {
+        const current = queue.shift();
+        if ((player === "B" && colOf(current) === 4) || (player === "R" && rowOf(current) === 4)) return true;
+        for (const next of linkedNeighbors(current, player)) {
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      return false;
+    }
+
+    function switchTurn() {
+      turn = turn === "B" ? "R" : "B";
+      setMessage(`${players[turn].name} places a peg.`);
+    }
+
+    function placePeg(index) {
+      if (winner || board[index]) return;
+      board[index] = turn;
+      moves += 1;
+      if (hasPath(turn)) {
+        winner = turn;
+        setMessage(`${players[turn].name} wins with a linked path.`);
+      } else if (moves === 25) {
+        winner = "draw";
+        setMessage("Draw game. The board is full.");
+      } else {
+        switchTurn();
+      }
+      render();
+    }
+
+    function linkPairs() {
+      const pairs = [];
+      for (let index = 0; index < board.length; index++) {
+        const player = board[index];
+        if (!player) continue;
+        for (const next of linkedNeighbors(index, player)) {
+          if (next > index) pairs.push([index, next, player]);
+        }
+      }
+      return pairs;
+    }
+
+    function renderLinks() {
+      const layer = document.createElement("div");
+      layer.className = "pointer-events-none absolute inset-0";
+      const size = boardEl.clientWidth || 1;
+      const cell = size / 5;
+      for (const [from, to, player] of linkPairs()) {
+        const x1 = colOf(from) * cell + cell / 2;
+        const y1 = rowOf(from) * cell + cell / 2;
+        const x2 = colOf(to) * cell + cell / 2;
+        const y2 = rowOf(to) * cell + cell / 2;
+        const length = Math.hypot(x2 - x1, y2 - y1);
+        const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+        const link = document.createElement("span");
+        link.className = `absolute h-1 origin-left rounded ${players[player].line}`;
+        link.style.width = `${length}px`;
+        link.style.left = `${x1}px`;
+        link.style.top = `${y1}px`;
+        link.style.transform = `rotate(${angle}deg)`;
+        layer.appendChild(link);
+      }
+      return layer;
+    }
+
+    function renderCell(index) {
+      const player = board[index];
+      const button = document.createElement("button");
+      button.className = "relative z-10 flex aspect-square items-center justify-center rounded border border-gray-700 bg-gray-800 transition hover:border-sky-300";
+      button.setAttribute("aria-label", `Point ${index + 1}`);
+      button.addEventListener("click", () => placePeg(index));
+      if (player) {
+        const peg = document.createElement("span");
+        peg.className = `flex h-10 w-10 items-center justify-center rounded-full text-lg font-black shadow ${players[player].color}`;
+        peg.textContent = player;
+        button.appendChild(peg);
+      } else {
+        const dot = document.createElement("span");
+        dot.className = "h-2 w-2 rounded-full bg-gray-600";
+        button.appendChild(dot);
+      }
+      return button;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function render() {
+      boardEl.replaceChildren(renderLinks(), ...board.map((_, index) => renderCell(index)));
+      turnLabel.textContent = winner ? (winner === "draw" ? "Draw" : `${players[winner].name} wins`) : players[turn].name;
+      moveCountEl.textContent = moves;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    window.addEventListener("resize", render);
+    startGame();
+  </script>
+</body>
+</html>
