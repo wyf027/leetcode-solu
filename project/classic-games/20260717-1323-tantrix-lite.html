@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tantrix</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Tantrix</h1>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="newGame" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-300">新局</button>
+        <button id="checkGame" class="rounded bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-300">检查</button>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <div class="mb-3 flex items-center justify-between gap-3 text-sm text-slate-300">
+          <span>目标：把 8 张线路牌放入棋盘，让红线从左侧入口连到右侧出口。</span>
+          <span id="moves" class="font-semibold text-amber-200">步数 0</span>
+        </div>
+        <div id="board" class="grid grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-slate-700 bg-slate-900 p-4">
+        <h2 class="mb-3 text-lg font-bold">牌架</h2>
+        <div id="rack" class="grid grid-cols-2 gap-2"></div>
+        <p id="status" class="mt-4 min-h-12 rounded bg-slate-800 p-3 text-sm text-slate-200">选择一张牌，再点棋盘空格放置。点击棋盘上的牌可旋转。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const directions = ["N", "E", "S", "W"];
+    const opposite = { N: "S", E: "W", S: "N", W: "E" };
+    const delta = { N: [-1, 0], E: [0, 1], S: [1, 0], W: [0, -1] };
+    const baseTiles = [
+      { id: "A", pairs: { red: ["W", "E"], blue: ["N", "S"] } },
+      { id: "B", pairs: { red: ["W", "S"], blue: ["N", "E"] } },
+      { id: "C", pairs: { red: ["N", "E"], blue: ["S", "W"] } },
+      { id: "D", pairs: { red: ["W", "E"], blue: ["N", "S"] } },
+      { id: "E", pairs: { red: ["N", "S"], blue: ["W", "E"] } },
+      { id: "F", pairs: { red: ["W", "N"], blue: ["E", "S"] } },
+      { id: "G", pairs: { red: ["S", "E"], blue: ["W", "N"] } },
+      { id: "H", pairs: { red: ["W", "E"], blue: ["N", "S"] } }
+    ];
+    let board = [];
+    let rack = [];
+    let selectedId = null;
+    let moveCount = 0;
+
+    function rotateDir(dir, turns) {
+      return directions[(directions.indexOf(dir) + turns + 4) % 4];
+    }
+
+    function connectionsFor(tile, color = "red") {
+      return tile.pairs[color].map((dir) => rotateDir(dir, tile.rotation));
+    }
+
+    function svgTile(tile, isSelected) {
+      const red = connectionsFor(tile, "red");
+      const blue = connectionsFor(tile, "blue");
+      const stroke = isSelected ? "stroke-amber-300" : "stroke-slate-500";
+      return `
+        <svg viewBox="0 0 100 100" class="h-full w-full">
+          <rect x="6" y="6" width="88" height="88" rx="10" class="fill-slate-800 ${stroke}" stroke-width="4"></rect>
+          ${lineFor(red, "rgb(248 113 113)")}
+          ${lineFor(blue, "rgb(96 165 250)")}
+          <text x="50" y="56" text-anchor="middle" class="fill-slate-200 text-[18px] font-bold">${tile.id}</text>
+        </svg>
+      `;
+    }
+
+    function pointFor(dir) {
+      if (dir === "N") return [50, 10];
+      if (dir === "E") return [90, 50];
+      if (dir === "S") return [50, 90];
+      return [10, 50];
+    }
+
+    function lineFor(pair, color) {
+      const a = pointFor(pair[0]);
+      const b = pointFor(pair[1]);
+      return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${color}" stroke-width="12" stroke-linecap="round"></line>`;
+    }
+
+    function startGame() {
+      board = Array.from({ length: 16 }, () => null);
+      rack = baseTiles.map((tile, index) => ({ ...tile, rotation: index % 4 }));
+      selectedId = null;
+      moveCount = 0;
+      setStatus("选择一张牌，再点棋盘空格放置。点击棋盘上的牌可旋转。");
+      render();
+    }
+
+    function setStatus(text) {
+      document.getElementById("status").textContent = text;
+    }
+
+    function placeTile(index) {
+      if (board[index]) {
+        rotateTile(index);
+        return;
+      }
+      if (!selectedId) {
+        setStatus("先从牌架选择一张线路牌。");
+        return;
+      }
+      const tileIndex = rack.findIndex((tile) => tile.id === selectedId);
+      if (tileIndex < 0) return;
+      board[index] = rack.splice(tileIndex, 1)[0];
+      selectedId = null;
+      moveCount += 1;
+      setStatus(hasMatchingEdges() ? "边缘连接正常，继续铺完红线。" : "有线路接到空边或错边，可以旋转调整。");
+      render();
+      checkWin(false);
+    }
+
+    function rotateTile(index) {
+      board[index].rotation = (board[index].rotation + 1) % 4;
+      moveCount += 1;
+      setStatus("已旋转线路牌。");
+      render();
+      checkWin(false);
+    }
+
+    function hasMatchingEdges() {
+      return board.every((tile, index) => {
+        if (!tile) return true;
+        const row = Math.floor(index / 4);
+        const col = index % 4;
+        return ["red", "blue"].every((color) => connectionsFor(tile, color).every((dir) => {
+          const [dr, dc] = delta[dir];
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (nextRow < 0 || nextRow > 3 || nextCol < 0 || nextCol > 3) {
+            return color === "red" && ((col === 0 && dir === "W") || (col === 3 && dir === "E"));
+          }
+          const nextTile = board[nextRow * 4 + nextCol];
+          if (!nextTile) return true;
+          return connectionsFor(nextTile, color).includes(opposite[dir]);
+        }));
+      });
+    }
+
+    function tracePath() {
+      const starts = board
+        .map((tile, index) => ({ tile, index }))
+        .filter(({ tile, index }) => tile && index % 4 === 0 && connectionsFor(tile).includes("W"));
+      for (const start of starts) {
+        const seen = new Set();
+        const stack = [start.index];
+        while (stack.length) {
+          const index = stack.pop();
+          if (seen.has(index)) continue;
+          seen.add(index);
+          const tile = board[index];
+          const row = Math.floor(index / 4);
+          const col = index % 4;
+          for (const dir of connectionsFor(tile)) {
+            if (col === 3 && dir === "E") return true;
+            const [dr, dc] = delta[dir];
+            const nextRow = row + dr;
+            const nextCol = col + dc;
+            if (nextRow < 0 || nextRow > 3 || nextCol < 0 || nextCol > 3) continue;
+            const nextIndex = nextRow * 4 + nextCol;
+            const nextTile = board[nextIndex];
+            if (nextTile && connectionsFor(nextTile).includes(opposite[dir])) stack.push(nextIndex);
+          }
+        }
+      }
+      return false;
+    }
+
+    function checkWin(showMessage = true) {
+      if (rack.length === 0 && hasMatchingEdges() && tracePath()) {
+        setStatus(`完成！红线已经贯通左右两端，用了 ${moveCount} 步。`);
+        return true;
+      }
+      if (showMessage) {
+        setStatus(tracePath() ? "红线已贯通，但还需要铺完全部牌。" : "红线还没有从左侧连到右侧。");
+      }
+      return false;
+    }
+
+    function render() {
+      document.getElementById("moves").textContent = `步数 ${moveCount}`;
+      const boardEl = document.getElementById("board");
+      boardEl.innerHTML = "";
+      board.forEach((tile, index) => {
+        const cell = document.createElement("button");
+        cell.className = "aspect-square rounded border border-slate-700 bg-slate-950 p-1 hover:border-amber-300";
+        cell.innerHTML = tile ? svgTile(tile, false) : "<span class='text-sm text-slate-600'>空</span>";
+        cell.addEventListener("click", () => placeTile(index));
+        boardEl.appendChild(cell);
+      });
+
+      const rackEl = document.getElementById("rack");
+      rackEl.innerHTML = "";
+      rack.forEach((tile) => {
+        const item = document.createElement("button");
+        const active = selectedId === tile.id;
+        item.className = `aspect-square rounded border p-1 ${active ? "border-amber-300 bg-slate-800" : "border-slate-700 bg-slate-950"} hover:border-amber-300`;
+        item.innerHTML = svgTile(tile, active);
+        item.addEventListener("click", () => {
+          selectedId = tile.id;
+          setStatus(`已选择 ${tile.id} 牌，点击棋盘空格放置。`);
+          render();
+        });
+        rackEl.appendChild(item);
+      });
+    }
+
+    document.getElementById("newGame").addEventListener("click", startGame);
+    document.getElementById("checkGame").addEventListener("click", () => checkWin(true));
+    startGame();
+  </script>
+</body>
+</html>
