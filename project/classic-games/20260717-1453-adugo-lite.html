@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Adugo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-orange-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Adugo</h1>
+      </div>
+      <button id="newGame" class="rounded bg-orange-400 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-orange-300">新局</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-4">
+        <div class="mb-3 flex flex-col gap-2 text-sm text-neutral-300 sm:flex-row sm:items-center sm:justify-between">
+          <span>目标：控制美洲虎跳吃猎犬。吃掉 4 只获胜；如果无路可走，猎犬获胜。</span>
+          <span id="turnLabel" class="font-semibold text-orange-200">美洲虎回合</span>
+        </div>
+        <div id="board" class="grid grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-neutral-700 bg-neutral-900 p-4">
+        <h2 class="mb-3 text-lg font-bold">状态</h2>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="rounded bg-neutral-800 p-3">
+            <p class="font-semibold text-orange-200">美洲虎</p>
+            <p id="captureCount">捕获 0 / 4</p>
+          </div>
+          <div class="rounded bg-neutral-800 p-3">
+            <p class="font-semibold text-sky-200">猎犬</p>
+            <p id="dogCount">剩余 8</p>
+          </div>
+        </div>
+        <p id="message" class="mt-4 min-h-24 rounded bg-neutral-800 p-3 text-sm text-neutral-200">点击美洲虎，再点击高亮格移动。跳过猎犬可捕获。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const directions = [[-1, 0], [0, 1], [1, 0], [0, -1]];
+    let jaguar = 12;
+    let dogs = [];
+    let captured = 0;
+    let selected = false;
+    let gameOver = false;
+    let dogTurnPending = false;
+
+    function startGame() {
+      jaguar = 12;
+      dogs = [0, 1, 2, 3, 4, 5, 9, 20];
+      captured = 0;
+      selected = false;
+      gameOver = false;
+      dogTurnPending = false;
+      setMessage("点击美洲虎，再点击高亮格移动。跳过猎犬可捕获。");
+      render();
+    }
+
+    function setMessage(text) {
+      document.getElementById("message").textContent = text;
+    }
+
+    function inBoard(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function toRowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function toIndex(row, col) {
+      return row * size + col;
+    }
+
+    function isEmpty(index) {
+      return index !== jaguar && !dogs.includes(index);
+    }
+
+    function legalMoves() {
+      const [row, col] = toRowCol(jaguar);
+      const moves = [];
+      directions.forEach(([dr, dc]) => {
+        const oneRow = row + dr;
+        const oneCol = col + dc;
+        const twoRow = row + dr * 2;
+        const twoCol = col + dc * 2;
+        if (inBoard(oneRow, oneCol)) {
+          const one = toIndex(oneRow, oneCol);
+          if (isEmpty(one)) moves.push({ to: one, capture: null });
+        }
+        if (inBoard(twoRow, twoCol)) {
+          const one = toIndex(oneRow, oneCol);
+          const two = toIndex(twoRow, twoCol);
+          if (dogs.includes(one) && isEmpty(two)) moves.push({ to: two, capture: one });
+        }
+      });
+      return moves;
+    }
+
+    function selectPiece(index) {
+      if (gameOver || dogTurnPending) return;
+      if (index === jaguar) {
+        selected = !selected;
+        setMessage(selected ? "选择目标格移动美洲虎。" : "已取消选择。");
+        render();
+        return;
+      }
+      if (!selected) {
+        setMessage("先点击美洲虎。");
+        return;
+      }
+      movePiece(index);
+    }
+
+    function movePiece(target) {
+      const move = legalMoves().find((item) => item.to === target);
+      if (!move) {
+        setMessage("美洲虎不能移动到那里。");
+        return;
+      }
+      jaguar = move.to;
+      selected = false;
+      if (move.capture !== null) {
+        dogs = dogs.filter((dog) => dog !== move.capture);
+        captured += 1;
+        setMessage("美洲虎跳吃了一只猎犬。");
+      } else {
+        setMessage("美洲虎移动一步。");
+      }
+      render();
+      if (!checkWin()) {
+        dogTurnPending = true;
+        window.setTimeout(dogTurn, 650);
+      }
+    }
+
+    function dogMoves(index) {
+      const [row, col] = toRowCol(index);
+      return directions
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([nextRow, nextCol]) => inBoard(nextRow, nextCol))
+        .map(([nextRow, nextCol]) => toIndex(nextRow, nextCol))
+        .filter((target) => isEmpty(target));
+    }
+
+    function dogTurn() {
+      if (gameOver) return;
+      const options = dogs.flatMap((dog) => dogMoves(dog).map((to) => ({ dog, to })));
+      if (!options.length) {
+        setMessage("猎犬被堵住了，美洲虎获胜。");
+        gameOver = true;
+        render();
+        return;
+      }
+      const [jRow, jCol] = toRowCol(jaguar);
+      options.sort((a, b) => {
+        const [ar, ac] = toRowCol(a.to);
+        const [br, bc] = toRowCol(b.to);
+        return Math.abs(ar - jRow) + Math.abs(ac - jCol) - (Math.abs(br - jRow) + Math.abs(bc - jCol));
+      });
+      const chosen = options[0];
+      dogs = dogs.map((dog) => dog === chosen.dog ? chosen.to : dog);
+      dogTurnPending = false;
+      setMessage("猎犬向美洲虎逼近。");
+      render();
+      checkWin();
+    }
+
+    function checkWin() {
+      if (captured >= 4) {
+        gameOver = true;
+        setMessage("美洲虎吃掉 4 只猎犬，获胜！");
+      } else if (legalMoves().length === 0) {
+        gameOver = true;
+        setMessage("美洲虎无路可走，猎犬获胜。");
+      }
+      render();
+      return gameOver;
+    }
+
+    function render() {
+      document.getElementById("turnLabel").textContent = gameOver ? "游戏结束" : (dogTurnPending ? "猎犬回合" : "美洲虎回合");
+      document.getElementById("captureCount").textContent = `捕获 ${captured} / 4`;
+      document.getElementById("dogCount").textContent = `剩余 ${dogs.length}`;
+      const moveTargets = selected ? legalMoves().map((move) => move.to) : [];
+      const board = document.getElementById("board");
+      board.innerHTML = "";
+      for (let index = 0; index < size * size; index += 1) {
+        const cell = document.createElement("button");
+        const isTarget = moveTargets.includes(index);
+        cell.className = `aspect-square rounded border text-2xl font-black ${isTarget ? "border-orange-300 bg-orange-300 text-neutral-950" : "border-neutral-700 bg-neutral-950 hover:border-orange-300"}`;
+        if (index === jaguar) {
+          cell.textContent = "J";
+          cell.className += selected ? " ring-4 ring-orange-300" : " text-orange-300";
+        } else if (dogs.includes(index)) {
+          cell.textContent = "D";
+          cell.className += " text-sky-300";
+        } else {
+          cell.textContent = isTarget ? "•" : "";
+        }
+        cell.addEventListener("click", () => selectPiece(index));
+        board.appendChild(cell);
+      }
+    }
+
+    document.getElementById("newGame").addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
