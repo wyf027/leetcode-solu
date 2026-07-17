@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Daldos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Daldos</h1>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="rollBtn" class="rounded bg-lime-400 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-lime-300">掷筹棒</button>
+        <button id="newBtn" class="rounded bg-stone-700 px-4 py-2 text-sm font-bold text-white hover:bg-stone-600">新局</button>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <div class="mb-3 flex flex-col gap-2 text-sm text-stone-300 sm:flex-row sm:items-center sm:justify-between">
+          <span>目标：掷四根筹棒，移动任意可走棋子。先让 3 枚棋子抵达终点或吃光对手获胜。</span>
+          <span id="turnLabel" class="font-semibold text-lime-200">你的回合</span>
+        </div>
+        <div id="track" class="grid grid-cols-13 gap-1"></div>
+      </div>
+
+      <aside class="rounded border border-stone-700 bg-stone-900 p-4">
+        <h2 class="mb-3 text-lg font-bold">筹棒</h2>
+        <div id="dice" class="grid grid-cols-4 gap-2"></div>
+        <p id="message" class="mt-4 min-h-20 rounded bg-stone-800 p-3 text-sm text-stone-200">点击“掷筹棒”开始。掷出 0 时按 Daldos 小规则记为 5 步。</p>
+        <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div class="rounded bg-stone-800 p-3">
+            <p class="font-semibold text-lime-200">你</p>
+            <p id="playerScore">完成 0 / 3</p>
+          </div>
+          <div class="rounded bg-stone-800 p-3">
+            <p class="font-semibold text-rose-200">电脑</p>
+            <p id="cpuScore">完成 0 / 3</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const trackLength = 13;
+    const players = ["P", "C"];
+    let pieces = [];
+    let turn = "P";
+    let roll = null;
+    let sticks = [0, 0, 0, 0];
+    let gameOver = false;
+
+    function startGame() {
+      pieces = [
+        { id: "P1", owner: "P", pos: 0, done: false, captured: false },
+        { id: "P2", owner: "P", pos: 0, done: false, captured: false },
+        { id: "P3", owner: "P", pos: 0, done: false, captured: false },
+        { id: "C1", owner: "C", pos: trackLength - 1, done: false, captured: false },
+        { id: "C2", owner: "C", pos: trackLength - 1, done: false, captured: false },
+        { id: "C3", owner: "C", pos: trackLength - 1, done: false, captured: false }
+      ];
+      turn = "P";
+      roll = null;
+      sticks = [0, 0, 0, 0];
+      gameOver = false;
+      setMessage("你的回合。点击“掷筹棒”开始。");
+      render();
+    }
+
+    function setMessage(text) {
+      document.getElementById("message").textContent = text;
+    }
+
+    function rollDice() {
+      if (gameOver || roll !== null || turn !== "P") return;
+      sticks = sticks.map(() => Math.random() > 0.5 ? 1 : 0);
+      const total = sticks.reduce((sum, value) => sum + value, 0);
+      roll = total === 0 ? 5 : total;
+      const moves = legalMoves("P");
+      if (!moves.length) {
+        setMessage(`你掷出 ${roll}，没有可走棋子。`);
+        endTurn();
+        return;
+      }
+      setMessage(`你掷出 ${roll}。点击一枚绿色棋子移动。`);
+      render();
+    }
+
+    function legalMoves(owner) {
+      return pieces.filter((piece) => {
+        if (piece.owner !== owner || piece.done || piece.captured) return false;
+        const next = nextPosition(piece, roll);
+        if (next < 0 || next >= trackLength) return true;
+        return !pieces.some((other) => other.owner === owner && !other.done && !other.captured && other.pos === next);
+      });
+    }
+
+    function nextPosition(piece, steps) {
+      return piece.owner === "P" ? piece.pos + steps : piece.pos - steps;
+    }
+
+    function movePiece(id) {
+      if (gameOver || turn !== "P" || roll === null) return;
+      const piece = pieces.find((item) => item.id === id);
+      if (!piece || !legalMoves("P").some((item) => item.id === id)) return;
+      applyMove(piece);
+      if (!checkWin()) endTurn();
+    }
+
+    function applyMove(piece) {
+      const next = nextPosition(piece, roll);
+      if (next < 0 || next >= trackLength) {
+        piece.done = true;
+        setMessage(`${piece.id} 抵达终点。`);
+        roll = null;
+        render();
+        return;
+      }
+      const target = pieces.find((other) => other.owner !== piece.owner && !other.done && !other.captured && other.pos === next);
+      if (target) target.captured = true;
+      piece.pos = next;
+      setMessage(target ? `${piece.id} 前进 ${roll} 步并吃掉 ${target.id}。` : `${piece.id} 前进 ${roll} 步。`);
+      roll = null;
+      render();
+    }
+
+    function endTurn() {
+      roll = null;
+      turn = turn === "P" ? "C" : "P";
+      render();
+      if (turn === "C" && !gameOver) window.setTimeout(cpuTurn, 700);
+      if (turn === "P" && !gameOver) setMessage("你的回合。点击“掷筹棒”。");
+    }
+
+    function cpuTurn() {
+      sticks = sticks.map(() => Math.random() > 0.5 ? 1 : 0);
+      const total = sticks.reduce((sum, value) => sum + value, 0);
+      roll = total === 0 ? 5 : total;
+      const moves = legalMoves("C");
+      if (!moves.length) {
+        setMessage(`电脑掷出 ${roll}，没有可走棋子。`);
+        endTurn();
+        return;
+      }
+      const capture = moves.find((piece) => {
+        const next = nextPosition(piece, roll);
+        return pieces.some((other) => other.owner === "P" && !other.done && !other.captured && other.pos === next);
+      });
+      applyMove(capture || moves[0]);
+      if (!checkWin()) endTurn();
+    }
+
+    function checkWin() {
+      const playerDone = pieces.filter((piece) => piece.owner === "P" && piece.done).length;
+      const cpuDone = pieces.filter((piece) => piece.owner === "C" && piece.done).length;
+      const playerAlive = pieces.some((piece) => piece.owner === "P" && !piece.done && !piece.captured);
+      const cpuAlive = pieces.some((piece) => piece.owner === "C" && !piece.done && !piece.captured);
+      if (playerDone === 3 || !cpuAlive) {
+        gameOver = true;
+        setMessage("你赢了！绿色棋子完成了 Daldos 竞速。");
+      } else if (cpuDone === 3 || !playerAlive) {
+        gameOver = true;
+        setMessage("电脑获胜。点击新局再来一盘。");
+      }
+      render();
+      return gameOver;
+    }
+
+    function render() {
+      document.getElementById("turnLabel").textContent = gameOver ? "游戏结束" : (turn === "P" ? "你的回合" : "电脑回合");
+      document.getElementById("playerScore").textContent = `完成 ${pieces.filter((piece) => piece.owner === "P" && piece.done).length} / 3`;
+      document.getElementById("cpuScore").textContent = `完成 ${pieces.filter((piece) => piece.owner === "C" && piece.done).length} / 3`;
+
+      const track = document.getElementById("track");
+      track.innerHTML = "";
+      for (let index = 0; index < trackLength; index += 1) {
+        const cell = document.createElement("div");
+        cell.className = "flex aspect-square min-h-14 flex-col items-center justify-center rounded border border-stone-700 bg-stone-950 text-xs";
+        const stack = pieces.filter((piece) => !piece.done && !piece.captured && piece.pos === index);
+        cell.innerHTML = `<span class="mb-1 text-stone-500">${index + 1}</span>`;
+        stack.forEach((piece) => {
+          const canMove = turn === "P" && roll !== null && legalMoves("P").some((item) => item.id === piece.id);
+          const chip = document.createElement("button");
+          chip.className = `mb-1 h-7 w-7 rounded-full text-[11px] font-bold ${piece.owner === "P" ? "bg-lime-300 text-stone-950" : "bg-rose-300 text-stone-950"} ${canMove ? "ring-2 ring-white" : ""}`;
+          chip.textContent = piece.id;
+          chip.addEventListener("click", () => movePiece(piece.id));
+          cell.appendChild(chip);
+        });
+        track.appendChild(cell);
+      }
+
+      const dice = document.getElementById("dice");
+      dice.innerHTML = "";
+      sticks.forEach((value) => {
+        const stick = document.createElement("div");
+        stick.className = `flex h-16 items-center justify-center rounded border text-xl font-black ${value ? "border-lime-300 bg-lime-300 text-stone-950" : "border-stone-600 bg-stone-800 text-stone-400"}`;
+        stick.textContent = value ? "I" : "-";
+        dice.appendChild(stick);
+      });
+    }
+
+    document.getElementById("rollBtn").addEventListener("click", rollDice);
+    document.getElementById("newBtn").addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
