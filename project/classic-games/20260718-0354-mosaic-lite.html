@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Mosaic Puzzle</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-cyan-300">Classic clue grid</p>
+        <h1 class="text-3xl font-bold">Mini Mosaic Puzzle</h1>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="hintBtn" class="rounded border border-zinc-600 px-4 py-2 font-semibold hover:bg-zinc-800">Hint</button>
+        <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 font-semibold text-zinc-950 hover:bg-cyan-200">Reset</button>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+      <div class="rounded border border-zinc-800 bg-zinc-900/70 p-4">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Puzzle</h2>
+            <p id="status" class="text-sm text-zinc-300">Click cells to cycle unknown, filled, and empty.</p>
+          </div>
+          <div class="rounded bg-zinc-950 px-3 py-2 text-right text-sm">
+            <p>Clues solved</p>
+            <p><span id="solvedCount" class="text-xl font-bold text-cyan-300">0</span> / 25</p>
+          </div>
+        </div>
+        <div id="grid" class="mx-auto grid max-w-lg grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-zinc-800 bg-zinc-900/70 p-4">
+        <h2 class="mb-3 text-lg font-semibold">Rules</h2>
+        <div class="space-y-3 text-sm text-zinc-300">
+          <p>Each number tells how many filled cells are in its surrounding 3x3 area, including itself.</p>
+          <p>Cycle every square between unknown, filled, and marked empty. Solve all clue counts to finish.</p>
+          <p id="hintText" class="rounded bg-zinc-950 p-3 text-cyan-200">Use Hint to reveal one unsettled square.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const solution = [
+      [1, 0, 1, 0, 0],
+      [1, 1, 0, 0, 1],
+      [0, 1, 0, 1, 1],
+      [0, 0, 1, 1, 0],
+      [1, 0, 0, 1, 0]
+    ];
+    const clues = buildClues(solution);
+    const gridEl = document.getElementById("grid");
+    const statusEl = document.getElementById("status");
+    const solvedCountEl = document.getElementById("solvedCount");
+    const hintTextEl = document.getElementById("hintText");
+    const hintBtn = document.getElementById("hintBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    let marks = [];
+
+    function buildClues(board) {
+      return board.map((row, r) => row.map((_, c) => neighbors(r, c)
+        .reduce((sum, cell) => sum + board[cell.r][cell.c], 0)));
+    }
+
+    function neighbors(row, col) {
+      const cells = [];
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          const r = row + dr;
+          const c = col + dc;
+          if (r >= 0 && r < size && c >= 0 && c < size) {
+            cells.push({ r, c });
+          }
+        }
+      }
+      return cells;
+    }
+
+    function resetGame() {
+      marks = Array.from({ length: size }, () => Array(size).fill(-1));
+      hintTextEl.textContent = "Use Hint to reveal one unsettled square.";
+      statusEl.textContent = "Click cells to cycle unknown, filled, and empty.";
+      render();
+    }
+
+    function cycleCell(row, col) {
+      marks[row][col] = marks[row][col] === -1 ? 1 : marks[row][col] === 1 ? 0 : -1;
+      hintTextEl.textContent = "Keep matching each clue's 3x3 count.";
+      render();
+    }
+
+    function clueState(row, col) {
+      const cells = neighbors(row, col);
+      const filled = cells.filter((cell) => marks[cell.r][cell.c] === 1).length;
+      const unknown = cells.filter((cell) => marks[cell.r][cell.c] === -1).length;
+      const target = clues[row][col];
+      if (filled === target && unknown === 0) return "solved";
+      if (filled > target || filled + unknown < target) return "error";
+      return "open";
+    }
+
+    function puzzleStats() {
+      let solved = 0;
+      let errors = 0;
+      for (let r = 0; r < size; r += 1) {
+        for (let c = 0; c < size; c += 1) {
+          const state = clueState(r, c);
+          if (state === "solved") solved += 1;
+          if (state === "error") errors += 1;
+        }
+      }
+      return { solved, errors };
+    }
+
+    function revealHint() {
+      for (let r = 0; r < size; r += 1) {
+        for (let c = 0; c < size; c += 1) {
+          if (marks[r][c] !== solution[r][c]) {
+            marks[r][c] = solution[r][c];
+            hintTextEl.textContent = `Hint filled row ${r + 1}, column ${c + 1}.`;
+            render();
+            return;
+          }
+        }
+      }
+      hintTextEl.textContent = "Every square already matches the hidden mosaic.";
+    }
+
+    function cellClass(value, clue) {
+      const base = "relative aspect-square rounded border p-2 text-left transition";
+      const clueColor = clue === "error" ? "border-rose-400" : clue === "solved" ? "border-emerald-400" : "border-zinc-700";
+      if (value === 1) return `${base} ${clueColor} bg-cyan-300 text-zinc-950`;
+      if (value === 0) return `${base} ${clueColor} bg-zinc-800 text-zinc-200`;
+      return `${base} ${clueColor} bg-zinc-950 text-zinc-100 hover:bg-zinc-800`;
+    }
+
+    function render() {
+      gridEl.innerHTML = "";
+      const stats = puzzleStats();
+      solvedCountEl.textContent = stats.solved;
+      statusEl.textContent = stats.solved === size * size
+        ? "Solved. The mosaic satisfies every clue."
+        : stats.errors > 0
+          ? `${stats.errors} clue${stats.errors === 1 ? "" : "s"} cannot be satisfied.`
+          : "No contradictions so far.";
+
+      for (let r = 0; r < size; r += 1) {
+        for (let c = 0; c < size; c += 1) {
+          const button = document.createElement("button");
+          const state = clueState(r, c);
+          button.className = cellClass(marks[r][c], state);
+          button.addEventListener("click", () => cycleCell(r, c));
+
+          const clue = document.createElement("span");
+          clue.className = "absolute left-2 top-1 text-xs font-bold";
+          clue.textContent = clues[r][c];
+          const mark = document.createElement("span");
+          mark.className = "flex h-full items-center justify-center text-2xl font-black";
+          mark.textContent = marks[r][c] === -1 ? "" : marks[r][c] === 1 ? "#" : "x";
+          button.append(clue, mark);
+          gridEl.appendChild(button);
+        }
+      }
+    }
+
+    hintBtn.addEventListener("click", revealHint);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
