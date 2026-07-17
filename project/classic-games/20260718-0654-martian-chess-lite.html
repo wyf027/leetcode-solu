@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Martian Chess</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic abstract</p>
+        <h1 class="text-3xl font-black text-white">Mini Martian Chess</h1>
+        <p class="mt-1 max-w-2xl text-sm text-stone-300">Move pieces from your half of the board and score by capturing pieces on the other side.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-lime-200">Reset</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-stone-800 bg-stone-900 p-3">
+        <div id="board" class="grid grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-3">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm font-semibold text-stone-400">Status</p>
+          <p id="statusText" class="mt-2 text-xl font-black text-white">Select a green piece.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-xs font-semibold uppercase text-stone-500">Green</p>
+            <p id="greenScore" class="mt-1 text-2xl font-black text-lime-300">0</p>
+          </div>
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-xs font-semibold uppercase text-stone-500">Orange</p>
+            <p id="orangeScore" class="mt-1 text-2xl font-black text-orange-300">0</p>
+          </div>
+        </div>
+        <div class="rounded border border-stone-800 bg-stone-900 p-4 text-sm text-stone-300">
+          <p class="font-bold text-white">Piece values</p>
+          <p class="mt-2">Drone = 1, Pawn = 2, Queen = 3. Pieces belong to whoever controls the half they occupy.</p>
+        </div>
+        <div class="rounded border border-stone-800 bg-stone-900 p-4 text-sm text-stone-300">
+          <p class="font-bold text-white">Movement</p>
+          <p class="mt-2">Drones move one square diagonally, pawns move any distance straight, and queens move any distance straight or diagonal.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const boardEl = document.getElementById("board");
+    const statusText = document.getElementById("statusText");
+    const greenScore = document.getElementById("greenScore");
+    const orangeScore = document.getElementById("orangeScore");
+    const resetBtn = document.getElementById("resetBtn");
+    const values = { D: 1, P: 2, Q: 3 };
+    let board = [];
+    let selected = null;
+    let legalTargets = [];
+    let turn = "G";
+    let scores = { G: 0, O: 0 };
+    let gameOver = false;
+
+    function ownerOf(row) {
+      return row >= 2 ? "G" : "O";
+    }
+
+    function freshBoard() {
+      return [
+        ["Q", "P", "P", "D"],
+        ["P", "D", "", ""],
+        ["", "", "D", "P"],
+        ["D", "P", "P", "Q"]
+      ];
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pathClear(row, col, nextRow, nextCol) {
+      const stepRow = Math.sign(nextRow - row);
+      const stepCol = Math.sign(nextCol - col);
+      let currentRow = row + stepRow;
+      let currentCol = col + stepCol;
+      while (currentRow !== nextRow || currentCol !== nextCol) {
+        if (board[currentRow][currentCol]) return false;
+        currentRow += stepRow;
+        currentCol += stepCol;
+      }
+      return true;
+    }
+
+    function canMovePiece(piece, row, col, nextRow, nextCol) {
+      if (!inBounds(nextRow, nextCol)) return false;
+      if (row === nextRow && col === nextCol) return false;
+      const rowDelta = Math.abs(nextRow - row);
+      const colDelta = Math.abs(nextCol - col);
+      const straight = row === nextRow || col === nextCol;
+      const diagonal = rowDelta === colDelta;
+      if (piece === "D") return rowDelta === 1 && colDelta === 1;
+      if (piece === "P") return straight && pathClear(row, col, nextRow, nextCol);
+      if (piece === "Q") return (straight || diagonal) && pathClear(row, col, nextRow, nextCol);
+      return false;
+    }
+
+    function legalMoves(row, col) {
+      const piece = board[row][col];
+      if (!piece || ownerOf(row) !== turn || gameOver) return [];
+      const moves = [];
+      for (let nextRow = 0; nextRow < size; nextRow += 1) {
+        for (let nextCol = 0; nextCol < size; nextCol += 1) {
+          if (ownerOf(nextRow) === turn && board[nextRow][nextCol]) continue;
+          if (canMovePiece(piece, row, col, nextRow, nextCol)) {
+            moves.push({ row: nextRow, col: nextCol });
+          }
+        }
+      }
+      return moves;
+    }
+
+    function allMovesFor(player) {
+      const oldTurn = turn;
+      turn = player;
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          for (const target of legalMoves(row, col)) {
+            moves.push({ fromRow: row, fromCol: col, ...target });
+          }
+        }
+      }
+      turn = oldTurn;
+      return moves;
+    }
+
+    function movePiece(fromRow, fromCol, toRow, toCol) {
+      const piece = board[fromRow][fromCol];
+      const captured = board[toRow][toCol];
+      if (captured) {
+        scores[turn] += values[captured];
+      }
+      board[toRow][toCol] = piece;
+      board[fromRow][fromCol] = "";
+      selected = null;
+      legalTargets = [];
+      turn = turn === "G" ? "O" : "G";
+      checkGame();
+      render();
+      if (!gameOver && turn === "O") {
+        window.setTimeout(playComputerTurn, 400);
+      }
+    }
+
+    function chooseAiMove() {
+      const moves = allMovesFor("O");
+      if (!moves.length) return null;
+      moves.sort((a, b) => values[board[b.row][b.col] || ""] - values[board[a.row][a.col] || ""]);
+      return moves[0];
+    }
+
+    function playComputerTurn() {
+      const move = chooseAiMove();
+      if (!move) {
+        gameOver = true;
+        statusText.textContent = "Green wins. Orange has no move.";
+        render();
+        return;
+      }
+      movePiece(move.fromRow, move.fromCol, move.row, move.col);
+      if (!gameOver) {
+        statusText.textContent = "Select a green piece.";
+      }
+    }
+
+    function checkGame() {
+      const greenMoves = allMovesFor("G").length;
+      const orangeMoves = allMovesFor("O").length;
+      const piecesLeft = board.flat().filter(Boolean).length;
+      if (!piecesLeft || greenMoves === 0 || orangeMoves === 0) {
+        gameOver = true;
+        if (scores.G > scores.O) {
+          statusText.textContent = "Green wins by score.";
+        } else if (scores.O > scores.G) {
+          statusText.textContent = "Orange wins by score.";
+        } else {
+          statusText.textContent = "Draw.";
+        }
+      }
+    }
+
+    function handleCell(row, col) {
+      if (gameOver || turn !== "G") return;
+      const target = legalTargets.find((move) => move.row === row && move.col === col);
+      if (selected && target) {
+        movePiece(selected.row, selected.col, row, col);
+        return;
+      }
+      if (board[row][col] && ownerOf(row) === "G") {
+        selected = { row, col };
+        legalTargets = legalMoves(row, col);
+        statusText.textContent = legalTargets.length ? "Choose a destination." : "That piece has no legal move.";
+      } else {
+        selected = null;
+        legalTargets = [];
+        statusText.textContent = "Select a green piece.";
+      }
+      render();
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const piece = board[row][col];
+          const owner = ownerOf(row);
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const isTarget = legalTargets.some((move) => move.row === row && move.col === col);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.setAttribute("aria-label", `row ${row + 1}, column ${col + 1}`);
+          button.className = [
+            "aspect-square rounded border text-2xl font-black transition focus:outline-none focus:ring-2 focus:ring-lime-200",
+            owner === "G" ? "border-lime-900 bg-lime-950" : "border-orange-900 bg-orange-950",
+            piece && owner === "G" ? "text-lime-300" : "",
+            piece && owner === "O" ? "text-orange-300" : "",
+            isSelected ? "ring-2 ring-white" : "",
+            isTarget ? "border-white bg-stone-700" : "",
+            "hover:bg-stone-700"
+          ].join(" ");
+          button.textContent = piece;
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render() {
+      greenScore.textContent = String(scores.G);
+      orangeScore.textContent = String(scores.O);
+      renderBoard();
+    }
+
+    function resetGame() {
+      board = freshBoard();
+      selected = null;
+      legalTargets = [];
+      turn = "G";
+      scores = { G: 0, O: 0 };
+      gameOver = false;
+      statusText.textContent = "Select a green piece.";
+      render();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
