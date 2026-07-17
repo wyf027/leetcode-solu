@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Qirkat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-6 px-4 py-8">
+    <section class="rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-amber-300">Classic Board Game</p>
+          <h1 class="text-3xl font-semibold text-white">Mini Qirkat</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_250px]">
+        <div class="rounded-lg border border-stone-700 bg-stone-950 p-4">
+          <div id="board" class="mx-auto grid max-w-md grid-cols-5 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-stone-700 bg-stone-950 p-4">
+          <div class="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p class="text-stone-400">黑子</p>
+              <p id="blackCount" class="text-2xl font-semibold text-white">10</p>
+            </div>
+            <div>
+              <p class="text-stone-400">白子</p>
+              <p id="whiteCount" class="text-2xl font-semibold text-white">10</p>
+            </div>
+            <div>
+              <p class="text-stone-400">回合</p>
+              <p id="turnLabel" class="text-2xl font-semibold text-white">你</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-16 rounded-md bg-stone-900 p-3 text-sm leading-6 text-stone-200"></p>
+          <div class="mt-4 space-y-2 text-sm text-stone-300">
+            <p>你执白子，电脑执黑子。</p>
+            <p>点选白子，再点高亮空位移动。</p>
+            <p>跳过对方棋子会吃子；有吃子时必须吃子。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1], [0, 1],
+      [1, -1], [1, 0], [1, 1]
+    ];
+    let boardState = [];
+    let selected = null;
+    let turn = "W";
+    let locked = false;
+
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const blackCountEl = document.getElementById("blackCount");
+    const whiteCountEl = document.getElementById("whiteCount");
+    const turnLabelEl = document.getElementById("turnLabel");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function indexOf(row, col) {
+      return row * size + col;
+    }
+
+    function pointOf(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function opponent(player) {
+      return player === "W" ? "B" : "W";
+    }
+
+    function startGame() {
+      boardState = Array.from({ length: size * size }, (_, index) => {
+        if (index < 10) return "B";
+        if (index > 14) return "W";
+        return "";
+      });
+      selected = null;
+      turn = "W";
+      locked = false;
+      render();
+      setMessage("选择一个白子开始。");
+    }
+
+    function countPieces(player) {
+      return boardState.filter((piece) => piece === player).length;
+    }
+
+    function captureMovesFrom(index, player, state = boardState) {
+      const [row, col] = pointOf(index);
+      const enemy = opponent(player);
+      return directions.flatMap(([dr, dc]) => {
+        const midRow = row + dr;
+        const midCol = col + dc;
+        const endRow = row + dr * 2;
+        const endCol = col + dc * 2;
+        if (!inside(midRow, midCol) || !inside(endRow, endCol)) return [];
+        const middle = indexOf(midRow, midCol);
+        const target = indexOf(endRow, endCol);
+        return state[middle] === enemy && state[target] === "" ? [{ from: index, to: target, captured: middle }] : [];
+      });
+    }
+
+    function slideMovesFrom(index, player, state = boardState) {
+      const [row, col] = pointOf(index);
+      return directions.flatMap(([dr, dc]) => {
+        const nextRow = row + dr;
+        const nextCol = col + dc;
+        if (!inside(nextRow, nextCol)) return [];
+        const target = indexOf(nextRow, nextCol);
+        return state[target] === "" ? [{ from: index, to: target, captured: null }] : [];
+      });
+    }
+
+    function legalMoves(player, state = boardState) {
+      const captures = [];
+      const slides = [];
+      state.forEach((piece, index) => {
+        if (piece !== player) return;
+        captures.push(...captureMovesFrom(index, player, state));
+        slides.push(...slideMovesFrom(index, player, state));
+      });
+      return captures.length ? captures : slides;
+    }
+
+    function movesForSelected() {
+      if (selected === null) return [];
+      const required = legalMoves(turn).filter((move) => move.from === selected);
+      return required;
+    }
+
+    function applyMove(move) {
+      boardState[move.to] = boardState[move.from];
+      boardState[move.from] = "";
+      if (move.captured !== null) boardState[move.captured] = "";
+      selected = null;
+      turn = opponent(turn);
+      checkGame();
+      render();
+      if (turn === "B" && !locked) {
+        locked = true;
+        setMessage("电脑思考中...");
+        setTimeout(playComputerTurn, 450);
+      }
+    }
+
+    function chooseCell(index) {
+      if (locked || turn !== "W") return;
+      const available = legalMoves("W");
+      const selectedMove = available.find((move) => move.from === selected && move.to === index);
+      if (selectedMove) {
+        applyMove(selectedMove);
+        return;
+      }
+      if (boardState[index] === "W" && available.some((move) => move.from === index)) {
+        selected = index;
+      } else {
+        selected = null;
+      }
+      render();
+      setMessage(selected === null ? "选择一个有合法移动的白子。" : "选择高亮空位完成移动。");
+    }
+
+    function playComputerTurn() {
+      if (turn !== "B") return;
+      const moves = legalMoves("B");
+      if (!moves.length) {
+        checkGame();
+        return;
+      }
+      const captures = moves.filter((move) => move.captured !== null);
+      const chosen = captures[0] || moves[Math.floor(Math.random() * moves.length)];
+      locked = false;
+      applyMove(chosen);
+      if (turn === "W") setMessage("轮到你移动白子。");
+    }
+
+    function checkGame() {
+      const white = countPieces("W");
+      const black = countPieces("B");
+      if (white === 0 || !legalMoves("W").length) {
+        locked = true;
+        setMessage("黑子获胜。点击重开再挑战。");
+      } else if (black === 0 || !legalMoves("B").length) {
+        locked = true;
+        setMessage("你赢了！黑子已经无路可走。");
+      }
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function pieceLabel(piece) {
+      if (piece === "W") return "○";
+      if (piece === "B") return "●";
+      return "";
+    }
+
+    function render() {
+      const targetMoves = movesForSelected();
+      boardEl.innerHTML = "";
+      boardState.forEach((piece, index) => {
+        const cell = document.createElement("button");
+        const isSelected = selected === index;
+        const isTarget = targetMoves.some((move) => move.to === index);
+        cell.type = "button";
+        cell.className = [
+          "aspect-square rounded-md border text-4xl font-bold transition",
+          piece === "W" ? "bg-stone-100 text-stone-950" : "",
+          piece === "B" ? "bg-stone-800 text-amber-200" : "",
+          piece === "" ? "bg-stone-900 text-stone-400" : "",
+          isSelected ? "border-amber-300 ring-2 ring-amber-300" : "border-stone-700",
+          isTarget ? "border-emerald-300 bg-emerald-500/25" : "",
+          locked ? "cursor-default" : "hover:border-amber-200"
+        ].join(" ");
+        cell.textContent = pieceLabel(piece);
+        cell.setAttribute("aria-label", `cell ${index + 1}`);
+        cell.addEventListener("click", () => chooseCell(index));
+        boardEl.appendChild(cell);
+      });
+      blackCountEl.textContent = countPieces("B");
+      whiteCountEl.textContent = countPieces("W");
+      turnLabelEl.textContent = turn === "W" ? "你" : "AI";
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
