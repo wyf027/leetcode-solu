@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Cram</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-4 py-8">
+    <section class="rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-lime-300">Classic Pencil Game</p>
+          <h1 class="text-3xl font-semibold text-white">Mini Cram</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-lime-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-lime-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_250px]">
+        <div class="rounded-lg border border-neutral-700 bg-neutral-950 p-4">
+          <div id="board" class="mx-auto grid max-w-md grid-cols-6 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-neutral-700 bg-neutral-950 p-4">
+          <div class="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p class="text-neutral-400">你的骨牌</p>
+              <p id="humanMoves" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-neutral-400">AI 骨牌</p>
+              <p id="aiMoves" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-neutral-400">剩余</p>
+              <p id="moveCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-16 rounded-md bg-neutral-900 p-3 text-sm leading-6 text-neutral-200"></p>
+          <div class="mt-4 space-y-2 text-sm text-neutral-300">
+            <p>选择两个相邻空格放置蓝色骨牌。</p>
+            <p>AI 随后放置粉色骨牌。</p>
+            <p>轮到谁无法放置骨牌，谁就失败。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const rows = 5;
+    const cols = 6;
+    const totalCells = rows * cols;
+    let boardState = Array(totalCells).fill("");
+    let selected = null;
+    let locked = false;
+    let gameOver = false;
+    let placed = { H: 0, A: 0 };
+
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const humanMovesEl = document.getElementById("humanMoves");
+    const aiMovesEl = document.getElementById("aiMoves");
+    const moveCountEl = document.getElementById("moveCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function indexOf(row, col) {
+      return row * cols + col;
+    }
+
+    function pointOf(index) {
+      return [Math.floor(index / cols), index % cols];
+    }
+
+    function isAdjacent(a, b) {
+      const [ar, ac] = pointOf(a);
+      const [br, bc] = pointOf(b);
+      return Math.abs(ar - br) + Math.abs(ac - bc) === 1;
+    }
+
+    function legalMoves(state = boardState) {
+      const moves = [];
+      state.forEach((piece, index) => {
+        if (piece !== "") return;
+        const [row, col] = pointOf(index);
+        [[0, 1], [1, 0]].forEach(([dr, dc]) => {
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (nextRow < rows && nextCol < cols) {
+            const target = indexOf(nextRow, nextCol);
+            if (state[target] === "") moves.push([index, target]);
+          }
+        });
+      });
+      return moves;
+    }
+
+    function mobilityAfter(move, player) {
+      const next = [...boardState];
+      next[move[0]] = player;
+      next[move[1]] = player;
+      return legalMoves(next).length;
+    }
+
+    function chooseAiMove() {
+      const moves = legalMoves();
+      return moves
+        .map((move) => {
+          const [a, b] = move;
+          const [ar, ac] = pointOf(a);
+          const [br, bc] = pointOf(b);
+          const center = 8 - Math.abs(2 - ar) - Math.abs(2.5 - ac) - Math.abs(2 - br) - Math.abs(2.5 - bc);
+          return { move, score: center - mobilityAfter(move, "A") * 0.2 };
+        })
+        .sort((left, right) => right.score - left.score)[0].move;
+    }
+
+    function placeDomino(move, player) {
+      boardState[move[0]] = player;
+      boardState[move[1]] = player;
+      placed[player] += 1;
+      selected = null;
+      render();
+    }
+
+    function checkGame(nextPlayer) {
+      if (legalMoves().length) return false;
+      gameOver = true;
+      locked = true;
+      setMessage(nextPlayer === "H" ? "你没有合法落点，AI 获胜。" : "AI 没有合法落点，你获胜！");
+      render();
+      return true;
+    }
+
+    function chooseCell(index) {
+      if (locked || gameOver || boardState[index] !== "") return;
+      if (selected === null) {
+        selected = index;
+        setMessage("再选一个相邻空格完成骨牌。");
+        render();
+        return;
+      }
+      if (selected === index) {
+        selected = null;
+        setMessage("选择两个相邻空格放置蓝色骨牌。");
+        render();
+        return;
+      }
+      if (!isAdjacent(selected, index)) {
+        selected = index;
+        setMessage("两个格子必须相邻。已重新选择第一个格子。");
+        render();
+        return;
+      }
+      placeDomino([selected, index], "H");
+      if (checkGame("A")) return;
+      locked = true;
+      setMessage("AI 思考中...");
+      setTimeout(playComputerTurn, 450);
+    }
+
+    function playComputerTurn() {
+      if (gameOver) return;
+      placeDomino(chooseAiMove(), "A");
+      locked = false;
+      if (!checkGame("H")) setMessage("轮到你放置蓝色骨牌。");
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function startGame() {
+      boardState = Array(totalCells).fill("");
+      selected = null;
+      locked = false;
+      gameOver = false;
+      placed = { H: 0, A: 0 };
+      render();
+      setMessage("选择两个相邻空格放置蓝色骨牌。");
+    }
+
+    function render() {
+      const moves = legalMoves();
+      boardEl.innerHTML = "";
+      boardState.forEach((piece, index) => {
+        const isSelected = selected === index;
+        const isTarget = selected !== null && boardState[index] === "" && isAdjacent(selected, index);
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = [
+          "aspect-square rounded-md border text-xl font-bold transition",
+          piece === "H" ? "border-cyan-300 bg-cyan-400 text-neutral-950" : "",
+          piece === "A" ? "border-fuchsia-300 bg-fuchsia-400 text-neutral-950" : "",
+          piece === "" ? "border-neutral-700 bg-neutral-900 hover:border-white" : "",
+          isSelected ? "ring-4 ring-lime-300" : "",
+          isTarget ? "border-lime-300 bg-lime-400/20" : "",
+          locked || gameOver ? "cursor-default" : "cursor-pointer"
+        ].join(" ");
+        cell.textContent = piece ? "▰" : "";
+        cell.setAttribute("aria-label", `cell ${index + 1}`);
+        cell.addEventListener("click", () => chooseCell(index));
+        boardEl.appendChild(cell);
+      });
+      humanMovesEl.textContent = placed.H;
+      aiMovesEl.textContent = placed.A;
+      moveCountEl.textContent = moves.length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
