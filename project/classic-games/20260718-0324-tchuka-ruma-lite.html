@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tchuka Ruma</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-amber-300">Solo mancala puzzle</p>
+        <h1 class="text-3xl font-bold">Mini Tchuka Ruma</h1>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="undoBtn" class="rounded border border-stone-600 px-4 py-2 font-semibold hover:bg-stone-800">Undo</button>
+        <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-stone-950 hover:bg-amber-200">Reset</button>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div class="rounded border border-stone-800 bg-stone-900/70 p-4">
+        <div class="mb-5 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Board</h2>
+            <p id="status" class="text-sm text-stone-300">Click a non-empty house to start sowing.</p>
+          </div>
+          <div class="rounded bg-stone-950 px-3 py-2 text-right text-sm">
+            <p>Moves</p>
+            <p id="moveCount" class="text-xl font-bold text-amber-300">0</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-[repeat(4,minmax(0,1fr))_1.15fr] gap-3" id="board"></div>
+      </div>
+
+      <aside class="rounded border border-stone-800 bg-stone-900/70 p-4">
+        <h2 class="mb-3 text-lg font-semibold">Move log</h2>
+        <ol id="log" class="mb-4 grid max-h-52 gap-2 overflow-auto text-sm text-stone-300"></ol>
+        <div class="rounded bg-stone-950 p-3 text-sm text-stone-300">
+          Choose a house, then its stones are sown to the right. If the last stone lands in another occupied house, that house is picked up automatically. A move only succeeds when the chain ends in Ruma.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const startBoard = [0, 3, 1, 0];
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const moveCountEl = document.getElementById("moveCount");
+    const logEl = document.getElementById("log");
+    const undoBtn = document.getElementById("undoBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const state = {
+      houses: [...startBoard],
+      ruma: 0,
+      moves: 0,
+      history: [],
+      log: [],
+      message: "Click a non-empty house to start sowing.",
+      won: false
+    };
+
+    function resetGame() {
+      state.houses = [...startBoard];
+      state.ruma = 0;
+      state.moves = 0;
+      state.history = [];
+      state.log = [];
+      state.message = "Click a non-empty house to start sowing.";
+      state.won = false;
+      render();
+    }
+
+    function saveHistory() {
+      state.history.push({
+        houses: [...state.houses],
+        ruma: state.ruma,
+        moves: state.moves,
+        log: [...state.log],
+        message: state.message,
+        won: state.won
+      });
+    }
+
+    function undoMove() {
+      const previous = state.history.pop();
+      if (!previous) {
+        state.message = "No move to undo.";
+        render();
+        return;
+      }
+      state.houses = previous.houses;
+      state.ruma = previous.ruma;
+      state.moves = previous.moves;
+      state.log = previous.log;
+      state.message = "Move undone.";
+      state.won = false;
+      render();
+    }
+
+    function playHouse(index) {
+      if (state.won || state.houses[index] === 0) return;
+      saveHistory();
+      const before = state.history[state.history.length - 1];
+      const chain = [];
+      let position = index;
+      let safety = 80;
+
+      while (safety > 0) {
+        safety -= 1;
+        let seeds = state.houses[position];
+        if (seeds === 0) break;
+        state.houses[position] = 0;
+        chain.push(position + 1);
+
+        while (seeds > 0) {
+          position = (position + 1) % 5;
+          if (position === 4) {
+            state.ruma += 1;
+          } else {
+            state.houses[position] += 1;
+          }
+          seeds -= 1;
+        }
+
+        if (position === 4) {
+          finishMove(chain);
+          return;
+        }
+
+        if (state.houses[position] === 1) {
+          restoreFailedMove(before, chain, position);
+          return;
+        }
+      }
+
+      restoreFailedMove(before, chain, position);
+    }
+
+    function finishMove(chain) {
+      state.moves += 1;
+      state.log.unshift(`Move ${state.moves}: houses ${chain.join(" -> ")} reached Ruma.`);
+      state.message = "Good move. The chain ended in Ruma.";
+      if (state.houses.every((stones) => stones === 0)) {
+        state.won = true;
+        state.message = `Solved in ${state.moves} moves. All stones are in Ruma.`;
+      }
+      render();
+    }
+
+    function restoreFailedMove(snapshot, chain, position) {
+      state.houses = snapshot.houses;
+      state.ruma = snapshot.ruma;
+      state.moves = snapshot.moves;
+      state.log = snapshot.log;
+      state.history.pop();
+      state.message = `That chain (${chain.join(" -> ")}) ended in empty house ${position + 1}. Try another start.`;
+      render();
+    }
+
+    function stoneDots(count) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "mt-3 grid min-h-16 grid-cols-3 gap-1";
+      for (let i = 0; i < count; i += 1) {
+        const dot = document.createElement("span");
+        dot.className = "h-4 w-4 rounded-full bg-amber-300 shadow";
+        wrapper.appendChild(dot);
+      }
+      return wrapper;
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      state.houses.forEach((stones, index) => {
+        const button = document.createElement("button");
+        button.className = "min-h-40 rounded border border-stone-700 bg-stone-950 p-3 text-left transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50";
+        button.disabled = stones === 0 || state.won;
+        button.addEventListener("click", () => playHouse(index));
+
+        const label = document.createElement("p");
+        label.className = "text-sm text-stone-400";
+        label.textContent = `House ${index + 1}`;
+        const count = document.createElement("p");
+        count.className = "text-3xl font-bold";
+        count.textContent = stones;
+        button.append(label, count, stoneDots(stones));
+        boardEl.appendChild(button);
+      });
+
+      const ruma = document.createElement("div");
+      ruma.className = "min-h-40 rounded border border-amber-300 bg-amber-300 p-3 text-stone-950";
+      const label = document.createElement("p");
+      label.className = "text-sm font-semibold uppercase tracking-widest";
+      label.textContent = "Ruma";
+      const count = document.createElement("p");
+      count.className = "text-4xl font-black";
+      count.textContent = state.ruma;
+      ruma.append(label, count, stoneDots(state.ruma));
+      boardEl.appendChild(ruma);
+    }
+
+    function renderLog() {
+      logEl.innerHTML = "";
+      if (state.log.length === 0) {
+        const empty = document.createElement("li");
+        empty.className = "text-stone-500";
+        empty.textContent = "No successful moves yet.";
+        logEl.appendChild(empty);
+        return;
+      }
+      state.log.forEach((entry) => {
+        const item = document.createElement("li");
+        item.className = "rounded bg-stone-950 px-3 py-2";
+        item.textContent = entry;
+        logEl.appendChild(item);
+      });
+    }
+
+    function render() {
+      renderBoard();
+      renderLog();
+      statusEl.textContent = state.message;
+      moveCountEl.textContent = state.moves;
+      undoBtn.disabled = state.history.length === 0;
+      undoBtn.classList.toggle("opacity-50", undoBtn.disabled);
+    }
+
+    undoBtn.addEventListener("click", undoMove);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
