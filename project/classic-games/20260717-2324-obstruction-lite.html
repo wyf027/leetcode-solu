@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Obstruction</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6 sm:py-8">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-cyan-300">Classic Grid Game</p>
+        <h1 class="text-3xl font-bold text-white sm:text-4xl">Mini Obstruction</h1>
+      </div>
+      <button id="restartBtn" class="rounded-md bg-cyan-400 px-4 py-2 text-sm font-bold text-zinc-950 transition hover:bg-cyan-300">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 shadow-2xl shadow-cyan-950/20 sm:p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <h2 class="text-lg font-semibold text-white">Status</h2>
+          <p id="message" class="mt-2 min-h-12 text-sm leading-6 text-zinc-300"></p>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center lg:grid-cols-1">
+          <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-zinc-500">You</p>
+            <p id="humanCount" class="mt-1 text-2xl font-bold text-cyan-300">0</p>
+          </div>
+          <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-zinc-500">AI</p>
+            <p id="aiCount" class="mt-1 text-2xl font-bold text-amber-300">0</p>
+          </div>
+          <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-zinc-500">Open</p>
+            <p id="openCount" class="mt-1 text-2xl font-bold text-emerald-300">36</p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <p>Take turns placing a marker. Each move blocks the eight neighboring squares. If your turn starts with no legal square, you lose.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const humanCountEl = document.getElementById("humanCount");
+    const aiCountEl = document.getElementById("aiCount");
+    const openCountEl = document.getElementById("openCount");
+    const restartBtn = document.getElementById("restartBtn");
+
+    let board = [];
+    let locked = false;
+    let gameOver = false;
+    let moves = { H: 0, A: 0 };
+
+    function startGame() {
+      board = Array.from({ length: size * size }, () => "");
+      locked = false;
+      gameOver = false;
+      moves = { H: 0, A: 0 };
+      setMessage("Your move. Pick any open square to claim it and block its neighbors.");
+      render();
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function neighborsOf(index) {
+      const row = rowOf(index);
+      const col = colOf(index);
+      const neighbors = [];
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          if (dr === 0 && dc === 0) continue;
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (nextRow >= 0 && nextRow < size && nextCol >= 0 && nextCol < size) {
+            neighbors.push(nextRow * size + nextCol);
+          }
+        }
+      }
+      return neighbors;
+    }
+
+    function availableCells() {
+      return board
+        .map((cell, index) => (cell === "" ? index : -1))
+        .filter((index) => index >= 0);
+    }
+
+    function applyMove(index, owner) {
+      board[index] = owner;
+      moves[owner] += 1;
+      neighborsOf(index).forEach((neighbor) => {
+        if (board[neighbor] === "") board[neighbor] = "B";
+      });
+    }
+
+    function scoreCell(index) {
+      const snapshot = board.slice();
+      snapshot[index] = "A";
+      neighborsOf(index).forEach((neighbor) => {
+        if (snapshot[neighbor] === "") snapshot[neighbor] = "B";
+      });
+      const humanOptions = snapshot.filter((cell) => cell === "").length;
+      const centerBias = 6 - Math.abs(rowOf(index) - 2.5) - Math.abs(colOf(index) - 2.5);
+      return humanOptions * -10 + centerBias;
+    }
+
+    function chooseAiMove() {
+      return availableCells()
+        .map((index) => ({ index, score: scoreCell(index) }))
+        .sort((a, b) => b.score - a.score)[0]?.index;
+    }
+
+    function chooseCell(index) {
+      if (locked || gameOver || board[index] !== "") return;
+      applyMove(index, "H");
+      if (checkGame("A", "You win. The AI has no legal square left.")) return;
+      locked = true;
+      setMessage("AI is choosing a blocking square...");
+      render();
+      window.setTimeout(() => {
+        const aiIndex = chooseAiMove();
+        if (aiIndex !== undefined) applyMove(aiIndex, "A");
+        locked = false;
+        if (!checkGame("H", "AI wins. You have no legal square left.")) {
+          setMessage("Your move. Look for the square that leaves the AI boxed in.");
+        }
+        render();
+      }, 260);
+    }
+
+    function checkGame(nextOwner, text) {
+      if (availableCells().length > 0) {
+        render();
+        return false;
+      }
+      gameOver = true;
+      locked = true;
+      setMessage(text);
+      render();
+      return true;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((cell, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-label", `Cell ${index + 1}`);
+        button.className = [
+          "aspect-square rounded-md border text-xl font-black transition sm:text-2xl",
+          cell === "H" ? "border-cyan-300 bg-cyan-400 text-zinc-950 shadow-lg shadow-cyan-500/20" : "",
+          cell === "A" ? "border-amber-300 bg-amber-300 text-zinc-950 shadow-lg shadow-amber-500/20" : "",
+          cell === "B" ? "cursor-not-allowed border-zinc-800 bg-zinc-800 text-zinc-600" : "",
+          cell === "" ? "border-zinc-700 bg-zinc-950 hover:border-cyan-300 hover:bg-zinc-800" : "",
+        ].join(" ");
+        button.disabled = locked || gameOver || cell !== "";
+        button.textContent = cell === "H" ? "Y" : cell === "A" ? "AI" : cell === "B" ? "×" : "";
+        button.addEventListener("click", () => chooseCell(index));
+        boardEl.appendChild(button);
+      });
+      humanCountEl.textContent = moves.H;
+      aiCountEl.textContent = moves.A;
+      openCountEl.textContent = availableCells().length;
+    }
+
+    restartBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
