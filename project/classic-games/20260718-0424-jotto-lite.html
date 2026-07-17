@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Jotto</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-indigo-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-lime-300">Classic word deduction</p>
+        <h1 class="text-3xl font-bold">Mini Jotto</h1>
+      </div>
+      <button id="resetBtn" class="w-fit rounded bg-lime-300 px-4 py-2 font-semibold text-indigo-950 hover:bg-lime-200">New word</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+      <div class="rounded border border-indigo-800 bg-indigo-900/70 p-4">
+        <div class="mb-4">
+          <h2 class="text-lg font-semibold">Guess the secret</h2>
+          <p id="status" class="text-sm text-indigo-200">Enter a five-letter word from the list.</p>
+        </div>
+        <form id="guessForm" class="mb-4 flex gap-2">
+          <input id="guessInput" maxlength="5" autocomplete="off" class="min-w-0 flex-1 rounded border border-indigo-700 bg-indigo-950 px-4 py-3 text-lg font-bold uppercase tracking-widest outline-none focus:border-lime-300" placeholder="CRANE">
+          <button class="rounded bg-lime-300 px-4 py-2 font-semibold text-indigo-950 hover:bg-lime-200">Guess</button>
+        </form>
+        <div class="mb-4 grid grid-cols-5 gap-2" id="letterHints"></div>
+        <div class="rounded bg-indigo-950 p-3 text-sm text-indigo-200">
+          Score means how many distinct letters your guess shares with the secret word. Position does not matter.
+        </div>
+      </div>
+
+      <aside class="rounded border border-indigo-800 bg-indigo-900/70 p-4">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-lg font-semibold">History</h2>
+          <p><span id="triesLeft" class="font-bold text-lime-300">10</span> left</p>
+        </div>
+        <ol id="history" class="grid gap-2"></ol>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const words = [
+      "crane", "flint", "mango", "pride", "shark",
+      "vapor", "blush", "cider", "globe", "thorn",
+      "quilt", "raven", "spice", "waltz", "frost"
+    ];
+    const maxTries = 10;
+    const guessForm = document.getElementById("guessForm");
+    const guessInput = document.getElementById("guessInput");
+    const statusEl = document.getElementById("status");
+    const historyEl = document.getElementById("history");
+    const triesLeftEl = document.getElementById("triesLeft");
+    const letterHintsEl = document.getElementById("letterHints");
+    const resetBtn = document.getElementById("resetBtn");
+    let secret = "";
+    let guesses = [];
+    let finished = false;
+
+    function startGame() {
+      secret = words[Math.floor(Math.random() * words.length)];
+      guesses = [];
+      finished = false;
+      statusEl.textContent = "Enter a five-letter word from the list.";
+      guessInput.value = "";
+      guessInput.disabled = false;
+      render();
+      guessInput.focus();
+    }
+
+    function normalizeGuess(value) {
+      return value.trim().toLowerCase().replace(/[^a-z]/g, "");
+    }
+
+    function distinctLetters(word) {
+      return [...new Set(word.split(""))];
+    }
+
+    function scoreGuess(word) {
+      const secretLetters = new Set(distinctLetters(secret));
+      return distinctLetters(word).filter((letter) => secretLetters.has(letter)).length;
+    }
+
+    function submitGuess(event) {
+      event.preventDefault();
+      if (finished) return;
+      const guess = normalizeGuess(guessInput.value);
+      if (guess.length !== 5) {
+        statusEl.textContent = "Use exactly five letters.";
+        return;
+      }
+      if (!words.includes(guess)) {
+        statusEl.textContent = "Pick a word from the built-in list.";
+        return;
+      }
+      if (guesses.some((entry) => entry.word === guess)) {
+        statusEl.textContent = "That word is already in the history.";
+        return;
+      }
+      const score = scoreGuess(guess);
+      guesses.unshift({ word: guess, score });
+      guessInput.value = "";
+      if (guess === secret) {
+        finished = true;
+        statusEl.textContent = `Solved. The secret word was ${secret.toUpperCase()}.`;
+      } else if (guesses.length >= maxTries) {
+        finished = true;
+        statusEl.textContent = `Out of guesses. The secret word was ${secret.toUpperCase()}.`;
+      } else {
+        statusEl.textContent = `${score} shared letter${score === 1 ? "" : "s"}. Keep narrowing it down.`;
+      }
+      render();
+    }
+
+    function knownLetterStates() {
+      const present = new Set();
+      const absent = new Set();
+      guesses.forEach(({ word, score }) => {
+        if (score === 0) {
+          distinctLetters(word).forEach((letter) => absent.add(letter));
+        }
+        if (score === distinctLetters(word).length) {
+          distinctLetters(word).forEach((letter) => present.add(letter));
+        }
+      });
+      return { present, absent };
+    }
+
+    function renderLetterHints() {
+      letterHintsEl.innerHTML = "";
+      const { present, absent } = knownLetterStates();
+      "abcdefghijklmnopqrstuvwxyz".split("").slice(0, 25).forEach((letter) => {
+        const tile = document.createElement("div");
+        tile.className = "rounded border px-2 py-1 text-center text-sm font-bold uppercase " +
+          (present.has(letter)
+            ? "border-lime-300 bg-lime-300 text-indigo-950"
+            : absent.has(letter)
+              ? "border-rose-400 bg-rose-400/20 text-rose-100"
+              : "border-indigo-700 bg-indigo-950 text-indigo-200");
+        tile.textContent = letter;
+        letterHintsEl.appendChild(tile);
+      });
+    }
+
+    function renderHistory() {
+      historyEl.innerHTML = "";
+      if (guesses.length === 0) {
+        const empty = document.createElement("li");
+        empty.className = "rounded bg-indigo-950 px-3 py-2 text-sm text-indigo-300";
+        empty.textContent = "No guesses yet.";
+        historyEl.appendChild(empty);
+        return;
+      }
+      guesses.forEach((entry) => {
+        const item = document.createElement("li");
+        item.className = "flex items-center justify-between rounded bg-indigo-950 px-3 py-2";
+        item.innerHTML = `<span class="font-bold tracking-widest">${entry.word.toUpperCase()}</span><span class="text-lime-300">${entry.score} / 5</span>`;
+        historyEl.appendChild(item);
+      });
+    }
+
+    function render() {
+      triesLeftEl.textContent = Math.max(0, maxTries - guesses.length);
+      guessInput.disabled = finished;
+      renderLetterHints();
+      renderHistory();
+    }
+
+    guessForm.addEventListener("submit", submitGuess);
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
