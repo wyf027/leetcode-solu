@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Krypto</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-sky-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-orange-300">Classic arithmetic cards</p>
+        <h1 class="text-3xl font-bold">Mini Krypto</h1>
+      </div>
+      <button id="resetBtn" class="w-fit rounded bg-orange-300 px-4 py-2 font-semibold text-sky-950 hover:bg-orange-200">New deal</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <div class="rounded border border-sky-800 bg-sky-900/70 p-4">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Make the target</h2>
+            <p id="status" class="text-sm text-sky-200">Use every card exactly once in an arithmetic expression.</p>
+          </div>
+          <div class="rounded bg-sky-950 px-4 py-2 text-right">
+            <p class="text-sm text-sky-300">Target</p>
+            <p id="target" class="text-3xl font-black text-orange-300">24</p>
+          </div>
+        </div>
+
+        <div id="cards" class="mb-4 grid grid-cols-5 gap-2"></div>
+        <form id="answerForm" class="flex gap-2">
+          <input id="answerInput" autocomplete="off" class="min-w-0 flex-1 rounded border border-sky-700 bg-sky-950 px-4 py-3 font-mono text-lg outline-none focus:border-orange-300" placeholder="(3+7)*(8-5)">
+          <button class="rounded bg-orange-300 px-4 py-2 font-semibold text-sky-950 hover:bg-orange-200">Check</button>
+        </form>
+      </div>
+
+      <aside class="rounded border border-sky-800 bg-sky-900/70 p-4">
+        <h2 class="mb-3 text-lg font-semibold">Rules</h2>
+        <div class="space-y-3 text-sm text-sky-200">
+          <p>Combine all five cards using +, -, *, /, and parentheses. The final value must equal the target.</p>
+          <p>Each visible number must appear exactly once. Multi-digit cards such as 10 count as one card.</p>
+          <p id="lastCheck" class="rounded bg-sky-950 p-3 text-orange-200">Try a formula, then press Check.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const deals = [
+      { cards: [3, 5, 7, 8, 10], target: 24 },
+      { cards: [2, 4, 6, 9, 12], target: 30 },
+      { cards: [1, 5, 6, 11, 13], target: 48 },
+      { cards: [4, 4, 7, 9, 10], target: 31 }
+    ];
+    const cardsEl = document.getElementById("cards");
+    const targetEl = document.getElementById("target");
+    const statusEl = document.getElementById("status");
+    const lastCheckEl = document.getElementById("lastCheck");
+    const answerForm = document.getElementById("answerForm");
+    const answerInput = document.getElementById("answerInput");
+    const resetBtn = document.getElementById("resetBtn");
+    let deal = deals[0];
+    let solved = false;
+
+    function startGame() {
+      deal = deals[Math.floor(Math.random() * deals.length)];
+      solved = false;
+      answerInput.value = "";
+      answerInput.disabled = false;
+      statusEl.textContent = "Use every card exactly once in an arithmetic expression.";
+      lastCheckEl.textContent = "Try a formula, then press Check.";
+      render();
+      answerInput.focus();
+    }
+
+    function tokensFromExpression(expression) {
+      return expression.match(/\d+|[()+\-*/]/g) || [];
+    }
+
+    function numbersUsed(expression) {
+      return (expression.match(/\d+/g) || []).map(Number).sort((a, b) => a - b);
+    }
+
+    function sortedCards() {
+      return [...deal.cards].sort((a, b) => a - b);
+    }
+
+    function sameCards(used) {
+      const cards = sortedCards();
+      return used.length === cards.length && used.every((value, index) => value === cards[index]);
+    }
+
+    function safeValue(expression) {
+      if (!/^[\d+\-*/().\s]+$/.test(expression)) {
+        throw new Error("Only numbers, operators, and parentheses are allowed.");
+      }
+      const tokens = tokensFromExpression(expression).join("");
+      if (tokens.replace(/\s/g, "") !== expression.replace(/\s/g, "")) {
+        throw new Error("Expression contains unsupported characters.");
+      }
+      return Function(`"use strict"; return (${expression});`)();
+    }
+
+    function checkAnswer(event) {
+      event.preventDefault();
+      if (solved) return;
+      const expression = answerInput.value.trim();
+      if (!expression) {
+        lastCheckEl.textContent = "Enter an expression first.";
+        return;
+      }
+      const used = numbersUsed(expression);
+      if (!sameCards(used)) {
+        lastCheckEl.textContent = `Use exactly these cards once: ${sortedCards().join(", ")}.`;
+        return;
+      }
+      try {
+        const value = safeValue(expression);
+        if (!Number.isFinite(value)) {
+          lastCheckEl.textContent = "That expression does not make a finite number.";
+        } else if (Math.abs(value - deal.target) < 0.000001) {
+          solved = true;
+          answerInput.disabled = true;
+          statusEl.textContent = "Solved. Nice arithmetic.";
+          lastCheckEl.textContent = `${expression} = ${deal.target}`;
+        } else {
+          lastCheckEl.textContent = `${expression} = ${Number(value.toFixed(4))}, not ${deal.target}.`;
+        }
+      } catch (error) {
+        lastCheckEl.textContent = error.message;
+      }
+    }
+
+    function render() {
+      targetEl.textContent = deal.target;
+      cardsEl.innerHTML = "";
+      deal.cards.forEach((card) => {
+        const tile = document.createElement("div");
+        tile.className = "rounded border border-orange-300 bg-sky-950 py-5 text-center text-3xl font-black text-orange-300";
+        tile.textContent = card;
+        cardsEl.appendChild(tile);
+      });
+    }
+
+    answerForm.addEventListener("submit", checkAnswer);
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
