@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Turning Turtles</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:py-8">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic Flip Game</p>
+        <h1 class="text-3xl font-bold text-white sm:text-4xl">Mini Turning Turtles</h1>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-amber-300 px-4 py-2 text-sm font-bold text-emerald-950 transition hover:bg-amber-200">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4 shadow-2xl shadow-emerald-950/40">
+        <div id="row" class="grid grid-cols-5 gap-2 sm:grid-cols-10"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4">
+          <h2 class="text-lg font-semibold text-white">Status</h2>
+          <p id="message" class="mt-2 min-h-16 text-sm leading-6 text-emerald-100"></p>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center lg:grid-cols-1">
+          <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-emerald-300">You</p>
+            <p id="humanMoves" class="mt-1 text-2xl font-bold text-amber-300">0</p>
+          </div>
+          <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-emerald-300">AI</p>
+            <p id="aiMoves" class="mt-1 text-2xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-emerald-300">Face Up</p>
+            <p id="upCount" class="mt-1 text-2xl font-bold text-cyan-300">10</p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4 text-sm leading-6 text-emerald-100">
+          <p>Choose a face-up turtle. It and every turtle to its right flip over. The player who flips the final face-up turtle wins.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const turtleCount = 10;
+    const row = document.getElementById("row");
+    const message = document.getElementById("message");
+    const humanMoves = document.getElementById("humanMoves");
+    const aiMoves = document.getElementById("aiMoves");
+    const upCount = document.getElementById("upCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let turtles = [];
+    let locked = false;
+    let done = false;
+    let moves = { H: 0, A: 0 };
+
+    function startGame() {
+      turtles = Array.from({ length: turtleCount }, () => true);
+      locked = false;
+      done = false;
+      moves = { H: 0, A: 0 };
+      setMessage("Your move. Pick a face-up turtle and flip it with everything to its right.");
+      render();
+    }
+
+    function legalMoves() {
+      return turtles
+        .map((isUp, index) => isUp ? index : -1)
+        .filter((index) => index >= 0);
+    }
+
+    function applyMove(index, player) {
+      for (let i = index; i < turtles.length; i += 1) {
+        turtles[i] = !turtles[i];
+      }
+      moves[player] += 1;
+    }
+
+    function chooseCell(index) {
+      if (locked || done || !turtles[index]) return;
+      applyMove(index, "H");
+      if (finishIfSolved("You win. You flipped the final face-up turtle.")) return;
+      locked = true;
+      setMessage("AI is choosing a turtle...");
+      render();
+      window.setTimeout(runAiTurn, 260);
+    }
+
+    function runAiTurn() {
+      const move = chooseAiMove();
+      if (move !== undefined) applyMove(move, "A");
+      locked = false;
+      if (!finishIfSolved("AI wins. It flipped the final face-up turtle.")) {
+        setMessage("Your move. Try to leave the AI with only bad flips.");
+      }
+      render();
+    }
+
+    function chooseAiMove() {
+      const moves = legalMoves();
+      const winning = moves.find((move) => {
+        const copy = turtles.slice();
+        for (let i = move; i < copy.length; i += 1) copy[i] = !copy[i];
+        return copy.every((isUp) => !isUp);
+      });
+      if (winning !== undefined) return winning;
+      return moves
+        .map((move) => ({ move, score: scoreMove(move) }))
+        .sort((a, b) => b.score - a.score)[0]?.move;
+    }
+
+    function scoreMove(index) {
+      const copy = turtles.slice();
+      for (let i = index; i < copy.length; i += 1) copy[i] = !copy[i];
+      const ups = copy.filter(Boolean).length;
+      const rightmostUp = copy.reduce((last, isUp, i) => isUp ? i : last, -1);
+      return (turtleCount - ups) * 2 - rightmostUp;
+    }
+
+    function finishIfSolved(text) {
+      if (legalMoves().length > 0) {
+        render();
+        return false;
+      }
+      done = true;
+      locked = true;
+      setMessage(text);
+      render();
+      return true;
+    }
+
+    function setMessage(text) {
+      message.textContent = text;
+    }
+
+    function render() {
+      row.innerHTML = "";
+      turtles.forEach((isUp, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = [
+          "aspect-square rounded-md border text-2xl transition sm:text-3xl",
+          isUp ? "border-amber-200 bg-amber-300 text-emerald-950 shadow-lg shadow-amber-500/20 hover:bg-amber-200" : "",
+          !isUp ? "cursor-not-allowed border-emerald-800 bg-emerald-950 text-emerald-700" : "",
+        ].join(" ");
+        button.textContent = isUp ? "T" : "·";
+        button.setAttribute("aria-label", isUp ? `Face-up turtle ${index + 1}` : `Face-down turtle ${index + 1}`);
+        button.disabled = locked || done || !isUp;
+        button.addEventListener("click", () => chooseCell(index));
+        row.appendChild(button);
+      });
+      humanMoves.textContent = moves.H;
+      aiMoves.textContent = moves.A;
+      upCount.textContent = legalMoves().length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
