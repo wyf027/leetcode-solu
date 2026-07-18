@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Killer Sudoku</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-cyan-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Killer Sudoku</h1>
+        <p class="mt-2 max-w-2xl text-sm text-slate-300">4x4 数独变体：每行、每列、每个 2x2 宫都填入 1-4，虚线笼内数字相加等于左上角提示且不重复。</p>
+      </div>
+      <div class="flex gap-2">
+        <button id="hintBtn" class="rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-300">提示</button>
+        <button id="resetBtn" class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800">重开</button>
+      </div>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square max-w-[520px] grid-cols-4 gap-1 rounded-md bg-slate-700 p-1"></div>
+      </div>
+
+      <aside class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-md bg-slate-800 p-3">
+            <p class="text-xs text-slate-400">已填</p>
+            <p id="filledCount" class="text-2xl font-bold text-cyan-300">0/16</p>
+          </div>
+          <div class="rounded-md bg-slate-800 p-3">
+            <p class="text-xs text-slate-400">状态</p>
+            <p id="stateBadge" class="text-2xl font-bold text-amber-300">进行中</p>
+          </div>
+        </div>
+        <div class="mt-4">
+          <h2 class="text-sm font-semibold text-slate-200">规则检查</h2>
+          <ul id="checks" class="mt-3 space-y-2 text-sm text-slate-300"></ul>
+        </div>
+        <div class="mt-5 rounded-md border border-slate-700 p-3 text-xs leading-5 text-slate-400">
+          点击格子循环输入 1-4。蓝色虚线代表同一个笼；格子左上角的小数字是该笼目标和。
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const solution = [
+      [1, 2, 3, 4],
+      [3, 4, 1, 2],
+      [2, 1, 4, 3],
+      [4, 3, 2, 1],
+    ];
+    const givens = new Map([
+      ["0,0", 1],
+      ["1,2", 1],
+      ["3,3", 1],
+    ]);
+    const cages = [
+      { id: "A", total: 3, cells: [[0, 0], [0, 1]] },
+      { id: "B", total: 7, cells: [[0, 2], [0, 3]] },
+      { id: "C", total: 5, cells: [[1, 0], [2, 0]] },
+      { id: "D", total: 5, cells: [[1, 1], [1, 2]] },
+      { id: "E", total: 5, cells: [[1, 3], [2, 3]] },
+      { id: "F", total: 4, cells: [[2, 1], [3, 1]] },
+      { id: "G", total: 6, cells: [[2, 2], [3, 2]] },
+      { id: "H", total: 5, cells: [[3, 0], [3, 3]] },
+    ];
+    const cageByCell = new Map();
+    cages.forEach((cage) => cage.cells.forEach(([r, c]) => cageByCell.set(`${r},${c}`, cage)));
+
+    let board = Array.from({ length: size }, () => Array(size).fill(0));
+    let hinted = false;
+
+    function resetGame() {
+      board = Array.from({ length: size }, (_, r) =>
+        Array.from({ length: size }, (_, c) => givens.get(`${r},${c}`) || 0)
+      );
+      hinted = false;
+      render();
+    }
+
+    function cycleCell(row, col) {
+      if (givens.has(`${row},${col}`)) return;
+      board[row][col] = (board[row][col] + 1) % 5;
+      render();
+    }
+
+    function useHint() {
+      const empty = [];
+      for (let r = 0; r < size; r += 1) {
+        for (let c = 0; c < size; c += 1) {
+          if (!board[r][c]) empty.push([r, c]);
+        }
+      }
+      if (!empty.length) return;
+      const [row, col] = empty[0];
+      board[row][col] = solution[row][col];
+      hinted = true;
+      render();
+    }
+
+    function valuesUnique(values) {
+      const filled = values.filter(Boolean);
+      return new Set(filled).size === filled.length;
+    }
+
+    function groupComplete(values) {
+      return values.every(Boolean) && valuesUnique(values);
+    }
+
+    function rowValues(row) {
+      return board[row];
+    }
+
+    function colValues(col) {
+      return board.map((row) => row[col]);
+    }
+
+    function boxValues(boxRow, boxCol) {
+      const values = [];
+      for (let r = boxRow; r < boxRow + 2; r += 1) {
+        for (let c = boxCol; c < boxCol + 2; c += 1) values.push(board[r][c]);
+      }
+      return values;
+    }
+
+    function cageReport(cage) {
+      const values = cage.cells.map(([r, c]) => board[r][c]);
+      const sum = values.reduce((total, value) => total + value, 0);
+      const filled = values.every(Boolean);
+      const unique = valuesUnique(values);
+      return {
+        ok: unique && (!filled || sum === cage.total) && sum <= cage.total,
+        done: filled && unique && sum === cage.total,
+      };
+    }
+
+    function puzzleStats() {
+      const rowsOk = Array.from({ length: size }, (_, r) => valuesUnique(rowValues(r))).every(Boolean);
+      const colsOk = Array.from({ length: size }, (_, c) => valuesUnique(colValues(c))).every(Boolean);
+      const boxesOk = [0, 2].flatMap((r) => [0, 2].map((c) => valuesUnique(boxValues(r, c)))).every(Boolean);
+      const cageReports = cages.map(cageReport);
+      const cagesOk = cageReports.every((report) => report.ok);
+      const filled = board.flat().filter(Boolean).length;
+      const completeGroups =
+        filled === size * size &&
+        Array.from({ length: size }, (_, r) => groupComplete(rowValues(r))).every(Boolean) &&
+        Array.from({ length: size }, (_, c) => groupComplete(colValues(c))).every(Boolean) &&
+        [0, 2].flatMap((r) => [0, 2].map((c) => groupComplete(boxValues(r, c)))).every(Boolean) &&
+        cageReports.every((report) => report.done);
+      return { rowsOk, colsOk, boxesOk, cagesOk, filled, solved: completeGroups };
+    }
+
+    function cellClasses(row, col) {
+      const cage = cageByCell.get(`${row},${col}`);
+      const sameTop = cage.cells.some(([r, c]) => r === row - 1 && c === col);
+      const sameRight = cage.cells.some(([r, c]) => r === row && c === col + 1);
+      const sameBottom = cage.cells.some(([r, c]) => r === row + 1 && c === col);
+      const sameLeft = cage.cells.some(([r, c]) => r === row && c === col - 1);
+      return [
+        "relative flex aspect-square items-center justify-center rounded-sm text-3xl font-bold transition",
+        givens.has(`${row},${col}`) ? "bg-slate-700 text-cyan-200" : "bg-slate-100 text-slate-950 hover:bg-cyan-100",
+        sameTop ? "border-t-2 border-dashed border-cyan-500" : "border-t-4 border-slate-950",
+        sameRight ? "border-r-2 border-dashed border-cyan-500" : "border-r-4 border-slate-950",
+        sameBottom ? "border-b-2 border-dashed border-cyan-500" : "border-b-4 border-slate-950",
+        sameLeft ? "border-l-2 border-dashed border-cyan-500" : "border-l-4 border-slate-950",
+      ].join(" ");
+    }
+
+    function renderBoard() {
+      const boardEl = document.getElementById("board");
+      boardEl.innerHTML = "";
+      for (let r = 0; r < size; r += 1) {
+        for (let c = 0; c < size; c += 1) {
+          const cage = cageByCell.get(`${r},${c}`);
+          const firstCell = cage.cells[0][0] === r && cage.cells[0][1] === c;
+          const button = document.createElement("button");
+          button.className = cellClasses(r, c);
+          button.type = "button";
+          button.addEventListener("click", () => cycleCell(r, c));
+          button.innerHTML = `
+            ${firstCell ? `<span class="absolute left-1 top-1 text-[11px] font-bold text-rose-500">${cage.total}</span>` : ""}
+            <span>${board[r][c] || ""}</span>
+          `;
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function renderChecks(stats) {
+      const items = [
+        ["行内数字不重复", stats.rowsOk],
+        ["列内数字不重复", stats.colsOk],
+        ["2x2 宫内数字不重复", stats.boxesOk],
+        ["所有笼当前和不超标且不重复", stats.cagesOk],
+      ];
+      document.getElementById("checks").innerHTML = items
+        .map(([label, ok]) => `<li class="${ok ? "text-emerald-300" : "text-rose-300"}">${ok ? "OK" : "!"} ${label}</li>`)
+        .join("");
+    }
+
+    function render() {
+      renderBoard();
+      const stats = puzzleStats();
+      document.getElementById("filledCount").textContent = `${stats.filled}/16`;
+      const badge = document.getElementById("stateBadge");
+      badge.textContent = stats.solved ? (hinted ? "完成" : "完美") : "进行中";
+      badge.className = `text-2xl font-bold ${stats.solved ? "text-emerald-300" : "text-amber-300"}`;
+      renderChecks(stats);
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    document.getElementById("hintBtn").addEventListener("click", useHint);
+    resetGame();
+  </script>
+</body>
+</html>
