@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Ta-Yu</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-sky-800 pb-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-wide">Mini Ta-Yu</h1>
+        <p class="mt-1 max-w-2xl text-sm text-sky-200/80">
+          5x5 轻量版水路拼接。轮流旋转并放置水路牌，Red 争取上下贯通，Blue 争取左右贯通。
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-sky-950 shadow hover:bg-cyan-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-sky-800 bg-sky-900/70 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-3">
+        <div class="rounded-lg border border-sky-800 bg-sky-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-sky-300/70">当前玩家</div>
+          <div id="turnText" class="mt-2 text-xl font-semibold text-cyan-200"></div>
+          <div id="statusText" class="mt-2 min-h-16 text-sm leading-6 text-sky-100/90"></div>
+        </div>
+
+        <div class="rounded-lg border border-sky-800 bg-sky-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-sky-300/70">当前水路牌</div>
+          <div id="tilePreview" class="mx-auto mt-3 grid h-28 w-28 place-items-center rounded-md border border-sky-700 bg-sky-950"></div>
+          <button id="rotateBtn" class="mt-3 w-full rounded-md border border-sky-700 px-3 py-2 text-sm hover:bg-sky-800">
+            旋转
+          </button>
+        </div>
+
+        <div class="rounded-lg border border-sky-800 bg-sky-900 p-4 text-sm leading-6 text-sky-100/90">
+          <div class="text-xs uppercase tracking-[0.2em] text-sky-300/70">计分</div>
+          <div id="scoreText" class="mt-3 space-y-2"></div>
+          <p class="mt-3 text-sky-200/75">
+            水路从对应边界进入棋盘后按连通出口计分。棋盘填满后分高者获胜。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const tilePreview = document.getElementById("tilePreview");
+    const scoreText = document.getElementById("scoreText");
+    const resetBtn = document.getElementById("resetBtn");
+    const rotateBtn = document.getElementById("rotateBtn");
+
+    const size = 5;
+    const dirs = ["N", "E", "S", "W"];
+    const delta = {
+      N: [-1, 0],
+      E: [0, 1],
+      S: [1, 0],
+      W: [0, -1],
+    };
+    const opposite = { N: "S", E: "W", S: "N", W: "E" };
+    const players = {
+      red: { name: "Red", color: "text-red-200", goal: "上下" },
+      blue: { name: "Blue", color: "text-cyan-200", goal: "左右" },
+    };
+    const deck = [
+      ["N", "S"],
+      ["E", "W"],
+      ["N", "E"],
+      ["E", "S"],
+      ["S", "W"],
+      ["W", "N"],
+      ["N", "E", "S"],
+      ["E", "S", "W"],
+      ["N", "S", "W"],
+      ["N", "E", "W"],
+    ];
+
+    let board;
+    let turn;
+    let currentTile;
+    let rotation;
+    let placed;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      turn = "red";
+      currentTile = drawTile();
+      rotation = 0;
+      placed = 0;
+      winner = null;
+      message = "旋转当前水路牌，然后点击空格放置。";
+      render();
+    }
+
+    function drawTile() {
+      const index = Math.floor(Math.random() * deck.length);
+      return [...deck[index]];
+    }
+
+    function rotateDir(dir, amount) {
+      const index = dirs.indexOf(dir);
+      return dirs[(index + amount + dirs.length) % dirs.length];
+    }
+
+    function tileOpenings(tile = currentTile, amount = rotation) {
+      return tile.map((dir) => rotateDir(dir, amount));
+    }
+
+    function rotateTile() {
+      if (winner) return;
+      rotation = (rotation + 1) % 4;
+      message = "已旋转水路牌。";
+      render();
+    }
+
+    function canPlace(row, col) {
+      return !winner && !board[row][col];
+    }
+
+    function placeTile(row, col) {
+      if (!canPlace(row, col)) return;
+      board[row][col] = { openings: tileOpenings(), owner: turn };
+      placed += 1;
+      const score = scoreBoard();
+      message = `${players[turn].name} 放置水路。当前 Red ${score.red} 分，Blue ${score.blue} 分。`;
+      if (placed >= size * size) {
+        finishGame(score);
+      } else {
+        turn = turn === "red" ? "blue" : "red";
+        currentTile = drawTile();
+        rotation = 0;
+        message += ` 轮到 ${players[turn].name}。`;
+      }
+      render();
+    }
+
+    function edgeEntries(side) {
+      const entries = [];
+      if (side === "red") {
+        for (let col = 0; col < size; col += 1) {
+          entries.push({ row: 0, col, from: "N" });
+          entries.push({ row: size - 1, col, from: "S" });
+        }
+      } else {
+        for (let row = 0; row < size; row += 1) {
+          entries.push({ row, col: 0, from: "W" });
+          entries.push({ row, col: size - 1, from: "E" });
+        }
+      }
+      return entries;
+    }
+
+    function traceFrom(entry) {
+      const start = board[entry.row][entry.col];
+      if (!start || !start.openings.includes(entry.from)) return null;
+      const seen = new Set();
+      let row = entry.row;
+      let col = entry.col;
+      let cameFrom = entry.from;
+
+      while (true) {
+        const key = `${row},${col},${cameFrom}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        const tile = board[row][col];
+        if (!tile || !tile.openings.includes(cameFrom)) return null;
+        const exits = tile.openings.filter((dir) => dir !== cameFrom);
+        if (!exits.length) return null;
+        const out = exits[0];
+        const [dr, dc] = delta[out];
+        const nr = row + dr;
+        const nc = col + dc;
+        if (nr < 0) return "N";
+        if (nr >= size) return "S";
+        if (nc < 0) return "W";
+        if (nc >= size) return "E";
+        row = nr;
+        col = nc;
+        cameFrom = opposite[out];
+      }
+    }
+
+    function scoreBoard() {
+      const red = edgeEntries("red").filter((entry) => {
+        const exit = traceFrom(entry);
+        return (entry.from === "N" && exit === "S") || (entry.from === "S" && exit === "N");
+      }).length;
+      const blue = edgeEntries("blue").filter((entry) => {
+        const exit = traceFrom(entry);
+        return (entry.from === "W" && exit === "E") || (entry.from === "E" && exit === "W");
+      }).length;
+      return { red, blue };
+    }
+
+    function finishGame(score) {
+      if (score.red === score.blue) {
+        winner = "draw";
+        message = `平局：双方都是 ${score.red} 分。`;
+      } else {
+        winner = score.red > score.blue ? "red" : "blue";
+        message = `${players[winner].name} 以 ${score[winner]} 分获胜。`;
+      }
+    }
+
+    function pipeClass(dir) {
+      const base = "absolute rounded-full bg-cyan-200";
+      if (dir === "N") return `${base} left-1/2 top-0 h-1/2 w-2 -translate-x-1/2`;
+      if (dir === "S") return `${base} bottom-0 left-1/2 h-1/2 w-2 -translate-x-1/2`;
+      if (dir === "E") return `${base} right-0 top-1/2 h-2 w-1/2 -translate-y-1/2`;
+      return `${base} left-0 top-1/2 h-2 w-1/2 -translate-y-1/2`;
+    }
+
+    function renderTile(openings, owner = null) {
+      const tint = owner === "red" ? "bg-red-900/70" : owner === "blue" ? "bg-sky-800/80" : "bg-sky-950";
+      return `
+        <div class="relative h-full w-full overflow-hidden rounded-md ${tint}">
+          <span class="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-200"></span>
+          ${openings.map((dir) => `<span class="${pipeClass(dir)}"></span>`).join("")}
+        </div>
+      `;
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const tile = board[row][col];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = [
+            "aspect-square rounded-md border border-sky-700 bg-sky-800 p-1 transition",
+            canPlace(row, col) ? "hover:border-cyan-200 hover:bg-sky-700" : "",
+          ].join(" ");
+          cell.innerHTML = tile ? renderTile(tile.openings, tile.owner) : "";
+          cell.addEventListener("click", () => placeTile(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function renderScores() {
+      const score = scoreBoard();
+      scoreText.innerHTML = `
+        <div class="flex items-center justify-between rounded-md bg-sky-950/60 px-3 py-2">
+          <span class="font-semibold text-red-200">Red ${players.red.goal}</span>
+          <span>${score.red}</span>
+        </div>
+        <div class="flex items-center justify-between rounded-md bg-sky-950/60 px-3 py-2">
+          <span class="font-semibold text-cyan-200">Blue ${players.blue.goal}</span>
+          <span>${score.blue}</span>
+        </div>
+        <div class="text-xs text-sky-200/75">已放置 ${placed}/${size * size} 张</div>
+      `;
+    }
+
+    function render() {
+      renderBoard();
+      renderScores();
+      tilePreview.innerHTML = renderTile(tileOpenings());
+      turnText.textContent = winner ? (winner === "draw" ? "平局" : `${players[winner].name} 胜利`) : players[turn].name;
+      turnText.className = `mt-2 text-xl font-semibold ${winner && winner !== "draw" ? players[winner].color : players[turn]?.color || "text-cyan-200"}`;
+      statusText.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    rotateBtn.addEventListener("click", rotateTile);
+    resetGame();
+  </script>
+</body>
+</html>
