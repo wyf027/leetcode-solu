@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Katarenga</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Katarenga</h1>
+        <p class="mt-1 text-sm text-slate-400">落脚格决定下一步走法：车、象、王或马；先到对方底线获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_280px]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-slate-800 bg-slate-900 p-4">
+        <div>
+          <p class="text-xs uppercase text-slate-500">当前回合</p>
+          <p id="turnText" class="text-xl font-bold"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-slate-800 p-3">
+            <p class="text-slate-400">白方</p>
+            <p id="whiteCount" class="text-2xl font-bold"></p>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <p class="text-slate-400">黑方</p>
+            <p id="blackCount" class="text-2xl font-bold"></p>
+          </div>
+        </div>
+        <div class="rounded bg-slate-950 p-3 text-sm text-slate-300">
+          <p class="font-semibold text-slate-100">地形</p>
+          <p class="mt-1">红=车，蓝=象，绿=王，黄=马。棋子按当前所在格的地形移动。</p>
+        </div>
+        <p id="message" class="min-h-16 rounded bg-slate-950 p-3 text-sm text-slate-300"></p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const whiteCount = document.getElementById("whiteCount");
+    const blackCount = document.getElementById("blackCount");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const terrain = [
+      ["rook", "knight", "king", "bishop", "rook"],
+      ["bishop", "king", "rook", "knight", "bishop"],
+      ["knight", "rook", "bishop", "king", "knight"],
+      ["king", "bishop", "knight", "rook", "king"],
+      ["rook", "king", "bishop", "knight", "rook"]
+    ];
+    const terrainInfo = {
+      rook: { label: "车", color: "bg-red-500/80 border-red-300" },
+      bishop: { label: "象", color: "bg-blue-500/80 border-blue-300" },
+      king: { label: "王", color: "bg-emerald-500/80 border-emerald-300" },
+      knight: { label: "马", color: "bg-amber-400/80 border-amber-200" }
+    };
+    const players = {
+      W: { name: "白方", goal: 0, stone: "bg-white text-slate-950" },
+      B: { name: "黑方", goal: size - 1, stone: "bg-slate-950 text-white border border-white/30" }
+    };
+    let pieces;
+    let turn;
+    let selected;
+    let legalTargets;
+    let gameOver;
+
+    function resetGame() {
+      pieces = Array.from({ length: size }, () => Array(size).fill(""));
+      for (let c = 0; c < size; c += 1) {
+        pieces[0][c] = "B";
+        pieces[4][c] = "W";
+      }
+      turn = "W";
+      selected = null;
+      legalTargets = [];
+      gameOver = false;
+      message.textContent = "白方先手：选择一枚棋子，按它当前地形移动。";
+      render();
+    }
+
+    function inBounds(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function counts() {
+      return pieces.flat().reduce((acc, cell) => {
+        if (cell) acc[cell] += 1;
+        return acc;
+      }, { W: 0, B: 0 });
+    }
+
+    function addTarget(list, r, c) {
+      if (!inBounds(r, c)) return false;
+      const occupant = pieces[r][c];
+      if (occupant === turn) return false;
+      list.push({ r, c, type: occupant ? "capture" : "move" });
+      return !occupant;
+    }
+
+    function rayTargets(list, r, c, dirs) {
+      dirs.forEach(([dr, dc]) => {
+        let nr = r + dr;
+        let nc = c + dc;
+        while (inBounds(nr, nc)) {
+          if (!addTarget(list, nr, nc)) break;
+          nr += dr;
+          nc += dc;
+        }
+      });
+    }
+
+    function legalMoves(r, c) {
+      if (pieces[r][c] !== turn) return [];
+      const moves = [];
+      const kind = terrain[r][c];
+      if (kind === "rook") rayTargets(moves, r, c, [[1, 0], [-1, 0], [0, 1], [0, -1]]);
+      if (kind === "bishop") rayTargets(moves, r, c, [[1, 1], [1, -1], [-1, 1], [-1, -1]]);
+      if (kind === "king") {
+        [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([dr, dc]) => addTarget(moves, r + dr, c + dc));
+      }
+      if (kind === "knight") {
+        [[2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2]].forEach(([dr, dc]) => addTarget(moves, r + dr, c + dc));
+      }
+      return moves;
+    }
+
+    function allMoves(player = turn) {
+      const current = turn;
+      turn = player;
+      const moves = [];
+      pieces.forEach((row, r) => row.forEach((cell, c) => {
+        if (cell === player) legalMoves(r, c).forEach(target => moves.push({ from: [r, c], target }));
+      }));
+      turn = current;
+      return moves;
+    }
+
+    function applyMove(from, target) {
+      pieces[target.r][target.c] = pieces[from[0]][from[1]];
+      pieces[from[0]][from[1]] = "";
+      const mover = pieces[target.r][target.c];
+      selected = null;
+      legalTargets = [];
+      checkGame(mover, target.r);
+      if (!gameOver) {
+        turn = turn === "W" ? "B" : "W";
+        if (allMoves(turn).length === 0) {
+          gameOver = true;
+          message.textContent = `${players[turn].name} 无法移动，${players[turn === "W" ? "B" : "W"].name} 获胜。`;
+        } else {
+          message.textContent = `${players[turn].name} 行动。`;
+        }
+      }
+      render();
+    }
+
+    function checkGame(player, row) {
+      const tally = counts();
+      if (tally.W === 0 || tally.B === 0) {
+        gameOver = true;
+        message.textContent = `${players[player].name} 吃光对手并获胜。`;
+        return;
+      }
+      if (row === players[player].goal) {
+        gameOver = true;
+        message.textContent = `${players[player].name} 抵达对方底线并获胜。`;
+      }
+    }
+
+    function targetAt(r, c) {
+      return legalTargets.find(target => target.r === r && target.c === c);
+    }
+
+    function handleCell(r, c) {
+      if (gameOver) return;
+      const target = targetAt(r, c);
+      if (selected && target) {
+        applyMove(selected, target);
+        return;
+      }
+      if (pieces[r][c] !== turn) {
+        message.textContent = "请选择当前回合自己的棋子。";
+        return;
+      }
+      selected = [r, c];
+      legalTargets = legalMoves(r, c);
+      message.textContent = legalTargets.length ? `当前地形：${terrainInfo[terrain[r][c]].label}。绿色为移动，黄色为吃子。` : "这枚棋子没有合法移动。";
+      render();
+    }
+
+    function render() {
+      const tally = counts();
+      boardEl.innerHTML = "";
+      pieces.forEach((row, r) => row.forEach((cell, c) => {
+        const button = document.createElement("button");
+        const chosen = selected && selected[0] === r && selected[1] === c;
+        const target = targetAt(r, c);
+        const targetClass = target?.type === "capture" ? "ring-4 ring-amber-200" : target ? "ring-4 ring-emerald-200" : "";
+        button.className = `relative flex aspect-square items-center justify-center rounded border text-sm font-bold transition ${terrainInfo[terrain[r][c]].color} ${chosen ? "ring-4 ring-white" : targetClass || "hover:ring-2 hover:ring-white/70"}`;
+        button.setAttribute("aria-label", `row ${r + 1} column ${c + 1}`);
+        const tile = document.createElement("span");
+        tile.className = "absolute left-1 top-1 rounded bg-black/25 px-1 text-[10px] text-white";
+        tile.textContent = terrainInfo[terrain[r][c]].label;
+        button.appendChild(tile);
+        if (cell) {
+          const stone = document.createElement("span");
+          stone.className = `flex h-12 w-12 items-center justify-center rounded-full text-lg font-black shadow ${players[cell].stone}`;
+          stone.textContent = cell;
+          button.appendChild(stone);
+        }
+        button.addEventListener("click", () => handleCell(r, c));
+        boardEl.appendChild(button);
+      }));
+      turnText.textContent = players[turn].name;
+      whiteCount.textContent = tally.W;
+      blackCount.textContent = tally.B;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
