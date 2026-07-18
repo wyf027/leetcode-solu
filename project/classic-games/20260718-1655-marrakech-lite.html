@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Marrakech</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-rose-950 text-rose-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-rose-800 pb-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-wide">Mini Marrakech</h1>
+        <p class="mt-1 max-w-2xl text-sm text-rose-200/80">
+          5x5 轻量版地毯棋。移动商人、向对手付费、铺设地毯，六轮后比较财富与地毯。
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-amber-300 px-4 py-2 text-sm font-semibold text-rose-950 shadow hover:bg-amber-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-rose-800 bg-rose-900/70 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-3">
+        <div class="rounded-lg border border-rose-800 bg-rose-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-rose-300/70">当前玩家</div>
+          <div id="turnText" class="mt-2 text-xl font-semibold text-amber-200"></div>
+          <div id="statusText" class="mt-2 min-h-16 text-sm leading-6 text-rose-100/90"></div>
+        </div>
+
+        <div class="rounded-lg border border-rose-800 bg-rose-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-rose-300/70">行动</div>
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <button data-turn="left" class="turnBtn rounded-md border border-rose-700 px-3 py-2 text-sm hover:bg-rose-800">左转</button>
+            <button data-turn="right" class="turnBtn rounded-md border border-rose-700 px-3 py-2 text-sm hover:bg-rose-800">右转</button>
+            <button id="stepBtn" class="rounded-md border border-rose-700 px-3 py-2 text-sm hover:bg-rose-800">步数 +1</button>
+            <button id="moveBtn" class="rounded-md bg-amber-300 px-3 py-2 text-sm font-semibold text-rose-950 hover:bg-amber-200">移动</button>
+          </div>
+          <div id="moveText" class="mt-3 text-sm text-rose-100/80"></div>
+        </div>
+
+        <div class="rounded-lg border border-rose-800 bg-rose-900 p-4 text-sm leading-6 text-rose-100/90">
+          <div class="text-xs uppercase tracking-[0.2em] text-rose-300/70">计分</div>
+          <div id="scoreText" class="mt-3 space-y-2"></div>
+          <p class="mt-3 text-rose-200/75">移动后必须在商人相邻空格铺一张地毯。落在对方连通地毯上，要支付该连通区域大小。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const moveText = document.getElementById("moveText");
+    const scoreText = document.getElementById("scoreText");
+    const resetBtn = document.getElementById("resetBtn");
+    const stepBtn = document.getElementById("stepBtn");
+    const moveBtn = document.getElementById("moveBtn");
+    const turnBtns = document.querySelectorAll(".turnBtn");
+
+    const size = 5;
+    const maxRugs = 6;
+    const dirs = [
+      { dr: -1, dc: 0, label: "北", mark: "↑" },
+      { dr: 0, dc: 1, label: "东", mark: "→" },
+      { dr: 1, dc: 0, label: "南", mark: "↓" },
+      { dr: 0, dc: -1, label: "西", mark: "←" },
+    ];
+    const players = {
+      red: { name: "Red", rug: "bg-red-500", border: "border-red-200", text: "text-red-100" },
+      blue: { name: "Blue", rug: "bg-sky-500", border: "border-sky-200", text: "text-sky-100" },
+    };
+
+    let rugs;
+    let merchant;
+    let facing;
+    let turn;
+    let step;
+    let coins;
+    let placed;
+    let phase;
+    let winner;
+    let message;
+
+    function resetGame() {
+      rugs = Array.from({ length: size }, () => Array(size).fill(null));
+      merchant = { row: 2, col: 2 };
+      facing = 0;
+      turn = "red";
+      step = 1;
+      coins = { red: 12, blue: 12 };
+      placed = { red: 0, blue: 0 };
+      phase = "move";
+      winner = null;
+      message = "调整方向和步数，然后移动商人。";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "red" ? "blue" : "red";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function moveMerchant() {
+      if (winner || phase !== "move") return;
+      for (let i = 0; i < step; i += 1) {
+        let nr = merchant.row + dirs[facing].dr;
+        let nc = merchant.col + dirs[facing].dc;
+        if (!inBounds(nr, nc)) {
+          facing = (facing + 2) % 4;
+          nr = merchant.row + dirs[facing].dr;
+          nc = merchant.col + dirs[facing].dc;
+        }
+        merchant = { row: nr, col: nc };
+      }
+      const owner = rugs[merchant.row][merchant.col];
+      if (owner && owner !== turn) {
+        const fee = connectedRugSize(merchant.row, merchant.col);
+        const paid = Math.min(coins[turn], fee);
+        coins[turn] -= paid;
+        coins[owner] += paid;
+        message = `${players[turn].name} 支付 ${paid} 枚钱给 ${players[owner].name}。请选择相邻空格铺地毯。`;
+      } else {
+        message = "请选择商人相邻空格铺地毯。";
+      }
+      phase = "place";
+      render();
+    }
+
+    function connectedRugSize(row, col) {
+      const owner = rugs[row][col];
+      if (!owner) return 0;
+      const seen = new Set();
+      const stack = [{ row, col }];
+      while (stack.length) {
+        const cell = stack.pop();
+        const key = `${cell.row},${cell.col}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ].forEach(([dr, dc]) => {
+          const nr = cell.row + dr;
+          const nc = cell.col + dc;
+          if (inBounds(nr, nc) && rugs[nr][nc] === owner) stack.push({ row: nr, col: nc });
+        });
+      }
+      return seen.size;
+    }
+
+    function canPlace(row, col) {
+      if (phase !== "place" || winner) return false;
+      const dist = Math.abs(row - merchant.row) + Math.abs(col - merchant.col);
+      return dist === 1 && !rugs[row][col];
+    }
+
+    function placeRug(row, col) {
+      if (!canPlace(row, col)) return;
+      rugs[row][col] = turn;
+      placed[turn] += 1;
+      message = `${players[turn].name} 铺了一张地毯。`;
+      checkGame();
+      if (!winner) {
+        turn = opponent(turn);
+        step = 1;
+        phase = "move";
+        message += ` 轮到 ${players[turn].name}。`;
+      }
+      render();
+    }
+
+    function rugCount(player) {
+      return rugs.flat().filter((owner) => owner === player).length;
+    }
+
+    function score(player) {
+      return coins[player] + rugCount(player);
+    }
+
+    function checkGame() {
+      const boardFull = rugs.flat().every(Boolean);
+      const rugsDone = placed.red >= maxRugs && placed.blue >= maxRugs;
+      if (!boardFull && !rugsDone) return;
+      const redScore = score("red");
+      const blueScore = score("blue");
+      winner = redScore === blueScore ? "draw" : redScore > blueScore ? "red" : "blue";
+      message =
+        winner === "draw"
+          ? `平局：双方都是 ${redScore} 分。`
+          : `${players[winner].name} 以 ${Math.max(redScore, blueScore)} 分获胜。`;
+    }
+
+    function turnFacing(delta) {
+      if (winner || phase !== "move") return;
+      facing = (facing + delta + dirs.length) % dirs.length;
+      message = `商人面向${dirs[facing].label}。`;
+      render();
+    }
+
+    function bumpStep() {
+      if (winner || phase !== "move") return;
+      step = step === 3 ? 1 : step + 1;
+      message = `本回合移动 ${step} 步。`;
+      render();
+    }
+
+    function cellClasses(owner, row, col) {
+      const base = ["relative flex aspect-square items-center justify-center rounded-md border text-center transition"];
+      base.push((row + col) % 2 === 0 ? "bg-rose-800 border-rose-700" : "bg-rose-700 border-rose-600");
+      if (owner) base.push(players[owner].rug, players[owner].border);
+      if (canPlace(row, col)) base.push("outline outline-2 outline-amber-200");
+      if (!winner) base.push("hover:border-amber-200");
+      return base.join(" ");
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const owner = rugs[row][col];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = cellClasses(owner, row, col);
+          if (merchant.row === row && merchant.col === col) {
+            cell.innerHTML = `
+              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-amber-200 text-2xl font-black text-rose-950 shadow">
+                ${dirs[facing].mark}
+              </div>
+            `;
+          } else if (owner) {
+            cell.innerHTML = `<span class="text-xs font-bold uppercase tracking-wide ${players[owner].text}">${players[owner].name}</span>`;
+          } else if (canPlace(row, col)) {
+            cell.innerHTML = `<span class="h-3 w-3 rounded-full bg-amber-200"></span>`;
+          }
+          cell.addEventListener("click", () => placeRug(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function renderScores() {
+      scoreText.innerHTML = ["red", "blue"]
+        .map(
+          (player) => `
+            <div class="flex items-center justify-between rounded-md bg-rose-950/50 px-3 py-2">
+              <span class="font-semibold ${players[player].text}">${players[player].name}</span>
+              <span>${coins[player]} 钱 + ${rugCount(player)} 地毯 = ${score(player)}</span>
+            </div>
+          `,
+        )
+        .join("");
+    }
+
+    function render() {
+      renderBoard();
+      renderScores();
+      turnText.textContent = winner ? (winner === "draw" ? "平局" : `${players[winner].name} 胜利`) : players[turn].name;
+      statusText.textContent = message;
+      moveText.textContent = winner
+        ? "游戏结束。"
+        : phase === "move"
+          ? `面向${dirs[facing].label}，将移动 ${step} 步。`
+          : "点击商人正交相邻的空格铺地毯。";
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    stepBtn.addEventListener("click", bumpStep);
+    moveBtn.addEventListener("click", moveMerchant);
+    turnBtns.forEach((button) => {
+      button.addEventListener("click", () => turnFacing(button.dataset.turn === "left" ? -1 : 1));
+    });
+
+    resetGame();
+  </script>
+</body>
+</html>
