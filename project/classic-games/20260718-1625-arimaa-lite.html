@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Arimaa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-stone-800 pb-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-wide">Mini Arimaa</h1>
+        <p class="mt-1 max-w-2xl text-sm text-stone-400">
+          5x5 轻量版抽象棋。强棋可吃弱棋，兔子先到对方底线获胜。
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 shadow hover:bg-amber-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-stone-800 bg-stone-900/80 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-3">
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-stone-500">当前回合</div>
+          <div id="turnText" class="mt-2 text-xl font-semibold text-amber-300"></div>
+          <div id="statusText" class="mt-2 min-h-12 text-sm leading-6 text-stone-300"></div>
+        </div>
+
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-stone-500">棋子强度</div>
+          <ol class="mt-3 space-y-2 text-sm text-stone-300">
+            <li><span class="font-semibold text-amber-300">E</span> Elephant</li>
+            <li><span class="font-semibold text-amber-300">H</span> Horse</li>
+            <li><span class="font-semibold text-amber-300">D</span> Dog</li>
+            <li><span class="font-semibold text-amber-300">C</span> Cat</li>
+            <li><span class="font-semibold text-amber-300">R</span> Rabbit</li>
+          </ol>
+        </div>
+
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <div class="text-xs uppercase tracking-[0.2em] text-stone-500">规则</div>
+          <p class="mt-3">每回合移动一枚己方棋子到正交相邻格。非兔子可四向移动，兔子不能后退。</p>
+          <p class="mt-2">移动到敌方弱棋所在格即可吃子。吃掉全部敌方兔子也获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const strength = { E: 5, H: 4, D: 3, C: 2, R: 1 };
+    const labels = {
+      E: "Elephant",
+      H: "Horse",
+      D: "Dog",
+      C: "Cat",
+      R: "Rabbit",
+    };
+    const sides = {
+      gold: {
+        name: "Gold",
+        text: "text-amber-950",
+        bg: "bg-amber-300",
+        ring: "ring-amber-200",
+        dir: -1,
+      },
+      silver: {
+        name: "Silver",
+        text: "text-slate-950",
+        bg: "bg-slate-200",
+        ring: "ring-slate-100",
+        dir: 1,
+      },
+    };
+
+    let board;
+    let turn;
+    let selected;
+    let legalTargets;
+    let winner;
+    let message;
+
+    function makePiece(side, type) {
+      return { side, type };
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      const backRank = ["C", "D", "E", "H", "C"];
+      const frontRank = [null, "R", "R", "R", null];
+      backRank.forEach((type, col) => {
+        board[0][col] = makePiece("silver", type);
+        board[size - 1][col] = makePiece("gold", type);
+      });
+      frontRank.forEach((type, col) => {
+        if (type) {
+          board[1][col] = makePiece("silver", type);
+          board[size - 2][col] = makePiece("gold", type);
+        }
+      });
+      turn = "gold";
+      selected = null;
+      legalTargets = [];
+      winner = null;
+      message = "选择一枚己方棋子。";
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function cellKey(row, col) {
+      return `${row},${col}`;
+    }
+
+    function targetSet() {
+      return new Set(legalTargets.map((target) => cellKey(target.row, target.col)));
+    }
+
+    function pieceCounts(side) {
+      return board.flat().filter((piece) => piece && piece.side === side).length;
+    }
+
+    function rabbitCount(side) {
+      return board.flat().filter((piece) => piece && piece.side === side && piece.type === "R").length;
+    }
+
+    function legalMoves(row, col) {
+      const piece = board[row][col];
+      if (!piece || piece.side !== turn || winner) return [];
+      const moves = [];
+      const dirs = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+
+      dirs.forEach(([dr, dc]) => {
+        if (piece.type === "R" && dr === -sides[piece.side].dir) return;
+        const nr = row + dr;
+        const nc = col + dc;
+        if (!inBounds(nr, nc)) return;
+        const target = board[nr][nc];
+        if (!target) {
+          moves.push({ row: nr, col: nc, capture: false });
+          return;
+        }
+        if (target.side !== piece.side && strength[piece.type] > strength[target.type]) {
+          moves.push({ row: nr, col: nc, capture: true });
+        }
+      });
+
+      return moves;
+    }
+
+    function allMoves(side) {
+      const savedTurn = turn;
+      turn = side;
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col]?.side === side) {
+            legalMoves(row, col).forEach((move) => moves.push({ from: { row, col }, to: move }));
+          }
+        }
+      }
+      turn = savedTurn;
+      return moves;
+    }
+
+    function opponent(side) {
+      return side === "gold" ? "silver" : "gold";
+    }
+
+    function goalRow(side) {
+      return side === "gold" ? 0 : size - 1;
+    }
+
+    function checkGame(movedSide) {
+      const other = opponent(movedSide);
+      const reachedGoal = board[goalRow(movedSide)].some((piece) => piece?.side === movedSide && piece.type === "R");
+      if (reachedGoal) {
+        winner = movedSide;
+        message = `${sides[movedSide].name} 的兔子到达底线，获胜。`;
+        return;
+      }
+      if (rabbitCount(other) === 0 || pieceCounts(other) === 0) {
+        winner = movedSide;
+        message = `${sides[movedSide].name} 吃掉了对手关键棋子，获胜。`;
+        return;
+      }
+      if (allMoves(other).length === 0) {
+        winner = movedSide;
+        message = `${sides[other].name} 无法移动，${sides[movedSide].name} 获胜。`;
+      }
+    }
+
+    function applyMove(from, to) {
+      const moving = board[from.row][from.col];
+      const captured = board[to.row][to.col];
+      board[to.row][to.col] = moving;
+      board[from.row][from.col] = null;
+      selected = null;
+      legalTargets = [];
+      message = captured
+        ? `${sides[moving.side].name} 的 ${labels[moving.type]} 吃掉 ${labels[captured.type]}。`
+        : `${sides[moving.side].name} 移动 ${labels[moving.type]}。`;
+      checkGame(moving.side);
+      if (!winner) {
+        turn = opponent(turn);
+        message += ` 轮到 ${sides[turn].name}。`;
+      }
+      render();
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+      const piece = board[row][col];
+      const targets = targetSet();
+      if (selected && targets.has(cellKey(row, col))) {
+        applyMove(selected, { row, col });
+        return;
+      }
+      if (piece?.side === turn) {
+        selected = { row, col };
+        legalTargets = legalMoves(row, col);
+        message = legalTargets.length
+          ? `${labels[piece.type]} 有 ${legalTargets.length} 个可走位置。`
+          : `${labels[piece.type]} 暂无合法移动。`;
+      } else {
+        selected = null;
+        legalTargets = [];
+        message = "请选择当前回合的己方棋子。";
+      }
+      render();
+    }
+
+    function pieceClasses(piece) {
+      const side = sides[piece.side];
+      return `${side.bg} ${side.text}`;
+    }
+
+    function renderPiece(piece) {
+      if (!piece) return "";
+      return `
+        <div class="flex h-14 w-14 flex-col items-center justify-center rounded-md ${pieceClasses(piece)} shadow">
+          <span class="text-xl font-black">${piece.type}</span>
+          <span class="text-[10px] font-semibold uppercase">${piece.side[0]}</span>
+        </div>
+      `;
+    }
+
+    function render() {
+      const targets = targetSet();
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const piece = board[row][col];
+          const isSelected = selected?.row === row && selected?.col === col;
+          const isTarget = targets.has(cellKey(row, col));
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = [
+            "relative flex aspect-square items-center justify-center rounded-md border text-center transition",
+            (row + col) % 2 === 0 ? "border-stone-700 bg-stone-800" : "border-stone-800 bg-stone-700",
+            isSelected ? `ring-4 ${sides[turn].ring}` : "",
+            isTarget ? "outline outline-2 outline-emerald-300" : "",
+            !winner ? "hover:border-amber-300" : "cursor-default",
+          ].join(" ");
+          cell.innerHTML = renderPiece(piece);
+          if (isTarget) {
+            const marker = document.createElement("span");
+            marker.className = "absolute right-1 top-1 h-3 w-3 rounded-full bg-emerald-300";
+            cell.appendChild(marker);
+          }
+          cell.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+      turnText.textContent = winner ? `${sides[winner].name} 胜利` : sides[turn].name;
+      statusText.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
