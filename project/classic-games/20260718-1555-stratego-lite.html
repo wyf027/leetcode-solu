@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Stratego</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-950 text-gray-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-gray-800 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Stratego</h1>
+        <p class="mt-1 text-sm text-gray-400">5x5 夺旗战：侦察兵长走，工兵拆雷，夺取旗帜获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-red-400 px-4 py-2 text-sm font-semibold text-gray-950 hover:bg-red-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_280px]">
+      <div class="rounded border border-gray-800 bg-gray-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-gray-800 bg-gray-900 p-4">
+        <div>
+          <p class="text-xs uppercase text-gray-500">当前回合</p>
+          <p id="turnText" class="text-xl font-bold"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-gray-800 p-3">
+            <p class="text-gray-400">蓝方</p>
+            <p id="blueCount" class="text-2xl font-bold text-sky-300"></p>
+          </div>
+          <div class="rounded bg-gray-800 p-3">
+            <p class="text-gray-400">红方</p>
+            <p id="redCount" class="text-2xl font-bold text-red-300"></p>
+          </div>
+        </div>
+        <div class="rounded bg-gray-950 p-3 text-sm text-gray-300">
+          <p class="font-semibold text-gray-100">战斗</p>
+          <p class="mt-1">Commander 4，Miner 3，Scout 2。Bomb 只能被 Miner 拆除，Flag 被夺即败。</p>
+        </div>
+        <p id="message" class="min-h-16 rounded bg-gray-950 p-3 text-sm text-gray-300"></p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const blueCount = document.getElementById("blueCount");
+    const redCount = document.getElementById("redCount");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const ranks = {
+      commander: { label: "C", power: 4, movable: true },
+      miner: { label: "M", power: 3, movable: true },
+      scout: { label: "S", power: 2, movable: true },
+      bomb: { label: "B", power: 5, movable: false },
+      flag: { label: "F", power: 0, movable: false }
+    };
+    const players = {
+      B: { name: "蓝方", color: "bg-sky-400 text-gray-950" },
+      R: { name: "红方", color: "bg-red-400 text-gray-950" }
+    };
+    let board;
+    let turn;
+    let selected;
+    let legalTargets;
+    let gameOver;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      const redBack = ["bomb", "flag", "bomb", "miner", "commander"];
+      const redFront = ["scout", "miner", "scout", "commander", "miner"];
+      const blueFront = ["miner", "commander", "scout", "miner", "scout"];
+      const blueBack = ["commander", "miner", "bomb", "flag", "bomb"];
+      redBack.forEach((type, c) => board[0][c] = makePiece("R", type));
+      redFront.forEach((type, c) => board[1][c] = makePiece("R", type));
+      blueFront.forEach((type, c) => board[3][c] = makePiece("B", type));
+      blueBack.forEach((type, c) => board[4][c] = makePiece("B", type));
+      turn = "B";
+      selected = null;
+      legalTargets = [];
+      gameOver = false;
+      message.textContent = "蓝方先手：选择可移动棋子，夺取对方旗帜。";
+      render();
+    }
+
+    function makePiece(owner, type) {
+      return { owner, type };
+    }
+
+    function inBounds(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function counts() {
+      return board.flat().reduce((acc, cell) => {
+        if (cell) acc[cell.owner] += 1;
+        return acc;
+      }, { B: 0, R: 0 });
+    }
+
+    function hasFlag(player) {
+      return board.flat().some(cell => cell?.owner === player && cell.type === "flag");
+    }
+
+    function addTarget(list, r, c, mover) {
+      if (!inBounds(r, c)) return false;
+      const target = board[r][c];
+      if (target?.owner === mover.owner) return false;
+      list.push({ r, c, type: target ? "attack" : "move" });
+      return !target;
+    }
+
+    function legalMoves(r, c) {
+      const mover = board[r][c];
+      if (!mover || mover.owner !== turn || !ranks[mover.type].movable) return [];
+      const moves = [];
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dr, dc]) => {
+        let nr = r + dr;
+        let nc = c + dc;
+        if (mover.type === "scout") {
+          while (inBounds(nr, nc)) {
+            if (!addTarget(moves, nr, nc, mover)) break;
+            nr += dr;
+            nc += dc;
+          }
+        } else {
+          addTarget(moves, nr, nc, mover);
+        }
+      });
+      return moves;
+    }
+
+    function allMoves(player = turn) {
+      const current = turn;
+      turn = player;
+      const moves = [];
+      board.forEach((row, r) => row.forEach((cell, c) => {
+        if (cell?.owner === player) legalMoves(r, c).forEach(target => moves.push({ from: [r, c], target }));
+      }));
+      turn = current;
+      return moves;
+    }
+
+    function resolveBattle(attacker, defender) {
+      if (defender.type === "flag") return "attacker";
+      if (defender.type === "bomb") return attacker.type === "miner" ? "attacker" : "defender";
+      const attackPower = ranks[attacker.type].power;
+      const defendPower = ranks[defender.type].power;
+      if (attackPower > defendPower) return "attacker";
+      if (attackPower < defendPower) return "defender";
+      return "both";
+    }
+
+    function applyMove(from, target) {
+      const attacker = board[from[0]][from[1]];
+      const defender = board[target.r][target.c];
+      if (!defender) {
+        board[target.r][target.c] = attacker;
+      } else {
+        const result = resolveBattle(attacker, defender);
+        if (result === "attacker") board[target.r][target.c] = attacker;
+        if (result === "defender") board[target.r][target.c] = defender;
+        if (result === "both") board[target.r][target.c] = null;
+      }
+      board[from[0]][from[1]] = null;
+      selected = null;
+      legalTargets = [];
+      checkGame(attacker.owner);
+      if (!gameOver) {
+        turn = turn === "B" ? "R" : "B";
+        if (allMoves(turn).length === 0) {
+          gameOver = true;
+          message.textContent = `${players[turn].name} 无可移动棋子，${players[turn === "B" ? "R" : "B"].name} 获胜。`;
+        } else {
+          message.textContent = `${players[turn].name} 行动。`;
+        }
+      }
+      render();
+    }
+
+    function checkGame(lastPlayer) {
+      const opponent = lastPlayer === "B" ? "R" : "B";
+      const tally = counts();
+      if (!hasFlag(opponent)) {
+        gameOver = true;
+        message.textContent = `${players[lastPlayer].name} 夺取旗帜并获胜。`;
+      } else if (tally[opponent] === 0) {
+        gameOver = true;
+        message.textContent = `${players[lastPlayer].name} 清空对手并获胜。`;
+      }
+    }
+
+    function targetAt(r, c) {
+      return legalTargets.find(target => target.r === r && target.c === c);
+    }
+
+    function handleCell(r, c) {
+      if (gameOver) return;
+      const target = targetAt(r, c);
+      if (selected && target) {
+        applyMove(selected, target);
+        return;
+      }
+      const piece = board[r][c];
+      if (!piece || piece.owner !== turn) {
+        message.textContent = "请选择当前回合自己的棋子。";
+        return;
+      }
+      selected = [r, c];
+      legalTargets = legalMoves(r, c);
+      message.textContent = legalTargets.length ? "绿色为移动，黄色为攻击。" : "这枚棋子不能移动。";
+      render();
+    }
+
+    function render() {
+      const tally = counts();
+      boardEl.innerHTML = "";
+      board.forEach((row, r) => row.forEach((cell, c) => {
+        const button = document.createElement("button");
+        const dark = (r + c) % 2 === 0;
+        const chosen = selected && selected[0] === r && selected[1] === c;
+        const target = targetAt(r, c);
+        const targetClass = target?.type === "attack" ? "ring-4 ring-amber-300" : target ? "ring-4 ring-emerald-300" : "";
+        button.className = `relative flex aspect-square items-center justify-center rounded border transition ${dark ? "border-gray-700 bg-gray-800" : "border-gray-800 bg-gray-700"} ${chosen ? "ring-4 ring-white" : targetClass || "hover:border-red-300"}`;
+        button.setAttribute("aria-label", `row ${r + 1} column ${c + 1}`);
+        if (cell) {
+          const stone = document.createElement("span");
+          stone.className = `flex h-12 w-12 flex-col items-center justify-center rounded text-xs font-black shadow ${players[cell.owner].color}`;
+          stone.innerHTML = `<span>${ranks[cell.type].label}</span><span>${cell.type}</span>`;
+          button.appendChild(stone);
+        }
+        button.addEventListener("click", () => handleCell(r, c));
+        boardEl.appendChild(button);
+      }));
+      turnText.textContent = players[turn].name;
+      blueCount.textContent = tally.B;
+      redCount.textContent = tally.R;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
