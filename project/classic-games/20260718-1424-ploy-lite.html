@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Ploy</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-neutral-800 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Ploy</h1>
+        <p class="mt-1 text-sm text-neutral-400">按棋子上的方向标记滑行，吃掉对方 Commander 或抵达底线获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-cyan-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_280px]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div>
+          <p class="text-xs uppercase text-neutral-500">当前回合</p>
+          <p id="turnText" class="text-xl font-bold"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-neutral-800 p-3">
+            <p class="text-neutral-400">蓝方棋数</p>
+            <p id="blueCount" class="text-2xl font-bold text-cyan-300"></p>
+          </div>
+          <div class="rounded bg-neutral-800 p-3">
+            <p class="text-neutral-400">橙方棋数</p>
+            <p id="orangeCount" class="text-2xl font-bold text-orange-300"></p>
+          </div>
+        </div>
+        <div class="rounded bg-neutral-950 p-3 text-sm text-neutral-300">
+          <p class="font-semibold text-neutral-100">方向标记</p>
+          <p class="mt-1">棋子只能沿自身箭头方向滑行，途中不能越子。</p>
+        </div>
+        <p id="message" class="min-h-16 rounded bg-neutral-950 p-3 text-sm text-neutral-300"></p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const blueCount = document.getElementById("blueCount");
+    const orangeCount = document.getElementById("orangeCount");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const vectors = {
+      N: [-1, 0],
+      NE: [-1, 1],
+      E: [0, 1],
+      SE: [1, 1],
+      S: [1, 0],
+      SW: [1, -1],
+      W: [0, -1],
+      NW: [-1, -1]
+    };
+    const arrows = { N: "↑", NE: "↗", E: "→", SE: "↘", S: "↓", SW: "↙", W: "←", NW: "↖" };
+    const pieceTypes = {
+      commander: { label: "C", dirs: ["N", "E", "S", "W"] },
+      probe: { label: "P", dirs: ["N", "NE", "NW"] },
+      lancer: { label: "L", dirs: ["N", "S"] },
+      wing: { label: "W", dirs: ["E", "W", "NE", "NW"] }
+    };
+    const players = {
+      B: { name: "蓝方", goal: 0, color: "bg-cyan-400 text-neutral-950" },
+      O: { name: "橙方", goal: size - 1, color: "bg-orange-400 text-neutral-950" }
+    };
+    let board;
+    let turn;
+    let selected;
+    let legalTargets;
+    let gameOver;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      const back = ["probe", "wing", "commander", "wing", "probe"];
+      back.forEach((type, c) => {
+        board[0][c] = createPiece("O", type);
+        board[4][c] = createPiece("B", type);
+      });
+      board[1][1] = createPiece("O", "lancer");
+      board[1][3] = createPiece("O", "lancer");
+      board[3][1] = createPiece("B", "lancer");
+      board[3][3] = createPiece("B", "lancer");
+      turn = "B";
+      selected = null;
+      legalTargets = [];
+      gameOver = false;
+      message.textContent = "蓝方先手：选择一枚棋子，沿它的箭头方向滑行。";
+      render();
+    }
+
+    function createPiece(owner, type) {
+      return { owner, type };
+    }
+
+    function inBounds(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function orientedDirs(piece) {
+      const dirs = pieceTypes[piece.type].dirs;
+      if (piece.owner === "B") return dirs;
+      return dirs.map(dir => ({ N: "S", NE: "SW", E: "W", SE: "NW", S: "N", SW: "NE", W: "E", NW: "SE" })[dir]);
+    }
+
+    function counts() {
+      return board.flat().reduce((acc, cell) => {
+        if (cell) acc[cell.owner] += 1;
+        return acc;
+      }, { B: 0, O: 0 });
+    }
+
+    function legalMoves(r, c) {
+      const piece = board[r][c];
+      if (!piece || piece.owner !== turn) return [];
+      const moves = [];
+      orientedDirs(piece).forEach(dir => {
+        const [dr, dc] = vectors[dir];
+        let nr = r + dr;
+        let nc = c + dc;
+        while (inBounds(nr, nc)) {
+          const target = board[nr][nc];
+          if (!target) {
+            moves.push({ r: nr, c: nc, type: "move" });
+          } else {
+            if (target.owner !== piece.owner) moves.push({ r: nr, c: nc, type: "capture" });
+            break;
+          }
+          nr += dr;
+          nc += dc;
+        }
+      });
+      return moves;
+    }
+
+    function allMoves(player = turn) {
+      const current = turn;
+      turn = player;
+      const moves = [];
+      board.forEach((row, r) => row.forEach((cell, c) => {
+        if (cell?.owner === player) legalMoves(r, c).forEach(target => moves.push({ from: [r, c], target }));
+      }));
+      turn = current;
+      return moves;
+    }
+
+    function hasCommander(player) {
+      return board.flat().some(cell => cell?.owner === player && cell.type === "commander");
+    }
+
+    function applyMove(from, target) {
+      const piece = board[from[0]][from[1]];
+      board[target.r][target.c] = piece;
+      board[from[0]][from[1]] = null;
+      selected = null;
+      legalTargets = [];
+      checkGame(piece.owner, target.r);
+      if (!gameOver) {
+        turn = turn === "B" ? "O" : "B";
+        if (allMoves(turn).length === 0) {
+          gameOver = true;
+          message.textContent = `${players[turn].name} 无法行动，${players[turn === "B" ? "O" : "B"].name} 获胜。`;
+        } else {
+          message.textContent = `${players[turn].name} 行动。`;
+        }
+      }
+      render();
+    }
+
+    function checkGame(player, row) {
+      const opponent = player === "B" ? "O" : "B";
+      if (!hasCommander(opponent)) {
+        gameOver = true;
+        message.textContent = `${players[player].name} 吃掉 Commander 并获胜。`;
+        return;
+      }
+      if (row === players[player].goal) {
+        gameOver = true;
+        message.textContent = `${players[player].name} 抵达目标底线并获胜。`;
+      }
+    }
+
+    function targetAt(r, c) {
+      return legalTargets.find(target => target.r === r && target.c === c);
+    }
+
+    function handleCell(r, c) {
+      if (gameOver) return;
+      const target = targetAt(r, c);
+      if (selected && target) {
+        applyMove(selected, target);
+        return;
+      }
+      const piece = board[r][c];
+      if (!piece || piece.owner !== turn) {
+        message.textContent = "请选择当前回合自己的棋子。";
+        return;
+      }
+      selected = [r, c];
+      legalTargets = legalMoves(r, c);
+      message.textContent = legalTargets.length ? "绿色为移动，黄色为吃子。" : "这枚棋子没有合法移动。";
+      render();
+    }
+
+    function renderDirections(piece) {
+      return orientedDirs(piece).map(dir => arrows[dir]).join("");
+    }
+
+    function render() {
+      const tally = counts();
+      boardEl.innerHTML = "";
+      board.forEach((row, r) => row.forEach((cell, c) => {
+        const button = document.createElement("button");
+        const dark = (r + c) % 2 === 0;
+        const chosen = selected && selected[0] === r && selected[1] === c;
+        const target = targetAt(r, c);
+        const targetClass = target?.type === "capture" ? "ring-4 ring-amber-300" : target ? "ring-4 ring-emerald-300" : "";
+        button.className = `relative flex aspect-square items-center justify-center rounded border transition ${dark ? "border-neutral-700 bg-neutral-800" : "border-neutral-800 bg-neutral-700"} ${chosen ? "ring-4 ring-white" : targetClass || "hover:border-cyan-300"}`;
+        button.setAttribute("aria-label", `row ${r + 1} column ${c + 1}`);
+        if (cell) {
+          const stone = document.createElement("span");
+          stone.className = `flex h-14 w-14 flex-col items-center justify-center rounded text-xs font-black shadow ${players[cell.owner].color}`;
+          stone.innerHTML = `<span class="text-lg">${pieceTypes[cell.type].label}</span><span>${renderDirections(cell)}</span>`;
+          button.appendChild(stone);
+        }
+        button.addEventListener("click", () => handleCell(r, c));
+        boardEl.appendChild(button);
+      }));
+      turnText.textContent = players[turn].name;
+      blueCount.textContent = tally.B;
+      orangeCount.textContent = tally.O;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
