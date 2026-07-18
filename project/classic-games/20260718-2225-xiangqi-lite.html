@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Xiangqi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:items-center md:justify-center">
+    <section class="w-full max-w-xl">
+      <div class="mb-4 flex items-end justify-between gap-3">
+        <div>
+          <p class="text-sm uppercase tracking-[0.24em] text-orange-300">Classic Games</p>
+          <h1 class="text-3xl font-bold text-white">Mini Xiangqi</h1>
+        </div>
+        <button id="reset" class="rounded bg-orange-400 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-orange-300">Reset</button>
+      </div>
+
+      <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2 rounded bg-neutral-900 p-3 shadow-2xl shadow-black/40"></div>
+    </section>
+
+    <aside class="w-full max-w-sm space-y-4">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-4">
+        <h2 class="mb-2 text-lg font-bold text-orange-200">Status</h2>
+        <p id="status" class="min-h-12 text-sm leading-6 text-neutral-200"></p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-neutral-400">Red</p>
+          <p id="redCount" class="mt-1 text-2xl font-bold text-red-300">0</p>
+        </div>
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-neutral-400">Black</p>
+          <p id="blackCount" class="mt-1 text-2xl font-bold text-slate-300">0</p>
+        </div>
+      </div>
+
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+        <h2 class="mb-2 text-lg font-bold text-orange-200">Rules</h2>
+        <p>Capture the opposing general, or advance a soldier into the far palace row.</p>
+        <p class="mt-2">Generals and soldiers move one orthogonal step. Chariots slide straight. Horses move in an L shape.</p>
+        <p class="mt-2">This compact board keeps Xiangqi's piece roles while making each round fast enough to play in a browser tab.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const redCountEl = document.getElementById("redCount");
+    const blackCountEl = document.getElementById("blackCount");
+    const resetButton = document.getElementById("reset");
+    const labels = {
+      rG: "帥",
+      rR: "車",
+      rH: "馬",
+      rS: "兵",
+      bG: "將",
+      bR: "車",
+      bH: "馬",
+      bS: "卒"
+    };
+
+    let board = [];
+    let turn = "r";
+    let selected = null;
+    let moves = [];
+    let gameOver = false;
+
+    function makePiece(side, type) {
+      return { side, type };
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      board[0][0] = makePiece("b", "R");
+      board[0][2] = makePiece("b", "G");
+      board[0][4] = makePiece("b", "H");
+      board[1][1] = makePiece("b", "S");
+      board[1][3] = makePiece("b", "S");
+      board[3][1] = makePiece("r", "S");
+      board[3][3] = makePiece("r", "S");
+      board[4][0] = makePiece("r", "H");
+      board[4][2] = makePiece("r", "G");
+      board[4][4] = makePiece("r", "R");
+      turn = "r";
+      selected = null;
+      moves = [];
+      gameOver = false;
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceAt(row, col) {
+      return board[row][col];
+    }
+
+    function canLand(row, col, side) {
+      return inBounds(row, col) && (!pieceAt(row, col) || pieceAt(row, col).side !== side);
+    }
+
+    function addStepMoves(row, col, side, dirs) {
+      return dirs
+        .map(([dr, dc]) => ({ row: row + dr, col: col + dc }))
+        .filter((move) => canLand(move.row, move.col, side));
+    }
+
+    function chariotMoves(row, col, side) {
+      const result = [];
+      [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([dr, dc]) => {
+        let nextRow = row + dr;
+        let nextCol = col + dc;
+        while (inBounds(nextRow, nextCol)) {
+          const target = pieceAt(nextRow, nextCol);
+          if (!target) {
+            result.push({ row: nextRow, col: nextCol });
+          } else {
+            if (target.side !== side) result.push({ row: nextRow, col: nextCol });
+            break;
+          }
+          nextRow += dr;
+          nextCol += dc;
+        }
+      });
+      return result;
+    }
+
+    function horseMoves(row, col, side) {
+      return [
+        [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+        [1, -2], [1, 2], [2, -1], [2, 1]
+      ]
+        .map(([dr, dc]) => ({ row: row + dr, col: col + dc }))
+        .filter((move) => canLand(move.row, move.col, side));
+    }
+
+    function legalMoves(row, col) {
+      const piece = pieceAt(row, col);
+      if (!piece) return [];
+      if (piece.type === "G") {
+        return addStepMoves(row, col, piece.side, [[-1, 0], [1, 0], [0, -1], [0, 1]]);
+      }
+      if (piece.type === "S") {
+        const forward = piece.side === "r" ? -1 : 1;
+        return addStepMoves(row, col, piece.side, [[forward, 0], [0, -1], [0, 1]]);
+      }
+      if (piece.type === "R") return chariotMoves(row, col, piece.side);
+      if (piece.type === "H") return horseMoves(row, col, piece.side);
+      return [];
+    }
+
+    function allMovesFor(side) {
+      const result = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const piece = pieceAt(row, col);
+          if (piece && piece.side === side) {
+            legalMoves(row, col).forEach((move) => result.push({ from: { row, col }, move }));
+          }
+        }
+      }
+      return result;
+    }
+
+    function countPieces(side) {
+      return board.flat().filter((piece) => piece && piece.side === side).length;
+    }
+
+    function hasGeneral(side) {
+      return board.flat().some((piece) => piece && piece.side === side && piece.type === "G");
+    }
+
+    function soldierReached(side) {
+      const targetRow = side === "r" ? 0 : size - 1;
+      return board[targetRow].some((piece) => piece && piece.side === side && piece.type === "S");
+    }
+
+    function opponent(side) {
+      return side === "r" ? "b" : "r";
+    }
+
+    function sideName(side) {
+      return side === "r" ? "Red" : "Black";
+    }
+
+    function finishGame(message) {
+      gameOver = true;
+      selected = null;
+      moves = [];
+      statusEl.textContent = message;
+    }
+
+    function checkGame() {
+      if (!hasGeneral("r")) {
+        finishGame("Black wins by capturing the red general.");
+        return true;
+      }
+      if (!hasGeneral("b")) {
+        finishGame("Red wins by capturing the black general.");
+        return true;
+      }
+      if (soldierReached("r")) {
+        finishGame("Red wins by reaching the black palace row.");
+        return true;
+      }
+      if (soldierReached("b")) {
+        finishGame("Black wins by reaching the red palace row.");
+        return true;
+      }
+      if (allMovesFor(turn).length === 0) {
+        finishGame(`${sideName(turn)} has no legal move. ${sideName(opponent(turn))} wins.`);
+        return true;
+      }
+      return false;
+    }
+
+    function selectCell(row, col) {
+      if (gameOver) return;
+      const piece = pieceAt(row, col);
+      if (!piece || piece.side !== turn) {
+        selected = null;
+        moves = [];
+        render();
+        return;
+      }
+      selected = { row, col };
+      moves = legalMoves(row, col);
+      render();
+    }
+
+    function applyMove(row, col) {
+      if (!selected || gameOver) return;
+      const move = moves.find((item) => item.row === row && item.col === col);
+      if (!move) return;
+
+      const piece = pieceAt(selected.row, selected.col);
+      board[selected.row][selected.col] = null;
+      board[row][col] = piece;
+      selected = null;
+      moves = [];
+      turn = opponent(turn);
+      render();
+      if (!checkGame()) renderStatus();
+    }
+
+    function handleCell(row, col) {
+      if (moves.some((move) => move.row === row && move.col === col)) {
+        applyMove(row, col);
+        return;
+      }
+      selectCell(row, col);
+    }
+
+    function cellClasses(row, col) {
+      const isPalace = (row === 0 || row === size - 1) && col >= 1 && col <= 3;
+      const isRiver = row === 2;
+      const isSelected = selected && selected.row === row && selected.col === col;
+      const isMove = moves.some((move) => move.row === row && move.col === col);
+      const classes = [
+        "relative",
+        "flex",
+        "aspect-square",
+        "items-center",
+        "justify-center",
+        "rounded",
+        "border",
+        "text-2xl",
+        "font-black",
+        "transition"
+      ];
+      if (isPalace) {
+        classes.push("border-orange-300 bg-orange-950");
+      } else if (isRiver) {
+        classes.push("border-cyan-500 bg-cyan-950");
+      } else {
+        classes.push("border-neutral-700 bg-neutral-800");
+      }
+      if (isSelected) classes.push("ring-4 ring-yellow-300");
+      if (isMove) classes.push("cursor-pointer bg-emerald-900 ring-2 ring-emerald-400");
+      if (!gameOver && !isMove) classes.push("hover:bg-neutral-700");
+      return classes.join(" ");
+    }
+
+    function renderPiece(piece) {
+      if (!piece) return "";
+      const color = piece.side === "r"
+        ? "bg-red-300 text-red-950"
+        : "bg-slate-300 text-slate-950";
+      return `<span class="flex h-11 w-11 items-center justify-center rounded-full ${color} shadow">${labels[piece.side + piece.type]}</span>`;
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(row, col);
+          button.innerHTML = renderPiece(pieceAt(row, col));
+          button.setAttribute("aria-label", `Row ${row + 1}, column ${col + 1}`);
+          if (row === 2) {
+            const mark = document.createElement("span");
+            mark.className = "absolute bottom-1 text-[10px] font-bold uppercase tracking-wider text-cyan-200";
+            mark.textContent = "river";
+            button.appendChild(mark);
+          }
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function renderStatus() {
+      if (gameOver) return;
+      const hint = selected
+        ? `${sideName(turn)}: choose a highlighted destination.`
+        : `${sideName(turn)} to move. Select a piece.`;
+      statusEl.textContent = hint;
+    }
+
+    function renderCounts() {
+      redCountEl.textContent = countPieces("r");
+      blackCountEl.textContent = countPieces("b");
+    }
+
+    function render() {
+      renderBoard();
+      renderCounts();
+      renderStatus();
+    }
+
+    resetButton.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
