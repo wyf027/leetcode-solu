@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Boop</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-fuchsia-950 text-fuchsia-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-fuchsia-800 pb-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-wide">Mini Boop</h1>
+        <p class="mt-1 max-w-2xl text-sm text-fuchsia-200/80">
+          5x5 轻量版推挤棋。放置一只小猫，会把周围棋子向外推；三连即可得分。
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-pink-300 px-4 py-2 text-sm font-semibold text-fuchsia-950 shadow hover:bg-pink-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-fuchsia-800 bg-fuchsia-900/70 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-3">
+        <div class="rounded-lg border border-fuchsia-800 bg-fuchsia-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-fuchsia-300/70">当前玩家</div>
+          <div id="turnText" class="mt-2 text-xl font-semibold text-pink-200"></div>
+          <div id="statusText" class="mt-2 min-h-16 text-sm leading-6 text-fuchsia-100/90"></div>
+        </div>
+
+        <div class="rounded-lg border border-fuchsia-800 bg-fuchsia-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-fuchsia-300/70">得分</div>
+          <div id="scoreText" class="mt-3 space-y-2 text-sm"></div>
+        </div>
+
+        <div class="rounded-lg border border-fuchsia-800 bg-fuchsia-900 p-4 text-sm leading-6 text-fuchsia-100/90">
+          <div class="text-xs uppercase tracking-[0.2em] text-fuchsia-300/70">规则</div>
+          <p class="mt-3">点击空格放置当前玩家的小猫。新放置的小猫会把八邻格里的棋子沿相反方向推一格。</p>
+          <p class="mt-2">任意横、竖、斜三连得 1 分，并移除该三连；先得 2 分获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const scoreText = document.getElementById("scoreText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const winScore = 2;
+    const players = {
+      pink: { name: "Pink", piece: "bg-pink-300", text: "text-pink-200" },
+      teal: { name: "Teal", piece: "bg-teal-300", text: "text-teal-200" },
+    };
+    const neighborDirs = [
+      [-1, -1],
+      [-1, 0],
+      [-1, 1],
+      [0, -1],
+      [0, 1],
+      [1, -1],
+      [1, 0],
+      [1, 1],
+    ];
+    const lineDirs = [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+      [1, -1],
+    ];
+
+    let board;
+    let turn;
+    let scores;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      turn = "pink";
+      scores = { pink: 0, teal: 0 };
+      winner = null;
+      message = "点击空格放置一只小猫。";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "pink" ? "teal" : "pink";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function canPlace(row, col) {
+      return !winner && board[row][col] === null;
+    }
+
+    function placeKitten(row, col) {
+      if (!canPlace(row, col)) return;
+      board[row][col] = turn;
+      boopNeighbors(row, col);
+      const lines = findLines(turn);
+      if (lines.length) {
+        removeLine(lines[0]);
+        scores[turn] += 1;
+        message = `${players[turn].name} 完成三连，得 1 分。`;
+      } else {
+        message = `${players[turn].name} 放置并推挤。`;
+      }
+      checkGame();
+      if (!winner) {
+        turn = opponent(turn);
+        message += ` 轮到 ${players[turn].name}。`;
+      }
+      render();
+    }
+
+    function boopNeighbors(row, col) {
+      neighborDirs.forEach(([dr, dc]) => {
+        const nr = row + dr;
+        const nc = col + dc;
+        const tr = nr + dr;
+        const tc = nc + dc;
+        if (!inBounds(nr, nc) || board[nr][nc] === null) return;
+        const pushed = board[nr][nc];
+        if (inBounds(tr, tc)) {
+          if (board[tr][tc] === null) {
+            board[tr][tc] = pushed;
+            board[nr][nc] = null;
+          }
+        } else {
+          board[nr][nc] = null;
+        }
+      });
+    }
+
+    function findLines(player) {
+      const lines = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] !== player) continue;
+          lineDirs.forEach(([dr, dc]) => {
+            const cells = [
+              [row, col],
+              [row + dr, col + dc],
+              [row + 2 * dr, col + 2 * dc],
+            ];
+            if (cells.every(([r, c]) => inBounds(r, c) && board[r][c] === player)) {
+              lines.push(cells);
+            }
+          });
+        }
+      }
+      return lines;
+    }
+
+    function removeLine(cells) {
+      cells.forEach(([row, col]) => {
+        board[row][col] = null;
+      });
+    }
+
+    function checkGame() {
+      if (scores[turn] >= winScore) {
+        winner = turn;
+        message = `${players[turn].name} 达到 ${winScore} 分，获胜。`;
+        return;
+      }
+      if (board.flat().every(Boolean)) {
+        const pinkScore = scores.pink;
+        const tealScore = scores.teal;
+        winner = pinkScore === tealScore ? "draw" : pinkScore > tealScore ? "pink" : "teal";
+        message =
+          winner === "draw"
+            ? "棋盘填满，双方平局。"
+            : `棋盘填满，${players[winner].name} 获胜。`;
+      }
+    }
+
+    function renderScores() {
+      scoreText.innerHTML = ["pink", "teal"]
+        .map(
+          (player) => `
+            <div class="flex items-center justify-between rounded-md bg-fuchsia-950/60 px-3 py-2">
+              <span class="font-semibold ${players[player].text}">${players[player].name}</span>
+              <span>${scores[player]} / ${winScore}</span>
+            </div>
+          `,
+        )
+        .join("");
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const owner = board[row][col];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = [
+            "relative flex aspect-square items-center justify-center rounded-md border transition",
+            (row + col) % 2 === 0 ? "border-fuchsia-700 bg-fuchsia-800" : "border-fuchsia-800 bg-fuchsia-700",
+            canPlace(row, col) ? "hover:border-pink-200 hover:bg-fuchsia-600" : "",
+            winner ? "cursor-default" : "",
+          ].join(" ");
+          if (owner) {
+            cell.innerHTML = `
+              <span class="flex h-12 w-12 items-center justify-center rounded-full ${players[owner].piece} text-xl font-black text-fuchsia-950 shadow">
+                ${owner === "pink" ? "P" : "T"}
+              </span>
+            `;
+          } else if (canPlace(row, col)) {
+            cell.innerHTML = `<span class="h-3 w-3 rounded-full bg-pink-200/60"></span>`;
+          }
+          cell.addEventListener("click", () => placeKitten(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function render() {
+      renderBoard();
+      renderScores();
+      turnText.textContent = winner ? (winner === "draw" ? "平局" : `${players[winner].name} 胜利`) : players[turn].name;
+      turnText.className = `mt-2 text-xl font-semibold ${winner && winner !== "draw" ? players[winner].text : players[turn]?.text || "text-pink-200"}`;
+      statusText.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
