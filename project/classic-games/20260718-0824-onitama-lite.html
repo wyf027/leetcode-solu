@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Onitama</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-red-300">Classic abstract</p>
+        <h1 class="text-3xl font-black text-white">Mini Onitama</h1>
+        <p class="mt-1 max-w-2xl text-sm text-slate-300">Move with one of your two cards, then trade it with the shared card. Capture the master or reach the temple.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-red-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-red-200">Reset</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_19rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div id="board" class="grid grid-cols-5 gap-2"></div>
+      </div>
+      <aside class="flex flex-col gap-3">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm font-semibold text-slate-400">Status</p>
+          <p id="statusText" class="mt-2 text-xl font-black text-white">Select a red card.</p>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm font-bold text-white">Red cards</p>
+          <div id="redCards" class="mt-3 grid gap-2"></div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm font-bold text-white">Shared card</p>
+          <div id="sharedCard" class="mt-3"></div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
+          <p class="font-bold text-white">Pieces</p>
+          <p class="mt-2">M is the master. S are students. Red plays upward; blue replies automatically.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const cards = {
+      Tiger: [[-2, 0], [1, 0]],
+      Crab: [[0, -2], [0, 2], [-1, 0]],
+      Monkey: [[-1, -1], [-1, 1], [1, -1], [1, 1]],
+      Crane: [[-1, 0], [1, -1], [1, 1]],
+      Dragon: [[-1, -2], [-1, 2], [1, -1], [1, 1]]
+    };
+    const boardEl = document.getElementById("board");
+    const statusText = document.getElementById("statusText");
+    const redCardsEl = document.getElementById("redCards");
+    const sharedCardEl = document.getElementById("sharedCard");
+    const resetBtn = document.getElementById("resetBtn");
+    let board = [];
+    let hands = {};
+    let shared = "";
+    let selectedCard = null;
+    let selectedPiece = null;
+    let targets = [];
+    let turn = "R";
+    let gameOver = false;
+
+    function freshBoard() {
+      return [
+        ["BS", "BS", "BM", "BS", "BS"],
+        ["", "", "", "", ""],
+        ["", "", "", "", ""],
+        ["", "", "", "", ""],
+        ["RS", "RS", "RM", "RS", "RS"]
+      ];
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function owner(piece) {
+      return piece ? piece[0] : "";
+    }
+
+    function kind(piece) {
+      return piece ? piece[1] : "";
+    }
+
+    function orientMove(player, move) {
+      return player === "R" ? move : [-move[0], -move[1]];
+    }
+
+    function legalTargets(row, col, cardName, player = turn) {
+      const piece = board[row][col];
+      if (!piece || owner(piece) !== player || !cardName || gameOver) return [];
+      return cards[cardName].flatMap((move) => {
+        const [dr, dc] = orientMove(player, move);
+        const nextRow = row + dr;
+        const nextCol = col + dc;
+        if (!inBounds(nextRow, nextCol)) return [];
+        if (owner(board[nextRow][nextCol]) === player) return [];
+        return [{ row: nextRow, col: nextCol }];
+      });
+    }
+
+    function allMoves(player) {
+      const moves = [];
+      for (const cardName of hands[player]) {
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            for (const target of legalTargets(row, col, cardName, player)) {
+              moves.push({ cardName, fromRow: row, fromCol: col, row: target.row, col: target.col });
+            }
+          }
+        }
+      }
+      return moves;
+    }
+
+    function swapCard(player, usedCard) {
+      const cardIndex = hands[player].indexOf(usedCard);
+      hands[player][cardIndex] = shared;
+      shared = usedCard;
+    }
+
+    function movePiece(fromRow, fromCol, toRow, toCol, cardName) {
+      const moving = board[fromRow][fromCol];
+      const captured = board[toRow][toCol];
+      board[toRow][toCol] = moving;
+      board[fromRow][fromCol] = "";
+      selectedPiece = null;
+      selectedCard = null;
+      targets = [];
+      if (captured && kind(captured) === "M") {
+        gameOver = true;
+        statusText.textContent = owner(moving) === "R" ? "Red wins by capture." : "Blue wins by capture.";
+      } else if (moving === "RM" && toRow === 0 && toCol === 2) {
+        gameOver = true;
+        statusText.textContent = "Red wins by reaching the temple.";
+      } else if (moving === "BM" && toRow === 4 && toCol === 2) {
+        gameOver = true;
+        statusText.textContent = "Blue wins by reaching the temple.";
+      } else {
+        swapCard(turn, cardName);
+        turn = turn === "R" ? "B" : "R";
+        statusText.textContent = turn === "R" ? "Select a red card." : "Blue is thinking.";
+      }
+      render();
+      if (!gameOver && turn === "B") {
+        window.setTimeout(playComputerTurn, 350);
+      }
+    }
+
+    function chooseAiMove() {
+      const moves = allMoves("B");
+      if (!moves.length) return null;
+      for (const move of moves) {
+        if (board[move.row][move.col] === "RM" || (board[move.fromRow][move.fromCol] === "BM" && move.row === 4 && move.col === 2)) {
+          return move;
+        }
+      }
+      moves.sort((a, b) => (board[b.row][b.col] ? 1 : 0) - (board[a.row][a.col] ? 1 : 0));
+      return moves[0];
+    }
+
+    function playComputerTurn() {
+      const move = chooseAiMove();
+      if (!move) {
+        gameOver = true;
+        statusText.textContent = "Blue has no move. Red wins.";
+        render();
+        return;
+      }
+      movePiece(move.fromRow, move.fromCol, move.row, move.col, move.cardName);
+    }
+
+    function handleCard(cardName) {
+      if (turn !== "R" || gameOver) return;
+      selectedCard = cardName;
+      selectedPiece = null;
+      targets = [];
+      statusText.textContent = "Select a red piece.";
+      render();
+    }
+
+    function handleCell(row, col) {
+      if (turn !== "R" || gameOver) return;
+      const target = targets.find((move) => move.row === row && move.col === col);
+      if (selectedPiece && target) {
+        movePiece(selectedPiece.row, selectedPiece.col, row, col, selectedCard);
+        return;
+      }
+      if (selectedCard && owner(board[row][col]) === "R") {
+        selectedPiece = { row, col };
+        targets = legalTargets(row, col, selectedCard, "R");
+        statusText.textContent = targets.length ? "Choose a destination." : "That piece has no move with this card.";
+      }
+      render();
+    }
+
+    function cardHtml(cardName, active = false) {
+      const moves = cards[cardName].map(([r, c]) => `${r},${c}`).join(" ");
+      const activeClass = active ? "border-red-200 bg-red-950" : "border-slate-700 bg-slate-800";
+      return `<div class="rounded border ${activeClass} p-3"><p class="font-black text-white">${cardName}</p><p class="mt-1 text-xs text-slate-300">${moves}</p></div>`;
+    }
+
+    function renderCards() {
+      redCardsEl.innerHTML = "";
+      for (const cardName of hands.R) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "text-left";
+        button.innerHTML = cardHtml(cardName, cardName === selectedCard);
+        button.addEventListener("click", () => handleCard(cardName));
+        redCardsEl.appendChild(button);
+      }
+      sharedCardEl.innerHTML = cardHtml(shared, false);
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const piece = board[row][col];
+          const isTemple = (row === 0 || row === 4) && col === 2;
+          const isSelected = selectedPiece && selectedPiece.row === row && selectedPiece.col === col;
+          const isTarget = targets.some((move) => move.row === row && move.col === col);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.setAttribute("aria-label", `row ${row + 1}, column ${col + 1}`);
+          button.className = [
+            "aspect-square rounded border text-xl font-black transition focus:outline-none focus:ring-2 focus:ring-white",
+            isTemple ? "border-yellow-500 bg-yellow-950" : (row + col) % 2 === 0 ? "border-slate-700 bg-slate-800" : "border-slate-700 bg-slate-700",
+            owner(piece) === "R" ? "text-red-300" : "",
+            owner(piece) === "B" ? "text-sky-300" : "",
+            isSelected ? "ring-2 ring-white" : "",
+            isTarget ? "border-white bg-slate-600" : "",
+            "hover:bg-slate-600"
+          ].join(" ");
+          button.textContent = piece ? kind(piece) : "";
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render() {
+      renderCards();
+      renderBoard();
+    }
+
+    function resetGame() {
+      board = freshBoard();
+      hands = { R: ["Tiger", "Monkey"], B: ["Crab", "Crane"] };
+      shared = "Dragon";
+      selectedCard = null;
+      selectedPiece = null;
+      targets = [];
+      turn = "R";
+      gameOver = false;
+      statusText.textContent = "Select a red card.";
+      render();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
