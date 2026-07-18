@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Blooms Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.28em] text-fuchsia-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Blooms</h1>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+          A compact territory duel inspired by Blooms. Grow flower groups, surround rival groups, and count the board after 12 turns.
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-200">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+        <div id="board" class="mx-auto grid max-w-xl gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <div class="text-xs uppercase tracking-[0.22em] text-slate-400">Turn</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold text-fuchsia-200"></div>
+          <div id="statusText" class="mt-3 min-h-16 text-sm leading-6 text-slate-300"></div>
+        </div>
+
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <div class="text-xs uppercase tracking-[0.22em] text-slate-400">Score</div>
+          <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-slate-800 p-3">
+              <div class="font-semibold text-fuchsia-200">Plum</div>
+              <div id="plumScore" class="mt-1 text-2xl font-bold">0</div>
+            </div>
+            <div class="rounded bg-slate-800 p-3">
+              <div class="font-semibold text-emerald-200">Mint</div>
+              <div id="mintScore" class="mt-1 text-2xl font-bold">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-700 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <div class="mb-2 font-semibold text-slate-100">Rules</div>
+          <p>Place one flower on an empty hex.</p>
+          <p class="mt-2">After each move, adjacent enemy groups with no liberties are removed.</p>
+          <p class="mt-2">After 12 placements, the player with more flowers on the board wins.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const radius = 3;
+    const maxTurns = 12;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const plumScore = document.getElementById("plumScore");
+    const mintScore = document.getElementById("mintScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const names = { p: "Plum", m: "Mint" };
+    const dirs = [
+      [1, 0], [1, -1], [0, -1],
+      [-1, 0], [-1, 1], [0, 1]
+    ];
+
+    let cells;
+    let board;
+    let turn;
+    let turnsPlayed;
+    let winner;
+    let lastCapture;
+
+    function makeCells() {
+      const list = [];
+      for (let q = -radius + 1; q <= radius - 1; q++) {
+        for (let r = -radius + 1; r <= radius - 1; r++) {
+          const s = -q - r;
+          if (Math.max(Math.abs(q), Math.abs(r), Math.abs(s)) < radius) list.push({ q, r });
+        }
+      }
+      return list;
+    }
+
+    function key(q, r) {
+      return `${q},${r}`;
+    }
+
+    function opponent(side) {
+      return side === "p" ? "m" : "p";
+    }
+
+    function resetGame() {
+      cells = makeCells();
+      board = new Map();
+      turn = "p";
+      turnsPlayed = 0;
+      winner = null;
+      lastCapture = 0;
+      render();
+    }
+
+    function hasCell(q, r) {
+      return cells.some((cell) => cell.q === q && cell.r === r);
+    }
+
+    function neighbors(q, r) {
+      return dirs
+        .map(([dq, dr]) => ({ q: q + dq, r: r + dr }))
+        .filter((cell) => hasCell(cell.q, cell.r));
+    }
+
+    function stoneAt(q, r) {
+      return board.get(key(q, r));
+    }
+
+    function groupFrom(q, r) {
+      const side = stoneAt(q, r);
+      if (!side) return { stones: [], liberties: 0 };
+      const seen = new Set([key(q, r)]);
+      const queue = [{ q, r }];
+      const stones = [];
+      const liberties = new Set();
+      while (queue.length) {
+        const cell = queue.shift();
+        stones.push(cell);
+        for (const next of neighbors(cell.q, cell.r)) {
+          const nextKey = key(next.q, next.r);
+          const occupant = stoneAt(next.q, next.r);
+          if (!occupant) {
+            liberties.add(nextKey);
+          } else if (occupant === side && !seen.has(nextKey)) {
+            seen.add(nextKey);
+            queue.push(next);
+          }
+        }
+      }
+      return { stones, liberties: liberties.size };
+    }
+
+    function removeCapturedAround(q, r) {
+      const enemy = opponent(turn);
+      const checked = new Set();
+      let removed = 0;
+      for (const next of neighbors(q, r)) {
+        const nextKey = key(next.q, next.r);
+        if (stoneAt(next.q, next.r) !== enemy || checked.has(nextKey)) continue;
+        const group = groupFrom(next.q, next.r);
+        group.stones.forEach((stone) => checked.add(key(stone.q, stone.r)));
+        if (group.liberties === 0) {
+          for (const stone of group.stones) {
+            board.delete(key(stone.q, stone.r));
+            removed += 1;
+          }
+        }
+      }
+      return removed;
+    }
+
+    function legalMove(q, r) {
+      return !winner && hasCell(q, r) && !stoneAt(q, r);
+    }
+
+    function placeFlower(q, r) {
+      if (!legalMove(q, r)) return;
+      board.set(key(q, r), turn);
+      const captured = removeCapturedAround(q, r);
+      const ownGroup = groupFrom(q, r);
+      if (ownGroup.liberties === 0 && captured === 0) {
+        board.delete(key(q, r));
+        statusText.textContent = "That flower would have no liberties.";
+        return;
+      }
+      lastCapture = captured;
+      turnsPlayed += 1;
+      if (turnsPlayed >= maxTurns || emptyCells().length === 0) {
+        finishGame();
+      } else {
+        turn = opponent(turn);
+      }
+      render();
+    }
+
+    function emptyCells() {
+      return cells.filter((cell) => !stoneAt(cell.q, cell.r));
+    }
+
+    function scoreBoard() {
+      const score = { p: 0, m: 0 };
+      for (const side of board.values()) score[side] += 1;
+      return score;
+    }
+
+    function finishGame() {
+      const score = scoreBoard();
+      if (score.p === score.m) {
+        winner = "draw";
+      } else {
+        winner = score.p > score.m ? "p" : "m";
+      }
+    }
+
+    function rowCells() {
+      const rows = [];
+      for (let r = -radius + 1; r <= radius - 1; r++) {
+        rows.push(cells.filter((cell) => cell.r === r).sort((a, b) => a.q - b.q));
+      }
+      return rows;
+    }
+
+    function cellClasses(cell) {
+      const side = stoneAt(cell.q, cell.r);
+      if (side === "p") return "border-fuchsia-100 bg-fuchsia-300 text-fuchsia-950";
+      if (side === "m") return "border-emerald-100 bg-emerald-300 text-emerald-950";
+      if (!winner) return "border-slate-600 bg-slate-800 text-slate-400 hover:border-fuchsia-300 hover:bg-slate-700";
+      return "border-slate-700 bg-slate-800 text-slate-600";
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (const row of rowCells()) {
+        const line = document.createElement("div");
+        line.className = "flex justify-center gap-2";
+        line.style.marginLeft = `${Math.abs(row[0].r) * 1.15}rem`;
+        for (const cell of row) {
+          const side = stoneAt(cell.q, cell.r);
+          const button = document.createElement("button");
+          button.className = `flex h-16 w-16 items-center justify-center rounded-full border-2 text-2xl font-black shadow transition ${cellClasses(cell)}`;
+          button.setAttribute("aria-label", `hex ${cell.q},${cell.r}`);
+          button.addEventListener("click", () => placeFlower(cell.q, cell.r));
+          button.textContent = side ? names[side][0] : "";
+          line.appendChild(button);
+        }
+        boardEl.appendChild(line);
+      }
+    }
+
+    function renderStatus() {
+      const score = scoreBoard();
+      plumScore.textContent = score.p;
+      mintScore.textContent = score.m;
+      if (winner === "draw") {
+        turnText.textContent = "Draw";
+        statusText.textContent = "Both gardens have the same number of flowers.";
+      } else if (winner) {
+        turnText.textContent = `${names[winner]} wins`;
+        statusText.textContent = `${names[winner]} has more flowers after the final placement.`;
+      } else {
+        turnText.textContent = `${names[turn]} to place`;
+        statusText.textContent = `${maxTurns - turnsPlayed} placements remain. Last capture removed ${lastCapture} flower${lastCapture === 1 ? "" : "s"}.`;
+      }
+    }
+
+    function render() {
+      renderBoard();
+      renderStatus();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
