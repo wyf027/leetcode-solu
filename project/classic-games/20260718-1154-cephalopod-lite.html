@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Cephalopod</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-fuchsia-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Cephalopod</h1>
+        <p class="mt-2 max-w-2xl text-sm text-neutral-300">轮流在空格放骰。若相邻骰点数总和不超过 6，会吞并相邻骰并变成总和；棋盘填满后点数高者获胜。</p>
+      </div>
+      <button id="resetBtn" class="w-fit rounded-md border border-neutral-600 px-4 py-2 text-sm font-semibold hover:bg-neutral-800">重开</button>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square max-w-[520px] grid-cols-5 gap-2 rounded-md bg-neutral-800 p-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs text-neutral-400">当前</p>
+            <p id="turnBadge" class="text-2xl font-bold text-fuchsia-300">紫方</p>
+          </div>
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs text-neutral-400">空格</p>
+            <p id="emptyCount" class="text-2xl font-bold text-amber-300">25</p>
+          </div>
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs text-neutral-400">紫方点数</p>
+            <p id="pScore" class="text-2xl font-bold text-fuchsia-300">0</p>
+          </div>
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs text-neutral-400">青方点数</p>
+            <p id="cScore" class="text-2xl font-bold text-cyan-300">0</p>
+          </div>
+        </div>
+        <div class="mt-4">
+          <h2 class="text-sm font-semibold">上一步</h2>
+          <p id="message" class="mt-2 rounded-md border border-neutral-700 p-3 text-sm leading-6 text-neutral-300">点击任意空格开始。</p>
+        </div>
+        <div class="mt-5 rounded-md border border-neutral-700 p-3 text-xs leading-5 text-neutral-400">
+          Lite 规则：一次吞并所有正交相邻骰；若总和超过 6，则只放置 1 点骰。
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    let board = [];
+    let player = "P";
+    let gameOver = false;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array.from({ length: size }, () => null));
+      player = "P";
+      gameOver = false;
+      render("点击任意空格开始。");
+    }
+
+    function neighbors(row, col) {
+      return [
+        [row - 1, col],
+        [row + 1, col],
+        [row, col - 1],
+        [row, col + 1],
+      ].filter(([nextRow, nextCol]) => nextRow >= 0 && nextRow < size && nextCol >= 0 && nextCol < size);
+    }
+
+    function adjacentDice(row, col) {
+      return neighbors(row, col)
+        .map(([nextRow, nextCol]) => ({ row: nextRow, col: nextCol, die: board[nextRow][nextCol] }))
+        .filter((cell) => cell.die);
+    }
+
+    function scoreFor(owner) {
+      return board.flat().filter(Boolean).filter((die) => die.owner === owner).reduce((sum, die) => sum + die.value, 0);
+    }
+
+    function emptyCells() {
+      return board.flat().filter((cell) => !cell).length;
+    }
+
+    function placeDie(row, col) {
+      if (gameOver || board[row][col]) return;
+      const captures = adjacentDice(row, col);
+      const sum = captures.reduce((total, cell) => total + cell.die.value, 0);
+      let value = 1;
+      let note = `${player === "P" ? "紫方" : "青方"}放置 1 点骰。`;
+      if (captures.length && sum <= 6) {
+        value = sum;
+        captures.forEach((cell) => {
+          board[cell.row][cell.col] = null;
+        });
+        note = `${player === "P" ? "紫方" : "青方"}吞并 ${captures.length} 枚相邻骰，形成 ${value} 点骰。`;
+      }
+      board[row][col] = { owner: player, value };
+      if (emptyCells() === 0) {
+        gameOver = true;
+        const pScore = scoreFor("P");
+        const cScore = scoreFor("C");
+        note = pScore === cScore ? "棋盘已满，平局。" : `棋盘已满，${pScore > cScore ? "紫方" : "青方"}获胜。`;
+      } else {
+        player = player === "P" ? "C" : "P";
+      }
+      render(note);
+    }
+
+    function dieFace(value) {
+      return ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][value];
+    }
+
+    function renderBoard() {
+      const boardEl = document.getElementById("board");
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const die = board[row][col];
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = [
+            "flex aspect-square items-center justify-center rounded-md border text-4xl font-black transition",
+            die ? "border-neutral-700 bg-neutral-950" : "border-neutral-700 bg-neutral-800 hover:bg-neutral-700",
+            die?.owner === "P" ? "text-fuchsia-300" : "",
+            die?.owner === "C" ? "text-cyan-300" : "",
+            gameOver ? "cursor-default" : "",
+          ].join(" ");
+          button.textContent = die ? dieFace(die.value) : "";
+          button.addEventListener("click", () => placeDie(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render(message) {
+      renderBoard();
+      document.getElementById("turnBadge").textContent = gameOver ? "结束" : player === "P" ? "紫方" : "青方";
+      document.getElementById("turnBadge").className = `text-2xl font-bold ${player === "P" ? "text-fuchsia-300" : "text-cyan-300"}`;
+      document.getElementById("emptyCount").textContent = emptyCells();
+      document.getElementById("pScore").textContent = scoreFor("P");
+      document.getElementById("cScore").textContent = scoreFor("C");
+      document.getElementById("message").textContent = message;
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
