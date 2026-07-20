@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Gonnect</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Game</p>
+          <h1 class="mt-1 text-3xl font-bold sm:text-4xl">Mini Gonnect</h1>
+        </div>
+        <button
+          id="reset"
+          class="rounded-md bg-lime-300 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-lime-200"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-3">
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">当前玩家</p>
+          <p id="turn" class="mt-2 text-2xl font-bold text-lime-200">Black</p>
+        </div>
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">已落子</p>
+          <p id="moves" class="mt-2 text-2xl font-bold">0</p>
+        </div>
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">状态</p>
+          <p id="status" class="mt-2 text-lg font-semibold text-emerald-200">选择空格落子</p>
+        </div>
+      </section>
+
+      <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <div class="mb-3 flex items-center justify-between text-sm text-slate-400">
+            <span>White 连接上下</span>
+            <span>Black 连接左右</span>
+          </div>
+          <div id="board" class="grid aspect-square grid-cols-5 gap-2"></div>
+        </div>
+
+        <aside class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <h2 class="text-xl font-bold">走法记录</h2>
+          <p id="message" class="mt-3 min-h-20 text-sm leading-6 text-slate-300">
+            Black 先手，目标是连通左边和右边。
+          </p>
+          <div class="mt-4 border-t border-slate-800 pt-4 text-sm leading-6 text-slate-400">
+            <p>规则：轮流在 5x5 棋盘空格落子。Black 连接左右边获胜，White 连接上下边获胜。棋子按四方向相邻连通。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 5;
+      const emptyBoard = Array.from({ length: size * size }, () => null);
+      let board = [...emptyBoard];
+      let turn = "B";
+      let moveCount = 0;
+      let winner = null;
+
+      const elements = {
+        board: document.getElementById("board"),
+        turn: document.getElementById("turn"),
+        moves: document.getElementById("moves"),
+        status: document.getElementById("status"),
+        message: document.getElementById("message"),
+        reset: document.getElementById("reset"),
+      };
+
+      function index(row, col) {
+        return row * size + col;
+      }
+
+      function neighbors(cell) {
+        const row = Math.floor(cell / size);
+        const col = cell % size;
+        return [
+          [row - 1, col],
+          [row + 1, col],
+          [row, col - 1],
+          [row, col + 1],
+        ]
+          .filter(([nextRow, nextCol]) => nextRow >= 0 && nextRow < size && nextCol >= 0 && nextCol < size)
+          .map(([nextRow, nextCol]) => index(nextRow, nextCol));
+      }
+
+      function hasConnection(player) {
+        const queue = [];
+        const seen = new Set();
+
+        for (let step = 0; step < size; step += 1) {
+          const start = player === "B" ? index(step, 0) : index(0, step);
+          if (board[start] === player) {
+            queue.push(start);
+            seen.add(start);
+          }
+        }
+
+        while (queue.length) {
+          const cell = queue.shift();
+          const row = Math.floor(cell / size);
+          const col = cell % size;
+          if ((player === "B" && col === size - 1) || (player === "W" && row === size - 1)) {
+            return true;
+          }
+          neighbors(cell).forEach((next) => {
+            if (board[next] === player && !seen.has(next)) {
+              seen.add(next);
+              queue.push(next);
+            }
+          });
+        }
+        return false;
+      }
+
+      function playerName(player) {
+        return player === "B" ? "Black" : "White";
+      }
+
+      function play(cell) {
+        if (winner || board[cell]) return;
+        board[cell] = turn;
+        moveCount += 1;
+        const placed = turn;
+
+        if (hasConnection(placed)) {
+          winner = placed;
+          elements.message.textContent = `${playerName(placed)} 完成连接并获胜。`;
+        } else if (moveCount === board.length) {
+          elements.message.textContent = "棋盘已满，本局平局。";
+          winner = "D";
+        } else {
+          turn = turn === "B" ? "W" : "B";
+          elements.message.textContent = `${playerName(placed)} 已落子，轮到 ${playerName(turn)}。`;
+        }
+        render();
+      }
+
+      function resetGame() {
+        board = [...emptyBoard];
+        turn = "B";
+        moveCount = 0;
+        winner = null;
+        elements.message.textContent = "Black 先手，目标是连通左边和右边。";
+        render();
+      }
+
+      function render() {
+        elements.turn.textContent = winner && winner !== "D" ? playerName(winner) : playerName(turn);
+        elements.moves.textContent = String(moveCount);
+        elements.status.textContent = winner === "D" ? "平局" : winner ? "胜利" : "选择空格落子";
+        elements.board.innerHTML = "";
+
+        board.forEach((piece, cell) => {
+          const row = Math.floor(cell / size);
+          const col = cell % size;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className =
+            "relative flex items-center justify-center rounded-md border border-slate-700 bg-slate-800 transition hover:border-lime-300 disabled:cursor-not-allowed";
+          button.disabled = Boolean(winner || piece);
+          button.setAttribute("aria-label", `row ${row + 1} col ${col + 1}`);
+          button.addEventListener("click", () => play(cell));
+
+          const edge = document.createElement("span");
+          edge.className = "absolute inset-1 rounded border border-transparent";
+          if (col === 0 || col === size - 1) edge.classList.add("border-x-lime-300/60");
+          if (row === 0 || row === size - 1) edge.classList.add("border-y-sky-300/60");
+          button.appendChild(edge);
+
+          if (piece) {
+            const stone = document.createElement("span");
+            stone.className =
+              piece === "B"
+                ? "relative h-9 w-9 rounded-full bg-lime-300 shadow"
+                : "relative h-9 w-9 rounded-full bg-sky-300 shadow";
+            button.appendChild(stone);
+          }
+          elements.board.appendChild(button);
+        });
+      }
+
+      elements.reset.addEventListener("click", resetGame);
+      render();
+    </script>
+  </body>
+</html>
