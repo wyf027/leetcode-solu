@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Katro</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:items-center md:justify-center">
+    <section class="w-full md:w-[23rem]">
+      <p class="text-sm uppercase tracking-[0.28em] text-emerald-300">Classic mancala</p>
+      <h1 class="mt-2 text-3xl font-semibold">Mini Katro</h1>
+      <p class="mt-3 text-sm leading-6 text-neutral-300">
+        Katro 是马达加斯加的 mancala 家族游戏。本迷你版使用 4x4 洞盘：每洞 2 子，轮流从己方外排有子的洞开始播种，无法走子时比较双方总子数。
+      </p>
+      <div class="mt-5 grid grid-cols-2 gap-3">
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+          <div class="text-sm text-neutral-400">当前回合</div>
+          <div id="turnLabel" class="mt-1 text-xl font-semibold text-emerald-200">南方</div>
+        </div>
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+          <div class="text-sm text-neutral-400">步数</div>
+          <div id="moveLabel" class="mt-1 text-xl font-semibold text-amber-200">0</div>
+        </div>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+          <div class="text-neutral-400">北方总子</div>
+          <div id="northScore" class="mt-1 text-lg font-semibold">16</div>
+        </div>
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+          <div class="text-neutral-400">南方总子</div>
+          <div id="southScore" class="mt-1 text-lg font-semibold">16</div>
+        </div>
+      </div>
+      <div id="message" class="mt-4 min-h-14 rounded border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm leading-6 text-emerald-100">
+        南方先手，只能选择自己最外排的有子洞。
+      </div>
+      <button id="resetBtn" class="mt-4 w-full rounded bg-emerald-300 px-4 py-3 font-semibold text-neutral-950 transition hover:bg-emerald-200">
+        重新开始
+      </button>
+    </section>
+
+    <section class="w-full">
+      <div class="mx-auto max-w-[34rem] rounded border border-neutral-700 bg-neutral-900 p-4 shadow-2xl">
+        <div id="board" class="grid grid-cols-4 gap-3"></div>
+        <div class="mt-3 flex justify-between text-xs uppercase tracking-[0.2em] text-neutral-500">
+          <span>北方外排</span>
+          <span>南方外排</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const rows = 4;
+    const cols = 4;
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const moveLabel = document.getElementById("moveLabel");
+    const northScore = document.getElementById("northScore");
+    const southScore = document.getElementById("southScore");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let pits;
+    let turn;
+    let moves;
+    let winner;
+
+    function resetGame() {
+      pits = Array.from({ length: rows }, () => Array(cols).fill(2));
+      turn = "south";
+      moves = 0;
+      winner = null;
+      messageEl.textContent = "南方先手，只能选择自己最外排的有子洞。";
+      render();
+    }
+
+    function playerName(player) {
+      return player === "south" ? "南方" : "北方";
+    }
+
+    function other(player) {
+      return player === "south" ? "north" : "south";
+    }
+
+    function outerRow(player) {
+      return player === "south" ? rows - 1 : 0;
+    }
+
+    function isOwnSide(player, row) {
+      return player === "south" ? row >= 2 : row <= 1;
+    }
+
+    function sideTotal(player) {
+      let total = 0;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          if (isOwnSide(player, row)) total += pits[row][col];
+        }
+      }
+      return total;
+    }
+
+    function legalMoves(player) {
+      const row = outerRow(player);
+      const moves = [];
+      for (let col = 0; col < cols; col += 1) {
+        if (pits[row][col] > 0) moves.push({ row, col });
+      }
+      return moves;
+    }
+
+    function pathFor(player) {
+      const path = [];
+      if (player === "south") {
+        for (let row = rows - 1; row >= 0; row -= 1) {
+          for (let col = 0; col < cols; col += 1) path.push([row, col]);
+        }
+      } else {
+        for (let row = 0; row < rows; row += 1) {
+          for (let col = cols - 1; col >= 0; col -= 1) path.push([row, col]);
+        }
+      }
+      return path;
+    }
+
+    function settleIfBlocked() {
+      if (legalMoves(turn).length > 0) return false;
+
+      const north = sideTotal("north");
+      const south = sideTotal("south");
+      winner = north === south ? "draw" : north > south ? "north" : "south";
+      messageEl.textContent = winner === "draw"
+        ? "双方都无法继续推进，本局平分。"
+        : playerName(winner) + "保有更多棋子，赢得本局。";
+      render();
+      return true;
+    }
+
+    function sow(row, col) {
+      if (winner) return;
+      if (row !== outerRow(turn) || pits[row][col] === 0) {
+        messageEl.textContent = playerName(turn) + "只能从自己的外排有子洞开始。";
+        return;
+      }
+
+      const path = pathFor(turn);
+      let index = path.findIndex(([r, c]) => r === row && c === col);
+      let stones = pits[row][col];
+      pits[row][col] = 0;
+
+      while (stones > 0) {
+        index = (index + 1) % path.length;
+        const [nextRow, nextCol] = path[index];
+        pits[nextRow][nextCol] += 1;
+        stones -= 1;
+      }
+
+      moves += 1;
+      turn = other(turn);
+      if (!settleIfBlocked()) {
+        messageEl.textContent = playerName(turn) + "行动，选择外排有子洞播种。";
+        render();
+      }
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnLabel.textContent = winner === "draw" ? "平局" : winner ? playerName(winner) + "胜" : playerName(turn);
+      moveLabel.textContent = moves;
+      northScore.textContent = sideTotal("north");
+      southScore.textContent = sideTotal("south");
+
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const button = document.createElement("button");
+          const active = !winner && row === outerRow(turn) && pits[row][col] > 0;
+          button.type = "button";
+          button.className = [
+            "aspect-square rounded border p-2 text-center transition",
+            active ? "border-emerald-300 bg-emerald-300/10 hover:bg-emerald-300/20" : "border-neutral-700 bg-neutral-950",
+            winner ? "cursor-default" : ""
+          ].join(" ");
+          button.addEventListener("click", () => sow(row, col));
+
+          const count = document.createElement("div");
+          count.className = "text-2xl font-semibold";
+          count.textContent = pits[row][col];
+          const label = document.createElement("div");
+          label.className = "mt-1 text-xs text-neutral-500";
+          label.textContent = row < 2 ? "北" : "南";
+          button.appendChild(count);
+          button.appendChild(label);
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
