@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Kaooa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col justify-between gap-3 border-b border-stone-800 pb-4 md:flex-row md:items-end">
+      <div>
+        <p class="text-sm uppercase tracking-[0.28em] text-amber-300">Classic Hunt Game</p>
+        <h1 class="mt-2 text-3xl font-semibold">Mini Kaooa</h1>
+      </div>
+      <button id="resetBtn" class="rounded border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-300 hover:text-stone-950">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="relative aspect-square w-full max-w-[640px] justify-self-center rounded border border-stone-800 bg-stone-900/80 shadow-2xl shadow-black/30">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          <g id="lines" stroke="#a8a29e" stroke-width="1.1" stroke-linecap="round"></g>
+        </svg>
+        <div id="board" class="absolute inset-0"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-stone-400">当前回合</p>
+          <p id="turnText" class="mt-2 text-xl font-semibold text-amber-200"></p>
+          <p id="message" class="mt-3 min-h-12 text-sm leading-6 text-stone-300"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-xs text-stone-400">已放乌鸦</p>
+            <p id="placedText" class="mt-1 text-2xl font-semibold"></p>
+          </div>
+          <div class="rounded border border-stone-800 bg-stone-900 p-4">
+            <p class="text-xs text-stone-400">被吃乌鸦</p>
+            <p id="capturedText" class="mt-1 text-2xl font-semibold"></p>
+          </div>
+        </div>
+
+        <div class="rounded border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <p class="font-semibold text-stone-100">规则</p>
+          <p class="mt-2">乌鸦先逐个落子，之后沿线移动，目标是困住秃鹫。</p>
+          <p class="mt-2">秃鹫沿线移动，也可以跳过相邻乌鸦落到空点并吃掉它。吃掉 4 只乌鸦获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 50, y: 7 },
+      { x: 84, y: 31 },
+      { x: 16, y: 31 },
+      { x: 50, y: 38 },
+      { x: 94, y: 66 },
+      { x: 6, y: 66 },
+      { x: 72, y: 65 },
+      { x: 28, y: 65 },
+      { x: 50, y: 92 },
+      { x: 50, y: 64 }
+    ];
+
+    const edges = [
+      [0, 2], [0, 3], [0, 1],
+      [1, 3], [1, 4], [1, 6],
+      [2, 3], [2, 5], [2, 7],
+      [3, 4], [3, 5], [3, 6], [3, 7],
+      [4, 6], [4, 8],
+      [5, 7], [5, 8],
+      [6, 8], [6, 9],
+      [7, 8], [7, 9],
+      [8, 9],
+      [9, 3]
+    ];
+
+    const jumps = {
+      "0,3": 9,
+      "9,3": 0,
+      "1,3": 5,
+      "5,3": 1,
+      "2,3": 4,
+      "4,3": 2,
+      "4,6": 9,
+      "9,6": 4,
+      "5,7": 9,
+      "9,7": 5,
+      "6,9": 7,
+      "7,9": 6
+    };
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const messageEl = document.getElementById("message");
+    const placedText = document.getElementById("placedText");
+    const capturedText = document.getElementById("capturedText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board;
+    let turn;
+    let selected;
+    let crowsPlaced;
+    let captured;
+    let winner;
+
+    function resetGame() {
+      board = Array(points.length).fill("");
+      board[3] = "V";
+      turn = "C";
+      selected = null;
+      crowsPlaced = 0;
+      captured = 0;
+      winner = "";
+      render();
+      setMessage("乌鸦先手：选择任意空点放置一只乌鸦。");
+    }
+
+    function neighbors(index) {
+      return edges
+        .filter(([a, b]) => a === index || b === index)
+        .map(([a, b]) => (a === index ? b : a));
+    }
+
+    function legalVultureMoves() {
+      const from = board.indexOf("V");
+      if (from < 0) return [];
+      const moves = [];
+
+      neighbors(from).forEach((to) => {
+        if (!board[to]) {
+          moves.push({ from, to, capture: null });
+        }
+        const landing = jumps[`${from},${to}`];
+        if (board[to] === "C" && landing !== undefined && !board[landing]) {
+          moves.push({ from, to: landing, capture: to });
+        }
+      });
+
+      return moves;
+    }
+
+    function legalCrowMoves(index) {
+      return neighbors(index).filter((to) => !board[to]);
+    }
+
+    function endTurn() {
+      if (captured >= 4) {
+        winner = "V";
+        setMessage("秃鹫吃掉 4 只乌鸦，秃鹫获胜。");
+      } else if (legalVultureMoves().length === 0) {
+        winner = "C";
+        setMessage("秃鹫没有可走位置，乌鸦获胜。");
+      } else {
+        turn = turn === "C" ? "V" : "C";
+        selected = null;
+        setMessage(turn === "C" ? crowPrompt() : "秃鹫回合：移动到相邻空点，或跳过乌鸦完成捕获。");
+      }
+      render();
+    }
+
+    function crowPrompt() {
+      if (crowsPlaced < 7) {
+        return `乌鸦放置阶段：还可以放 ${7 - crowsPlaced} 只乌鸦。`;
+      }
+      return "乌鸦移动阶段：选择一只乌鸦，再移动到相邻空点。";
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+
+      if (turn === "C") {
+        handleCrow(index);
+      } else {
+        handleVulture(index);
+      }
+      render();
+    }
+
+    function handleCrow(index) {
+      if (crowsPlaced < 7) {
+        if (board[index]) {
+          setMessage("这里已经有棋子，选择一个空点放置乌鸦。");
+          return;
+        }
+        board[index] = "C";
+        crowsPlaced += 1;
+        endTurn();
+        return;
+      }
+
+      if (selected === null) {
+        if (board[index] !== "C") {
+          setMessage("请选择一只乌鸦。");
+          return;
+        }
+        selected = index;
+        setMessage("选择相邻空点移动这只乌鸦。");
+        return;
+      }
+
+      if (board[index] === "C") {
+        selected = index;
+        setMessage("已切换乌鸦，选择相邻空点移动。");
+        return;
+      }
+
+      if (!legalCrowMoves(selected).includes(index)) {
+        setMessage("乌鸦只能沿线移动到相邻空点。");
+        return;
+      }
+
+      board[selected] = "";
+      board[index] = "C";
+      endTurn();
+    }
+
+    function handleVulture(index) {
+      const from = board.indexOf("V");
+      if (index === from) {
+        selected = from;
+        setMessage("选择秃鹫要移动到的目标点。");
+        return;
+      }
+
+      if (selected === null) {
+        setMessage("先点选秃鹫。");
+        return;
+      }
+
+      const move = legalVultureMoves().find((item) => item.to === index);
+      if (!move) {
+        setMessage("秃鹫只能沿线走到空点，或跳过乌鸦落到空点。");
+        return;
+      }
+
+      board[from] = "";
+      board[index] = "V";
+      if (move.capture !== null) {
+        board[move.capture] = "";
+        captured += 1;
+      }
+      endTurn();
+    }
+
+    function renderLines() {
+      linesEl.innerHTML = "";
+      edges.forEach(([a, b]) => {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", points[a].x);
+        line.setAttribute("y1", points[a].y);
+        line.setAttribute("x2", points[b].x);
+        line.setAttribute("y2", points[b].y);
+        linesEl.appendChild(line);
+      });
+    }
+
+    function render() {
+      renderLines();
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const value = board[index];
+        const button = document.createElement("button");
+        const isSelected = selected === index;
+        button.type = "button";
+        button.className = [
+          "absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-lg font-bold shadow transition",
+          value === "V" ? "border-rose-300 bg-rose-500 text-white" : "",
+          value === "C" ? "border-sky-200 bg-sky-500 text-white" : "",
+          !value ? "border-stone-600 bg-stone-800 text-stone-500 hover:border-amber-300 hover:bg-stone-700" : "",
+          isSelected ? "ring-4 ring-amber-300" : ""
+        ].join(" ");
+        button.style.left = `${point.x}%`;
+        button.style.top = `${point.y}%`;
+        button.textContent = value || index + 1;
+        button.setAttribute("aria-label", `point ${index + 1}`);
+        button.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(button);
+      });
+
+      turnText.textContent = winner ? (winner === "V" ? "秃鹫获胜" : "乌鸦获胜") : (turn === "C" ? "乌鸦" : "秃鹫");
+      placedText.textContent = `${crowsPlaced}/7`;
+      capturedText.textContent = `${captured}/4`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
