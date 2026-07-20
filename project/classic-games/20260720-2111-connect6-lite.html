@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Connect6</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-neutral-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-orange-300">Classic Game</p>
+          <h1 class="mt-1 text-3xl font-bold sm:text-4xl">Mini Connect6</h1>
+        </div>
+        <button
+          id="reset"
+          class="rounded-md bg-orange-300 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-orange-200"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-4">
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">当前玩家</p>
+          <p id="turn" class="mt-2 text-2xl font-bold text-orange-200">Black</p>
+        </div>
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">本回合剩余</p>
+          <p id="left" class="mt-2 text-2xl font-bold">1</p>
+        </div>
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">总步数</p>
+          <p id="moves" class="mt-2 text-2xl font-bold">0</p>
+        </div>
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">状态</p>
+          <p id="status" class="mt-2 text-lg font-semibold text-emerald-200">选择空点</p>
+        </div>
+      </section>
+
+      <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <div id="board" class="grid aspect-square grid-cols-9 gap-1"></div>
+        </div>
+        <aside class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <h2 class="text-xl font-bold">走法记录</h2>
+          <p id="message" class="mt-3 min-h-20 text-sm leading-6 text-neutral-300">
+            Black 先手，只下一子。之后双方每回合各下两子。
+          </p>
+          <div class="mt-4 border-t border-neutral-800 pt-4 text-sm leading-6 text-neutral-400">
+            <p>规则：轮流在 9x9 棋盘空点落子。黑方第一回合只下一子，之后每回合下两子。任意方向先连成六子者获胜。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const size = 9;
+      const emptyBoard = Array.from({ length: size * size }, () => null);
+      let board = [...emptyBoard];
+      let turn = "B";
+      let stonesLeft = 1;
+      let moveCount = 0;
+      let winner = null;
+
+      const elements = {
+        board: document.getElementById("board"),
+        turn: document.getElementById("turn"),
+        left: document.getElementById("left"),
+        moves: document.getElementById("moves"),
+        status: document.getElementById("status"),
+        message: document.getElementById("message"),
+        reset: document.getElementById("reset"),
+      };
+
+      function index(row, col) {
+        return row * size + col;
+      }
+
+      function playerName(player) {
+        return player === "B" ? "Black" : "White";
+      }
+
+      function countDirection(row, col, player, rowStep, colStep) {
+        let count = 0;
+        let nextRow = row + rowStep;
+        let nextCol = col + colStep;
+        while (
+          nextRow >= 0 &&
+          nextRow < size &&
+          nextCol >= 0 &&
+          nextCol < size &&
+          board[index(nextRow, nextCol)] === player
+        ) {
+          count += 1;
+          nextRow += rowStep;
+          nextCol += colStep;
+        }
+        return count;
+      }
+
+      function hasSixFrom(cell, player) {
+        const row = Math.floor(cell / size);
+        const col = cell % size;
+        return [
+          [1, 0],
+          [0, 1],
+          [1, 1],
+          [1, -1],
+        ].some(([rowStep, colStep]) => {
+          const total =
+            1 +
+            countDirection(row, col, player, rowStep, colStep) +
+            countDirection(row, col, player, -rowStep, -colStep);
+          return total >= 6;
+        });
+      }
+
+      function finishTurnIfNeeded(player) {
+        if (winner || stonesLeft > 0) return;
+        turn = player === "B" ? "W" : "B";
+        stonesLeft = 2;
+        elements.message.textContent = `轮到 ${playerName(turn)}，本回合需要下两子。`;
+      }
+
+      function play(cell) {
+        if (winner || board[cell]) return;
+        board[cell] = turn;
+        moveCount += 1;
+        stonesLeft -= 1;
+        const player = turn;
+
+        if (hasSixFrom(cell, player)) {
+          winner = player;
+          elements.message.textContent = `${playerName(player)} 连成六子并获胜。`;
+        } else if (moveCount === board.length) {
+          winner = "D";
+          elements.message.textContent = "棋盘已满，本局平局。";
+        } else {
+          const leftText = stonesLeft === 1 ? "还需再下一子。" : "本回合完成。";
+          elements.message.textContent = `${playerName(player)} 已落子，${leftText}`;
+          finishTurnIfNeeded(player);
+        }
+        render();
+      }
+
+      function resetGame() {
+        board = [...emptyBoard];
+        turn = "B";
+        stonesLeft = 1;
+        moveCount = 0;
+        winner = null;
+        elements.message.textContent = "Black 先手，只下一子。之后双方每回合各下两子。";
+        render();
+      }
+
+      function render() {
+        elements.turn.textContent = winner && winner !== "D" ? playerName(winner) : playerName(turn);
+        elements.left.textContent = winner ? "0" : String(stonesLeft);
+        elements.moves.textContent = String(moveCount);
+        elements.status.textContent = winner === "D" ? "平局" : winner ? "胜利" : "选择空点";
+        elements.board.innerHTML = "";
+
+        board.forEach((piece, cell) => {
+          const row = Math.floor(cell / size);
+          const col = cell % size;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className =
+            "flex items-center justify-center rounded border border-neutral-700 bg-neutral-800 transition hover:border-orange-300 disabled:cursor-not-allowed";
+          button.disabled = Boolean(winner || piece);
+          button.setAttribute("aria-label", `row ${row + 1} col ${col + 1}`);
+          button.addEventListener("click", () => play(cell));
+
+          if (piece) {
+            const stone = document.createElement("span");
+            stone.className =
+              piece === "B"
+                ? "h-7 w-7 rounded-full bg-neutral-100 shadow"
+                : "h-7 w-7 rounded-full bg-orange-300 shadow";
+            button.appendChild(stone);
+          }
+          elements.board.appendChild(button);
+        });
+      }
+
+      elements.reset.addEventListener("click", resetGame);
+      render();
+    </script>
+  </body>
+</html>
