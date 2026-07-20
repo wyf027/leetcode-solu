@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Kharbaga</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col justify-between gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end">
+      <div>
+        <p class="text-sm uppercase tracking-[0.28em] text-emerald-300">Classic Board Game</p>
+        <h1 class="mt-2 text-3xl font-semibold">Mini Kharbaga</h1>
+      </div>
+      <button id="resetBtn" class="rounded border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-300 hover:text-zinc-950">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="relative aspect-square w-full max-w-[620px] justify-self-center rounded border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/30">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          <g id="lines" stroke="#a1a1aa" stroke-width="1" stroke-linecap="round"></g>
+        </svg>
+        <div id="board" class="absolute inset-0"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-zinc-400">当前回合</p>
+          <p id="turnText" class="mt-2 text-xl font-semibold text-emerald-200"></p>
+          <p id="message" class="mt-3 min-h-12 text-sm leading-6 text-zinc-300"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-xs text-zinc-400">红方棋子</p>
+            <p id="redText" class="mt-1 text-2xl font-semibold text-rose-200"></p>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-xs text-zinc-400">蓝方棋子</p>
+            <p id="blueText" class="mt-1 text-2xl font-semibold text-sky-200"></p>
+          </div>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <p class="font-semibold text-zinc-100">规则</p>
+          <p class="mt-2">双方轮流选择自己的棋子，沿线移动到相邻空点。</p>
+          <p class="mt-2">也可以跳过相邻敌子落到同一直线空点，并吃掉被跳过的棋子。</p>
+          <p class="mt-2">吃光对方，或让对方无合法走法即可获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const points = Array.from({ length: 25 }, (_, index) => ({
+      x: 12 + (index % size) * 19,
+      y: 12 + Math.floor(index / size) * 19
+    }));
+
+    const linePairs = [];
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size - 1; col += 1) {
+        linePairs.push([row * size + col, row * size + col + 1]);
+      }
+    }
+    for (let col = 0; col < size; col += 1) {
+      for (let row = 0; row < size - 1; row += 1) {
+        linePairs.push([row * size + col, (row + 1) * size + col]);
+      }
+    }
+    for (let row = 0; row < size - 1; row += 1) {
+      for (let col = 0; col < size - 1; col += 1) {
+        linePairs.push([row * size + col, (row + 1) * size + col + 1]);
+        linePairs.push([row * size + col + 1, (row + 1) * size + col]);
+      }
+    }
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const messageEl = document.getElementById("message");
+    const redText = document.getElementById("redText");
+    const blueText = document.getElementById("blueText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board;
+    let turn;
+    let selected;
+    let winner;
+
+    function resetGame() {
+      board = Array(25).fill("");
+      for (let i = 0; i < 12; i += 1) board[i] = "R";
+      for (let i = 13; i < 25; i += 1) board[i] = "B";
+      board[12] = "";
+      turn = "R";
+      selected = null;
+      winner = "";
+      setMessage("红方先手：选择一枚红棋，移动或跳吃。");
+      render();
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function indexAt(row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return -1;
+      return row * size + col;
+    }
+
+    function directions() {
+      return [
+        [-1, -1], [-1, 0], [-1, 1],
+        [0, -1], [0, 1],
+        [1, -1], [1, 0], [1, 1]
+      ];
+    }
+
+    function legalMoves(from) {
+      const own = board[from];
+      if (!own) return [];
+      const enemy = own === "R" ? "B" : "R";
+      const moves = [];
+
+      directions().forEach(([dr, dc]) => {
+        const near = indexAt(rowOf(from) + dr, colOf(from) + dc);
+        if (near < 0) return;
+
+        if (!board[near]) {
+          moves.push({ from, to: near, capture: null });
+        }
+
+        const landing = indexAt(rowOf(from) + dr * 2, colOf(from) + dc * 2);
+        if (landing >= 0 && board[near] === enemy && !board[landing]) {
+          moves.push({ from, to: landing, capture: near });
+        }
+      });
+
+      return moves;
+    }
+
+    function allMoves(player) {
+      return board.flatMap((piece, index) => piece === player ? legalMoves(index) : []);
+    }
+
+    function count(player) {
+      return board.filter((piece) => piece === player).length;
+    }
+
+    function other(player) {
+      return player === "R" ? "B" : "R";
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+
+      if (selected === null) {
+        if (board[index] !== turn) {
+          setMessage(turn === "R" ? "请选择红棋。" : "请选择蓝棋。");
+          return;
+        }
+        selected = index;
+        setMessage("选择相邻空点移动，或跳过敌子完成吃子。");
+        render();
+        return;
+      }
+
+      if (board[index] === turn) {
+        selected = index;
+        setMessage("已切换棋子，选择目标点。");
+        render();
+        return;
+      }
+
+      const move = legalMoves(selected).find((item) => item.to === index);
+      if (!move) {
+        setMessage("目标点不合法：只能沿线移动，或跳吃到同一直线空点。");
+        return;
+      }
+
+      board[index] = turn;
+      board[selected] = "";
+      if (move.capture !== null) {
+        board[move.capture] = "";
+      }
+
+      finishTurn(move.capture !== null);
+    }
+
+    function finishTurn(captured) {
+      const opponent = other(turn);
+      if (count(opponent) === 0) {
+        winner = turn;
+        setMessage(`${turnName(turn)} 吃光对方棋子，获胜。`);
+      } else if (allMoves(opponent).length === 0) {
+        winner = turn;
+        setMessage(`${turnName(opponent)} 没有合法走法，${turnName(turn)} 获胜。`);
+      } else {
+        turn = opponent;
+        setMessage(captured ? `${turnName(opponent)} 回合：对方刚完成一次跳吃。` : `${turnName(opponent)} 回合。`);
+      }
+      selected = null;
+      render();
+    }
+
+    function turnName(player) {
+      return player === "R" ? "红方" : "蓝方";
+    }
+
+    function renderLines() {
+      linesEl.innerHTML = "";
+      linePairs.forEach(([a, b]) => {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", points[a].x);
+        line.setAttribute("y1", points[a].y);
+        line.setAttribute("x2", points[b].x);
+        line.setAttribute("y2", points[b].y);
+        linesEl.appendChild(line);
+      });
+    }
+
+    function render() {
+      renderLines();
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const piece = board[index];
+        const button = document.createElement("button");
+        const active = selected === index;
+        button.type = "button";
+        button.className = [
+          "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold shadow transition",
+          piece === "R" ? "border-rose-200 bg-rose-500 text-white" : "",
+          piece === "B" ? "border-sky-200 bg-sky-500 text-white" : "",
+          !piece ? "border-zinc-600 bg-zinc-800 text-zinc-500 hover:border-emerald-300 hover:bg-zinc-700" : "",
+          active ? "ring-4 ring-emerald-300" : ""
+        ].join(" ");
+        button.style.left = `${point.x}%`;
+        button.style.top = `${point.y}%`;
+        button.textContent = piece || index + 1;
+        button.setAttribute("aria-label", `point ${index + 1}`);
+        button.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(button);
+      });
+
+      turnText.textContent = winner ? `${turnName(winner)} 获胜` : turnName(turn);
+      redText.textContent = count("R");
+      blueText.textContent = count("B");
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
