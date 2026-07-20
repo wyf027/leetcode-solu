@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bosconian</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-emerald-200">Mini Bosconian</h1>
+        <p class="mt-1 text-sm text-neutral-400">摧毁所有基地核心，别让巡逻机撞上你。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-xs md:w-[28rem]">
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-500">护盾</div>
+          <div id="shieldLabel" class="text-lg font-semibold text-emerald-200">3</div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-500">基地</div>
+          <div id="baseLabel" class="text-lg font-semibold text-rose-200">4</div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-500">警戒</div>
+          <div id="alertLabel" class="text-lg font-semibold text-sky-200">低</div>
+        </div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-500">分数</div>
+          <div id="scoreLabel" class="text-lg font-semibold text-amber-200">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-2">
+        <canvas id="game" width="760" height="520" class="block aspect-[19/13] w-full bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm text-neutral-300">
+        <div id="status" class="mb-4 rounded bg-neutral-950 px-3 py-2 text-emerald-100">击中每个基地的红色核心。</div>
+        <dl class="space-y-3">
+          <div>
+            <dt class="text-neutral-500">移动</dt>
+            <dd>WASD / 方向键</dd>
+          </div>
+          <div>
+            <dt class="text-neutral-500">射击</dt>
+            <dd>Space</dd>
+          </div>
+          <div>
+            <dt class="text-neutral-500">重开</dt>
+            <dd>R</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const shieldLabel = document.getElementById('shieldLabel');
+    const baseLabel = document.getElementById('baseLabel');
+    const alertLabel = document.getElementById('alertLabel');
+    const scoreLabel = document.getElementById('scoreLabel');
+    const statusLabel = document.getElementById('status');
+    const keys = new Set();
+
+    let ship;
+    let bases;
+    let scouts;
+    let shots;
+    let sparks;
+    let score;
+    let state;
+    let alert;
+    let spawnTimer;
+    let lastTime;
+
+    function setupGame() {
+      ship = { x: 380, y: 260, r: 13, angle: 0, shields: 3, cooldown: 0, invuln: 0 };
+      bases = [
+        { x: 150, y: 120, r: 30, alive: true },
+        { x: 600, y: 120, r: 30, alive: true },
+        { x: 190, y: 390, r: 30, alive: true },
+        { x: 585, y: 390, r: 30, alive: true }
+      ];
+      scouts = [
+        { x: 80, y: 260, r: 10, vx: 90, vy: 45 },
+        { x: 680, y: 260, r: 10, vx: -85, vy: -60 }
+      ];
+      shots = [];
+      sparks = [];
+      score = 0;
+      state = 'playing';
+      alert = 0;
+      spawnTimer = 4;
+      lastTime = performance.now();
+      statusLabel.textContent = '击中每个基地的红色核心。';
+      updateLabels();
+    }
+
+    function updateLabels() {
+      shieldLabel.textContent = ship.shields;
+      baseLabel.textContent = bases.filter((base) => base.alive).length;
+      alertLabel.textContent = alert < 2 ? '低' : alert < 4 ? '中' : '高';
+      scoreLabel.textContent = score;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function moveShip(dt) {
+      let vx = 0;
+      let vy = 0;
+      if (keys.has('ArrowLeft') || keys.has('a')) vx -= 1;
+      if (keys.has('ArrowRight') || keys.has('d')) vx += 1;
+      if (keys.has('ArrowUp') || keys.has('w')) vy -= 1;
+      if (keys.has('ArrowDown') || keys.has('s')) vy += 1;
+      if (vx !== 0 || vy !== 0) {
+        const len = Math.hypot(vx, vy);
+        vx /= len;
+        vy /= len;
+        ship.x = clamp(ship.x + vx * 235 * dt, ship.r, canvas.width - ship.r);
+        ship.y = clamp(ship.y + vy * 235 * dt, ship.r, canvas.height - ship.r);
+        ship.angle = Math.atan2(vy, vx);
+      }
+      ship.cooldown = Math.max(0, ship.cooldown - dt);
+      ship.invuln = Math.max(0, ship.invuln - dt);
+    }
+
+    function fireShot() {
+      if (state !== 'playing' || ship.cooldown > 0) return;
+      const dx = Math.cos(ship.angle);
+      const dy = Math.sin(ship.angle);
+      shots.push({
+        x: ship.x + dx * 17,
+        y: ship.y + dy * 17,
+        r: 4,
+        vx: dx * 410,
+        vy: dy * 410
+      });
+      ship.cooldown = 0.18;
+    }
+
+    function updateScouts(dt) {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        const side = Math.random() < 0.5 ? -20 : canvas.width + 20;
+        scouts.push({
+          x: side,
+          y: 40 + Math.random() * (canvas.height - 80),
+          r: 10,
+          vx: side < 0 ? 95 + alert * 8 : -95 - alert * 8,
+          vy: -60 + Math.random() * 120
+        });
+        spawnTimer = Math.max(1.4, 4 - alert * 0.35);
+      }
+
+      scouts.forEach((scout) => {
+        const pull = Math.min(60 + alert * 12, 130);
+        const dx = ship.x - scout.x;
+        const dy = ship.y - scout.y;
+        const len = Math.hypot(dx, dy) || 1;
+        scout.vx += (dx / len) * pull * dt;
+        scout.vy += (dy / len) * pull * dt;
+        const speed = Math.hypot(scout.vx, scout.vy);
+        const maxSpeed = 130 + alert * 15;
+        if (speed > maxSpeed) {
+          scout.vx = (scout.vx / speed) * maxSpeed;
+          scout.vy = (scout.vy / speed) * maxSpeed;
+        }
+        scout.x += scout.vx * dt;
+        scout.y += scout.vy * dt;
+        if (scout.y < scout.r || scout.y > canvas.height - scout.r) scout.vy *= -1;
+      });
+      scouts = scouts.filter((scout) => scout.x > -60 && scout.x < canvas.width + 60);
+    }
+
+    function updateShots(dt) {
+      shots.forEach((shot) => {
+        shot.x += shot.vx * dt;
+        shot.y += shot.vy * dt;
+      });
+      shots = shots.filter((shot) => {
+        if (shot.x < -20 || shot.x > canvas.width + 20 || shot.y < -20 || shot.y > canvas.height + 20) return false;
+
+        const scoutIndex = scouts.findIndex((scout) => distance(shot, scout) < shot.r + scout.r);
+        if (scoutIndex >= 0) {
+          const scout = scouts[scoutIndex];
+          scouts.splice(scoutIndex, 1);
+          score += 80;
+          burst(scout.x, scout.y, '#38bdf8');
+          return false;
+        }
+
+        const base = bases.find((item) => item.alive && distance(shot, item) < item.r * 0.45);
+        if (base) {
+          base.alive = false;
+          alert += 1;
+          score += 300;
+          burst(base.x, base.y, '#fb7185');
+          statusLabel.textContent = bases.some((item) => item.alive) ? '核心摧毁。继续扫荡。' : '所有基地已摧毁，胜利！按 R 再玩。';
+          if (!bases.some((item) => item.alive)) state = 'won';
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function updateCollisions() {
+      scouts.forEach((scout) => {
+        if (distance(ship, scout) < ship.r + scout.r) {
+          scout.x = -100;
+          damageShip('巡逻机撞击护盾。');
+        }
+      });
+      bases.forEach((base) => {
+        if (base.alive && distance(ship, base) < ship.r + base.r) {
+          damageShip('靠基地太近。');
+        }
+      });
+    }
+
+    function damageShip(message) {
+      if (ship.invuln > 0 || state !== 'playing') return;
+      ship.shields -= 1;
+      ship.invuln = 1;
+      statusLabel.textContent = message;
+      burst(ship.x, ship.y, '#f97316');
+      if (ship.shields <= 0) {
+        state = 'lost';
+        statusLabel.textContent = '护盾耗尽。按 R 重开。';
+      }
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 16; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 45 + Math.random() * 135;
+        sparks.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0.45, color });
+      }
+    }
+
+    function updateSparks(dt) {
+      sparks.forEach((spark) => {
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+      });
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function drawGrid() {
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#14532d';
+      ctx.lineWidth = 1;
+      for (let x = 20; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 20; y < canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawBases() {
+      bases.forEach((base) => {
+        ctx.save();
+        ctx.translate(base.x, base.y);
+        ctx.strokeStyle = base.alive ? '#a3e635' : '#3f3f46';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, base.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-base.r, 0);
+        ctx.lineTo(base.r, 0);
+        ctx.moveTo(0, -base.r);
+        ctx.lineTo(0, base.r);
+        ctx.stroke();
+        ctx.fillStyle = base.alive ? '#e11d48' : '#27272a';
+        ctx.beginPath();
+        ctx.arc(0, 0, base.r * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.rotate(ship.angle);
+      ctx.globalAlpha = ship.invuln > 0 && Math.floor(performance.now() / 90) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = '#6ee7b7';
+      ctx.beginPath();
+      ctx.moveTo(18, 0);
+      ctx.lineTo(-12, -10);
+      ctx.lineTo(-5, 0);
+      ctx.lineTo(-12, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawScouts() {
+      scouts.forEach((scout) => {
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.arc(scout.x, scout.y, scout.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(scout.x - 4, scout.y - 3, 8, 6);
+      });
+    }
+
+    function drawShotsAndSparks() {
+      ctx.fillStyle = '#fde68a';
+      shots.forEach((shot) => {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = Math.max(0, spark.life * 2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawBanner() {
+      if (state === 'playing') return;
+      ctx.fillStyle = 'rgba(10, 10, 10, 0.78)';
+      ctx.fillRect(0, 210, canvas.width, 96);
+      ctx.fillStyle = state === 'won' ? '#bbf7d0' : '#fecaca';
+      ctx.font = 'bold 32px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(state === 'won' ? 'BASES CLEARED' : 'SHIP LOST', canvas.width / 2, 267);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawGrid();
+      drawBases();
+      drawScouts();
+      drawShotsAndSparks();
+      drawShip();
+      drawBanner();
+    }
+
+    function tick(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      if (state === 'playing') {
+        moveShip(dt);
+        updateScouts(dt);
+        updateShots(dt);
+        updateCollisions();
+      }
+      updateSparks(dt);
+      updateLabels();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === ' ') fireShot();
+      if (event.key.toLowerCase() === 'r') setupGame();
+      keys.add(event.key);
+      keys.add(event.key.toLowerCase());
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    setupGame();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
