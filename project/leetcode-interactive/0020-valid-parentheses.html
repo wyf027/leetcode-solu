@@ -1,0 +1,1494 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 20 有效的括号：栈与语法安检门交互讲解，面向面试前快速复习。"
+    />
+    <title>LeetCode 20 · 语法安检门</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              abyss: "#07111e",
+              panel: "#101f33",
+              steel: "#29425d",
+              ice: "#e8f7ff",
+              scan: "#27d9f5",
+              pass: "#b8f34b",
+              fault: "#ff5570",
+              amber: "#ffcc66",
+            },
+            fontFamily: {
+              display: ["Impact", "Arial Narrow", "PingFang SC", "sans-serif"],
+              body: ["Avenir Next", "PingFang SC", "sans-serif"],
+              mono: ["SFMono-Regular", "Consolas", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --abyss: #07111e;
+        --panel: #101f33;
+        --steel: #29425d;
+        --ice: #e8f7ff;
+        --scan: #27d9f5;
+        --pass: #b8f34b;
+        --fault: #ff5570;
+        --amber: #ffcc66;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ice);
+        background:
+          radial-gradient(
+            circle at 12% 8%,
+            rgba(39, 217, 245, 0.12),
+            transparent 28rem
+          ),
+          linear-gradient(rgba(39, 217, 245, 0.035) 1px, transparent 1px),
+          linear-gradient(
+            90deg,
+            rgba(39, 217, 245, 0.035) 1px,
+            transparent 1px
+          ),
+          var(--abyss);
+        background-size:
+          auto,
+          30px 30px,
+          30px 30px,
+          auto;
+      }
+
+      button,
+      a,
+      [role="tab"] {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus-visible,
+      a:focus-visible,
+      [role="tab"]:focus-visible {
+        outline: 4px solid var(--amber);
+        outline-offset: 3px;
+      }
+
+      .screen-noise {
+        position: relative;
+      }
+
+      .screen-noise::after {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        content: "";
+        background: repeating-linear-gradient(
+          180deg,
+          transparent 0 3px,
+          rgba(232, 247, 255, 0.025) 3px 4px
+        );
+      }
+
+      .scanner-gate {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .scanner-gate::before {
+        position: absolute;
+        z-index: 2;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 3px;
+        pointer-events: none;
+        content: "";
+        background: linear-gradient(transparent, var(--scan), transparent);
+        filter: drop-shadow(0 0 9px var(--scan));
+        animation: scan-sweep 2.2s ease-in-out infinite alternate;
+      }
+
+      @keyframes scan-sweep {
+        from {
+          transform: translateX(-115px);
+        }
+        to {
+          transform: translateX(115px);
+        }
+      }
+
+      .token {
+        transition:
+          transform 220ms ease,
+          background-color 220ms ease,
+          border-color 220ms ease,
+          opacity 220ms ease;
+      }
+
+      .token-current {
+        z-index: 3;
+        color: var(--abyss);
+        background: var(--scan) !important;
+        border-color: var(--ice) !important;
+        box-shadow:
+          0 0 0 4px rgba(39, 217, 245, 0.2),
+          0 0 24px rgba(39, 217, 245, 0.55);
+        transform: translateY(-8px);
+      }
+
+      .token-done {
+        color: rgba(232, 247, 255, 0.45);
+        background: rgba(41, 66, 93, 0.45) !important;
+      }
+
+      .token-fault {
+        color: white;
+        background: var(--fault) !important;
+        border-color: white !important;
+        box-shadow: 0 0 24px rgba(255, 85, 112, 0.65);
+      }
+
+      .stack-chip {
+        animation: chip-in 230ms ease-out both;
+      }
+
+      @keyframes chip-in {
+        from {
+          opacity: 0;
+          transform: translateY(-12px) scale(0.9);
+        }
+      }
+
+      .cut-corner {
+        clip-path: polygon(
+          0 0,
+          calc(100% - 18px) 0,
+          100% 18px,
+          100% 100%,
+          18px 100%,
+          0 calc(100% - 18px)
+        );
+      }
+
+      .code-panel > * {
+        min-width: 0;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+
+      @media (max-width: 390px) {
+        .mobile-one-column {
+          grid-template-columns: minmax(0, 1fr) !important;
+        }
+
+        .cut-corner {
+          clip-path: none;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen overflow-x-hidden font-body antialiased">
+    <div
+      class="h-1 bg-gradient-to-r from-scan via-pass to-fault"
+      aria-hidden="true"
+    ></div>
+
+    <header class="screen-noise border-b border-scan/25">
+      <div class="mx-auto max-w-6xl px-5 py-10 sm:px-8 lg:py-16">
+        <nav
+          class="flex flex-wrap items-center justify-between gap-4 font-mono text-xs font-bold uppercase tracking-[0.16em]"
+          aria-label="页面信息"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="border border-scan bg-scan px-4 py-2 text-abyss"
+              >LC // 0020</span
+            >
+            <span class="border border-pass/60 px-4 py-2 text-pass">Easy</span>
+          </div>
+          <span class="text-ice/45">String intake · Stack protocol</span>
+        </nav>
+
+        <div class="mt-12 grid gap-10 lg:grid-cols-[1fr_360px] lg:items-end">
+          <div>
+            <p
+              class="font-mono text-sm font-black uppercase tracking-[0.24em] text-scan"
+            >
+              Syntax security checkpoint
+            </p>
+            <h1
+              class="mt-4 max-w-4xl font-display text-5xl uppercase leading-[0.95] tracking-wide sm:text-7xl lg:text-8xl"
+            >
+              有效的<br /><span class="text-pass">括号</span>
+            </h1>
+            <p
+              class="mt-7 max-w-3xl text-base font-medium leading-8 text-ice/65 sm:text-lg"
+            >
+              左括号不是“记住自己”，而是登记它期待的右括号。每个右括号到达安检门时，只需核验栈顶通行码；类型和顺序一次确认。
+            </p>
+          </div>
+
+          <aside
+            class="cut-corner border border-scan/50 bg-panel p-6 shadow-[12px_12px_0_rgba(39,217,245,0.16)]"
+            aria-label="括号匹配协议卡"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p
+                  class="font-mono text-[10px] font-black uppercase tracking-[0.22em] text-scan"
+                >
+                  Protocol card
+                </p>
+                <p class="mt-2 text-2xl font-black">只允许栈顶匹配</p>
+              </div>
+              <span
+                class="rounded-full bg-pass px-3 py-1 font-mono text-xs font-black text-abyss"
+                >READY</span
+              >
+            </div>
+            <div
+              class="mt-6 grid grid-cols-3 gap-px bg-steel font-mono text-center"
+            >
+              <div class="bg-abyss p-3">
+                <span class="block text-lg text-scan">(</span
+                ><span class="text-[10px] text-ice/45">EXPECT )</span>
+              </div>
+              <div class="bg-abyss p-3">
+                <span class="block text-lg text-pass">[</span
+                ><span class="text-[10px] text-ice/45">EXPECT ]</span>
+              </div>
+              <div class="bg-abyss p-3">
+                <span class="block text-lg text-amber">{</span
+                ><span class="text-[10px] text-ice/45">EXPECT }</span>
+              </div>
+            </div>
+            <a
+              href="#checkpoint"
+              class="mt-6 inline-flex w-full items-center justify-between border border-ice/30 bg-ice px-5 py-3 font-black text-abyss transition hover:bg-pass"
+            >
+              启动安检演示 <span aria-hidden="true">↓</span>
+            </a>
+          </aside>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section
+        class="mx-auto max-w-6xl px-5 py-12 sm:px-8"
+        aria-labelledby="brief-title"
+      >
+        <div class="grid gap-7 lg:grid-cols-[250px_1fr]">
+          <div>
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.22em] text-scan"
+            >
+              Intake brief
+            </p>
+            <h2
+              id="brief-title"
+              class="mt-3 font-display text-4xl uppercase tracking-wide"
+            >
+              题意转述
+            </h2>
+          </div>
+          <div>
+            <p class="max-w-4xl leading-8 text-ice/70">
+              给定仅由六种括号字符组成的字符串
+              <code class="font-mono font-black text-scan">s</code
+              >，判断它是否有效：每个左括号都要由同类型右括号闭合，闭合顺序必须遵守“后打开、先关闭”，每个右括号也必须有对应的左括号。
+            </p>
+            <div class="mt-6 flex flex-wrap gap-2 text-sm font-bold">
+              <span class="border border-steel bg-panel px-3 py-2"
+                >1 ≤ s.length ≤ 10⁴</span
+              >
+              <span class="border border-steel bg-panel px-3 py-2"
+                >字符仅来自 ()[]{}</span
+              >
+              <span class="border border-steel bg-panel px-3 py-2"
+                >本题输入不含空格；若展示空格，以 ␠ 表示</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <article class="min-w-0 border border-scan/35 bg-panel/80 p-4">
+            <p class="font-mono text-[10px] font-black text-scan">
+              OFFICIAL 01
+            </p>
+            <dl class="mt-3 space-y-3 font-mono text-sm">
+              <div>
+                <dt class="text-ice/40">输入</dt>
+                <dd class="mt-1 break-words bg-abyss p-2">s = "()"</dd>
+              </div>
+              <div>
+                <dt class="text-ice/40">输出</dt>
+                <dd class="mt-1 bg-abyss p-2 text-pass">true</dd>
+              </div>
+            </dl>
+          </article>
+          <article class="min-w-0 border border-pass/35 bg-panel/80 p-4">
+            <p class="font-mono text-[10px] font-black text-pass">
+              OFFICIAL 02
+            </p>
+            <dl class="mt-3 space-y-3 font-mono text-sm">
+              <div>
+                <dt class="text-ice/40">输入</dt>
+                <dd class="mt-1 break-words bg-abyss p-2">s = "()[]{}"</dd>
+              </div>
+              <div>
+                <dt class="text-ice/40">输出</dt>
+                <dd class="mt-1 bg-abyss p-2 text-pass">true</dd>
+              </div>
+            </dl>
+          </article>
+          <article class="min-w-0 border border-fault/35 bg-panel/80 p-4">
+            <p class="font-mono text-[10px] font-black text-fault">
+              OFFICIAL 03
+            </p>
+            <dl class="mt-3 space-y-3 font-mono text-sm">
+              <div>
+                <dt class="text-ice/40">输入</dt>
+                <dd class="mt-1 break-words bg-abyss p-2">s = "(]"</dd>
+              </div>
+              <div>
+                <dt class="text-ice/40">输出</dt>
+                <dd class="mt-1 bg-abyss p-2 text-fault">false</dd>
+              </div>
+            </dl>
+          </article>
+          <article class="min-w-0 border border-pass/35 bg-panel/80 p-4">
+            <p class="font-mono text-[10px] font-black text-pass">
+              OFFICIAL 04
+            </p>
+            <dl class="mt-3 space-y-3 font-mono text-sm">
+              <div>
+                <dt class="text-ice/40">输入</dt>
+                <dd class="mt-1 break-words bg-abyss p-2">s = "([])"</dd>
+              </div>
+              <div>
+                <dt class="text-ice/40">输出</dt>
+                <dd class="mt-1 bg-abyss p-2 text-pass">true</dd>
+              </div>
+            </dl>
+          </article>
+          <article class="min-w-0 border border-fault/35 bg-panel/80 p-4">
+            <p class="font-mono text-[10px] font-black text-fault">
+              OFFICIAL 05
+            </p>
+            <dl class="mt-3 space-y-3 font-mono text-sm">
+              <div>
+                <dt class="text-ice/40">输入</dt>
+                <dd class="mt-1 break-words bg-abyss p-2">s = "([)]"</dd>
+              </div>
+              <div>
+                <dt class="text-ice/40">输出</dt>
+                <dd class="mt-1 bg-abyss p-2 text-fault">false</dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+      </section>
+
+      <section
+        id="checkpoint"
+        class="border-y border-scan/25 bg-panel/35 py-12"
+        aria-labelledby="checkpoint-title"
+      >
+        <div class="mx-auto max-w-6xl px-5 sm:px-8">
+          <div
+            class="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.22em] text-scan"
+              >
+                Live inspection
+              </p>
+              <h2
+                id="checkpoint-title"
+                class="mt-3 font-display text-4xl uppercase tracking-wide sm:text-5xl"
+              >
+                语法安检门
+              </h2>
+              <p class="mt-3 max-w-2xl leading-7 text-ice/60">
+                切换场景观察栈如何同时检查括号类型与嵌套顺序。方向键 ← →
+                也可逐步扫描。
+              </p>
+            </div>
+            <div class="flex gap-2" role="group" aria-label="选择演示场景">
+              <button
+                id="validScenario"
+                type="button"
+                aria-pressed="true"
+                class="scenario-btn border border-pass bg-pass px-4 py-3 font-mono text-xs font-black text-abyss"
+              >
+                嵌套通过 · { [ ( ) ] }
+              </button>
+              <button
+                id="invalidScenario"
+                type="button"
+                aria-pressed="false"
+                class="scenario-btn border border-fault/60 bg-abyss px-4 py-3 font-mono text-xs font-black text-fault"
+              >
+                顺序冲突 · ( [ ) ]
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+            <div
+              class="min-w-0 overflow-hidden border border-steel bg-abyss shadow-[10px_10px_0_rgba(39,217,245,0.1)]"
+            >
+              <div
+                class="flex flex-wrap items-center justify-between gap-3 border-b border-steel bg-panel px-5 py-3 font-mono text-xs font-black uppercase tracking-[0.16em]"
+              >
+                <span>Lane A · Character stream</span>
+                <span id="scannerState" class="text-scan">STANDBY</span>
+              </div>
+              <div class="scanner-gate min-h-[330px] p-5 sm:p-8">
+                <div
+                  class="mb-4 flex items-center justify-between font-mono text-[10px] font-black uppercase tracking-[0.16em] text-ice/40"
+                >
+                  <span>Input conveyor</span
+                  ><span id="inputValue">s = "{[()]}"</span>
+                </div>
+                <div
+                  id="tokenTrack"
+                  class="grid grid-cols-6 gap-2"
+                  role="list"
+                  aria-label="待扫描括号字符"
+                ></div>
+
+                <div class="mt-10 grid gap-4 sm:grid-cols-3">
+                  <div class="border border-steel bg-panel/80 p-4">
+                    <span
+                      class="font-mono text-[10px] font-black uppercase tracking-wider text-ice/40"
+                      >当前字符</span
+                    ><strong
+                      id="currentToken"
+                      class="mt-2 block font-mono text-3xl text-scan"
+                      >—</strong
+                    >
+                  </div>
+                  <div class="border border-steel bg-panel/80 p-4">
+                    <span
+                      class="font-mono text-[10px] font-black uppercase tracking-wider text-ice/40"
+                      >栈顶期待</span
+                    ><strong
+                      id="expectedToken"
+                      class="mt-2 block font-mono text-3xl text-amber"
+                      >—</strong
+                    >
+                  </div>
+                  <div class="border border-steel bg-panel/80 p-4">
+                    <span
+                      class="font-mono text-[10px] font-black uppercase tracking-wider text-ice/40"
+                      >判定</span
+                    ><strong
+                      id="decisionValue"
+                      class="mt-2 block font-mono text-xl text-ice"
+                      >WAIT</strong
+                    >
+                  </div>
+                </div>
+
+                <div class="mt-5 border-l-2 border-scan bg-panel/60 p-4">
+                  <p
+                    id="actionValue"
+                    class="font-mono text-xs font-black uppercase tracking-[0.16em] text-scan"
+                  >
+                    INITIALIZE
+                  </p>
+                  <p
+                    id="narration"
+                    class="mt-2 min-h-14 text-sm font-semibold leading-6 text-ice/70"
+                    aria-live="polite"
+                  >
+                    安检栈为空，准备从左到右读取字符。
+                  </p>
+                </div>
+              </div>
+              <div
+                class="grid grid-cols-4 gap-px border-t border-steel bg-steel"
+              >
+                <button
+                  id="prevBtn"
+                  type="button"
+                  class="bg-panel px-3 py-4 font-black transition hover:bg-steel disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  ← 上一步
+                </button>
+                <button
+                  id="nextBtn"
+                  type="button"
+                  class="bg-scan px-3 py-4 font-black text-abyss transition hover:bg-pass disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  下一步 →
+                </button>
+                <button
+                  id="autoBtn"
+                  type="button"
+                  aria-pressed="false"
+                  class="bg-panel px-3 py-4 font-black transition hover:bg-steel"
+                >
+                  ▶ 自动
+                </button>
+                <button
+                  id="resetBtn"
+                  type="button"
+                  class="bg-panel px-3 py-4 font-black transition hover:bg-steel"
+                >
+                  ↺ 重置
+                </button>
+              </div>
+            </div>
+
+            <aside
+              class="border border-steel bg-abyss p-5"
+              aria-labelledby="stack-title"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <p
+                    class="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-pass"
+                  >
+                    LIFO chamber
+                  </p>
+                  <h3
+                    id="stack-title"
+                    class="mt-1 font-display text-3xl uppercase tracking-wide"
+                  >
+                    期待栈
+                  </h3>
+                </div>
+                <span
+                  id="depthValue"
+                  class="border border-pass/50 px-3 py-2 font-mono text-xs font-black text-pass"
+                  >DEPTH 0</span
+                >
+              </div>
+              <div
+                class="mt-5 flex items-center gap-2 font-mono text-[10px] font-black uppercase tracking-wider text-ice/35"
+              >
+                <span>TOP</span><span class="h-px flex-1 bg-steel"></span>
+              </div>
+              <div
+                id="stackTube"
+                class="mt-3 flex min-h-[245px] flex-col gap-2 border-x-2 border-b-2 border-steel bg-panel/30 p-3"
+                role="list"
+                aria-label="栈内容"
+              ></div>
+              <p
+                id="stackEmpty"
+                class="-mt-36 text-center font-mono text-xs font-bold text-ice/25"
+              >
+                EMPTY STACK
+              </p>
+            </aside>
+          </div>
+          <p id="demoStatus" class="sr-only" aria-live="polite">演示已就绪。</p>
+        </div>
+      </section>
+
+      <section
+        id="tests"
+        class="mx-auto max-w-6xl px-5 py-12 sm:px-8"
+        aria-labelledby="tests-title"
+      >
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.22em] text-pass"
+            >
+              Verification matrix
+            </p>
+            <h2
+              id="tests-title"
+              class="mt-3 font-display text-4xl uppercase tracking-wide sm:text-5xl"
+            >
+              测试与验证
+            </h2>
+            <p class="mt-3 max-w-2xl leading-7 text-ice/60">
+              所有实际输出均由页面内同一份栈算法即时计算；输入、期望、实际和状态独立展示。
+            </p>
+          </div>
+          <div
+            class="border border-pass bg-pass/10 px-5 py-3 font-mono text-sm font-black text-pass"
+          >
+            <span id="testSummary">8 / 8 PASS</span>
+          </div>
+        </div>
+        <div id="testGrid" class="mt-8 grid gap-4 lg:grid-cols-2"></div>
+
+        <div class="mt-7 border border-steel bg-panel p-5 sm:p-6">
+          <div
+            class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between"
+          >
+            <div>
+              <p
+                class="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-scan"
+              >
+                Release diagnostics
+              </p>
+              <h3 class="mt-2 text-xl font-black">发布前检查</h3>
+            </div>
+            <div
+              class="grid grid-cols-2 gap-2 text-center font-mono text-[11px] font-black sm:grid-cols-5"
+            >
+              <span class="border border-scan/30 bg-abyss px-3 py-2 text-scan"
+                >✓ PRETTIER</span
+              ><span class="border border-scan/30 bg-abyss px-3 py-2 text-scan"
+                >✓ HTML</span
+              ><span class="border border-scan/30 bg-abyss px-3 py-2 text-scan"
+                >✓ JAVASCRIPT</span
+              ><span class="border border-scan/30 bg-abyss px-3 py-2 text-scan"
+                >✓ CHROME</span
+              ><span
+                class="col-span-2 border border-pass/30 bg-abyss px-3 py-2 text-pass sm:col-span-1"
+                >✓ 20,008 对拍</span
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="border-t border-scan/30 bg-ice py-12 text-abyss"
+        aria-labelledby="solution-title"
+      >
+        <div class="mx-auto max-w-6xl px-5 sm:px-8">
+          <div
+            class="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.22em] text-steel"
+              >
+                Restricted file · Solution
+              </p>
+              <h2
+                id="solution-title"
+                class="mt-3 font-display text-4xl uppercase tracking-wide sm:text-5xl"
+              >
+                题解在最后，默认封存
+              </h2>
+              <p class="mt-3 max-w-2xl text-abyss/60">
+                完成一次手动扫描后，再查看不变量、边界、复杂度、面试追问与四语言代码。
+              </p>
+            </div>
+            <button
+              id="solutionToggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="solutionPanel"
+              class="shrink-0 border-2 border-abyss bg-abyss px-7 py-4 font-black text-white shadow-[6px_6px_0_#27d9f5] transition hover:-translate-y-1"
+            >
+              查看题解 ↓
+            </button>
+          </div>
+
+          <div id="solutionPanel" class="mt-10" hidden>
+            <div class="code-panel grid gap-6">
+              <article
+                class="border-2 border-abyss bg-white p-5 shadow-[7px_7px_0_#07111e] sm:p-8"
+              >
+                <p
+                  class="font-mono text-xs font-black uppercase tracking-[0.18em] text-steel"
+                >
+                  Core protocol
+                </p>
+                <h3 class="mt-2 text-2xl font-black">把匹配表的结果压栈</h3>
+                <div class="mt-6 grid gap-4 md:grid-cols-3">
+                  <div class="bg-abyss p-5 text-white">
+                    <span class="font-mono text-xs text-scan">OPEN</span
+                    ><strong class="mt-2 block text-xl">遇左括号</strong>
+                    <p class="mt-2 text-sm leading-6 text-white/65">
+                      直接压入它期待的右括号。
+                    </p>
+                  </div>
+                  <div class="bg-scan p-5">
+                    <span class="font-mono text-xs text-abyss/55">CLOSE</span
+                    ><strong class="mt-2 block text-xl">遇右括号</strong>
+                    <p class="mt-2 text-sm leading-6 text-abyss/70">
+                      弹出栈顶，必须等于当前字符。
+                    </p>
+                  </div>
+                  <div class="bg-pass p-5">
+                    <span class="font-mono text-xs text-abyss/55">FINISH</span
+                    ><strong class="mt-2 block text-xl">扫描结束</strong>
+                    <p class="mt-2 text-sm leading-6 text-abyss/70">
+                      只有栈为空才全部闭合。
+                    </p>
+                  </div>
+                </div>
+                <p
+                  class="mt-5 border-l-4 border-scan bg-scan/10 p-4 font-semibold leading-7"
+                >
+                  循环不变量：扫描完任意前缀后，栈从底到顶保存这个前缀中尚未闭合的左括号，按未来必须出现的右括号顺序排列；栈顶就是下一枚允许通过的右括号。
+                </p>
+              </article>
+
+              <div class="grid gap-6 lg:grid-cols-2">
+                <article class="border-2 border-abyss bg-white p-5 sm:p-7">
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-[0.18em] text-steel"
+                  >
+                    Walkthrough
+                  </p>
+                  <h3 class="mt-2 text-2xl font-black">完整过程</h3>
+                  <ol class="mt-5 space-y-4">
+                    <li class="flex gap-3">
+                      <b
+                        class="flex h-7 w-7 shrink-0 items-center justify-center bg-abyss text-sm text-white"
+                        >1</b
+                      >
+                      <p>
+                        建立匹配表：<code class="font-mono">(→)、[→]、{→}</code
+                        >，初始化空栈。
+                      </p>
+                    </li>
+                    <li class="flex gap-3">
+                      <b
+                        class="flex h-7 w-7 shrink-0 items-center justify-center bg-abyss text-sm text-white"
+                        >2</b
+                      >
+                      <p>遇到左括号，把对应右括号压栈。</p>
+                    </li>
+                    <li class="flex gap-3">
+                      <b
+                        class="flex h-7 w-7 shrink-0 items-center justify-center bg-abyss text-sm text-white"
+                        >3</b
+                      >
+                      <p>
+                        遇到右括号；若栈空或弹出值不等于它，立即返回 false。
+                      </p>
+                    </li>
+                    <li class="flex gap-3">
+                      <b
+                        class="flex h-7 w-7 shrink-0 items-center justify-center bg-abyss text-sm text-white"
+                        >4</b
+                      >
+                      <p>完整扫描后返回栈是否为空。</p>
+                    </li>
+                  </ol>
+                </article>
+                <article class="border-2 border-abyss bg-white p-5 sm:p-7">
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-[0.18em] text-fault"
+                  >
+                    Edge cases
+                  </p>
+                  <h3 class="mt-2 text-2xl font-black">边界情况</h3>
+                  <ul class="mt-5 space-y-3 leading-7">
+                    <li><strong>首字符是右括号：</strong>栈为空，立即失败。</li>
+                    <li>
+                      <strong>类型错误：</strong
+                      ><code class="font-mono">(]</code> 的栈顶期待
+                      <code class="font-mono">)</code>，却读到
+                      <code class="font-mono">]</code>。
+                    </li>
+                    <li>
+                      <strong>顺序交叉：</strong
+                      ><code class="font-mono">([)]</code>
+                      类型虽成对，但违反后进先出。
+                    </li>
+                    <li>
+                      <strong>只有左括号：</strong>扫描结束栈非空，仍是 false。
+                    </li>
+                    <li>
+                      <strong>奇数长度：</strong
+                      >一定无效，可提前判断，但不是必要条件。
+                    </li>
+                  </ul>
+                </article>
+              </div>
+
+              <div class="grid gap-6 lg:grid-cols-3">
+                <article class="border-2 border-abyss bg-white p-5 sm:p-7">
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-[0.18em] text-steel"
+                  >
+                    Complexity
+                  </p>
+                  <h3 class="mt-2 text-2xl font-black">复杂度</h3>
+                  <p class="mt-5 text-4xl font-black">
+                    O(n)
+                    <span class="text-base font-medium text-abyss/50"
+                      >时间</span
+                    >
+                  </p>
+                  <p class="mt-3 text-4xl font-black">
+                    O(n)
+                    <span class="text-base font-medium text-abyss/50"
+                      >空间</span
+                    >
+                  </p>
+                  <p class="mt-4 text-sm leading-6 text-abyss/60">
+                    最坏情况下字符串全是左括号，栈保存 n 个期待字符。
+                  </p>
+                </article>
+                <article
+                  class="border-2 border-abyss bg-white p-5 sm:p-7 lg:col-span-2"
+                >
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-[0.18em] text-steel"
+                  >
+                    Alternatives
+                  </p>
+                  <h3 class="mt-2 text-2xl font-black">替代方案取舍</h3>
+                  <div class="mt-5 grid gap-4 sm:grid-cols-3">
+                    <div class="bg-abyss/5 p-4">
+                      <strong>循环替换</strong>
+                      <p class="mt-2 text-sm leading-6 text-abyss/60">
+                        不断删除 ()、[]、{}；直观但最坏 O(n²)。
+                      </p>
+                    </div>
+                    <div class="bg-abyss/5 p-4">
+                      <strong>压左括号</strong>
+                      <p class="mt-2 text-sm leading-6 text-abyss/60">
+                        弹栈后再查匹配表，同为 O(n)，条件略长。
+                      </p>
+                    </div>
+                    <div class="bg-abyss/5 p-4">
+                      <strong>计数器</strong>
+                      <p class="mt-2 text-sm leading-6 text-abyss/60">
+                        只适合单一括号类型；三种类型无法表达嵌套顺序。
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              </div>
+
+              <div class="grid gap-6 lg:grid-cols-2">
+                <article class="border-2 border-abyss bg-white p-5 sm:p-7">
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-[0.18em] text-steel"
+                  >
+                    Interview follow-ups
+                  </p>
+                  <h3 class="mt-2 text-2xl font-black">面试高频追问</h3>
+                  <details class="mt-5 border-b border-abyss/15 pb-4">
+                    <summary class="cursor-pointer font-bold">
+                      为什么最后还要检查栈为空？
+                    </summary>
+                    <p class="mt-3 leading-7 text-abyss/60">
+                      像
+                      <code class="font-mono">((</code>
+                      没遇到错误右括号，但仍有未闭合期待。
+                    </p>
+                  </details>
+                  <details class="border-b border-abyss/15 py-4">
+                    <summary class="cursor-pointer font-bold">
+                      能否 O(1) 空间？
+                    </summary>
+                    <p class="mt-3 leading-7 text-abyss/60">
+                      一般输入流下需要记住未闭合嵌套，最坏深度为
+                      n；若允许原地改写字符数组，可借输入空间模拟栈。
+                    </p>
+                  </details>
+                  <details class="pt-4">
+                    <summary class="cursor-pointer font-bold">
+                      为什么先压“期待字符”？
+                    </summary>
+                    <p class="mt-3 leading-7 text-abyss/60">
+                      右括号分支只做一次相等判断，省去弹出左括号后再次映射，代码更贴近不变量。
+                    </p>
+                  </details>
+                </article>
+                <article class="border-2 border-abyss bg-white p-5 sm:p-7">
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-[0.18em] text-fault"
+                  >
+                    Failure modes
+                  </p>
+                  <h3 class="mt-2 text-2xl font-black">常见错误</h3>
+                  <ul class="mt-5 space-y-4">
+                    <li class="border-l-4 border-fault bg-fault/10 p-4">
+                      <strong>空栈先 pop：</strong>以右括号开头会越界或抛异常。
+                    </li>
+                    <li class="border-l-4 border-amber bg-amber/15 p-4">
+                      <strong>只比较数量：</strong
+                      ><code class="font-mono">([)]</code> 数量正确但顺序错误。
+                    </li>
+                    <li class="border-l-4 border-scan bg-scan/10 p-4">
+                      <strong>扫描完直接 true：</strong>漏掉只有左括号的情况。
+                    </li>
+                    <li class="border-l-4 border-pass bg-pass/15 p-4">
+                      <strong>把队列当栈：</strong
+                      >括号嵌套要求最近打开者最先关闭。
+                    </li>
+                  </ul>
+                </article>
+              </div>
+
+              <article
+                class="overflow-hidden border-2 border-abyss bg-abyss text-white shadow-[8px_8px_0_#27d9f5]"
+              >
+                <div
+                  class="border-b border-steel p-5 sm:flex sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p
+                      class="font-mono text-xs font-black uppercase tracking-[0.18em] text-scan"
+                    >
+                      Submission bay
+                    </p>
+                    <h3 class="mt-2 text-2xl font-black">四语言可提交代码</h3>
+                  </div>
+                  <div
+                    role="tablist"
+                    aria-label="选择代码语言"
+                    class="mt-4 flex max-w-full gap-1 overflow-x-auto bg-panel p-1 sm:mt-0"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      id="tab-java"
+                      aria-controls="code-java"
+                      aria-selected="true"
+                      tabindex="0"
+                      data-lang="java"
+                      class="lang-tab bg-scan px-4 py-2 font-mono text-xs font-black text-abyss"
+                    >
+                      Java</button
+                    ><button
+                      type="button"
+                      role="tab"
+                      id="tab-javascript"
+                      aria-controls="code-javascript"
+                      aria-selected="false"
+                      tabindex="-1"
+                      data-lang="javascript"
+                      class="lang-tab px-4 py-2 font-mono text-xs font-black text-white"
+                    >
+                      JavaScript</button
+                    ><button
+                      type="button"
+                      role="tab"
+                      id="tab-python"
+                      aria-controls="code-python"
+                      aria-selected="false"
+                      tabindex="-1"
+                      data-lang="python"
+                      class="lang-tab px-4 py-2 font-mono text-xs font-black text-white"
+                    >
+                      Python</button
+                    ><button
+                      type="button"
+                      role="tab"
+                      id="tab-cpp"
+                      aria-controls="code-cpp"
+                      aria-selected="false"
+                      tabindex="-1"
+                      data-lang="cpp"
+                      class="lang-tab px-4 py-2 font-mono text-xs font-black text-white"
+                    >
+                      C++
+                    </button>
+                  </div>
+                </div>
+                <div class="overflow-x-auto p-5 sm:p-7">
+                  <pre
+                    id="code-java"
+                    role="tabpanel"
+                    aria-labelledby="tab-java"
+                    class="min-w-[650px] font-mono text-sm leading-7"
+                  ><code>class Solution {
+    public boolean isValid(String s) {
+        Map&lt;Character, Character&gt; pairs = Map.of(
+            '(', ')', '[', ']', '{', '}'
+        );
+        Deque&lt;Character&gt; stack = new ArrayDeque&lt;&gt;();
+
+        for (char ch : s.toCharArray()) {
+            if (pairs.containsKey(ch)) {
+                stack.push(pairs.get(ch));
+            } else if (stack.isEmpty() || stack.pop() != ch) {
+                return false;
+            }
+        }
+
+        return stack.isEmpty();
+    }
+}</code></pre>
+                  <pre
+                    id="code-javascript"
+                    role="tabpanel"
+                    aria-labelledby="tab-javascript"
+                    class="min-w-[650px] font-mono text-sm leading-7"
+                    hidden
+                  ><code>var isValid = function (s) {
+    const pairs = { "(": ")", "[": "]", "{": "}" };
+    const stack = [];
+
+    for (const ch of s) {
+        if (pairs[ch] !== undefined) {
+            stack.push(pairs[ch]);
+        } else if (stack.length === 0 || stack.pop() !== ch) {
+            return false;
+        }
+    }
+
+    return stack.length === 0;
+};</code></pre>
+                  <pre
+                    id="code-python"
+                    role="tabpanel"
+                    aria-labelledby="tab-python"
+                    class="min-w-[650px] font-mono text-sm leading-7"
+                    hidden
+                  ><code>class Solution:
+    def isValid(self, s: str) -&gt; bool:
+        pairs = {"(": ")", "[": "]", "{": "}"}
+        stack = []
+
+        for ch in s:
+            if ch in pairs:
+                stack.append(pairs[ch])
+            elif not stack or stack.pop() != ch:
+                return False
+
+        return not stack</code></pre>
+                  <pre
+                    id="code-cpp"
+                    role="tabpanel"
+                    aria-labelledby="tab-cpp"
+                    class="min-w-[650px] font-mono text-sm leading-7"
+                    hidden
+                  ><code>class Solution {
+public:
+    bool isValid(string s) {
+        unordered_map&lt;char, char&gt; pairs = {
+            {'(', ')'}, {'[', ']'}, {'{', '}'}
+        };
+        vector&lt;char&gt; stack;
+
+        for (char ch : s) {
+            if (pairs.count(ch)) {
+                stack.push_back(pairs[ch]);
+            } else {
+                if (stack.empty() || stack.back() != ch) {
+                    return false;
+                }
+                stack.pop_back();
+            }
+        }
+
+        return stack.empty();
+    }
+};</code></pre>
+                </div>
+              </article>
+            </div>
+          </div>
+          <p id="solutionStatus" class="sr-only" aria-live="polite">
+            题解当前已收起。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-t border-scan/20 bg-abyss px-5 py-7 text-center font-mono text-xs font-black uppercase tracking-[0.18em] text-ice/35"
+    >
+      LeetCode 0020 · Valid Parentheses · Stack checkpoint
+    </footer>
+
+    <script>
+      const pairs = { "(": ")", "[": "]", "{": "}" };
+      const scenarios = {
+        valid: { input: "{[()]}", label: "嵌套通过" },
+        invalid: { input: "([)]", label: "顺序冲突" },
+      };
+      let scenarioKey = "valid";
+      let frames = [];
+      let currentStep = 0;
+      let timer = null;
+
+      const elements = {
+        validScenario: document.getElementById("validScenario"),
+        invalidScenario: document.getElementById("invalidScenario"),
+        inputValue: document.getElementById("inputValue"),
+        tokenTrack: document.getElementById("tokenTrack"),
+        scannerState: document.getElementById("scannerState"),
+        currentToken: document.getElementById("currentToken"),
+        expectedToken: document.getElementById("expectedToken"),
+        decisionValue: document.getElementById("decisionValue"),
+        actionValue: document.getElementById("actionValue"),
+        narration: document.getElementById("narration"),
+        depthValue: document.getElementById("depthValue"),
+        stackTube: document.getElementById("stackTube"),
+        stackEmpty: document.getElementById("stackEmpty"),
+        prevBtn: document.getElementById("prevBtn"),
+        nextBtn: document.getElementById("nextBtn"),
+        autoBtn: document.getElementById("autoBtn"),
+        resetBtn: document.getElementById("resetBtn"),
+        demoStatus: document.getElementById("demoStatus"),
+      };
+
+      function buildFrames(input) {
+        const result = [
+          {
+            index: -1,
+            stack: [],
+            current: "—",
+            expected: "—",
+            action: "INITIALIZE",
+            decision: "WAIT",
+            status: "STANDBY",
+            narration: "安检栈为空，准备从左到右读取字符。",
+            terminal: false,
+          },
+        ];
+        const stack = [];
+        for (let index = 0; index < input.length; index += 1) {
+          const ch = input[index];
+          if (pairs[ch] !== undefined) {
+            stack.push(pairs[ch]);
+            result.push({
+              index,
+              stack: [...stack],
+              current: ch,
+              expected: pairs[ch],
+              action: `PUSH EXPECTED ${pairs[ch]}`,
+              decision: "STORE",
+              status: "SCANNING",
+              narration: `读到左括号 ${ch}，把它期待的 ${pairs[ch]} 压入栈顶。`,
+              terminal: false,
+            });
+          } else {
+            const expected = stack.length === 0 ? "EMPTY" : stack.pop();
+            if (expected !== ch) {
+              result.push({
+                index,
+                stack: [...stack],
+                current: ch,
+                expected,
+                action: "REJECT MISMATCH",
+                decision: "FALSE",
+                status: "BLOCKED",
+                narration:
+                  expected === "EMPTY"
+                    ? `读到右括号 ${ch}，但栈为空，没有对应的左括号。`
+                    : `读到 ${ch}，栈顶却期待 ${expected}；闭合顺序冲突，立即判定 false。`,
+                terminal: true,
+                fault: true,
+              });
+              return result;
+            }
+            result.push({
+              index,
+              stack: [...stack],
+              current: ch,
+              expected,
+              action: `MATCH & POP ${ch}`,
+              decision: "MATCH",
+              status: "SCANNING",
+              narration: `${ch} 与栈顶期待完全一致，弹出通行码，继续扫描。`,
+              terminal: false,
+            });
+          }
+        }
+        const ok = stack.length === 0;
+        result.push({
+          index: input.length,
+          stack: [...stack],
+          current: "END",
+          expected: stack.length ? stack[stack.length - 1] : "—",
+          action: ok ? "CLEAR TO PASS" : "REJECT UNFINISHED",
+          decision: ok ? "TRUE" : "FALSE",
+          status: ok ? "PASSED" : "BLOCKED",
+          narration: ok
+            ? "所有字符扫描完毕且栈为空：每一组括号都正确闭合，返回 true。"
+            : "扫描结束但期待栈仍非空：仍有左括号未闭合，返回 false。",
+          terminal: true,
+          fault: !ok,
+        });
+        return result;
+      }
+
+      function stopAuto(announce = false) {
+        if (timer !== null) {
+          window.clearInterval(timer);
+          timer = null;
+        }
+        elements.autoBtn.setAttribute("aria-pressed", "false");
+        elements.autoBtn.textContent = "▶ 自动";
+        if (announce) elements.demoStatus.textContent = "自动扫描已暂停。";
+      }
+
+      function renderTokens(input, frame) {
+        elements.tokenTrack.innerHTML = "";
+        [...input].forEach((token, index) => {
+          const cell = document.createElement("div");
+          cell.className =
+            "token flex aspect-square min-w-0 items-center justify-center border border-steel bg-panel font-mono text-2xl font-black sm:text-3xl";
+          if (index < frame.index) cell.classList.add("token-done");
+          if (index === frame.index)
+            cell.classList.add(frame.fault ? "token-fault" : "token-current");
+          cell.textContent = token;
+          cell.setAttribute("role", "listitem");
+          cell.setAttribute("aria-label", `第 ${index + 1} 个字符 ${token}`);
+          elements.tokenTrack.appendChild(cell);
+        });
+      }
+
+      function renderStack(stack) {
+        elements.stackTube.innerHTML = "";
+        [...stack].reverse().forEach((token, index) => {
+          const chip = document.createElement("div");
+          chip.className = `stack-chip flex items-center justify-between border px-4 py-3 font-mono font-black ${index === 0 ? "border-pass bg-pass text-abyss" : "border-steel bg-panel text-ice"}`;
+          chip.innerHTML = `<span>${token}</span><span class="text-[10px] opacity-60">${index === 0 ? "NEXT" : `LEVEL ${stack.length - index}`}</span>`;
+          chip.setAttribute("role", "listitem");
+          elements.stackTube.appendChild(chip);
+        });
+        elements.stackEmpty.hidden = stack.length !== 0;
+      }
+
+      function renderFrame(announce = true) {
+        const scenario = scenarios[scenarioKey];
+        const frame = frames[currentStep];
+        elements.inputValue.textContent = `s = "${scenario.input}"`;
+        renderTokens(scenario.input, frame);
+        renderStack(frame.stack);
+        elements.scannerState.textContent = frame.status;
+        elements.scannerState.className = frame.fault
+          ? "text-fault"
+          : frame.status === "PASSED"
+            ? "text-pass"
+            : "text-scan";
+        elements.currentToken.textContent = frame.current;
+        elements.expectedToken.textContent = frame.expected;
+        elements.decisionValue.textContent = frame.decision;
+        elements.decisionValue.className = `mt-2 block font-mono text-xl ${frame.fault ? "text-fault" : frame.decision === "TRUE" ? "text-pass" : "text-ice"}`;
+        elements.actionValue.textContent = frame.action;
+        elements.actionValue.className = `font-mono text-xs font-black uppercase tracking-[0.16em] ${frame.fault ? "text-fault" : "text-scan"}`;
+        elements.narration.textContent = frame.narration;
+        elements.depthValue.textContent = `DEPTH ${frame.stack.length}`;
+        elements.prevBtn.disabled = currentStep === 0;
+        elements.nextBtn.disabled = currentStep === frames.length - 1;
+        if (announce)
+          elements.demoStatus.textContent = `${scenario.label}：第 ${currentStep + 1} 步，共 ${frames.length} 步。${frame.narration}`;
+      }
+
+      function chooseScenario(key) {
+        stopAuto();
+        scenarioKey = key;
+        frames = buildFrames(scenarios[key].input);
+        currentStep = 0;
+        elements.validScenario.setAttribute(
+          "aria-pressed",
+          String(key === "valid"),
+        );
+        elements.invalidScenario.setAttribute(
+          "aria-pressed",
+          String(key === "invalid"),
+        );
+        elements.validScenario.classList.toggle("bg-pass", key === "valid");
+        elements.validScenario.classList.toggle("text-abyss", key === "valid");
+        elements.validScenario.classList.toggle("bg-abyss", key !== "valid");
+        elements.validScenario.classList.toggle("text-pass", key !== "valid");
+        elements.invalidScenario.classList.toggle(
+          "bg-fault",
+          key === "invalid",
+        );
+        elements.invalidScenario.classList.toggle(
+          "text-white",
+          key === "invalid",
+        );
+        elements.invalidScenario.classList.toggle(
+          "bg-abyss",
+          key !== "invalid",
+        );
+        elements.invalidScenario.classList.toggle(
+          "text-fault",
+          key !== "invalid",
+        );
+        renderFrame();
+      }
+
+      function moveStep(delta) {
+        stopAuto();
+        currentStep = Math.max(
+          0,
+          Math.min(frames.length - 1, currentStep + delta),
+        );
+        renderFrame();
+      }
+
+      elements.validScenario.addEventListener("click", () =>
+        chooseScenario("valid"),
+      );
+      elements.invalidScenario.addEventListener("click", () =>
+        chooseScenario("invalid"),
+      );
+      elements.prevBtn.addEventListener("click", () => moveStep(-1));
+      elements.nextBtn.addEventListener("click", () => moveStep(1));
+      elements.resetBtn.addEventListener("click", () => {
+        stopAuto();
+        currentStep = 0;
+        renderFrame();
+      });
+      elements.autoBtn.addEventListener("click", () => {
+        if (timer !== null) {
+          stopAuto(true);
+          return;
+        }
+        if (currentStep === frames.length - 1) currentStep = 0;
+        renderFrame();
+        elements.autoBtn.setAttribute("aria-pressed", "true");
+        elements.autoBtn.textContent = "Ⅱ 暂停";
+        elements.demoStatus.textContent = "自动扫描已开始。";
+        timer = window.setInterval(() => {
+          if (currentStep >= frames.length - 1) {
+            stopAuto();
+            elements.demoStatus.textContent = `自动扫描完成：${frames[currentStep].decision}。`;
+            return;
+          }
+          currentStep += 1;
+          renderFrame();
+        }, 650);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        const role = document.activeElement?.getAttribute("role");
+        const tag = document.activeElement?.tagName;
+        if (role === "tab" || tag === "INPUT" || tag === "TEXTAREA") return;
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          moveStep(1);
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          moveStep(-1);
+        }
+      });
+
+      function isValid(s) {
+        const stack = [];
+        for (const ch of s) {
+          if (pairs[ch] !== undefined) stack.push(pairs[ch]);
+          else if (stack.length === 0 || stack.pop() !== ch) return false;
+        }
+        return stack.length === 0;
+      }
+
+      const testCases = [
+        { name: "官方样例 1 · 基本配对", input: "()", expected: true },
+        { name: "官方样例 2 · 连续三组", input: "()[]{}", expected: true },
+        { name: "官方样例 3 · 类型错误", input: "(]", expected: false },
+        { name: "官方样例 4 · 正确嵌套", input: "([])", expected: true },
+        { name: "官方样例 5 · 顺序交叉", input: "([)]", expected: false },
+        { name: "关键边界 · 深层嵌套", input: "{[()]}", expected: true },
+        { name: "关键边界 · 未闭合", input: "(((", expected: false },
+        { name: "关键边界 · 右括号开头", input: "]", expected: false },
+      ];
+
+      const testGrid = document.getElementById("testGrid");
+      let passed = 0;
+      testCases.forEach((test, index) => {
+        const actual = isValid(test.input);
+        const ok = actual === test.expected;
+        if (ok) passed += 1;
+        const card = document.createElement("article");
+        card.className = "min-w-0 overflow-hidden border border-steel bg-panel";
+        card.innerHTML = `
+          <div class="flex items-center justify-between gap-3 border-b border-steel bg-abyss px-4 py-3">
+            <h3 class="min-w-0 font-bold">${String(index + 1).padStart(2, "0")} // ${test.name}</h3>
+            <span class="shrink-0 border px-3 py-1 font-mono text-[10px] font-black ${ok ? "border-pass text-pass" : "border-fault text-fault"}">${ok ? "PASS" : "FAIL"}</span>
+          </div>
+          <dl class="mobile-one-column grid min-w-0 grid-cols-2 gap-px bg-steel">
+            <div class="min-w-0 bg-panel p-4"><dt class="font-mono text-[10px] font-black uppercase tracking-wider text-ice/35">输入</dt><dd class="mt-2 break-words bg-abyss p-3 font-mono text-sm">s = "${test.input}"</dd></div>
+            <div class="min-w-0 bg-panel p-4"><dt class="font-mono text-[10px] font-black uppercase tracking-wider text-ice/35">期望输出</dt><dd class="mt-2 bg-abyss p-3 font-mono text-sm">${String(test.expected)}</dd></div>
+            <div class="min-w-0 bg-panel p-4"><dt class="font-mono text-[10px] font-black uppercase tracking-wider text-ice/35">实际输出</dt><dd class="mt-2 bg-abyss p-3 font-mono text-sm">${String(actual)}</dd></div>
+            <div class="min-w-0 bg-panel p-4"><dt class="font-mono text-[10px] font-black uppercase tracking-wider text-ice/35">通过状态</dt><dd class="mt-2 p-3 font-mono text-sm font-black ${ok ? "bg-pass/10 text-pass" : "bg-fault/10 text-fault"}">${ok ? "✓ 输出完全一致" : "✕ 输出不一致"}</dd></div>
+          </dl>`;
+        testGrid.appendChild(card);
+      });
+      document.getElementById("testSummary").textContent =
+        `${passed} / ${testCases.length} PASS`;
+
+      const solutionToggle = document.getElementById("solutionToggle");
+      const solutionPanel = document.getElementById("solutionPanel");
+      const solutionStatus = document.getElementById("solutionStatus");
+      solutionToggle.addEventListener("click", () => {
+        const expanded =
+          solutionToggle.getAttribute("aria-expanded") === "true";
+        solutionToggle.setAttribute("aria-expanded", String(!expanded));
+        solutionPanel.hidden = expanded;
+        solutionToggle.textContent = expanded ? "查看题解 ↓" : "收起题解 ↑";
+        solutionStatus.textContent = expanded
+          ? "题解已收起。"
+          : "题解已展开，包含核心洞察、复杂度与四语言代码。";
+      });
+
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      function activateTab(tab, focus = true) {
+        tabs.forEach((item) => {
+          const selected = item === tab;
+          item.setAttribute("aria-selected", String(selected));
+          item.tabIndex = selected ? 0 : -1;
+          item.classList.toggle("bg-scan", selected);
+          item.classList.toggle("text-abyss", selected);
+          item.classList.toggle("text-white", !selected);
+          document.getElementById(item.getAttribute("aria-controls")).hidden =
+            !selected;
+        });
+        if (focus) tab.focus();
+      }
+
+      tabs.forEach((tab, index) => {
+        tab.addEventListener("click", () => activateTab(tab, false));
+        tab.addEventListener("keydown", (event) => {
+          let nextIndex = index;
+          if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+          else if (event.key === "ArrowLeft")
+            nextIndex = (index - 1 + tabs.length) % tabs.length;
+          else if (event.key === "Home") nextIndex = 0;
+          else if (event.key === "End") nextIndex = tabs.length - 1;
+          else return;
+          event.preventDefault();
+          activateTab(tabs[nextIndex]);
+        });
+      });
+
+      frames = buildFrames(scenarios.valid.input);
+      renderFrame(false);
+    </script>
+  </body>
+</html>
