@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Gravitar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-slate-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-fuchsia-300">Classic Game</p>
+          <h1 class="mt-1 text-3xl font-bold sm:text-4xl">Mini Gravitar</h1>
+        </div>
+        <button
+          id="reset"
+          class="rounded-md bg-fuchsia-300 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-fuchsia-200"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-4">
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">能量</p>
+          <p id="fuel" class="mt-2 text-2xl font-bold text-fuchsia-200">100</p>
+        </div>
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">收集</p>
+          <p id="cargo" class="mt-2 text-2xl font-bold">0 / 3</p>
+        </div>
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">速度</p>
+          <p id="speed" class="mt-2 text-2xl font-bold">0.0</p>
+        </div>
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">状态</p>
+          <p id="status" class="mt-2 text-lg font-semibold text-emerald-200">探索中</p>
+        </div>
+      </section>
+
+      <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <canvas id="cave" class="aspect-[4/3] w-full rounded-md bg-black"></canvas>
+        </div>
+
+        <aside class="rounded-md border border-slate-800 bg-slate-900 p-4">
+          <h2 class="text-xl font-bold">飞行</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-slate-300">
+            ←/→ 旋转，↑ 推进。收集 3 个能量点，再缓慢落到绿色平台。
+          </p>
+          <div class="mt-4 border-t border-slate-800 pt-4 text-sm leading-6 text-slate-400">
+            <p>规则：飞船受重力下坠，撞上岩壁或高速落地会失败。能量耗尽后无法推进。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("cave");
+      const context = canvas.getContext("2d");
+      const keys = new Set();
+      const elements = {
+        fuel: document.getElementById("fuel"),
+        cargo: document.getElementById("cargo"),
+        speed: document.getElementById("speed"),
+        status: document.getElementById("status"),
+        message: document.getElementById("message"),
+        reset: document.getElementById("reset"),
+      };
+
+      const terrain = [
+        { x: 0, y: 440 },
+        { x: 90, y: 390 },
+        { x: 160, y: 420 },
+        { x: 250, y: 350 },
+        { x: 340, y: 390 },
+        { x: 430, y: 320 },
+        { x: 520, y: 360 },
+        { x: 640, y: 330 },
+      ];
+      const ceiling = [
+        { x: 0, y: 70 },
+        { x: 120, y: 115 },
+        { x: 220, y: 80 },
+        { x: 350, y: 125 },
+        { x: 500, y: 95 },
+        { x: 640, y: 145 },
+      ];
+      const pad = { x: 500, y: 354, width: 78 };
+      let ship;
+      let crystals;
+      let fuel;
+      let ended;
+      let lastTime;
+      let animationId;
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.max(640, Math.floor(rect.width * devicePixelRatio));
+        canvas.height = Math.floor((canvas.width * 3) / 4);
+        context.setTransform(canvas.width / 640, 0, 0, canvas.height / 480, 0, 0);
+      }
+
+      function setupGame() {
+        resizeCanvas();
+        ship = { x: 92, y: 160, vx: 0, vy: 0, angle: -Math.PI / 2 };
+        crystals = [
+          { x: 190, y: 180, taken: false },
+          { x: 330, y: 210, taken: false },
+          { x: 455, y: 150, taken: false },
+        ];
+        fuel = 100;
+        ended = false;
+        lastTime = performance.now();
+        elements.message.textContent = "收集 3 个能量点，再缓慢落到绿色平台。";
+        cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(loop);
+      }
+
+      function groundAt(x, points) {
+        for (let i = 0; i < points.length - 1; i += 1) {
+          const a = points[i];
+          const b = points[i + 1];
+          if (x >= a.x && x <= b.x) {
+            const ratio = (x - a.x) / (b.x - a.x);
+            return a.y + (b.y - a.y) * ratio;
+          }
+        }
+        return points[points.length - 1].y;
+      }
+
+      function collectedCount() {
+        return crystals.filter((crystal) => crystal.taken).length;
+      }
+
+      function updateShip(dt) {
+        if (keys.has("ArrowLeft")) ship.angle -= 3.2 * dt;
+        if (keys.has("ArrowRight")) ship.angle += 3.2 * dt;
+        if (keys.has("ArrowUp") && fuel > 0) {
+          ship.vx += Math.cos(ship.angle) * 150 * dt;
+          ship.vy += Math.sin(ship.angle) * 150 * dt;
+          fuel = Math.max(0, fuel - 18 * dt);
+        }
+        ship.vy += 72 * dt;
+        ship.vx *= 0.998;
+        ship.vy *= 0.998;
+        ship.x += ship.vx * dt;
+        ship.y += ship.vy * dt;
+      }
+
+      function checkCrystals() {
+        crystals.forEach((crystal) => {
+          if (!crystal.taken && Math.hypot(ship.x - crystal.x, ship.y - crystal.y) < 22) {
+            crystal.taken = true;
+            elements.message.textContent = `已收集 ${collectedCount()} 个能量点。`;
+          }
+        });
+      }
+
+      function fail(text) {
+        ended = true;
+        elements.message.textContent = text;
+      }
+
+      function checkCollision() {
+        const ground = groundAt(ship.x, terrain);
+        const roof = groundAt(ship.x, ceiling);
+        const speed = Math.hypot(ship.vx, ship.vy);
+        const onPad = ship.x >= pad.x && ship.x <= pad.x + pad.width;
+        if (ship.y < roof + 13 || ship.x < 12 || ship.x > 628) fail("飞船撞上洞壁，任务失败。");
+        if (ship.y > ground - 13) {
+          if (onPad && collectedCount() === 3 && speed < 55 && Math.abs(ship.angle + Math.PI / 2) < 0.75) {
+            ended = true;
+            elements.message.textContent = "平稳降落并带回能量，任务完成。";
+          } else {
+            fail(onPad ? "落地太快或能量未收集完，任务失败。" : "飞船撞上岩面，任务失败。");
+          }
+        }
+      }
+
+      function drawTerrain(points, fillStyle) {
+        context.fillStyle = fillStyle;
+        context.beginPath();
+        context.moveTo(points[0].x, points[0].y);
+        points.forEach((point) => context.lineTo(point.x, point.y));
+        context.lineTo(640, points[0] === terrain[0] ? 480 : 0);
+        context.lineTo(0, points[0] === terrain[0] ? 480 : 0);
+        context.closePath();
+        context.fill();
+      }
+
+      function drawShip() {
+        context.save();
+        context.translate(ship.x, ship.y);
+        context.rotate(ship.angle);
+        context.fillStyle = "#e879f9";
+        context.beginPath();
+        context.moveTo(18, 0);
+        context.lineTo(-12, -9);
+        context.lineTo(-7, 0);
+        context.lineTo(-12, 9);
+        context.closePath();
+        context.fill();
+        if (keys.has("ArrowUp") && fuel > 0 && !ended) {
+          context.fillStyle = "#fef08a";
+          context.beginPath();
+          context.moveTo(-12, 0);
+          context.lineTo(-24, -5);
+          context.lineTo(-24, 5);
+          context.closePath();
+          context.fill();
+        }
+        context.restore();
+      }
+
+      function draw() {
+        context.fillStyle = "#020617";
+        context.fillRect(0, 0, 640, 480);
+        context.fillStyle = "#e2e8f0";
+        for (let i = 0; i < 45; i += 1) context.fillRect((i * 83) % 640, (i * 47) % 480, 1.4, 1.4);
+        drawTerrain(ceiling, "#1e293b");
+        drawTerrain(terrain, "#334155");
+        context.fillStyle = "#86efac";
+        context.fillRect(pad.x, pad.y - 6, pad.width, 6);
+        crystals.forEach((crystal) => {
+          if (crystal.taken) return;
+          context.fillStyle = "#67e8f9";
+          context.beginPath();
+          context.arc(crystal.x, crystal.y, 9, 0, Math.PI * 2);
+          context.fill();
+        });
+        drawShip();
+        const speed = Math.hypot(ship.vx, ship.vy);
+        elements.fuel.textContent = String(Math.ceil(fuel));
+        elements.cargo.textContent = `${collectedCount()} / 3`;
+        elements.speed.textContent = speed.toFixed(1);
+        elements.status.textContent = ended ? (collectedCount() === 3 && ship.y > groundAt(ship.x, terrain) - 14 ? "胜利" : "失败") : "探索中";
+      }
+
+      function loop(time) {
+        const dt = Math.min(0.033, (time - lastTime) / 1000);
+        lastTime = time;
+        if (!ended) {
+          updateShip(dt);
+          checkCrystals();
+          checkCollision();
+        }
+        draw();
+        animationId = requestAnimationFrame(loop);
+      }
+
+      window.addEventListener("keydown", (event) => {
+        keys.add(event.key);
+        if (event.key.startsWith("Arrow")) event.preventDefault();
+      });
+      window.addEventListener("keyup", (event) => keys.delete(event.key));
+      window.addEventListener("resize", resizeCanvas);
+      elements.reset.addEventListener("click", setupGame);
+      setupGame();
+    </script>
+  </body>
+</html>
