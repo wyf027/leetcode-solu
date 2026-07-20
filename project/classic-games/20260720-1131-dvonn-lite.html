@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini DVONN</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wider text-red-300">Classic Abstract</p>
+        <h1 class="text-3xl font-bold">Mini DVONN</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="mx-auto grid max-w-[520px] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-xs text-zinc-400">白方</div>
+            <div id="whiteScore" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-xs text-zinc-400">黑方</div>
+            <div id="blackScore" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+
+        <div class="mt-4 rounded border border-zinc-700 p-3">
+          <div class="text-xs text-zinc-400">当前回合</div>
+          <div id="turnLabel" class="mt-1 text-lg font-semibold">白方</div>
+        </div>
+
+        <p id="message" class="mt-4 min-h-12 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200"></p>
+
+        <div class="mt-4 space-y-2 text-sm text-zinc-300">
+          <p>选中一个己方顶子的堆，沿横、竖、斜直线移动，步数必须等于堆高。</p>
+          <p>只能落到已有棋堆上。移动后，所有无法连到红色锚点的棋堆会被移除。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const SIZE = 5;
+    const RED = "red";
+    const WHITE = "white";
+    const BLACK = "black";
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const messageEl = document.getElementById("message");
+    const whiteScore = document.getElementById("whiteScore");
+    const blackScore = document.getElementById("blackScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board = [];
+    let turn = WHITE;
+    let selected = null;
+    let gameOver = false;
+
+    function initialStack(row, col) {
+      const anchors = ["0,2", "2,2", "4,2"];
+      if (anchors.includes(`${row},${col}`)) return [RED];
+      return [(row + col) % 2 === 0 ? WHITE : BLACK];
+    }
+
+    function resetGame() {
+      board = Array.from({ length: SIZE }, (_, row) =>
+        Array.from({ length: SIZE }, (_, col) => initialStack(row, col))
+      );
+      turn = WHITE;
+      selected = null;
+      gameOver = false;
+      render("白方先手。选择一个顶子为己方颜色的棋堆。");
+    }
+
+    function topPiece(stack) {
+      return stack[stack.length - 1];
+    }
+
+    function isInside(row, col) {
+      return row >= 0 && row < SIZE && col >= 0 && col < SIZE;
+    }
+
+    function canMoveFrom(row, col) {
+      const stack = board[row][col];
+      return stack.length > 0 && topPiece(stack) === turn && legalTargets(row, col).length > 0;
+    }
+
+    function legalTargets(row, col) {
+      const stack = board[row][col];
+      if (!stack.length) return [];
+      const distance = stack.length;
+      const dirs = [
+        [-1, -1], [-1, 0], [-1, 1],
+        [0, -1], [0, 1],
+        [1, -1], [1, 0], [1, 1]
+      ];
+
+      return dirs
+        .map(([dr, dc]) => [row + dr * distance, col + dc * distance])
+        .filter(([r, c]) => isInside(r, c) && board[r][c].length > 0);
+    }
+
+    function hasMove(player) {
+      const oldTurn = turn;
+      turn = player;
+      const movable = board.some((line, row) => line.some((stack, col) => canMoveFrom(row, col)));
+      turn = oldTurn;
+      return movable;
+    }
+
+    function collectConnectedToRed() {
+      const keep = new Set();
+      const queue = [];
+
+      for (let row = 0; row < SIZE; row += 1) {
+        for (let col = 0; col < SIZE; col += 1) {
+          if (board[row][col].includes(RED)) {
+            const key = `${row},${col}`;
+            keep.add(key);
+            queue.push([row, col]);
+          }
+        }
+      }
+
+      while (queue.length) {
+        const [row, col] = queue.shift();
+        for (let dr = -1; dr <= 1; dr += 1) {
+          for (let dc = -1; dc <= 1; dc += 1) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = row + dr;
+            const nc = col + dc;
+            const key = `${nr},${nc}`;
+            if (isInside(nr, nc) && board[nr][nc].length && !keep.has(key)) {
+              keep.add(key);
+              queue.push([nr, nc]);
+            }
+          }
+        }
+      }
+
+      return keep;
+    }
+
+    function pruneIslands() {
+      const keep = collectConnectedToRed();
+      let removed = 0;
+      for (let row = 0; row < SIZE; row += 1) {
+        for (let col = 0; col < SIZE; col += 1) {
+          if (board[row][col].length && !keep.has(`${row},${col}`)) {
+            removed += board[row][col].length;
+            board[row][col] = [];
+          }
+        }
+      }
+      return removed;
+    }
+
+    function score() {
+      return board.flat().reduce(
+        (total, stack) => {
+          stack.forEach((piece) => {
+            if (piece === WHITE) total.white += 1;
+            if (piece === BLACK) total.black += 1;
+          });
+          return total;
+        },
+        { white: 0, black: 0 }
+      );
+    }
+
+    function endIfBlocked(note) {
+      if (hasMove(turn)) return false;
+      const total = score();
+      const winner = total.white === total.black ? "平局" : total.white > total.black ? "白方获胜" : "黑方获胜";
+      gameOver = true;
+      render(`${note} ${turn === WHITE ? "白方" : "黑方"}无合法移动。${winner}。`);
+      return true;
+    }
+
+    function moveTo(row, col) {
+      if (!selected) return;
+      const targets = legalTargets(selected.row, selected.col).map(([r, c]) => `${r},${c}`);
+      if (!targets.includes(`${row},${col}`)) {
+        render("该落点不合法：必须按堆高直线移动，并落到已有棋堆上。");
+        return;
+      }
+
+      const moving = board[selected.row][selected.col];
+      board[row][col] = board[row][col].concat(moving);
+      board[selected.row][selected.col] = [];
+      selected = null;
+      const removed = pruneIslands();
+      turn = turn === WHITE ? BLACK : WHITE;
+      render(removed ? `移除了 ${removed} 枚断开红锚的棋子。` : "移动完成。");
+      endIfBlocked("移动完成。");
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (selected && !(selected.row === row && selected.col === col)) {
+        moveTo(row, col);
+        return;
+      }
+
+      if (selected && selected.row === row && selected.col === col) {
+        selected = null;
+        render("已取消选择。");
+        return;
+      }
+
+      if (canMoveFrom(row, col)) {
+        selected = { row, col };
+        render(`已选择高 ${board[row][col].length} 的棋堆。`);
+      } else {
+        render("请选择顶子属于当前回合且有合法移动的棋堆。");
+      }
+    }
+
+    function pieceClass(piece) {
+      if (piece === RED) return "bg-red-500 text-white";
+      if (piece === WHITE) return "bg-zinc-100 text-zinc-950";
+      return "bg-zinc-800 text-white";
+    }
+
+    function cellClass(row, col, targets) {
+      const isSelected = selected && selected.row === row && selected.col === col;
+      const isTarget = targets.includes(`${row},${col}`);
+      const stack = board[row][col];
+      let cls = "aspect-square rounded border p-1 transition ";
+      cls += stack.length ? "border-zinc-600 bg-zinc-800 hover:border-red-300 " : "border-zinc-800 bg-zinc-950 ";
+      if (isSelected) cls += "ring-2 ring-red-400 ";
+      if (isTarget) cls += "border-emerald-300 bg-emerald-950 ";
+      return cls;
+    }
+
+    function render(message) {
+      const targets = selected ? legalTargets(selected.row, selected.col).map(([r, c]) => `${r},${c}`) : [];
+      boardEl.innerHTML = "";
+
+      for (let row = 0; row < SIZE; row += 1) {
+        for (let col = 0; col < SIZE; col += 1) {
+          const stack = board[row][col];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = cellClass(row, col, targets);
+          cell.setAttribute("aria-label", `第 ${row + 1} 行第 ${col + 1} 列`);
+          cell.addEventListener("click", () => handleCell(row, col));
+
+          if (stack.length) {
+            const top = topPiece(stack);
+            const chip = document.createElement("div");
+            chip.className = `flex h-full w-full flex-col items-center justify-center rounded ${pieceClass(top)}`;
+            chip.innerHTML = `<span class="text-lg font-bold">${stack.length}</span><span class="text-[10px] uppercase">${top}</span>`;
+            cell.appendChild(chip);
+          }
+
+          boardEl.appendChild(cell);
+        }
+      }
+
+      const total = score();
+      whiteScore.textContent = total.white;
+      blackScore.textContent = total.black;
+      turnLabel.textContent = gameOver ? "结束" : turn === WHITE ? "白方" : "黑方";
+      messageEl.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
