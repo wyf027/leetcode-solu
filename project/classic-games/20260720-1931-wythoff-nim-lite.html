@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Wythoff Nim</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-stone-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic Game</p>
+          <h1 class="mt-1 text-3xl font-bold sm:text-4xl">Mini Wythoff Nim</h1>
+        </div>
+        <button
+          id="reset"
+          class="w-full rounded-md bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 transition hover:bg-amber-200 sm:w-auto"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-4 sm:grid-cols-3">
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">当前玩家</p>
+          <p id="turn" class="mt-2 text-2xl font-bold text-amber-200">Player 1</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">剩余石子</p>
+          <p id="total" class="mt-2 text-2xl font-bold">18</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">状态</p>
+          <p id="status" class="mt-2 text-lg font-semibold text-emerald-200">选择一个合法动作</p>
+        </div>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-2">
+        <article class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold">Pile A</h2>
+            <span id="count-a" class="rounded bg-stone-800 px-3 py-1 font-mono text-amber-200">7</span>
+          </div>
+          <div id="stones-a" class="mt-4 grid min-h-28 grid-cols-7 gap-2"></div>
+        </article>
+
+        <article class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold">Pile B</h2>
+            <span id="count-b" class="rounded bg-stone-800 px-3 py-1 font-mono text-cyan-200">11</span>
+          </div>
+          <div id="stones-b" class="mt-4 grid min-h-28 grid-cols-7 gap-2"></div>
+        </article>
+      </section>
+
+      <section class="rounded-md border border-stone-800 bg-stone-900 p-4">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 class="text-xl font-bold">可选动作</h2>
+          <p id="last-move" class="text-sm text-stone-400">尚未移动</p>
+        </div>
+        <div class="mt-4 grid gap-4 lg:grid-cols-3">
+          <div>
+            <p class="mb-2 text-sm font-semibold text-amber-200">只取 Pile A</p>
+            <div id="moves-a" class="flex flex-wrap gap-2"></div>
+          </div>
+          <div>
+            <p class="mb-2 text-sm font-semibold text-cyan-200">只取 Pile B</p>
+            <div id="moves-b" class="flex flex-wrap gap-2"></div>
+          </div>
+          <div>
+            <p class="mb-2 text-sm font-semibold text-emerald-200">两堆同取</p>
+            <div id="moves-both" class="flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-md border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+        规则：每回合可以从任意一堆取走至少一颗石子，也可以从两堆同时取走相同数量的石子。拿走最后一颗石子的玩家获胜。
+      </section>
+    </main>
+
+    <script>
+      const initialState = { pileA: 7, pileB: 11, player: 1, winner: null, lastMove: "尚未移动" };
+      let state = { ...initialState };
+
+      const elements = {
+        turn: document.getElementById("turn"),
+        total: document.getElementById("total"),
+        status: document.getElementById("status"),
+        countA: document.getElementById("count-a"),
+        countB: document.getElementById("count-b"),
+        stonesA: document.getElementById("stones-a"),
+        stonesB: document.getElementById("stones-b"),
+        movesA: document.getElementById("moves-a"),
+        movesB: document.getElementById("moves-b"),
+        movesBoth: document.getElementById("moves-both"),
+        lastMove: document.getElementById("last-move"),
+        reset: document.getElementById("reset"),
+      };
+
+      function drawStones(container, count, colorClass) {
+        container.innerHTML = "";
+        for (let index = 0; index < count; index += 1) {
+          const stone = document.createElement("div");
+          stone.className = `aspect-square rounded-full ${colorClass} shadow-sm`;
+          stone.setAttribute("aria-label", "stone");
+          container.appendChild(stone);
+        }
+      }
+
+      function createMoveButton(label, onClick) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className =
+          "min-w-12 rounded-md border border-stone-700 bg-stone-800 px-3 py-2 text-sm font-bold transition hover:border-amber-300 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40";
+        button.textContent = label;
+        button.disabled = Boolean(state.winner);
+        button.addEventListener("click", onClick);
+        return button;
+      }
+
+      function renderMoveGroup(container, max, prefix, handler) {
+        container.innerHTML = "";
+        if (max === 0) {
+          const empty = document.createElement("span");
+          empty.className = "text-sm text-stone-500";
+          empty.textContent = "无可用动作";
+          container.appendChild(empty);
+          return;
+        }
+        for (let amount = 1; amount <= max; amount += 1) {
+          container.appendChild(createMoveButton(`${prefix}${amount}`, () => handler(amount)));
+        }
+      }
+
+      function takeStones(target, amount) {
+        if (state.winner || amount <= 0) {
+          return;
+        }
+
+        const next = { ...state };
+        if (target === "A" && amount <= next.pileA) {
+          next.pileA -= amount;
+          next.lastMove = `Player ${state.player} 从 Pile A 取走 ${amount}`;
+        } else if (target === "B" && amount <= next.pileB) {
+          next.pileB -= amount;
+          next.lastMove = `Player ${state.player} 从 Pile B 取走 ${amount}`;
+        } else if (target === "Both" && amount <= Math.min(next.pileA, next.pileB)) {
+          next.pileA -= amount;
+          next.pileB -= amount;
+          next.lastMove = `Player ${state.player} 从两堆各取 ${amount}`;
+        } else {
+          return;
+        }
+
+        if (next.pileA + next.pileB === 0) {
+          next.winner = state.player;
+        } else {
+          next.player = state.player === 1 ? 2 : 1;
+        }
+        state = next;
+        render();
+      }
+
+      function resetGame() {
+        state = { ...initialState };
+        render();
+      }
+
+      function render() {
+        elements.turn.textContent = state.winner ? `Player ${state.winner}` : `Player ${state.player}`;
+        elements.total.textContent = String(state.pileA + state.pileB);
+        elements.status.textContent = state.winner ? "胜利" : "选择一个合法动作";
+        elements.countA.textContent = String(state.pileA);
+        elements.countB.textContent = String(state.pileB);
+        elements.lastMove.textContent = state.lastMove;
+
+        drawStones(elements.stonesA, state.pileA, "bg-amber-300");
+        drawStones(elements.stonesB, state.pileB, "bg-cyan-300");
+        renderMoveGroup(elements.movesA, state.pileA, "A - ", (amount) => takeStones("A", amount));
+        renderMoveGroup(elements.movesB, state.pileB, "B - ", (amount) => takeStones("B", amount));
+        renderMoveGroup(elements.movesBoth, Math.min(state.pileA, state.pileB), "Both - ", (amount) =>
+          takeStones("Both", amount)
+        );
+      }
+
+      elements.reset.addEventListener("click", resetGame);
+      render();
+    </script>
+  </body>
+</html>
