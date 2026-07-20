@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Avalanche</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-sky-300">Classic Games</p>
+        <h1 class="text-3xl font-bold tracking-normal text-white">Mini Avalanche</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Score</p>
+          <p id="score" class="text-lg font-bold text-sky-200">0</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Lives</p>
+          <p id="lives" class="text-lg font-bold text-rose-200">5</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Level</p>
+          <p id="level" class="text-lg font-bold text-emerald-200">1</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Combo</p>
+          <p id="combo" class="text-lg font-bold text-amber-200">0</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px]">
+      <canvas id="game" width="640" height="760" class="h-auto w-full rounded border border-zinc-700 bg-zinc-900 shadow-2xl"></canvas>
+      <aside class="rounded border border-zinc-700 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+        <h2 class="mb-2 text-lg font-semibold text-white">Controls</h2>
+        <p>Move the catcher with mouse, touch, or Left/Right keys.</p>
+        <p class="mt-3">Catch falling stones before they hit the floor. Every 12 catches raises the level.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-sky-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-sky-300">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-zinc-700 bg-zinc-950 p-3 text-sky-100">Keep the quarry clear.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const levelEl = document.getElementById('level');
+    const comboEl = document.getElementById('combo');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const keys = new Set();
+    let state;
+
+    function setupGame() {
+      state = {
+        score: 0,
+        lives: 5,
+        level: 1,
+        combo: 0,
+        caught: 0,
+        frame: 0,
+        catcherX: width / 2,
+        rocks: [],
+        particles: [],
+        gameOver: false
+      };
+      messageEl.textContent = 'Keep the quarry clear.';
+      spawnRock();
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      levelEl.textContent = state.level;
+      comboEl.textContent = state.combo;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function spawnRock() {
+      const lanes = 8;
+      const lane = Math.floor(Math.random() * lanes);
+      const gap = width / lanes;
+      state.rocks.push({
+        x: lane * gap + gap / 2 + (Math.random() - 0.5) * 28,
+        y: -20,
+        radius: 12 + Math.random() * 12,
+        speed: 2.1 + state.level * 0.45 + Math.random() * 1.2,
+        wobble: Math.random() * Math.PI * 2
+      });
+    }
+
+    function moveCatcher() {
+      if (keys.has('ArrowLeft') || keys.has('a')) state.catcherX -= 7;
+      if (keys.has('ArrowRight') || keys.has('d')) state.catcherX += 7;
+      state.catcherX = clamp(state.catcherX, 52, width - 52);
+    }
+
+    function createBurst(x, y, color) {
+      for (let i = 0; i < 10; i++) {
+        state.particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: -Math.random() * 4,
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function catchRock(index) {
+      const rock = state.rocks[index];
+      state.combo += 1;
+      state.caught += 1;
+      state.score += 10 + state.combo * 2 + state.level;
+      createBurst(rock.x, rock.y, '#7dd3fc');
+      state.rocks.splice(index, 1);
+      if (state.caught % 12 === 0) {
+        state.level += 1;
+        messageEl.textContent = 'Avalanche speed increased.';
+      }
+      updateHud();
+    }
+
+    function missRock(index) {
+      const rock = state.rocks[index];
+      state.lives -= 1;
+      state.combo = 0;
+      createBurst(rock.x, height - 40, '#fb7185');
+      state.rocks.splice(index, 1);
+      messageEl.textContent = state.lives > 0 ? 'A stone slipped through.' : 'The quarry overflowed. Press Restart.';
+      if (state.lives <= 0) state.gameOver = true;
+      updateHud();
+    }
+
+    function updateRocks() {
+      const spawnEvery = Math.max(24, 58 - state.level * 4);
+      if (state.frame % spawnEvery === 0) spawnRock();
+      const basketY = height - 76;
+      const basketHalf = 58;
+      for (let i = state.rocks.length - 1; i >= 0; i--) {
+        const rock = state.rocks[i];
+        rock.wobble += 0.04;
+        rock.y += rock.speed;
+        rock.x += Math.sin(rock.wobble) * 0.45;
+        const inBasketX = Math.abs(rock.x - state.catcherX) < basketHalf;
+        const inBasketY = rock.y + rock.radius > basketY && rock.y < basketY + 35;
+        if (inBasketX && inBasketY) {
+          catchRock(i);
+        } else if (rock.y - rock.radius > height - 18) {
+          missRock(i);
+        }
+      }
+    }
+
+    function updateParticles() {
+      for (let i = state.particles.length - 1; i >= 0; i--) {
+        const p = state.particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.18;
+        p.life -= 1;
+        if (p.life <= 0) state.particles.splice(i, 1);
+      }
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = '#18181b';
+      for (let y = 88; y < height; y += 72) {
+        ctx.fillRect(0, y, width, 3);
+      }
+      ctx.fillStyle = '#27272a';
+      ctx.fillRect(0, height - 24, width, 24);
+      ctx.fillStyle = '#0c4a6e';
+      ctx.fillRect(0, 0, width, 52);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.font = 'bold 16px ui-sans-serif, system-ui';
+      ctx.fillText('Falling quarry', 24, 33);
+    }
+
+    function drawRocks() {
+      for (const rock of state.rocks) {
+        const gradient = ctx.createRadialGradient(rock.x - 5, rock.y - 5, 2, rock.x, rock.y, rock.radius);
+        gradient.addColorStop(0, '#f4f4f5');
+        gradient.addColorStop(0.55, '#a1a1aa');
+        gradient.addColorStop(1, '#52525b');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(rock.x, rock.y, rock.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#27272a';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    function drawCatcher() {
+      const x = state.catcherX;
+      const y = height - 70;
+      ctx.fillStyle = '#0ea5e9';
+      ctx.beginPath();
+      ctx.moveTo(x - 62, y);
+      ctx.lineTo(x + 62, y);
+      ctx.lineTo(x + 44, y + 34);
+      ctx.lineTo(x - 44, y + 34);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#e0f2fe';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = '#082f49';
+      ctx.fillRect(x - 36, y + 8, 72, 10);
+    }
+
+    function drawParticles() {
+      for (const p of state.particles) {
+        ctx.globalAlpha = p.life / 24;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawGameOver() {
+      if (!state.gameOver) return;
+      ctx.fillStyle = 'rgba(9, 9, 11, 0.76)';
+      ctx.fillRect(0, height / 2 - 54, width, 108);
+      ctx.fillStyle = '#fafafa';
+      ctx.font = 'bold 30px ui-sans-serif, system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Avalanche Over', width / 2, height / 2 - 8);
+      ctx.font = '16px ui-sans-serif, system-ui';
+      ctx.fillText('Press Restart to clear the quarry again', width / 2, height / 2 + 26);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawBackground();
+      drawRocks();
+      drawCatcher();
+      drawParticles();
+      drawGameOver();
+    }
+
+    function loop() {
+      moveCatcher();
+      if (!state.gameOver) {
+        state.frame += 1;
+        updateRocks();
+      }
+      updateParticles();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener('mousemove', (event) => {
+      const rect = canvas.getBoundingClientRect();
+      state.catcherX = clamp((event.clientX - rect.left) / rect.width * width, 52, width - 52);
+    });
+
+    canvas.addEventListener('touchmove', (event) => {
+      event.preventDefault();
+      const touch = event.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      state.catcherX = clamp((touch.clientX - rect.left) / rect.width * width, 52, width - 52);
+    }, { passive: false });
+
+    window.addEventListener('keydown', (event) => {
+      keys.add(event.key);
+      if (event.key.toLowerCase() === 'r') setupGame();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener('click', setupGame);
+
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
