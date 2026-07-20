@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Space Zap</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-lime-300">Classic Games</p>
+        <h1 class="text-3xl font-bold tracking-normal text-white">Mini Space Zap</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <p class="text-stone-400">Score</p>
+          <p id="score" class="text-lg font-bold text-lime-200">0</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <p class="text-stone-400">Shield</p>
+          <p id="shield" class="text-lg font-bold text-cyan-200">6</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <p class="text-stone-400">Wave</p>
+          <p id="wave" class="text-lg font-bold text-amber-200">1</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <p class="text-stone-400">Streak</p>
+          <p id="streak" class="text-lg font-bold text-rose-200">0</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px]">
+      <canvas id="game" width="680" height="680" class="aspect-square w-full rounded border border-stone-700 bg-stone-900 shadow-2xl"></canvas>
+      <aside class="rounded border border-stone-700 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+        <h2 class="mb-2 text-lg font-semibold text-white">Controls</h2>
+        <p>Zap from the center with Arrow keys or WASD. Fire toward the incoming target lane.</p>
+        <p class="mt-3">Stop attackers before they hit the reactor. Rapid clean hits build the streak.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-lime-400 px-4 py-2 font-semibold text-stone-950 hover:bg-lime-300">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-stone-700 bg-stone-950 p-3 text-lime-100">Watch all four approach lanes.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const shieldEl = document.getElementById('shield');
+    const waveEl = document.getElementById('wave');
+    const streakEl = document.getElementById('streak');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+
+    const size = canvas.width;
+    const center = size / 2;
+    const reactorRadius = 42;
+    const directions = {
+      up: { x: 0, y: -1, key: ['ArrowUp', 'w'], label: 'UP' },
+      down: { x: 0, y: 1, key: ['ArrowDown', 's'], label: 'DOWN' },
+      left: { x: -1, y: 0, key: ['ArrowLeft', 'a'], label: 'LEFT' },
+      right: { x: 1, y: 0, key: ['ArrowRight', 'd'], label: 'RIGHT' }
+    };
+    let state;
+
+    function setupGame() {
+      state = {
+        score: 0,
+        shield: 6,
+        wave: 1,
+        streak: 0,
+        frame: 0,
+        gameOver: false,
+        attackers: [],
+        beams: [],
+        sparks: []
+      };
+      messageEl.textContent = 'Watch all four approach lanes.';
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      shieldEl.textContent = state.shield;
+      waveEl.textContent = state.wave;
+      streakEl.textContent = state.streak;
+    }
+
+    function spawnAttacker() {
+      const names = Object.keys(directions);
+      const dirName = names[Math.floor(Math.random() * names.length)];
+      const dir = directions[dirName];
+      const distance = center + 250;
+      state.attackers.push({
+        dir: dirName,
+        x: center + dir.x * distance,
+        y: center + dir.y * distance,
+        speed: 1.35 + state.wave * 0.22 + Math.random() * 0.55,
+        size: 18,
+        pulse: Math.random() * Math.PI * 2
+      });
+    }
+
+    function fireBeam(dirName) {
+      if (state.gameOver) return;
+      const dir = directions[dirName];
+      state.beams.push({ dir: dirName, life: 10 });
+      let hitIndex = -1;
+      let bestDistance = Infinity;
+      for (let i = 0; i < state.attackers.length; i++) {
+        const attacker = state.attackers[i];
+        if (attacker.dir !== dirName) continue;
+        const distance = Math.hypot(attacker.x - center, attacker.y - center);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          hitIndex = i;
+        }
+      }
+      if (hitIndex >= 0) {
+        const attacker = state.attackers[hitIndex];
+        state.attackers.splice(hitIndex, 1);
+        state.streak += 1;
+        state.score += 15 + state.streak * 3 + state.wave;
+        createSparks(attacker.x, attacker.y, '#bef264');
+        if (state.streak % 8 === 0) {
+          state.wave += 1;
+          messageEl.textContent = 'Attack pattern accelerated.';
+        } else {
+          messageEl.textContent = `${dir.label} lane clear.`;
+        }
+      } else {
+        state.streak = 0;
+        state.score = Math.max(0, state.score - 3);
+        messageEl.textContent = 'Empty lane. Aim at the attacker.';
+      }
+      updateHud();
+    }
+
+    function createSparks(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        state.sparks.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: (Math.random() - 0.5) * 5,
+          life: 22,
+          color
+        });
+      }
+    }
+
+    function updateAttackers() {
+      const spawnEvery = Math.max(24, 68 - state.wave * 4);
+      if (state.frame % spawnEvery === 0) spawnAttacker();
+      for (let i = state.attackers.length - 1; i >= 0; i--) {
+        const attacker = state.attackers[i];
+        const dir = directions[attacker.dir];
+        attacker.x -= dir.x * attacker.speed;
+        attacker.y -= dir.y * attacker.speed;
+        attacker.pulse += 0.12;
+        const distance = Math.hypot(attacker.x - center, attacker.y - center);
+        if (distance < reactorRadius + attacker.size * 0.5) {
+          state.attackers.splice(i, 1);
+          state.shield -= 1;
+          state.streak = 0;
+          createSparks(center, center, '#fb7185');
+          messageEl.textContent = state.shield > 0 ? 'Reactor shield hit.' : 'Reactor breached. Press Restart.';
+          if (state.shield <= 0) state.gameOver = true;
+          updateHud();
+        }
+      }
+    }
+
+    function updateEffects() {
+      for (let i = state.beams.length - 1; i >= 0; i--) {
+        state.beams[i].life -= 1;
+        if (state.beams[i].life <= 0) state.beams.splice(i, 1);
+      }
+      for (let i = state.sparks.length - 1; i >= 0; i--) {
+        const spark = state.sparks[i];
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.vx *= 0.94;
+        spark.vy *= 0.94;
+        spark.life -= 1;
+        if (spark.life <= 0) state.sparks.splice(i, 1);
+      }
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = '#0c0a09';
+      ctx.fillRect(0, 0, size, size);
+      ctx.strokeStyle = '#292524';
+      ctx.lineWidth = 2;
+      for (let r = 95; r < center; r += 68) {
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#44403c';
+      for (const dir of Object.values(directions)) {
+        ctx.beginPath();
+        ctx.moveTo(center + dir.x * reactorRadius, center + dir.y * reactorRadius);
+        ctx.lineTo(center + dir.x * (center - 30), center + dir.y * (center - 30));
+        ctx.stroke();
+      }
+    }
+
+    function drawReactor() {
+      const glow = ctx.createRadialGradient(center, center, 8, center, center, 62);
+      glow.addColorStop(0, '#ecfccb');
+      glow.addColorStop(0.55, '#84cc16');
+      glow.addColorStop(1, '#365314');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(center, center, reactorRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#f7fee7';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+
+    function drawAttackers() {
+      for (const attacker of state.attackers) {
+        const wobble = Math.sin(attacker.pulse) * 3;
+        ctx.save();
+        ctx.translate(attacker.x, attacker.y);
+        ctx.rotate(attacker.pulse * 0.35);
+        ctx.fillStyle = '#f97316';
+        ctx.fillRect(-attacker.size / 2 - wobble, -attacker.size / 2, attacker.size + wobble * 2, attacker.size);
+        ctx.strokeStyle = '#ffedd5';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-attacker.size / 2, -attacker.size / 2, attacker.size, attacker.size);
+        ctx.restore();
+      }
+    }
+
+    function drawBeams() {
+      for (const beam of state.beams) {
+        const dir = directions[beam.dir];
+        ctx.globalAlpha = beam.life / 10;
+        ctx.strokeStyle = '#bef264';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.moveTo(center + dir.x * 38, center + dir.y * 38);
+        ctx.lineTo(center + dir.x * (center - 28), center + dir.y * (center - 28));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawSparks() {
+      for (const spark of state.sparks) {
+        ctx.globalAlpha = spark.life / 22;
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawLabels() {
+      ctx.fillStyle = '#d6d3d1';
+      ctx.font = 'bold 15px ui-sans-serif, system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('W', center, 46);
+      ctx.fillText('S', center, size - 36);
+      ctx.fillText('A', 42, center + 5);
+      ctx.fillText('D', size - 42, center + 5);
+      ctx.textAlign = 'start';
+    }
+
+    function drawOverlay() {
+      if (!state.gameOver) return;
+      ctx.fillStyle = 'rgba(12, 10, 9, 0.78)';
+      ctx.fillRect(0, center - 54, size, 108);
+      ctx.fillStyle = '#fafaf9';
+      ctx.font = 'bold 30px ui-sans-serif, system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Reactor Breached', center, center - 8);
+      ctx.font = '16px ui-sans-serif, system-ui';
+      ctx.fillText('Press Restart to defend again', center, center + 26);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawBackground();
+      drawBeams();
+      drawAttackers();
+      drawReactor();
+      drawSparks();
+      drawLabels();
+      drawOverlay();
+    }
+
+    function loop() {
+      if (!state.gameOver) {
+        state.frame += 1;
+        updateAttackers();
+      }
+      updateEffects();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key;
+      if (key.toLowerCase() === 'r') setupGame();
+      for (const [name, dir] of Object.entries(directions)) {
+        if (dir.key.includes(key) || dir.key.includes(key.toLowerCase())) {
+          fireBeam(name);
+        }
+      }
+    });
+
+    restartBtn.addEventListener('click', setupGame);
+
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
