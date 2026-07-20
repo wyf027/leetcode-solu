@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tutankham</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-yellow-200">Mini Tutankham</h1>
+        <p class="text-sm text-stone-400">方向键或 WASD 移动，空格横向射击；收集圣物后抵达右侧出口。</p>
+      </div>
+      <button id="restartButton" class="rounded bg-yellow-400 px-4 py-2 text-sm font-bold text-stone-950 transition hover:bg-yellow-200">
+        重新开始
+      </button>
+    </section>
+
+    <section class="grid gap-3 text-sm sm:grid-cols-4">
+      <div class="rounded border border-stone-800 bg-stone-900 p-3">
+        <div class="text-stone-400">分数</div>
+        <div id="score" class="text-xl font-bold text-yellow-200">0</div>
+      </div>
+      <div class="rounded border border-stone-800 bg-stone-900 p-3">
+        <div class="text-stone-400">生命</div>
+        <div id="lives" class="text-xl font-bold text-rose-300">3</div>
+      </div>
+      <div class="rounded border border-stone-800 bg-stone-900 p-3">
+        <div class="text-stone-400">圣物</div>
+        <div id="relics" class="text-xl font-bold text-emerald-300">0 / 0</div>
+      </div>
+      <div class="rounded border border-stone-800 bg-stone-900 p-3">
+        <div class="text-stone-400">状态</div>
+        <div id="status" class="text-xl font-bold text-cyan-300">探索中</div>
+      </div>
+    </section>
+
+    <section class="relative">
+      <canvas id="gameCanvas" width="720" height="520" class="h-auto w-full rounded border border-yellow-900 bg-stone-950 shadow-2xl shadow-yellow-950/30"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-4 top-4 hidden rounded border border-yellow-700 bg-stone-950/90 px-4 py-3 text-center text-sm font-semibold text-yellow-100"></div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const relicsEl = document.getElementById("relics");
+    const statusEl = document.getElementById("status");
+    const messageEl = document.getElementById("message");
+    const restartButton = document.getElementById("restartButton");
+
+    const tile = 40;
+    const map = [
+      "##################",
+      "#....#....r...#..E",
+      "#.##.#.######.#.##",
+      "#.#....#....#....#",
+      "#.#.####.##.####.#",
+      "#...r....##....r.#",
+      "###.####....####.#",
+      "#....#..r.#......#",
+      "#.##.#.####.##.#.#",
+      "#P...#......r..#.#",
+      "##################"
+    ];
+    const rows = map.length;
+    const cols = map[0].length;
+    const offsetX = (canvas.width - cols * tile) / 2;
+    const offsetY = (canvas.height - rows * tile) / 2;
+    const keys = new Set();
+
+    let player;
+    let guards;
+    let shots;
+    let relics;
+    let sparks;
+    let score;
+    let lives;
+    let totalRelics;
+    let collectedRelics;
+    let lastShot;
+    let gameOver;
+    let animationId;
+
+    function setupGame() {
+      score = 0;
+      lives = 3;
+      lastShot = 0;
+      gameOver = false;
+      sparks = [];
+      shots = [];
+      buildLevel();
+      hideMessage();
+      updateHud();
+      cancelAnimationFrame(animationId);
+      gameLoop();
+    }
+
+    function buildLevel() {
+      relics = [];
+      guards = [
+        makeGuard(13, 1, -1, 0),
+        makeGuard(5, 5, 1, 0),
+        makeGuard(14, 7, 0, 1),
+        makeGuard(9, 3, 0, 1)
+      ];
+      for (let r = 0; r < rows; r += 1) {
+        for (let c = 0; c < cols; c += 1) {
+          if (map[r][c] === "P") player = { x: centerX(c), y: centerY(r), dirX: 1, speed: 3.2, invincible: 0 };
+          if (map[r][c] === "r") relics.push({ x: centerX(c), y: centerY(r), collected: false });
+        }
+      }
+      totalRelics = relics.length;
+      collectedRelics = 0;
+    }
+
+    function makeGuard(c, r, dx, dy) {
+      return {
+        x: centerX(c),
+        y: centerY(r),
+        dirX: dx,
+        dirY: dy,
+        speed: 1.35,
+        asleep: 0
+      };
+    }
+
+    function centerX(c) {
+      return offsetX + c * tile + tile / 2;
+    }
+
+    function centerY(r) {
+      return offsetY + r * tile + tile / 2;
+    }
+
+    function tileAt(x, y) {
+      const c = Math.floor((x - offsetX) / tile);
+      const r = Math.floor((y - offsetY) / tile);
+      if (r < 0 || r >= rows || c < 0 || c >= cols) return "#";
+      return map[r][c];
+    }
+
+    function canMoveTo(x, y, radius = 13) {
+      return (
+        tileAt(x - radius, y - radius) !== "#" &&
+        tileAt(x + radius, y - radius) !== "#" &&
+        tileAt(x - radius, y + radius) !== "#" &&
+        tileAt(x + radius, y + radius) !== "#"
+      );
+    }
+
+    function moveEntity(entity, dx, dy, speed, radius = 13) {
+      const nextX = entity.x + dx * speed;
+      const nextY = entity.y + dy * speed;
+      if (canMoveTo(nextX, entity.y, radius)) entity.x = nextX;
+      if (canMoveTo(entity.x, nextY, radius)) entity.y = nextY;
+    }
+
+    function updatePlayer(now) {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("KeyW")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("KeyS")) dy += 1;
+      if (dx !== 0 || dy !== 0) {
+        const length = Math.hypot(dx, dy);
+        dx /= length;
+        dy /= length;
+        if (dx !== 0) player.dirX = Math.sign(dx);
+        moveEntity(player, dx, dy, player.speed);
+      }
+      if (keys.has("Space")) fireShot(now);
+      if (player.invincible > 0) player.invincible -= 1;
+      collectRelics();
+      checkExit();
+    }
+
+    function fireShot(now) {
+      if (now - lastShot < 260) return;
+      shots.push({ x: player.x + player.dirX * 18, y: player.y, dirX: player.dirX, speed: 7 });
+      lastShot = now;
+    }
+
+    function collectRelics() {
+      relics.forEach((relic) => {
+        if (!relic.collected && Math.hypot(player.x - relic.x, player.y - relic.y) < 22) {
+          relic.collected = true;
+          collectedRelics += 1;
+          score += 200;
+          addSparks(relic.x, relic.y, "#fde68a");
+        }
+      });
+    }
+
+    function checkExit() {
+      if (tileAt(player.x, player.y) === "E" && collectedRelics === totalRelics) {
+        gameOver = true;
+        statusEl.textContent = "逃出";
+        showMessage("你带着全部圣物逃出墓室，探索成功！");
+      } else if (tileAt(player.x, player.y) === "E") {
+        showMessage("出口已找到，但还缺少圣物。");
+      }
+    }
+
+    function chooseGuardTurn(guard) {
+      const options = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1]
+      ].filter(([dx, dy]) => canMoveTo(guard.x + dx * 18, guard.y + dy * 18));
+      options.sort((a, b) => {
+        const da = Math.hypot(player.x - (guard.x + a[0] * tile), player.y - (guard.y + a[1] * tile));
+        const db = Math.hypot(player.x - (guard.x + b[0] * tile), player.y - (guard.y + b[1] * tile));
+        return da - db;
+      });
+      const pick = Math.random() < 0.68 ? options[0] : options[Math.floor(Math.random() * options.length)];
+      if (pick) {
+        guard.dirX = pick[0];
+        guard.dirY = pick[1];
+      }
+    }
+
+    function updateGuards() {
+      guards.forEach((guard) => {
+        if (guard.asleep > 0) {
+          guard.asleep -= 1;
+          return;
+        }
+        if (!canMoveTo(guard.x + guard.dirX * 18, guard.y + guard.dirY * 18) || Math.random() < 0.018) {
+          chooseGuardTurn(guard);
+        }
+        moveEntity(guard, guard.dirX, guard.dirY, guard.speed);
+        if (Math.hypot(guard.x - player.x, guard.y - player.y) < 24 && player.invincible <= 0) loseLife();
+      });
+    }
+
+    function updateShots() {
+      shots.forEach((shot) => {
+        shot.x += shot.dirX * shot.speed;
+        if (!canMoveTo(shot.x, shot.y, 4)) shot.dead = true;
+        guards.forEach((guard) => {
+          if (!shot.dead && guard.asleep <= 0 && Math.hypot(shot.x - guard.x, shot.y - guard.y) < 20) {
+            shot.dead = true;
+            guard.asleep = 170;
+            score += 100;
+            addSparks(guard.x, guard.y, "#67e8f9");
+          }
+        });
+      });
+      shots = shots.filter((shot) => !shot.dead);
+    }
+
+    function loseLife() {
+      lives -= 1;
+      player.invincible = 120;
+      addSparks(player.x, player.y, "#fb7185");
+      if (lives <= 0) {
+        gameOver = true;
+        statusEl.textContent = "失败";
+        showMessage("守卫抓住了你。按重新开始再试一次。");
+      } else {
+        showMessage("被守卫击中，短暂无敌后继续。");
+        player.x = centerX(1);
+        player.y = centerY(9);
+      }
+    }
+
+    function addSparks(x, y, color) {
+      for (let i = 0; i < 12; i += 1) {
+        sparks.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 4,
+          vy: (Math.random() - 0.5) * 4,
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updateSparks() {
+      sparks.forEach((spark) => {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.life -= 1;
+      });
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      relicsEl.textContent = `${collectedRelics} / ${totalRelics}`;
+      if (!gameOver) statusEl.textContent = collectedRelics === totalRelics ? "找出口" : "探索中";
+    }
+
+    function showMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.remove("hidden");
+    }
+
+    function hideMessage() {
+      messageEl.classList.add("hidden");
+    }
+
+    function drawMap() {
+      ctx.fillStyle = "#0c0a09";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let r = 0; r < rows; r += 1) {
+        for (let c = 0; c < cols; c += 1) {
+          const cell = map[r][c];
+          const x = offsetX + c * tile;
+          const y = offsetY + r * tile;
+          if (cell === "#") {
+            ctx.fillStyle = "#44403c";
+            ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
+            ctx.strokeStyle = "#a16207";
+            ctx.strokeRect(x + 7, y + 7, tile - 14, tile - 14);
+          } else {
+            ctx.fillStyle = "#1c1917";
+            ctx.fillRect(x, y, tile, tile);
+          }
+          if (cell === "E") {
+            ctx.fillStyle = collectedRelics === totalRelics ? "#22c55e" : "#78716c";
+            ctx.fillRect(x + 10, y + 8, tile - 20, tile - 16);
+          }
+        }
+      }
+    }
+
+    function drawRelics() {
+      relics.forEach((relic) => {
+        if (relic.collected) return;
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(relic.x, relic.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#fef3c7";
+        ctx.strokeRect(relic.x - 12, relic.y - 12, 24, 24);
+      });
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.globalAlpha = player.invincible > 0 && Math.floor(player.invincible / 8) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(-12, -14, 24, 28);
+      ctx.fillStyle = "#fef3c7";
+      ctx.fillRect(player.dirX > 0 ? 3 : -9, -18, 8, 8);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawGuards() {
+      guards.forEach((guard) => {
+        ctx.fillStyle = guard.asleep > 0 ? "#57534e" : "#ef4444";
+        ctx.beginPath();
+        ctx.arc(guard.x, guard.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff7ed";
+        ctx.fillRect(guard.x - 7, guard.y - 4, 5, 5);
+        ctx.fillRect(guard.x + 2, guard.y - 4, 5, 5);
+      });
+    }
+
+    function drawShots() {
+      ctx.fillStyle = "#67e8f9";
+      shots.forEach((shot) => {
+        ctx.fillRect(shot.x - 8, shot.y - 2, 16, 4);
+      });
+    }
+
+    function drawSparks() {
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = spark.life / 24;
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawMap();
+      drawRelics();
+      drawShots();
+      drawPlayer();
+      drawGuards();
+      drawSparks();
+    }
+
+    function gameLoop(now = 0) {
+      if (!gameOver) {
+        updatePlayer(now);
+        updateGuards();
+        updateShots();
+        updateSparks();
+        updateHud();
+      }
+      draw();
+      animationId = requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyA", "KeyD", "KeyW", "KeyS", "Space"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    restartButton.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
