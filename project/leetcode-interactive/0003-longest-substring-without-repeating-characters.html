@@ -1,0 +1,1556 @@
+<!doctype html>
+<html lang="zh-CN" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 3 无重复字符的最长子串：滑动窗口逐步动画、lastSeen 哈希表、四语言代码与面试速记。"
+    />
+    <title>LeetCode 3 · 无重复字符的最长子串｜滑动窗口扫描台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              coal: "#090B10",
+              deck: "#11151D",
+              paper: "#F1F5F2",
+              signal: "#FF5D73",
+              lime: "#B8F45D",
+              ice: "#73E5FF",
+              muted: "#8B95A7",
+            },
+            boxShadow: {
+              signal:
+                "0 0 0 1px rgba(255,93,115,.35), 0 0 28px rgba(255,93,115,.15)",
+              lime: "0 0 0 1px rgba(184,244,93,.3), 0 0 30px rgba(184,244,93,.12)",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --coal: #090b10;
+        --deck: #11151d;
+        --paper: #f1f5f2;
+        --signal: #ff5d73;
+        --lime: #b8f45d;
+        --ice: #73e5ff;
+        --muted: #8b95a7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body {
+        margin: 0;
+        background: var(--coal);
+        color: var(--paper);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          "PingFang SC",
+          "Microsoft YaHei",
+          sans-serif;
+      }
+
+      .display {
+        font-family:
+          Impact, Haettenschweiler, "Arial Narrow Bold", "PingFang SC",
+          sans-serif;
+        font-weight: 900;
+      }
+
+      .mono {
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      }
+
+      .grid-field {
+        background-image:
+          linear-gradient(rgba(115, 229, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(
+            90deg,
+            rgba(115, 229, 255, 0.035) 1px,
+            transparent 1px
+          );
+        background-size: 28px 28px;
+        mask-image: linear-gradient(to bottom, black 0%, transparent 90%);
+      }
+
+      .panel {
+        border: 1px solid rgba(139, 149, 167, 0.18);
+        background: rgba(17, 21, 29, 0.86);
+        backdrop-filter: blur(16px);
+      }
+
+      .char-cell {
+        position: relative;
+        display: grid;
+        width: 4.25rem;
+        height: 5.25rem;
+        flex: 0 0 auto;
+        place-items: center;
+        border: 1px solid rgba(139, 149, 167, 0.25);
+        border-radius: 0.9rem;
+        background: rgba(9, 11, 16, 0.82);
+        color: #768093;
+        font-size: 1.8rem;
+        font-weight: 900;
+        transition:
+          color 240ms ease,
+          border-color 240ms ease,
+          background 240ms ease,
+          transform 240ms ease,
+          box-shadow 240ms ease;
+      }
+
+      .char-cell::before {
+        position: absolute;
+        top: 0.45rem;
+        left: 0.55rem;
+        color: #424a59;
+        content: attr(data-index);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.55rem;
+        font-weight: 600;
+      }
+
+      .char-cell.in-window {
+        border-color: rgba(184, 244, 93, 0.42);
+        background: rgba(184, 244, 93, 0.065);
+        color: var(--paper);
+      }
+
+      .char-cell.is-right {
+        transform: translateY(-5px);
+        border-color: rgba(255, 93, 115, 0.86);
+        box-shadow:
+          0 0 0 4px rgba(255, 93, 115, 0.08),
+          0 0 28px rgba(255, 93, 115, 0.16);
+        color: #ffd4db;
+      }
+
+      .char-cell.was-duplicate {
+        background-image: repeating-linear-gradient(
+          135deg,
+          rgba(255, 93, 115, 0.08),
+          rgba(255, 93, 115, 0.08) 5px,
+          transparent 5px,
+          transparent 10px
+        );
+      }
+
+      .window-band {
+        position: relative;
+        height: 2.6rem;
+        border: 2px solid rgba(184, 244, 93, 0.65);
+        border-top: 0;
+        border-radius: 0 0 0.8rem 0.8rem;
+        background: linear-gradient(
+          to bottom,
+          rgba(184, 244, 93, 0),
+          rgba(184, 244, 93, 0.06)
+        );
+        transition:
+          grid-column 360ms cubic-bezier(0.22, 1, 0.36, 1),
+          opacity 200ms ease;
+      }
+
+      .window-band::after {
+        position: absolute;
+        bottom: -0.75rem;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+        background: #182015;
+        color: var(--lime);
+        content: attr(data-label);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.58rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        white-space: nowrap;
+      }
+
+      .code-line {
+        border-left: 2px solid transparent;
+        transition:
+          background 180ms ease,
+          border-color 180ms ease;
+      }
+
+      .code-line.hot {
+        border-left-color: var(--lime);
+        background: rgba(184, 244, 93, 0.07);
+      }
+
+      .tab-active {
+        border-color: rgba(184, 244, 93, 0.46) !important;
+        background: rgba(184, 244, 93, 0.1) !important;
+        color: var(--lime) !important;
+      }
+
+      .reveal {
+        opacity: 0;
+        transform: translateY(18px);
+        transition:
+          opacity 560ms ease,
+          transform 560ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .reveal.visible {
+        opacity: 1;
+        transform: none;
+      }
+
+      @keyframes pulse-right {
+        0%,
+        100% {
+          opacity: 0.65;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      .status-dot {
+        animation: pulse-right 1.5s ease-in-out infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto !important;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+
+        .reveal {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .char-cell {
+          width: 3.7rem;
+          height: 4.6rem;
+          font-size: 1.45rem;
+        }
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen bg-coal text-paper antialiased">
+    <a
+      href="#main"
+      class="sr-only fixed left-4 top-4 z-[100] rounded-lg bg-lime px-4 py-2 font-bold text-coal focus:not-sr-only"
+    >
+      跳到主要内容
+    </a>
+
+    <div class="pointer-events-none fixed inset-0 -z-10">
+      <div class="grid-field absolute inset-0"></div>
+      <div
+        class="absolute -left-48 top-28 h-[34rem] w-[34rem] rounded-full bg-signal/[0.055] blur-[120px]"
+      ></div>
+      <div
+        class="absolute -right-48 top-[42rem] h-[36rem] w-[36rem] rounded-full bg-lime/[0.04] blur-[120px]"
+      ></div>
+    </div>
+
+    <header class="mx-auto max-w-7xl px-5 pb-16 pt-6 sm:px-8 lg:px-12">
+      <nav
+        class="flex min-w-0 items-center justify-between gap-4"
+        aria-label="页面导航"
+      >
+        <a
+          href="#"
+          class="flex items-center gap-3 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+        >
+          <span
+            class="grid h-10 w-10 place-items-center rounded-full border border-signal/50 bg-signal/10 mono text-xs font-black text-signal"
+          >
+            #03
+          </span>
+          <span
+            class="text-xs font-black uppercase tracking-[0.18em] text-slate-300"
+          >
+            Window Scanner
+          </span>
+        </a>
+        <a
+          href="#code"
+          class="shrink-0 rounded-full border border-slate-700 bg-black/20 px-3 py-2 text-xs font-bold text-slate-300 transition hover:border-lime/50 hover:text-lime focus:outline-none focus-visible:ring-2 focus-visible:ring-lime sm:px-4"
+        >
+          四语言代码 ↓
+        </a>
+      </nav>
+
+      <div
+        class="grid min-w-0 grid-cols-[minmax(0,1fr)] items-end gap-12 pb-6 pt-20 lg:grid-cols-[minmax(0,1.12fr)_minmax(0,.88fr)] lg:pt-28"
+      >
+        <div class="min-w-0">
+          <div
+            class="mb-6 flex flex-wrap items-center gap-3 text-xs font-black uppercase tracking-[0.19em]"
+          >
+            <span class="text-signal">LeetCode 3</span>
+            <span class="h-px w-9 bg-slate-700"></span>
+            <span class="text-lime">Medium</span>
+            <span class="text-slate-500">String · Hash Map</span>
+          </div>
+
+          <h1
+            class="display text-[clamp(3.3rem,8.2vw,7.4rem)] uppercase leading-[0.84] tracking-[-0.045em]"
+          >
+            窗口向右<br />
+            <span class="text-signal">答案增长</span>
+          </h1>
+
+          <p class="mt-8 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl">
+            右指针负责探索，左指针负责清场。遇到重复字符时，左边界只需跳到它上次出现位置的下一格——
+            <strong class="mono text-lime">而且绝不后退</strong>。
+          </p>
+
+          <div class="mt-9 flex flex-wrap gap-3">
+            <a
+              href="#scanner"
+              class="inline-flex min-h-11 items-center gap-2 rounded-xl bg-signal px-5 py-3 text-sm font-black text-white shadow-signal transition hover:-translate-y-0.5 hover:bg-rose-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              扫描 abcabcbb
+              <span aria-hidden="true">→</span>
+            </a>
+            <div
+              class="flex max-w-full flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-slate-700 bg-black/20 px-5 py-3 text-xs"
+            >
+              <span
+                ><b class="mono text-lime">O(n)</b>
+                <span class="text-slate-500">时间</span></span
+              >
+              <span class="h-4 w-px bg-slate-700"></span>
+              <span
+                ><b class="mono text-lime">O(min(n,Σ))</b>
+                <span class="text-slate-500">空间</span></span
+              >
+            </div>
+          </div>
+        </div>
+
+        <aside
+          class="panel relative min-w-0 overflow-hidden rounded-[2rem] p-6 sm:p-8"
+          aria-label="滑动窗口核心不变量"
+        >
+          <div
+            class="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-signal via-lime to-ice"
+          ></div>
+          <div class="flex items-center justify-between gap-4">
+            <span
+              class="text-xs font-black uppercase tracking-[0.17em] text-slate-500"
+              >一句话不变量</span
+            >
+            <span
+              class="status-dot h-2 w-2 rounded-full bg-lime shadow-lime"
+            ></span>
+          </div>
+          <p class="mt-8 text-2xl font-black leading-10 sm:text-3xl">
+            每轮结束后，
+            <span class="text-lime">s[left..right]</span>
+            都没有重复字符。
+          </p>
+          <div
+            class="mt-8 rounded-2xl border border-slate-700/70 bg-black/25 p-5 mono text-sm leading-7"
+          >
+            <p><span class="text-slate-500">重复位置</span> previous</p>
+            <p class="mt-2 text-lg text-paper">
+              left =
+              <span class="text-signal">max</span>(left, previous + 1)
+            </p>
+          </div>
+          <p
+            class="mt-6 border-l-2 border-signal pl-4 text-sm leading-6 text-slate-400"
+          >
+            <code class="mono text-paper">max</code>
+            是灵魂：旧重复可能已经在窗口外，不能把 left 拉回去。
+          </p>
+        </aside>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="scanner" class="scroll-mt-8 px-4 py-16 sm:px-6 lg:px-10">
+        <div class="mx-auto max-w-7xl">
+          <div
+            class="reveal mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"
+          >
+            <div>
+              <p
+                class="mb-3 text-xs font-black uppercase tracking-[0.2em] text-signal"
+              >
+                Live window trace
+              </p>
+              <h2 class="display text-4xl uppercase tracking-tight sm:text-5xl">
+                看窗口怎样滑过去
+              </h2>
+            </div>
+            <p class="max-w-lg text-sm leading-6 text-slate-400">
+              官方示例
+              <code class="mono text-paper">abcabcbb</code
+              >。每次加入一个字符，轨道同时更新窗口、哈希表与历史最优值。
+            </p>
+          </div>
+
+          <div
+            class="panel reveal overflow-hidden rounded-[2rem] shadow-2xl shadow-black/30"
+          >
+            <div
+              class="flex flex-col gap-5 border-b border-slate-800 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8"
+            >
+              <div class="flex items-center gap-4">
+                <span
+                  id="stepBadge"
+                  class="rounded-full border border-signal/35 bg-signal/10 px-3 py-1.5 mono text-xs font-black text-signal"
+                >
+                  READY
+                </span>
+                <div>
+                  <p id="stepTitle" class="font-bold">窗口尚未启动</p>
+                  <p id="stepSubtitle" class="mt-0.5 text-xs text-slate-500">
+                    right 即将读取下标 0
+                  </p>
+                </div>
+              </div>
+              <div
+                class="flex flex-wrap items-center gap-2"
+                role="group"
+                aria-label="演示控制"
+              >
+                <button
+                  id="prevButton"
+                  type="button"
+                  class="min-h-11 rounded-xl border border-slate-700 bg-black/20 px-4 py-2 text-sm font-bold text-slate-300 transition hover:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-lime disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  ← 上一步
+                </button>
+                <button
+                  id="nextButton"
+                  type="button"
+                  class="min-h-11 rounded-xl bg-signal px-4 py-2 text-sm font-black text-white transition hover:bg-rose-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  下一步 →
+                </button>
+                <button
+                  id="playButton"
+                  type="button"
+                  class="min-h-11 rounded-xl border border-lime/30 bg-lime/[0.07] px-4 py-2 text-sm font-bold text-lime transition hover:border-lime/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+                  aria-pressed="false"
+                  aria-label="自动播放演示"
+                >
+                  ▶ 自动播放
+                </button>
+                <button
+                  id="resetButton"
+                  type="button"
+                  class="grid h-11 w-11 place-items-center rounded-xl border border-slate-700 text-slate-400 transition hover:border-slate-500 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+                  aria-label="重新开始"
+                  title="重新开始"
+                >
+                  ↺
+                </button>
+              </div>
+            </div>
+
+            <div class="h-1 bg-black/30" aria-hidden="true">
+              <div
+                id="progressBar"
+                class="h-full w-0 bg-gradient-to-r from-signal to-lime transition-all duration-300"
+              ></div>
+            </div>
+            <progress
+              id="progressStatus"
+              class="sr-only"
+              aria-label="扫描进度"
+              aria-valuetext="尚未开始，共 8 个字符"
+              value="0"
+              max="8"
+            ></progress>
+
+            <div
+              class="grid min-w-0 lg:grid-cols-[minmax(0,1.4fr)_minmax(19rem,.6fr)]"
+            >
+              <div
+                class="min-w-0 border-b border-slate-800 p-5 sm:p-8 lg:border-b-0 lg:border-r"
+              >
+                <p
+                  class="mb-4 text-xs font-black uppercase tracking-[0.17em] text-slate-500"
+                >
+                  Character rail · 字符轨道
+                </p>
+                <div class="overflow-x-auto pb-5">
+                  <div class="min-w-[37rem]">
+                    <ul
+                      id="characterRail"
+                      class="m-0 flex list-none gap-2 p-0"
+                      aria-label="字符串 abcabcbb"
+                    ></ul>
+                    <div
+                      class="mt-1 grid grid-cols-8 gap-2 px-0.5"
+                      aria-hidden="true"
+                    >
+                      <div
+                        id="windowBand"
+                        class="window-band opacity-0"
+                        data-label="window = ∅"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-5 grid gap-4 sm:grid-cols-3">
+                  <div
+                    class="rounded-2xl border border-slate-800 bg-black/20 p-4"
+                  >
+                    <p
+                      class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500"
+                    >
+                      Left
+                    </p>
+                    <p
+                      id="leftValue"
+                      class="mt-2 mono text-3xl font-black text-lime"
+                    >
+                      0
+                    </p>
+                  </div>
+                  <div
+                    class="rounded-2xl border border-slate-800 bg-black/20 p-4"
+                  >
+                    <p
+                      class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500"
+                    >
+                      Right
+                    </p>
+                    <p
+                      id="rightValue"
+                      class="mt-2 mono text-3xl font-black text-signal"
+                    >
+                      —
+                    </p>
+                  </div>
+                  <div
+                    class="rounded-2xl border border-lime/20 bg-lime/[0.045] p-4 shadow-lime"
+                  >
+                    <p
+                      class="text-[10px] font-black uppercase tracking-[0.16em] text-lime"
+                    >
+                      Best
+                    </p>
+                    <p
+                      id="bestValue"
+                      class="mt-2 mono text-3xl font-black text-lime"
+                    >
+                      0
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="mt-6 rounded-2xl border border-slate-800 bg-black/20 p-5"
+                >
+                  <div
+                    class="flex flex-wrap items-center justify-between gap-3"
+                  >
+                    <p
+                      class="text-xs font-black uppercase tracking-[0.16em] text-slate-500"
+                    >
+                      lastSeen ledger
+                    </p>
+                    <span class="text-[10px] text-slate-600"
+                      >字符 → 最近下标</span
+                    >
+                  </div>
+                  <ul
+                    id="lastSeenLedger"
+                    class="m-0 mt-4 flex min-h-10 list-none flex-wrap gap-2 p-0"
+                    aria-label="字符最近出现位置"
+                  ></ul>
+                </div>
+              </div>
+
+              <aside
+                class="flex min-h-[31rem] flex-col justify-between p-6 sm:p-8"
+                aria-label="当前指针决策"
+              >
+                <div>
+                  <p
+                    class="text-xs font-black uppercase tracking-[0.18em] text-slate-500"
+                  >
+                    Pointer decision
+                  </p>
+                  <div id="readyPanel" class="mt-9">
+                    <p class="display text-4xl uppercase leading-tight">
+                      让 right<br />先走一步
+                    </p>
+                    <p class="mt-5 text-sm leading-7 text-slate-400">
+                      left 固定在 0。每处理一个
+                      right，当前窗口都会恢复为“无重复”的合法状态。
+                    </p>
+                  </div>
+
+                  <div id="decisionPanel" class="mt-8 hidden">
+                    <div class="flex items-center justify-between gap-4">
+                      <div>
+                        <p
+                          class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500"
+                        >
+                          读取字符
+                        </p>
+                        <p
+                          id="currentChar"
+                          class="mt-2 mono text-5xl font-black text-signal"
+                        >
+                          a
+                        </p>
+                      </div>
+                      <div class="text-right">
+                        <p
+                          class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500"
+                        >
+                          上次出现
+                        </p>
+                        <p
+                          id="previousIndex"
+                          class="mt-2 mono text-3xl font-black text-slate-300"
+                        >
+                          没有
+                        </p>
+                      </div>
+                    </div>
+                    <div class="my-7 h-px bg-slate-800"></div>
+                    <p id="decisionLabel" class="text-sm font-bold text-lime">
+                      新字符，窗口无需收缩
+                    </p>
+                    <p
+                      id="decisionFormula"
+                      class="mt-3 mono text-sm leading-7 text-slate-400"
+                    >
+                      left 保持 0
+                    </p>
+                    <div
+                      class="mt-6 rounded-2xl border border-slate-800 bg-black/25 p-4"
+                    >
+                      <p
+                        class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500"
+                      >
+                        当前窗口
+                      </p>
+                      <p
+                        id="windowText"
+                        class="mt-2 mono text-2xl font-black text-paper"
+                      >
+                        a
+                      </p>
+                      <p id="windowLength" class="mt-2 text-xs text-slate-500">
+                        长度 1
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <p
+                  id="stepTip"
+                  class="mt-8 border-l-2 border-lime pl-4 text-sm leading-6 text-slate-400"
+                >
+                  right 每轮前进一步；left 只在发生有效冲突时向右跳。
+                </p>
+              </aside>
+            </div>
+            <p
+              id="liveStatus"
+              class="sr-only"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="px-5 py-20 sm:px-8 lg:px-12">
+        <div class="mx-auto max-w-7xl">
+          <div class="reveal grid gap-8 lg:grid-cols-[.72fr_1.28fr]">
+            <div>
+              <p
+                class="mb-3 text-xs font-black uppercase tracking-[0.2em] text-lime"
+              >
+                The invariant
+              </p>
+              <h2 class="display text-4xl uppercase leading-tight sm:text-5xl">
+                四步守住<br />合法窗口
+              </h2>
+              <p class="mt-5 max-w-sm text-sm leading-7 text-slate-400">
+                不需要枚举所有子串。我们只维护“以 right 结尾的最长合法窗口”。
+              </p>
+            </div>
+            <ol class="grid gap-3 sm:grid-cols-2">
+              <li class="panel rounded-2xl p-5">
+                <div class="flex gap-4">
+                  <span class="mono text-3xl font-black text-slate-700"
+                    >01</span
+                  >
+                  <div>
+                    <h3 class="font-bold">right 读取新字符</h3>
+                    <p class="mt-2 text-sm leading-6 text-slate-400">
+                      从左到右扫描一次，当前字符记作 c。
+                    </p>
+                  </div>
+                </div>
+              </li>
+              <li class="panel rounded-2xl p-5">
+                <div class="flex gap-4">
+                  <span class="mono text-3xl font-black text-slate-700"
+                    >02</span
+                  >
+                  <div>
+                    <h3 class="font-bold">查询最近位置</h3>
+                    <p class="mt-2 text-sm leading-6 text-slate-400">
+                      lastSeen[c] 告诉我们冲突可能来自哪里。
+                    </p>
+                  </div>
+                </div>
+              </li>
+              <li class="panel rounded-2xl p-5">
+                <div class="flex gap-4">
+                  <span class="mono text-3xl font-black text-slate-700"
+                    >03</span
+                  >
+                  <div>
+                    <h3 class="font-bold">left 只向右跳</h3>
+                    <p class="mt-2 text-sm leading-6 text-slate-400">
+                      left = max(left, previous + 1)，消除冲突且永不回退。
+                    </p>
+                  </div>
+                </div>
+              </li>
+              <li class="panel rounded-2xl p-5">
+                <div class="flex gap-4">
+                  <span class="mono text-3xl font-black text-slate-700"
+                    >04</span
+                  >
+                  <div>
+                    <h3 class="font-bold">刷新位置与答案</h3>
+                    <p class="mt-2 text-sm leading-6 text-slate-400">
+                      记录 c 的新下标，用 right - left + 1 更新 best。
+                    </p>
+                  </div>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <article
+            class="reveal mt-10 overflow-hidden rounded-[2rem] border border-signal/25 bg-signal/[0.035]"
+          >
+            <div class="grid lg:grid-cols-[.55fr_1.45fr]">
+              <div
+                class="border-b border-signal/15 p-6 lg:border-b-0 lg:border-r sm:p-8"
+              >
+                <span
+                  class="mono text-xs font-black uppercase tracking-[0.17em] text-signal"
+                  >The abba trap</span
+                >
+                <h3 class="mt-4 text-2xl font-black">为什么一定要 max？</h3>
+                <p class="mt-4 text-sm leading-7 text-slate-400">
+                  扫到最后一个 a 时，旧 a 在下标 0，但 left 已经是
+                  2。它早已不在窗口里。
+                </p>
+              </div>
+              <div class="grid gap-4 p-6 sm:grid-cols-2 sm:p-8">
+                <div
+                  class="rounded-2xl border border-red-400/20 bg-red-400/[0.035] p-5"
+                >
+                  <p
+                    class="text-xs font-black uppercase tracking-[0.15em] text-red-300"
+                  >
+                    错误
+                  </p>
+                  <p class="mt-4 mono text-lg">
+                    left = 0 + 1 = <b class="text-red-300">1</b>
+                  </p>
+                  <p class="mt-3 text-sm leading-6 text-slate-400">
+                    left 从 2 退回 1，窗口重新包含两个 b。
+                  </p>
+                </div>
+                <div
+                  class="rounded-2xl border border-lime/20 bg-lime/[0.035] p-5"
+                >
+                  <p
+                    class="text-xs font-black uppercase tracking-[0.15em] text-lime"
+                  >
+                    正确
+                  </p>
+                  <p class="mt-4 mono text-lg">
+                    left = max(2, 1) = <b class="text-lime">2</b>
+                  </p>
+                  <p class="mt-3 text-sm leading-6 text-slate-400">
+                    窗口保持 ba，左边界单调向右。
+                  </p>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="code" class="scroll-mt-8 px-4 py-20 sm:px-6 lg:px-10">
+        <div class="mx-auto max-w-7xl">
+          <div
+            class="reveal mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"
+          >
+            <div>
+              <p
+                class="mb-3 text-xs font-black uppercase tracking-[0.2em] text-signal"
+              >
+                Submit-ready
+              </p>
+              <h2 class="display text-4xl uppercase tracking-tight sm:text-5xl">
+                一种窗口，四种语言
+              </h2>
+            </div>
+            <p class="max-w-lg text-sm leading-6 text-slate-400">
+              哈希表保存字符最近位置。标签支持方向键、Home 和
+              End；高亮行随演示步骤同步。
+            </p>
+          </div>
+
+          <div class="panel reveal overflow-hidden rounded-[2rem]">
+            <div class="border-b border-slate-800 px-4 py-4 sm:px-6">
+              <div
+                id="languageTabs"
+                class="flex gap-2 overflow-x-auto"
+                role="tablist"
+                aria-label="选择代码语言"
+              >
+                <button
+                  id="tab-java"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="codePanel"
+                  data-language="java"
+                  class="tab-active min-h-11 shrink-0 rounded-xl border border-slate-700 bg-black/20 px-4 py-2 text-sm font-bold text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+                >
+                  Java
+                </button>
+                <button
+                  id="tab-javascript"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="codePanel"
+                  data-language="javascript"
+                  tabindex="-1"
+                  class="min-h-11 shrink-0 rounded-xl border border-slate-700 bg-black/20 px-4 py-2 text-sm font-bold text-slate-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+                >
+                  JavaScript
+                </button>
+                <button
+                  id="tab-python"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="codePanel"
+                  data-language="python"
+                  tabindex="-1"
+                  class="min-h-11 shrink-0 rounded-xl border border-slate-700 bg-black/20 px-4 py-2 text-sm font-bold text-slate-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+                >
+                  Python
+                </button>
+                <button
+                  id="tab-cpp"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="codePanel"
+                  data-language="cpp"
+                  tabindex="-1"
+                  class="min-h-11 shrink-0 rounded-xl border border-slate-700 bg-black/20 px-4 py-2 text-sm font-bold text-slate-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+                >
+                  C++
+                </button>
+              </div>
+            </div>
+            <div class="bg-[#07090D]">
+              <div
+                class="flex items-center justify-between border-b border-slate-900 px-5 py-3 text-[11px]"
+              >
+                <span id="fileName" class="mono text-slate-500"
+                  >Solution.java</span
+                >
+                <span class="flex items-center gap-2 text-slate-600"
+                  ><span class="h-1.5 w-1.5 rounded-full bg-lime"></span
+                  >LeetCode ready</span
+                >
+              </div>
+              <pre
+                id="codePanel"
+                role="tabpanel"
+                aria-labelledby="tab-java"
+                tabindex="0"
+                class="max-h-[38rem] overflow-auto py-5 text-[12px] leading-6 text-slate-300 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-lime sm:text-sm"
+              ><code id="codeContent"></code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="px-5 py-20 sm:px-8 lg:px-12">
+        <div class="mx-auto max-w-7xl">
+          <div class="reveal grid gap-8 lg:grid-cols-[.68fr_1.32fr]">
+            <div>
+              <p
+                class="mb-3 text-xs font-black uppercase tracking-[0.2em] text-lime"
+              >
+                Interview cards
+              </p>
+              <h2 class="display text-4xl uppercase leading-tight sm:text-5xl">
+                边界和追问<br />一次带走
+              </h2>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <article class="panel rounded-2xl p-6">
+                <span class="mono text-xs font-bold text-signal">Q1</span>
+                <h3 class="mt-3 font-bold">子串和子序列有什么不同？</h3>
+                <p class="mt-3 text-sm leading-6 text-slate-400">
+                  子串必须连续。pwwkew 中 pwke 不连续，不能作为答案；wke 可以。
+                </p>
+              </article>
+              <article class="panel rounded-2xl p-6">
+                <span class="mono text-xs font-bold text-lime">Q2</span>
+                <h3 class="mt-3 font-bold">为什么是 O(n)？</h3>
+                <p class="mt-3 text-sm leading-6 text-slate-400">
+                  right 只走 n 步，left 也只向右；哈希表查询与更新平均 O(1)。
+                </p>
+              </article>
+              <article class="panel rounded-2xl p-6">
+                <span class="mono text-xs font-bold text-ice">Q3</span>
+                <h3 class="mt-3 font-bold">Set 解法可以吗？</h3>
+                <p class="mt-3 text-sm leading-6 text-slate-400">
+                  可以，用 while 逐个移除重复字符，同为
+                  O(n)；最近位置表能一步跳转，更适合口述。
+                </p>
+              </article>
+              <article class="panel rounded-2xl p-6">
+                <span class="mono text-xs font-bold text-slate-400">Q4</span>
+                <h3 class="mt-3 font-bold">空间复杂度怎么说？</h3>
+                <p class="mt-3 text-sm leading-6 text-slate-400">
+                  最多记录窗口或已见字符，O(min(n, |Σ|))；有限字符集下可写
+                  O(|Σ|)。
+                </p>
+              </article>
+            </div>
+          </div>
+
+          <div class="reveal mt-10 grid gap-5 lg:grid-cols-2">
+            <article
+              class="rounded-2xl border border-red-400/15 bg-red-400/[0.03] p-6 sm:p-7"
+            >
+              <p
+                class="text-xs font-black uppercase tracking-[0.18em] text-red-300"
+              >
+                Bug radar
+              </p>
+              <ul class="mt-5 space-y-3 text-sm leading-6 text-slate-400">
+                <li class="flex gap-3">
+                  <span class="text-red-300">×</span
+                  ><span>把 substring 当成可以跳字符的 subsequence。</span>
+                </li>
+                <li class="flex gap-3">
+                  <span class="text-red-300">×</span
+                  ><span
+                    >直接写 left = previous + 1，导致 left 在 abba
+                    中后退。</span
+                  >
+                </li>
+                <li class="flex gap-3">
+                  <span class="text-red-300">×</span
+                  ><span
+                    >先覆盖 lastSeen，再读取旧位置；或窗口长度漏掉 +1。</span
+                  >
+                </li>
+              </ul>
+            </article>
+            <article
+              class="rounded-2xl border border-lime/15 bg-lime/[0.03] p-6 sm:p-7"
+            >
+              <p
+                class="text-xs font-black uppercase tracking-[0.18em] text-lime"
+              >
+                Boundary deck
+              </p>
+              <div class="mt-5 flex flex-wrap gap-2 mono text-xs">
+                <span class="rounded-full border border-slate-700 px-3 py-2"
+                  >"" → 0</span
+                >
+                <span class="rounded-full border border-slate-700 px-3 py-2"
+                  >"a" → 1</span
+                >
+                <span class="rounded-full border border-slate-700 px-3 py-2"
+                  >"bbbbb" → 1</span
+                >
+                <span class="rounded-full border border-slate-700 px-3 py-2"
+                  >"abcdef" → 6</span
+                >
+                <span
+                  class="rounded-full border border-signal/30 px-3 py-2 text-signal"
+                  >"abba" → 2</span
+                >
+                <span class="rounded-full border border-slate-700 px-3 py-2"
+                  >空格/符号照常处理</span
+                >
+              </div>
+            </article>
+          </div>
+
+          <blockquote
+            class="reveal mt-10 border-l-2 border-signal pl-6 text-base leading-8 text-slate-300 sm:text-lg"
+          >
+            “我用 lastSeen 记录每个字符的最近下标。right
+            扫描字符串；若当前字符出现过，就把 left 更新为 max(left, previous +
+            1)，保证左边界不回退。每轮记录最新下标，并用 right - left + 1
+            更新答案。”
+          </blockquote>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-slate-800 px-5 py-10 sm:px-8 lg:px-12">
+      <div
+        class="mx-auto flex max-w-7xl flex-col gap-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <p>
+          <strong class="text-slate-300">记忆钩子：</strong>right 探索，left
+          清场，max 防回退。
+        </p>
+        <a
+          href="https://leetcode.com/problems/longest-substring-without-repeating-characters/"
+          target="_blank"
+          rel="noreferrer"
+          class="w-fit rounded-lg text-xs font-bold text-lime focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+          >查看 LeetCode 官方题目 ↗</a
+        >
+      </div>
+    </footer>
+
+    <script>
+      const source = "abcabcbb";
+      const states = [
+        {
+          right: -1,
+          left: 0,
+          best: 0,
+          previous: null,
+          ledger: {},
+          title: "窗口尚未启动",
+          subtitle: "right 即将读取下标 0",
+          tip: "right 每轮前进一步；left 只在发生有效冲突时向右跳。",
+        },
+        {
+          right: 0,
+          left: 0,
+          best: 1,
+          previous: null,
+          ledger: { a: 0 },
+          title: "读到 a：窗口打开",
+          subtitle: "新字符，无需移动 left",
+          tip: "当前窗口 a 合法，best 从 0 更新为 1。",
+        },
+        {
+          right: 1,
+          left: 0,
+          best: 2,
+          previous: null,
+          ledger: { a: 0, b: 1 },
+          title: "读到 b：继续扩张",
+          subtitle: "窗口变为 ab",
+          tip: "b 尚未出现，left 保持 0，best 更新为 2。",
+        },
+        {
+          right: 2,
+          left: 0,
+          best: 3,
+          previous: null,
+          ledger: { a: 0, b: 1, c: 2 },
+          title: "读到 c：得到长度 3",
+          subtitle: "窗口变为 abc",
+          tip: "此时得到本题最终最优长度 3，但仍需扫描完字符串。",
+        },
+        {
+          right: 3,
+          left: 1,
+          best: 3,
+          previous: 0,
+          ledger: { a: 3, b: 1, c: 2 },
+          title: "a 重复：left 跳到 1",
+          subtitle: "max(0, 0 + 1) = 1",
+          tip: "移出旧 a 后窗口为 bca，仍然无重复。",
+        },
+        {
+          right: 4,
+          left: 2,
+          best: 3,
+          previous: 1,
+          ledger: { a: 3, b: 4, c: 2 },
+          title: "b 重复：left 跳到 2",
+          subtitle: "max(1, 1 + 1) = 2",
+          tip: "窗口变成 cab，长度仍为 3。",
+        },
+        {
+          right: 5,
+          left: 3,
+          best: 3,
+          previous: 2,
+          ledger: { a: 3, b: 4, c: 5 },
+          title: "c 重复：left 跳到 3",
+          subtitle: "max(2, 2 + 1) = 3",
+          tip: "窗口变成 abc；相同长度不会改变 best。",
+        },
+        {
+          right: 6,
+          left: 5,
+          best: 3,
+          previous: 4,
+          ledger: { a: 3, b: 6, c: 5 },
+          title: "b 重复：跨过旧 b",
+          subtitle: "max(3, 4 + 1) = 5",
+          tip: "left 一步跳到 5，窗口只剩 cb。",
+        },
+        {
+          right: 7,
+          left: 7,
+          best: 3,
+          previous: 6,
+          ledger: { a: 3, b: 7, c: 5 },
+          title: "扫描完成：答案 3",
+          subtitle: "max(5, 6 + 1) = 7",
+          tip: "最长无重复子串长度为 3，可取 abc、bca 或 cab。",
+        },
+      ];
+
+      const codeExamples = {
+        java: {
+          file: "Solution.java",
+          ready: [3, 4, 5],
+          hot: [8, 9, 10, 11, 12, 14, 15],
+          code: `class Solution {
+  public int lengthOfLongestSubstring(String s) {
+    Map<Character, Integer> lastSeen = new HashMap<>();
+    int left = 0;
+    int best = 0;
+
+    for (int right = 0; right < s.length(); right++) {
+      char current = s.charAt(right);
+      Integer previous = lastSeen.get(current);
+      if (previous != null) {
+        left = Math.max(left, previous + 1);
+      }
+      lastSeen.put(current, right);
+      best = Math.max(best, right - left + 1);
+    }
+    return best;
+  }
+}`,
+        },
+        javascript: {
+          file: "solution.js",
+          ready: [2, 3, 4],
+          hot: [7, 8, 9, 10, 12, 13],
+          code: `var lengthOfLongestSubstring = function (s) {
+  const lastSeen = new Map();
+  let left = 0;
+  let best = 0;
+
+  for (let right = 0; right < s.length; right++) {
+    const current = s[right];
+    if (lastSeen.has(current)) {
+      left = Math.max(left, lastSeen.get(current) + 1);
+    }
+    lastSeen.set(current, right);
+    best = Math.max(best, right - left + 1);
+  }
+  return best;
+};`,
+        },
+        python: {
+          file: "solution.py",
+          ready: [3, 4, 5],
+          hot: [8, 9, 10, 11, 12, 13],
+          code: `class Solution:
+    def lengthOfLongestSubstring(self, s: str) -> int:
+        last_seen = {}
+        left = 0
+        best = 0
+
+        for right, current in enumerate(s):
+            if current in last_seen:
+                left = max(left, last_seen[current] + 1)
+            last_seen[current] = right
+            best = max(best, right - left + 1)
+
+        return best`,
+        },
+        cpp: {
+          file: "solution.cpp",
+          ready: [4, 5, 6],
+          hot: [9, 10, 11, 12, 13, 15, 16],
+          code: `class Solution {
+public:
+  int lengthOfLongestSubstring(string s) {
+    unordered_map<char, int> lastSeen;
+    int left = 0;
+    int best = 0;
+
+    for (int right = 0; right < static_cast<int>(s.size()); ++right) {
+      auto it = lastSeen.find(s[right]);
+      if (it != lastSeen.end()) {
+        left = max(left, it->second + 1);
+      }
+      lastSeen[s[right]] = right;
+      best = max(best, right - left + 1);
+    }
+    return best;
+  }
+};`,
+        },
+      };
+
+      let currentStep = 0;
+      let currentLanguage = "java";
+      let playTimer = null;
+
+      const elements = {
+        stepBadge: document.getElementById("stepBadge"),
+        stepTitle: document.getElementById("stepTitle"),
+        stepSubtitle: document.getElementById("stepSubtitle"),
+        progressBar: document.getElementById("progressBar"),
+        progressStatus: document.getElementById("progressStatus"),
+        characterRail: document.getElementById("characterRail"),
+        windowBand: document.getElementById("windowBand"),
+        leftValue: document.getElementById("leftValue"),
+        rightValue: document.getElementById("rightValue"),
+        bestValue: document.getElementById("bestValue"),
+        lastSeenLedger: document.getElementById("lastSeenLedger"),
+        readyPanel: document.getElementById("readyPanel"),
+        decisionPanel: document.getElementById("decisionPanel"),
+        currentChar: document.getElementById("currentChar"),
+        previousIndex: document.getElementById("previousIndex"),
+        decisionLabel: document.getElementById("decisionLabel"),
+        decisionFormula: document.getElementById("decisionFormula"),
+        windowText: document.getElementById("windowText"),
+        windowLength: document.getElementById("windowLength"),
+        stepTip: document.getElementById("stepTip"),
+        liveStatus: document.getElementById("liveStatus"),
+        prevButton: document.getElementById("prevButton"),
+        nextButton: document.getElementById("nextButton"),
+        playButton: document.getElementById("playButton"),
+        resetButton: document.getElementById("resetButton"),
+        codePanel: document.getElementById("codePanel"),
+        codeContent: document.getElementById("codeContent"),
+        fileName: document.getElementById("fileName"),
+      };
+
+      function renderRail(state) {
+        elements.characterRail.innerHTML = "";
+        source.split("").forEach((character, index) => {
+          const cell = document.createElement("li");
+          cell.className = "char-cell mono";
+          cell.dataset.index = index;
+          cell.textContent = character;
+          const inWindow =
+            state.right >= 0 && index >= state.left && index <= state.right;
+          if (inWindow) cell.classList.add("in-window");
+          if (index === state.right) cell.classList.add("is-right");
+          if (state.previous === index) cell.classList.add("was-duplicate");
+          cell.setAttribute(
+            "aria-label",
+            `下标 ${index}，字符 ${character}${index === state.right ? "，right 当前读取" : ""}${inWindow ? "，位于窗口内" : ""}`,
+          );
+          elements.characterRail.appendChild(cell);
+        });
+
+        if (state.right < 0) {
+          elements.windowBand.classList.add("opacity-0");
+          elements.windowBand.dataset.label = "window = ∅";
+          return;
+        }
+        elements.windowBand.classList.remove("opacity-0");
+        elements.windowBand.style.gridColumn = `${state.left + 1} / ${state.right + 2}`;
+        const window = source.slice(state.left, state.right + 1);
+        elements.windowBand.dataset.label = `window = ${window}`;
+      }
+
+      function renderLedger(ledger) {
+        elements.lastSeenLedger.innerHTML = "";
+        const entries = Object.entries(ledger);
+        if (!entries.length) {
+          const empty = document.createElement("li");
+          empty.className = "mono text-xs text-slate-600";
+          empty.textContent = "∅  尚无记录";
+          elements.lastSeenLedger.appendChild(empty);
+          return;
+        }
+        entries.forEach(([character, index]) => {
+          const chip = document.createElement("li");
+          chip.className =
+            "rounded-lg border border-slate-700 bg-black/25 px-3 py-2 mono text-xs text-slate-300";
+          chip.textContent = `${character} → ${index}`;
+          elements.lastSeenLedger.appendChild(chip);
+        });
+      }
+
+      function renderCode() {
+        const example = codeExamples[currentLanguage];
+        const hotLines = currentStep === 0 ? example.ready : example.hot;
+        elements.fileName.textContent = example.file;
+        elements.codePanel.setAttribute(
+          "aria-labelledby",
+          `tab-${currentLanguage}`,
+        );
+        elements.codeContent.innerHTML = "";
+        example.code.split("\n").forEach((line, index) => {
+          const row = document.createElement("span");
+          row.className =
+            "code-line grid min-w-max grid-cols-[3.2rem_1fr] px-4 sm:px-6";
+          if (hotLines.includes(index + 1)) row.classList.add("hot");
+          const number = document.createElement("span");
+          number.className = "select-none pr-4 text-right mono text-slate-700";
+          number.textContent = index + 1;
+          number.setAttribute("aria-hidden", "true");
+          const sourceLine = document.createElement("span");
+          sourceLine.className = "whitespace-pre pr-8 mono";
+          sourceLine.textContent = line || " ";
+          row.append(number, sourceLine);
+          elements.codeContent.appendChild(row);
+        });
+      }
+
+      function syncPlayButton() {
+        if (playTimer !== null) return;
+        const complete = currentStep === states.length - 1;
+        elements.playButton.textContent = complete
+          ? "↻ 重新播放"
+          : "▶ 自动播放";
+        elements.playButton.setAttribute("aria-pressed", "false");
+        elements.playButton.setAttribute(
+          "aria-label",
+          complete ? "重新播放演示" : "自动播放演示",
+        );
+      }
+
+      function renderStep(options = {}) {
+        const state = states[currentStep];
+        elements.stepBadge.textContent =
+          currentStep === 0
+            ? "READY"
+            : currentStep === states.length - 1
+              ? "DONE"
+              : `SCAN ${currentStep} / 8`;
+        elements.stepTitle.textContent = state.title;
+        elements.stepSubtitle.textContent = state.subtitle;
+        elements.progressBar.style.width = `${(currentStep / 8) * 100}%`;
+        elements.progressStatus.value = currentStep;
+        elements.progressStatus.setAttribute(
+          "aria-valuetext",
+          currentStep === 0
+            ? "尚未开始，共 8 个字符"
+            : `已扫描 ${currentStep} 个字符，共 8 个`,
+        );
+        elements.prevButton.disabled = currentStep === 0;
+        elements.nextButton.disabled = currentStep === states.length - 1;
+        elements.leftValue.textContent = state.left;
+        elements.rightValue.textContent = state.right < 0 ? "—" : state.right;
+        elements.bestValue.textContent = state.best;
+        elements.stepTip.textContent = state.tip;
+        renderRail(state);
+        renderLedger(state.ledger);
+
+        if (state.right < 0) {
+          elements.readyPanel.classList.remove("hidden");
+          elements.decisionPanel.classList.add("hidden");
+        } else {
+          const character = source[state.right];
+          const window = source.slice(state.left, state.right + 1);
+          elements.readyPanel.classList.add("hidden");
+          elements.decisionPanel.classList.remove("hidden");
+          elements.currentChar.textContent = character;
+          elements.previousIndex.textContent =
+            state.previous === null ? "没有" : state.previous;
+          const duplicate =
+            state.previous !== null &&
+            state.previous >= (states[currentStep - 1]?.left ?? 0);
+          elements.decisionLabel.textContent = duplicate
+            ? "重复在窗口内，left 向右跳"
+            : "新字符，窗口无需收缩";
+          elements.decisionLabel.className = duplicate
+            ? "text-sm font-bold text-signal"
+            : "text-sm font-bold text-lime";
+          elements.decisionFormula.textContent =
+            state.previous === null
+              ? `left 保持 ${state.left}`
+              : `left = max(${states[currentStep - 1].left}, ${state.previous} + 1) = ${state.left}`;
+          elements.windowText.textContent = window;
+          elements.windowLength.textContent = `长度 ${window.length} · 历史最优 ${state.best}`;
+        }
+        if (options.announce !== false)
+          elements.liveStatus.textContent =
+            currentStep === 0
+              ? "演示已重置。"
+              : `第 ${currentStep} 步，读取 ${source[state.right]}，left 为 ${state.left}，当前窗口 ${source.slice(state.left, state.right + 1)}，历史最优 ${state.best}。`;
+        renderCode();
+        syncPlayButton();
+      }
+
+      function stopPlayback() {
+        if (playTimer !== null) window.clearInterval(playTimer);
+        playTimer = null;
+        syncPlayButton();
+      }
+
+      function goToStep(step, options = {}) {
+        currentStep = Math.max(0, Math.min(states.length - 1, step));
+        renderStep(options);
+      }
+
+      function togglePlayback() {
+        if (playTimer !== null) {
+          stopPlayback();
+          return;
+        }
+        if (currentStep === states.length - 1) goToStep(0, { announce: false });
+        elements.playButton.textContent = "Ⅱ 暂停";
+        elements.playButton.setAttribute("aria-pressed", "true");
+        elements.playButton.setAttribute("aria-label", "暂停自动播放");
+        playTimer = window.setInterval(() => {
+          if (currentStep >= states.length - 1) {
+            stopPlayback();
+            return;
+          }
+          goToStep(currentStep + 1);
+          if (currentStep === states.length - 1) stopPlayback();
+        }, 1250);
+      }
+
+      elements.prevButton.addEventListener("click", () => {
+        stopPlayback();
+        goToStep(currentStep - 1);
+      });
+      elements.nextButton.addEventListener("click", () => {
+        stopPlayback();
+        goToStep(currentStep + 1);
+      });
+      elements.playButton.addEventListener("click", togglePlayback);
+      elements.resetButton.addEventListener("click", () => {
+        stopPlayback();
+        goToStep(0);
+      });
+
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      function selectLanguage(language, focus = false) {
+        stopPlayback();
+        currentLanguage = language;
+        tabs.forEach((tab) => {
+          const selected = tab.dataset.language === language;
+          tab.setAttribute("aria-selected", String(selected));
+          tab.tabIndex = selected ? 0 : -1;
+          tab.classList.toggle("tab-active", selected);
+          if (selected && focus) tab.focus();
+        });
+        renderCode();
+      }
+      tabs.forEach((tab, index) => {
+        tab.addEventListener("click", () =>
+          selectLanguage(tab.dataset.language),
+        );
+        tab.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          let next = index;
+          if (event.key === "ArrowLeft")
+            next = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+          if (event.key === "Home") next = 0;
+          if (event.key === "End") next = tabs.length - 1;
+          selectLanguage(tabs[next].dataset.language, true);
+        });
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.target.closest('[role="tablist"], pre')
+        )
+          return;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          stopPlayback();
+          goToStep(currentStep - 1);
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          stopPlayback();
+          goToStep(currentStep + 1);
+        }
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) stopPlayback();
+      });
+
+      if ("IntersectionObserver" in window) {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                entry.target.classList.add("visible");
+                observer.unobserve(entry.target);
+              }
+            });
+          },
+          { threshold: 0.08 },
+        );
+        document
+          .querySelectorAll(".reveal")
+          .forEach((element) => observer.observe(element));
+      } else {
+        document
+          .querySelectorAll(".reveal")
+          .forEach((element) => element.classList.add("visible"));
+      }
+
+      renderStep({ announce: false });
+    </script>
+  </body>
+</html>
