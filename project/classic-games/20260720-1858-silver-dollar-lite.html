@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Silver Dollar Game</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:items-center md:justify-center">
+    <section class="w-full md:w-[23rem]">
+      <p class="text-sm uppercase tracking-[0.26em] text-amber-300">Classic impartial game</p>
+      <h1 class="mt-2 text-3xl font-semibold">Mini Silver Dollar</h1>
+      <p class="mt-3 text-sm leading-6 text-stone-300">
+        轮流选择一枚硬币并向左移动到空格，不能越过其它硬币。没有合法移动的一方输掉本局。
+      </p>
+      <div class="mt-5 grid grid-cols-2 gap-3">
+        <div class="rounded border border-stone-700 bg-stone-900 p-3">
+          <div class="text-sm text-stone-400">当前回合</div>
+          <div id="turnLabel" class="mt-1 text-xl font-semibold text-amber-200">一号</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 p-3">
+          <div class="text-sm text-stone-400">步数</div>
+          <div id="moveLabel" class="mt-1 text-xl font-semibold text-emerald-200">0</div>
+        </div>
+      </div>
+      <div id="message" class="mt-4 min-h-14 rounded border border-amber-400/30 bg-amber-400/10 p-3 text-sm leading-6 text-amber-100">
+        一号先手，点击一枚硬币。
+      </div>
+      <button id="resetBtn" class="mt-4 w-full rounded bg-amber-300 px-4 py-3 font-semibold text-stone-950 transition hover:bg-amber-200">
+        重新开始
+      </button>
+    </section>
+
+    <section class="w-full">
+      <div class="mx-auto max-w-[38rem] rounded border border-stone-700 bg-stone-900 p-4 shadow-2xl">
+        <div id="track" class="grid grid-cols-12 gap-2"></div>
+        <div class="mt-3 flex justify-between text-xs uppercase tracking-[0.2em] text-stone-500">
+          <span>起点</span>
+          <span>只能向左移动</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 12;
+    const trackEl = document.getElementById("track");
+    const turnLabel = document.getElementById("turnLabel");
+    const moveLabel = document.getElementById("moveLabel");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let coins;
+    let selected;
+    let turn;
+    let moves;
+    let winner;
+
+    function resetGame() {
+      coins = [3, 6, 9, 11];
+      selected = null;
+      turn = 0;
+      moves = 0;
+      winner = null;
+      messageEl.textContent = "一号先手，点击一枚硬币。";
+      render();
+    }
+
+    function playerName(player) {
+      return player === 0 ? "一号" : "二号";
+    }
+
+    function coinAt(index) {
+      return coins.indexOf(index);
+    }
+
+    function legalTargets(coinIndex) {
+      const leftBound = coinIndex === 0 ? -1 : coins[coinIndex - 1];
+      const targets = [];
+      for (let cell = coins[coinIndex] - 1; cell > leftBound; cell -= 1) {
+        targets.push(cell);
+      }
+      return targets;
+    }
+
+    function hasLegalMove() {
+      return coins.some((_, index) => legalTargets(index).length > 0);
+    }
+
+    function finishTurn() {
+      moves += 1;
+      selected = null;
+      turn = 1 - turn;
+
+      if (!hasLegalMove()) {
+        winner = 1 - turn;
+        messageEl.textContent = playerName(winner) + "留下无路局面，赢得本局。";
+      } else {
+        messageEl.textContent = playerName(turn) + "行动，选择一枚硬币向左移动。";
+      }
+      render();
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      const coinIndex = coinAt(index);
+
+      if (coinIndex !== -1) {
+        selected = coinIndex;
+        messageEl.textContent = "已选择第 " + (coinIndex + 1) + " 枚硬币，点击左侧可达空格。";
+        render();
+        return;
+      }
+
+      if (selected === null) {
+        messageEl.textContent = "请先选择一枚硬币。";
+        return;
+      }
+
+      if (!legalTargets(selected).includes(index)) {
+        messageEl.textContent = "硬币只能向左移动，且不能越过其它硬币。";
+        return;
+      }
+
+      coins[selected] = index;
+      coins.sort((a, b) => a - b);
+      finishTurn();
+    }
+
+    function render() {
+      trackEl.innerHTML = "";
+      turnLabel.textContent = winner === null ? playerName(turn) : playerName(winner) + "胜";
+      moveLabel.textContent = moves;
+
+      for (let index = 0; index < size; index += 1) {
+        const coinIndex = coinAt(index);
+        const activeTarget = selected !== null && legalTargets(selected).includes(index);
+        const isSelected = selected !== null && coins[selected] === index;
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = [
+          "aspect-square rounded border text-sm font-semibold transition",
+          coinIndex !== -1 ? "border-amber-200 bg-amber-200/20" : "border-stone-700 bg-stone-950",
+          activeTarget ? "border-emerald-300 bg-emerald-300/20 hover:bg-emerald-300/30" : "",
+          isSelected ? "ring-2 ring-emerald-300" : "",
+          winner ? "cursor-default" : "hover:border-amber-200"
+        ].join(" ");
+        cell.addEventListener("click", () => handleCell(index));
+
+        if (coinIndex !== -1) {
+          const coin = document.createElement("span");
+          coin.className = "mx-auto block h-8 w-8 rounded-full bg-zinc-200 text-center leading-8 text-stone-950 shadow-inner shadow-zinc-500";
+          coin.textContent = coinIndex + 1;
+          cell.appendChild(coin);
+        } else {
+          cell.textContent = index + 1;
+          cell.classList.add("text-stone-500");
+        }
+        trackEl.appendChild(cell);
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
