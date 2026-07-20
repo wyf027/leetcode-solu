@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Spacewar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-neutral-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-cyan-300">Classic Game</p>
+          <h1 class="mt-1 text-3xl font-bold sm:text-4xl">Mini Spacewar</h1>
+        </div>
+        <button
+          id="reset"
+          class="rounded-md bg-cyan-300 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-cyan-200"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-4">
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">Blue 命中</p>
+          <p id="blueScore" class="mt-2 text-2xl font-bold text-sky-200">0</p>
+        </div>
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">Red 命中</p>
+          <p id="redScore" class="mt-2 text-2xl font-bold text-rose-200">0</p>
+        </div>
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">光弹</p>
+          <p id="shots" class="mt-2 text-2xl font-bold">0</p>
+        </div>
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-sm text-neutral-400">状态</p>
+          <p id="status" class="mt-2 text-lg font-semibold text-emerald-200">交战中</p>
+        </div>
+      </section>
+
+      <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <canvas id="arena" class="aspect-[4/3] w-full rounded-md bg-black"></canvas>
+        </div>
+
+        <aside class="rounded-md border border-neutral-800 bg-neutral-900 p-4">
+          <h2 class="text-xl font-bold">控制</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-neutral-300">
+            Blue 使用 W/A/D 推进与转向，F 发射；Red 使用 ↑/←/→ 推进与转向，/ 发射。
+          </p>
+          <div class="mt-4 border-t border-neutral-800 pt-4 text-sm leading-6 text-neutral-400">
+            <p>规则：中央星体会轻微吸引飞船。光弹命中对手得 1 分，先到 3 分获胜。飞出边界会从另一侧回到战场。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("arena");
+      const context = canvas.getContext("2d");
+      const keys = new Set();
+      const elements = {
+        blueScore: document.getElementById("blueScore"),
+        redScore: document.getElementById("redScore"),
+        shots: document.getElementById("shots"),
+        status: document.getElementById("status"),
+        message: document.getElementById("message"),
+        reset: document.getElementById("reset"),
+      };
+
+      let ships;
+      let shots;
+      let scores;
+      let ended;
+      let lastTime;
+      let animationId;
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.max(640, Math.floor(rect.width * devicePixelRatio));
+        canvas.height = Math.floor((canvas.width * 3) / 4);
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.scale(canvas.width / 640, canvas.height / 480);
+      }
+
+      function setupGame() {
+        resizeCanvas();
+        ships = [
+          { id: "blue", x: 150, y: 240, vx: 0, vy: -12, angle: 0, cooldown: 0, color: "#38bdf8" },
+          { id: "red", x: 490, y: 240, vx: 0, vy: 12, angle: Math.PI, cooldown: 0, color: "#fb7185" },
+        ];
+        shots = [];
+        scores = { blue: 0, red: 0 };
+        ended = false;
+        lastTime = performance.now();
+        elements.message.textContent = "避开中央星体，调整角度并命中对手。";
+        cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(loop);
+      }
+
+      function wrap(value, max) {
+        if (value < 0) return value + max;
+        if (value >= max) return value - max;
+        return value;
+      }
+
+      function distance(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      function applyControls(ship, dt) {
+        const blue = ship.id === "blue";
+        const left = blue ? keys.has("a") : keys.has("ArrowLeft");
+        const right = blue ? keys.has("d") : keys.has("ArrowRight");
+        const thrust = blue ? keys.has("w") : keys.has("ArrowUp");
+        const fire = blue ? keys.has("f") : keys.has("/");
+
+        if (left) ship.angle -= 3.6 * dt;
+        if (right) ship.angle += 3.6 * dt;
+        if (thrust) {
+          ship.vx += Math.cos(ship.angle) * 95 * dt;
+          ship.vy += Math.sin(ship.angle) * 95 * dt;
+        }
+        if (fire && ship.cooldown <= 0) {
+          shots.push({
+            owner: ship.id,
+            x: ship.x + Math.cos(ship.angle) * 16,
+            y: ship.y + Math.sin(ship.angle) * 16,
+            vx: ship.vx + Math.cos(ship.angle) * 210,
+            vy: ship.vy + Math.sin(ship.angle) * 210,
+            life: 1.8,
+          });
+          ship.cooldown = 0.42;
+        }
+      }
+
+      function applyGravity(body, dt) {
+        const dx = 320 - body.x;
+        const dy = 240 - body.y;
+        const range = Math.max(60, Math.hypot(dx, dy));
+        const pull = 900 / (range * range);
+        body.vx += (dx / range) * pull * dt * 120;
+        body.vy += (dy / range) * pull * dt * 120;
+      }
+
+      function moveShip(ship, dt) {
+        applyControls(ship, dt);
+        applyGravity(ship, dt);
+        ship.cooldown -= dt;
+        ship.vx *= 0.997;
+        ship.vy *= 0.997;
+        ship.x = wrap(ship.x + ship.vx * dt, 640);
+        ship.y = wrap(ship.y + ship.vy * dt, 480);
+      }
+
+      function moveShots(dt) {
+        shots.forEach((shot) => {
+          applyGravity(shot, dt);
+          shot.x = wrap(shot.x + shot.vx * dt, 640);
+          shot.y = wrap(shot.y + shot.vy * dt, 480);
+          shot.life -= dt;
+        });
+        shots = shots.filter((shot) => shot.life > 0 && distance(shot, { x: 320, y: 240 }) > 22);
+      }
+
+      function checkHits() {
+        shots.forEach((shot) => {
+          const target = ships.find((ship) => ship.id !== shot.owner);
+          if (target && distance(shot, target) < 17) {
+            scores[shot.owner] += 1;
+            shot.life = 0;
+            target.x = target.id === "blue" ? 150 : 490;
+            target.y = 240;
+            target.vx = 0;
+            target.vy = 0;
+            elements.message.textContent = `${shot.owner === "blue" ? "Blue" : "Red"} 命中一次。`;
+          }
+        });
+        if (scores.blue >= 3 || scores.red >= 3) {
+          ended = true;
+          elements.message.textContent = `${scores.blue >= 3 ? "Blue" : "Red"} 先到 3 分并获胜。`;
+        }
+      }
+
+      function drawShip(ship) {
+        context.save();
+        context.translate(ship.x, ship.y);
+        context.rotate(ship.angle);
+        context.fillStyle = ship.color;
+        context.beginPath();
+        context.moveTo(18, 0);
+        context.lineTo(-12, -10);
+        context.lineTo(-7, 0);
+        context.lineTo(-12, 10);
+        context.closePath();
+        context.fill();
+        context.restore();
+      }
+
+      function draw() {
+        context.clearRect(0, 0, 640, 480);
+        context.fillStyle = "#020617";
+        context.fillRect(0, 0, 640, 480);
+        context.fillStyle = "#f8fafc";
+        for (let i = 0; i < 55; i += 1) {
+          const x = (i * 97) % 640;
+          const y = (i * 53) % 480;
+          context.fillRect(x, y, 1.5, 1.5);
+        }
+        context.fillStyle = "#fde68a";
+        context.beginPath();
+        context.arc(320, 240, 22, 0, Math.PI * 2);
+        context.fill();
+        ships.forEach(drawShip);
+        shots.forEach((shot) => {
+          context.fillStyle = shot.owner === "blue" ? "#bae6fd" : "#fecdd3";
+          context.beginPath();
+          context.arc(shot.x, shot.y, 4, 0, Math.PI * 2);
+          context.fill();
+        });
+        elements.blueScore.textContent = String(scores.blue);
+        elements.redScore.textContent = String(scores.red);
+        elements.shots.textContent = String(shots.length);
+        elements.status.textContent = ended ? "胜利" : "交战中";
+      }
+
+      function loop(time) {
+        const dt = Math.min(0.03, (time - lastTime) / 1000);
+        lastTime = time;
+        if (!ended) {
+          ships.forEach((ship) => moveShip(ship, dt));
+          moveShots(dt);
+          checkHits();
+        }
+        draw();
+        animationId = requestAnimationFrame(loop);
+      }
+
+      window.addEventListener("keydown", (event) => {
+        keys.add(event.key);
+        if (["ArrowUp", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+      });
+      window.addEventListener("keyup", (event) => keys.delete(event.key));
+      window.addEventListener("resize", resizeCanvas);
+      elements.reset.addEventListener("click", setupGame);
+      setupGame();
+    </script>
+  </body>
+</html>
