@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Warlords</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-amber-300">Classic Games</p>
+        <h1 class="text-3xl font-bold tracking-normal text-white">Mini Warlords</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Score</p>
+          <p id="score" class="text-lg font-bold text-amber-200">0</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Castle</p>
+          <p id="castle" class="text-lg font-bold text-cyan-200">24</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Rivals</p>
+          <p id="rivals" class="text-lg font-bold text-rose-200">3</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Speed</p>
+          <p id="speed" class="text-lg font-bold text-emerald-200">1</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="720" height="720" class="aspect-square w-full rounded border border-slate-700 bg-slate-900 shadow-2xl"></canvas>
+      <aside class="rounded border border-slate-700 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+        <h2 class="mb-2 text-lg font-semibold text-white">Controls</h2>
+        <p>Move your shield around the lower-left castle with mouse, touch, or arrow keys.</p>
+        <p class="mt-3">Deflect the fireball into rival walls. Lose if your castle core is breached.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-amber-400 px-4 py-2 font-semibold text-slate-950 hover:bg-amber-300">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-slate-700 bg-slate-950 p-3 text-cyan-100">Guard the keep.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const castleEl = document.getElementById('castle');
+    const rivalsEl = document.getElementById('rivals');
+    const speedEl = document.getElementById('speed');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+
+    const size = canvas.width;
+    const cornerSize = 150;
+    const wall = 18;
+    const shieldLength = 88;
+    const playerCastle = 'bottomLeft';
+    const keys = new Set();
+    let state;
+
+    const corners = {
+      topLeft: { x: 0, y: 0, dx: 1, dy: 1, color: '#60a5fa' },
+      topRight: { x: size - cornerSize, y: 0, dx: -1, dy: 1, color: '#fb7185' },
+      bottomRight: { x: size - cornerSize, y: size - cornerSize, dx: -1, dy: -1, color: '#a78bfa' },
+      bottomLeft: { x: 0, y: size - cornerSize, dx: 1, dy: -1, color: '#22d3ee' }
+    };
+
+    function setupGame() {
+      state = {
+        score: 0,
+        frame: 0,
+        shield: 0.5,
+        gameOver: false,
+        winner: false,
+        ball: {
+          x: size / 2,
+          y: size / 2,
+          vx: 3.4,
+          vy: -2.8,
+          radius: 9
+        },
+        castles: Object.fromEntries(Object.keys(corners).map((name) => [
+          name,
+          { alive: true, wall: 24, breach: 0 }
+        ]))
+      };
+      messageEl.textContent = 'Guard the keep.';
+      updateHud();
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function liveRivals() {
+      return Object.entries(state.castles).filter(([name, castle]) => name !== playerCastle && castle.alive).length;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      castleEl.textContent = Math.max(0, state.castles[playerCastle].wall);
+      rivalsEl.textContent = liveRivals();
+      speedEl.textContent = (Math.hypot(state.ball.vx, state.ball.vy) / 4).toFixed(1);
+    }
+
+    function shieldSegment() {
+      const minY = size - cornerSize + 18;
+      const maxY = size - 22 - shieldLength;
+      const y = minY + (maxY - minY) * state.shield;
+      return { x: cornerSize - 10, y, width: 14, height: shieldLength };
+    }
+
+    function moveShield() {
+      if (keys.has('ArrowUp') || keys.has('w')) state.shield -= 0.025;
+      if (keys.has('ArrowDown') || keys.has('s')) state.shield += 0.025;
+      state.shield = clamp(state.shield, 0, 1);
+    }
+
+    function speedUp() {
+      const speed = Math.hypot(state.ball.vx, state.ball.vy);
+      if (speed < 8.2) {
+        state.ball.vx *= 1.025;
+        state.ball.vy *= 1.025;
+      }
+    }
+
+    function reboundFromShield() {
+      const shield = shieldSegment();
+      const ball = state.ball;
+      const hitsX = ball.x - ball.radius < shield.x + shield.width && ball.x + ball.radius > shield.x;
+      const hitsY = ball.y + ball.radius > shield.y && ball.y - ball.radius < shield.y + shield.height;
+      if (hitsX && hitsY && ball.vx < 0) {
+        const hit = ((ball.y - shield.y) / shield.height - 0.5) * 2;
+        ball.x = shield.x + shield.width + ball.radius;
+        ball.vx = Math.abs(ball.vx) + 0.25;
+        ball.vy += hit * 1.4;
+        state.score += 3;
+        speedUp();
+      }
+    }
+
+    function hitCastle(name) {
+      const castle = state.castles[name];
+      if (!castle.alive) return;
+      castle.wall -= name === playerCastle ? 4 : 6;
+      castle.breach = 18;
+      if (name !== playerCastle) state.score += 12;
+      if (castle.wall <= 0) {
+        castle.alive = false;
+        if (name === playerCastle) {
+          state.gameOver = true;
+          messageEl.textContent = 'Your castle fell. Press Restart.';
+        } else {
+          state.score += 50;
+          messageEl.textContent = 'A rival warlord has fallen.';
+        }
+      }
+    }
+
+    function checkCastleCollisions() {
+      const ball = state.ball;
+      for (const [name, corner] of Object.entries(corners)) {
+        const castle = state.castles[name];
+        if (!castle.alive) continue;
+        const withinX = ball.x > corner.x && ball.x < corner.x + cornerSize;
+        const withinY = ball.y > corner.y && ball.y < corner.y + cornerSize;
+        if (!withinX || !withinY) continue;
+        const centerX = corner.x + (corner.dx > 0 ? 42 : cornerSize - 42);
+        const centerY = corner.y + (corner.dy > 0 ? 42 : cornerSize - 42);
+        const nearCore = Math.abs(ball.x - centerX) < 34 && Math.abs(ball.y - centerY) < 34;
+        if (nearCore) {
+          hitCastle(name);
+          ball.vx = -ball.vx;
+          ball.vy = -ball.vy;
+          ball.x += ball.vx;
+          ball.y += ball.vy;
+        }
+      }
+    }
+
+    function updateBall() {
+      const ball = state.ball;
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      if (ball.x < ball.radius || ball.x > size - ball.radius) {
+        ball.vx *= -1;
+        ball.x = clamp(ball.x, ball.radius, size - ball.radius);
+      }
+      if (ball.y < ball.radius || ball.y > size - ball.radius) {
+        ball.vy *= -1;
+        ball.y = clamp(ball.y, ball.radius, size - ball.radius);
+      }
+      reboundFromShield();
+      checkCastleCollisions();
+      if (liveRivals() === 0 && !state.winner) {
+        state.winner = true;
+        state.gameOver = true;
+        state.score += 150;
+        messageEl.textContent = 'All rivals defeated. The keep stands.';
+      }
+      updateHud();
+    }
+
+    function drawBoard() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, size, size);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(28, 28, size - 56, size - 56);
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let i = 90; i < size; i += 90) {
+        ctx.beginPath();
+        ctx.moveTo(i, 28);
+        ctx.lineTo(i, size - 28);
+        ctx.moveTo(28, i);
+        ctx.lineTo(size - 28, i);
+        ctx.stroke();
+      }
+    }
+
+    function drawCastle(name, corner) {
+      const castle = state.castles[name];
+      const alpha = castle.alive ? 1 : 0.22;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(corner.x, corner.y, cornerSize, cornerSize);
+      ctx.fillStyle = corner.color;
+      const coreX = corner.x + (corner.dx > 0 ? 42 : cornerSize - 70);
+      const coreY = corner.y + (corner.dy > 0 ? 42 : cornerSize - 70);
+      ctx.fillRect(coreX, coreY, 52, 52);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(coreX, coreY, 52, 52);
+      const wallCount = Math.max(0, castle.wall);
+      ctx.fillStyle = castle.alive ? '#f8fafc' : '#475569';
+      for (let i = 0; i < wallCount; i++) {
+        const row = Math.floor(i / 6);
+        const col = i % 6;
+        const x = corner.x + 20 + col * 18;
+        const y = corner.y + 18 + row * 16;
+        ctx.fillRect(corner.dx > 0 ? x : size - x - 10, corner.dy > 0 ? y : size - y - 8, 10, 8);
+      }
+      if (castle.breach > 0) {
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(coreX + 26, coreY + 26, 44 - castle.breach, 0, Math.PI * 2);
+        ctx.stroke();
+        castle.breach -= 1;
+      }
+      ctx.restore();
+    }
+
+    function drawShield() {
+      const shield = shieldSegment();
+      ctx.fillStyle = '#67e8f9';
+      ctx.fillRect(shield.x, shield.y, shield.width, shield.height);
+      ctx.fillStyle = '#cffafe';
+      ctx.fillRect(shield.x + 3, shield.y + 6, 4, shield.height - 12);
+    }
+
+    function drawBall() {
+      const ball = state.ball;
+      const gradient = ctx.createRadialGradient(ball.x - 3, ball.y - 3, 2, ball.x, ball.y, 15);
+      gradient.addColorStop(0, '#fef3c7');
+      gradient.addColorStop(0.6, '#f59e0b');
+      gradient.addColorStop(1, '#b45309');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function draw() {
+      drawBoard();
+      for (const [name, corner] of Object.entries(corners)) drawCastle(name, corner);
+      drawShield();
+      drawBall();
+      if (state.gameOver) {
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.72)';
+        ctx.fillRect(0, size / 2 - 46, size, 92);
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = 'bold 30px ui-sans-serif, system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(state.winner ? 'Victory' : 'Castle Breached', size / 2, size / 2 - 6);
+        ctx.font = '16px ui-sans-serif, system-ui';
+        ctx.fillText('Press Restart to play again', size / 2, size / 2 + 26);
+      }
+    }
+
+    function loop() {
+      moveShield();
+      if (!state.gameOver) {
+        state.frame += 1;
+        updateBall();
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener('mousemove', (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const y = (event.clientY - rect.top) / rect.height;
+      state.shield = clamp((y - 0.74) / 0.21, 0, 1);
+    });
+
+    canvas.addEventListener('touchmove', (event) => {
+      event.preventDefault();
+      const touch = event.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      const y = (touch.clientY - rect.top) / rect.height;
+      state.shield = clamp((y - 0.74) / 0.21, 0, 1);
+    }, { passive: false });
+
+    window.addEventListener('keydown', (event) => {
+      keys.add(event.key);
+      if (event.key.toLowerCase() === 'r') setupGame();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener('click', setupGame);
+
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
