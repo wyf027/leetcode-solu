@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Kotu Ellima</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col justify-between gap-3 border-b border-neutral-800 pb-4 md:flex-row md:items-end">
+      <div>
+        <p class="text-sm uppercase tracking-[0.28em] text-cyan-300">Classic Mill Game</p>
+        <h1 class="mt-2 text-3xl font-semibold">Mini Kotu Ellima</h1>
+      </div>
+      <button id="resetBtn" class="rounded border border-cyan-300 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-300 hover:text-neutral-950">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="relative aspect-square w-full max-w-[560px] justify-self-center rounded border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/30">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          <g id="lines" stroke="#a3a3a3" stroke-width="1.2" stroke-linecap="round"></g>
+        </svg>
+        <div id="board" class="absolute inset-0"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-neutral-400">当前回合</p>
+          <p id="turnText" class="mt-2 text-xl font-semibold text-cyan-200"></p>
+          <p id="message" class="mt-3 min-h-12 text-sm leading-6 text-neutral-300"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-xs text-neutral-400">金方落子</p>
+            <p id="goldText" class="mt-1 text-2xl font-semibold text-amber-200"></p>
+          </div>
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-xs text-neutral-400">青方落子</p>
+            <p id="tealText" class="mt-1 text-2xl font-semibold text-teal-200"></p>
+          </div>
+        </div>
+
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300">
+          <p class="font-semibold text-neutral-100">规则</p>
+          <p class="mt-2">双方各有 3 枚棋子，先轮流放到空点。</p>
+          <p class="mt-2">全部放完后，选择自己的棋子沿线移动到相邻空点。</p>
+          <p class="mt-2">任意横、竖或斜线形成三连即可获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 18, y: 18 }, { x: 50, y: 18 }, { x: 82, y: 18 },
+      { x: 18, y: 50 }, { x: 50, y: 50 }, { x: 82, y: 50 },
+      { x: 18, y: 82 }, { x: 50, y: 82 }, { x: 82, y: 82 }
+    ];
+
+    const edges = [
+      [0, 1], [1, 2], [3, 4], [4, 5], [6, 7], [7, 8],
+      [0, 3], [3, 6], [1, 4], [4, 7], [2, 5], [5, 8],
+      [0, 4], [4, 8], [2, 4], [4, 6]
+    ];
+
+    const wins = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const messageEl = document.getElementById("message");
+    const goldText = document.getElementById("goldText");
+    const tealText = document.getElementById("tealText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board;
+    let turn;
+    let selected;
+    let placed;
+    let winner;
+
+    function resetGame() {
+      board = Array(9).fill("");
+      turn = "G";
+      selected = null;
+      placed = { G: 0, T: 0 };
+      winner = "";
+      setMessage("金方先手：选择任意空点放置棋子。");
+      render();
+    }
+
+    function playerName(player) {
+      return player === "G" ? "金方" : "青方";
+    }
+
+    function phase() {
+      return placed.G < 3 || placed.T < 3 ? "place" : "move";
+    }
+
+    function neighbors(index) {
+      return edges
+        .filter(([a, b]) => a === index || b === index)
+        .map(([a, b]) => (a === index ? b : a));
+    }
+
+    function hasWin(player) {
+      return wins.some((line) => line.every((index) => board[index] === player));
+    }
+
+    function legalMoves(player) {
+      return board.flatMap((piece, index) => {
+        if (piece !== player) return [];
+        return neighbors(index)
+          .filter((to) => !board[to])
+          .map((to) => ({ from: index, to }));
+      });
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+
+      if (phase() === "place") {
+        placePiece(index);
+      } else {
+        movePiece(index);
+      }
+      render();
+    }
+
+    function placePiece(index) {
+      if (board[index]) {
+        setMessage("这里已经有棋子，请选择空点。");
+        return;
+      }
+      board[index] = turn;
+      placed[turn] += 1;
+      finishTurn();
+    }
+
+    function movePiece(index) {
+      if (selected === null) {
+        if (board[index] !== turn) {
+          setMessage(`请选择一枚${playerName(turn)}棋子。`);
+          return;
+        }
+        selected = index;
+        setMessage("选择相邻空点移动。");
+        return;
+      }
+
+      if (board[index] === turn) {
+        selected = index;
+        setMessage("已切换棋子，选择相邻空点移动。");
+        return;
+      }
+
+      if (!neighbors(selected).includes(index) || board[index]) {
+        setMessage("只能沿线移动到相邻空点。");
+        return;
+      }
+
+      board[index] = turn;
+      board[selected] = "";
+      finishTurn();
+    }
+
+    function finishTurn() {
+      if (hasWin(turn)) {
+        winner = turn;
+        selected = null;
+        setMessage(`${playerName(turn)}形成三连，获胜。`);
+        return;
+      }
+
+      const next = turn === "G" ? "T" : "G";
+      if (phase() === "move" && legalMoves(next).length === 0) {
+        winner = turn;
+        selected = null;
+        setMessage(`${playerName(next)}没有可移动棋子，${playerName(turn)}获胜。`);
+        return;
+      }
+
+      turn = next;
+      selected = null;
+      setMessage(phase() === "place" ? `${playerName(turn)}放置阶段。` : `${playerName(turn)}移动阶段。`);
+    }
+
+    function renderLines() {
+      linesEl.innerHTML = "";
+      edges.forEach(([a, b]) => {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", points[a].x);
+        line.setAttribute("y1", points[a].y);
+        line.setAttribute("x2", points[b].x);
+        line.setAttribute("y2", points[b].y);
+        linesEl.appendChild(line);
+      });
+    }
+
+    function render() {
+      renderLines();
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const piece = board[index];
+        const button = document.createElement("button");
+        const active = selected === index;
+        button.type = "button";
+        button.className = [
+          "absolute flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-lg font-bold shadow transition",
+          piece === "G" ? "border-amber-100 bg-amber-400 text-neutral-950" : "",
+          piece === "T" ? "border-teal-100 bg-teal-500 text-white" : "",
+          !piece ? "border-neutral-600 bg-neutral-800 text-neutral-500 hover:border-cyan-300 hover:bg-neutral-700" : "",
+          active ? "ring-4 ring-cyan-300" : ""
+        ].join(" ");
+        button.style.left = `${point.x}%`;
+        button.style.top = `${point.y}%`;
+        button.textContent = piece || index + 1;
+        button.setAttribute("aria-label", `point ${index + 1}`);
+        button.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(button);
+      });
+
+      turnText.textContent = winner ? `${playerName(winner)} 获胜` : playerName(turn);
+      goldText.textContent = `${placed.G}/3`;
+      tealText.textContent = `${placed.T}/3`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
