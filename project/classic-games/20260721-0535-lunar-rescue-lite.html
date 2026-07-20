@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Lunar Rescue</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-indigo-300">Classic Games</p>
+        <h1 class="text-3xl font-bold tracking-normal text-white">Mini Lunar Rescue</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Score</p>
+          <p id="score" class="text-lg font-bold text-indigo-200">0</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Fuel</p>
+          <p id="fuel" class="text-lg font-bold text-amber-200">100</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Crew</p>
+          <p id="crew" class="text-lg font-bold text-emerald-200">0</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Ships</p>
+          <p id="ships" class="text-lg font-bold text-rose-200">3</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px]">
+      <canvas id="game" width="640" height="760" class="h-auto w-full rounded border border-slate-700 bg-slate-900 shadow-2xl"></canvas>
+      <aside class="rounded border border-slate-700 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+        <h2 class="mb-2 text-lg font-semibold text-white">Controls</h2>
+        <p>Use Arrow keys or WASD. Thrust gently through moving hazard lanes.</p>
+        <p class="mt-3">Land softly on a pad, pick up a survivor, then return to the mothership.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-indigo-400 px-4 py-2 font-semibold text-slate-950 hover:bg-indigo-300">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-slate-700 bg-slate-950 p-3 text-indigo-100">Descend to a rescue pad.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const fuelEl = document.getElementById('fuel');
+    const crewEl = document.getElementById('crew');
+    const shipsEl = document.getElementById('ships');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const keys = new Set();
+    let state;
+
+    function setupGame() {
+      state = {
+        score: 0,
+        fuel: 100,
+        crew: 0,
+        ships: 3,
+        frame: 0,
+        phase: 'descend',
+        gameOver: false,
+        lander: { x: width / 2, y: 80, vx: 0, vy: 0.55, w: 26, h: 30 },
+        hazards: makeHazards(),
+        stars: makeStars()
+      };
+      messageEl.textContent = 'Descend to a rescue pad.';
+      updateHud();
+    }
+
+    function makeStars() {
+      return Array.from({ length: 80 }, () => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        s: Math.random() * 1.8 + 0.4
+      }));
+    }
+
+    function makeHazards() {
+      return [
+        { y: 190, gap: 150, x: 40, speed: 1.2 },
+        { y: 300, gap: 170, x: 280, speed: -1.45 },
+        { y: 410, gap: 145, x: 110, speed: 1.7 },
+        { y: 520, gap: 160, x: 360, speed: -1.25 }
+      ];
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      fuelEl.textContent = Math.max(0, Math.round(state.fuel));
+      crewEl.textContent = state.crew;
+      shipsEl.textContent = state.ships;
+    }
+
+    function resetLander(nextPhase = 'descend') {
+      state.phase = nextPhase;
+      state.fuel = 100;
+      state.lander = {
+        x: nextPhase === 'return' ? width / 2 : width / 2,
+        y: nextPhase === 'return' ? height - 116 : 80,
+        vx: 0,
+        vy: nextPhase === 'return' ? -0.8 : 0.55,
+        w: 26,
+        h: 30
+      };
+    }
+
+    function crash(reason) {
+      state.ships -= 1;
+      messageEl.textContent = reason;
+      if (state.ships <= 0) {
+        state.gameOver = true;
+        messageEl.textContent = 'Rescue fleet lost. Press Restart.';
+      } else {
+        resetLander(state.phase === 'return' ? 'return' : 'descend');
+      }
+      updateHud();
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function updateHazards() {
+      for (const lane of state.hazards) {
+        lane.x += lane.speed;
+        if (lane.x < -lane.gap) lane.x = width;
+        if (lane.x > width) lane.x = -lane.gap;
+      }
+    }
+
+    function applyControls() {
+      const lander = state.lander;
+      const thrust = state.phase === 'return' ? -0.055 : 0.07;
+      if ((keys.has('ArrowUp') || keys.has('w')) && state.fuel > 0) {
+        lander.vy += thrust;
+        state.fuel -= 0.18;
+      }
+      if ((keys.has('ArrowLeft') || keys.has('a')) && state.fuel > 0) {
+        lander.vx -= 0.05;
+        state.fuel -= 0.08;
+      }
+      if ((keys.has('ArrowRight') || keys.has('d')) && state.fuel > 0) {
+        lander.vx += 0.05;
+        state.fuel -= 0.08;
+      }
+    }
+
+    function updateLander() {
+      const lander = state.lander;
+      applyControls();
+      lander.vy += state.phase === 'return' ? -0.005 : 0.018;
+      lander.vx *= 0.992;
+      lander.vy = clamp(lander.vy, -3.2, 3.2);
+      lander.x += lander.vx;
+      lander.y += lander.vy;
+      if (lander.x < 20 || lander.x > width - 20) crash('You clipped the canyon wall.');
+      if (lander.y < 52 && state.phase === 'return') completeReturn();
+      if (lander.y < 52 && state.phase === 'descend') lander.y = 52;
+      if (state.fuel <= 0) crash('Out of fuel.');
+      checkHazards();
+      checkLanding();
+      updateHud();
+    }
+
+    function checkHazards() {
+      const lander = state.lander;
+      for (const lane of state.hazards) {
+        const inLane = Math.abs(lander.y - lane.y) < 18;
+        const inGap = lander.x > lane.x && lander.x < lane.x + lane.gap;
+        if (inLane && !inGap) crash('A patrol beam caught the lander.');
+      }
+    }
+
+    function checkLanding() {
+      if (state.phase !== 'descend') return;
+      const lander = state.lander;
+      const padY = height - 78;
+      const pads = landingPads();
+      for (const pad of pads) {
+        const overPad = lander.x > pad.x && lander.x < pad.x + pad.w;
+        if (lander.y + lander.h / 2 >= padY && overPad) {
+          if (Math.abs(lander.vx) < 1.15 && lander.vy < 1.55) {
+            state.score += 60 + Math.round(state.fuel);
+            state.crew += 1;
+            messageEl.textContent = 'Survivor aboard. Return to the mothership.';
+            resetLander('return');
+          } else {
+            crash('Landing was too hard.');
+          }
+          return;
+        }
+      }
+      if (lander.y > height - 70) crash('You missed the rescue pad.');
+    }
+
+    function completeReturn() {
+      state.score += 120 + state.crew * 20;
+      messageEl.textContent = state.crew >= 3 ? 'Rescue complete. Press Restart for another run.' : 'Crew delivered. Descend again.';
+      if (state.crew >= 3) {
+        state.gameOver = true;
+      } else {
+        resetLander('descend');
+      }
+    }
+
+    function landingPads() {
+      return [
+        { x: 72, w: 98 },
+        { x: 276, w: 92 },
+        { x: 480, w: 88 }
+      ];
+    }
+
+    function drawStars() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = '#c7d2fe';
+      for (const star of state.stars) {
+        ctx.fillRect(star.x, star.y, star.s, star.s);
+      }
+    }
+
+    function drawMothership() {
+      ctx.fillStyle = '#312e81';
+      ctx.fillRect(width / 2 - 96, 18, 192, 24);
+      ctx.fillStyle = '#818cf8';
+      ctx.fillRect(width / 2 - 56, 42, 112, 10);
+      ctx.fillStyle = '#e0e7ff';
+      ctx.fillRect(width / 2 - 14, 46, 28, 8);
+    }
+
+    function drawHazards() {
+      for (const lane of state.hazards) {
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.24)';
+        ctx.fillRect(0, lane.y - 13, width, 26);
+        ctx.fillStyle = '#fb7185';
+        ctx.fillRect(0, lane.y - 4, lane.x, 8);
+        ctx.fillRect(lane.x + lane.gap, lane.y - 4, width - lane.x - lane.gap, 8);
+        ctx.fillStyle = '#e0e7ff';
+        ctx.fillRect(lane.x, lane.y - 2, lane.gap, 4);
+      }
+    }
+
+    function drawMoon() {
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.moveTo(0, height - 52);
+      for (let x = 0; x <= width; x += 40) {
+        ctx.lineTo(x, height - 52 - Math.sin(x * 0.04) * 11);
+      }
+      ctx.lineTo(width, height);
+      ctx.lineTo(0, height);
+      ctx.closePath();
+      ctx.fill();
+      for (const pad of landingPads()) {
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(pad.x, height - 84, pad.w, 10);
+        ctx.fillStyle = '#fef3c7';
+        ctx.fillRect(pad.x + 8, height - 88, pad.w - 16, 4);
+      }
+    }
+
+    function drawLander() {
+      const lander = state.lander;
+      ctx.save();
+      ctx.translate(lander.x, lander.y);
+      ctx.fillStyle = state.phase === 'return' ? '#34d399' : '#93c5fd';
+      ctx.beginPath();
+      ctx.moveTo(0, -18);
+      ctx.lineTo(16, 10);
+      ctx.lineTo(-16, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#e0f2fe';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#f97316';
+      if (keys.has('ArrowUp') || keys.has('w')) {
+        ctx.beginPath();
+        ctx.moveTo(-7, 12);
+        ctx.lineTo(0, 28);
+        ctx.lineTo(7, 12);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawOverlay() {
+      if (!state.gameOver) return;
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.75)';
+      ctx.fillRect(0, height / 2 - 52, width, 104);
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 28px ui-sans-serif, system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(state.crew >= 3 ? 'Mission Complete' : 'Mission Failed', width / 2, height / 2 - 6);
+      ctx.font = '16px ui-sans-serif, system-ui';
+      ctx.fillText('Press Restart to launch again', width / 2, height / 2 + 26);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawStars();
+      drawMothership();
+      drawHazards();
+      drawMoon();
+      drawLander();
+      drawOverlay();
+    }
+
+    function loop() {
+      if (!state.gameOver) {
+        state.frame += 1;
+        updateHazards();
+        updateLander();
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      keys.add(event.key);
+      if (event.key.toLowerCase() === 'r') setupGame();
+    });
+
+    window.addEventListener('keyup', (event) => keys.delete(event.key));
+    restartBtn.addEventListener('click', setupGame);
+
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
