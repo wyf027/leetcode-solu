@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Sahkku</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-stone-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-teal-300">Classic Game</p>
+          <h1 class="mt-1 text-3xl font-bold sm:text-4xl">Mini Sahkku</h1>
+        </div>
+        <button
+          id="reset"
+          class="rounded-md bg-teal-300 px-4 py-2 text-sm font-bold text-stone-950 transition hover:bg-teal-200"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-4">
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">当前玩家</p>
+          <p id="turn" class="mt-2 text-2xl font-bold text-teal-200">North</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">本轮点数</p>
+          <p id="roll" class="mt-2 text-2xl font-bold">-</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">North 离场</p>
+          <p id="north-home" class="mt-2 text-2xl font-bold">0 / 3</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">South 离场</p>
+          <p id="south-home" class="mt-2 text-2xl font-bold">0 / 3</p>
+        </div>
+      </section>
+
+      <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <div id="track" class="grid grid-cols-5 gap-2"></div>
+          <div class="mt-4 flex flex-wrap gap-2" id="pieces"></div>
+        </div>
+
+        <aside class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <h2 class="text-xl font-bold">行动</h2>
+          <button
+            id="throw"
+            class="mt-3 w-full rounded-md bg-teal-300 px-4 py-2 text-sm font-bold text-stone-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+          >
+            投记分棒
+          </button>
+          <p id="message" class="mt-4 min-h-24 text-sm leading-6 text-stone-300">
+            North 先投棒。投出点数后，选择一个可移动棋子。
+          </p>
+          <div class="mt-4 border-t border-stone-800 pt-4 text-sm leading-6 text-stone-400">
+            <p>规则：每方 3 枚棋子沿 15 格跑道前进。投四根记分棒得到 1 到 4 点；落到对手棋子上会把它送回起点。先让 3 枚棋子离场者获胜。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const trackLength = 15;
+      const players = ["N", "S"];
+      let pieces = [];
+      let turn = "N";
+      let roll = 0;
+      let mustThrow = true;
+      let winner = null;
+
+      const elements = {
+        track: document.getElementById("track"),
+        pieces: document.getElementById("pieces"),
+        turn: document.getElementById("turn"),
+        roll: document.getElementById("roll"),
+        northHome: document.getElementById("north-home"),
+        southHome: document.getElementById("south-home"),
+        message: document.getElementById("message"),
+        throw: document.getElementById("throw"),
+        reset: document.getElementById("reset"),
+      };
+
+      function playerName(player) {
+        return player === "N" ? "North" : "South";
+      }
+
+      function setupGame() {
+        pieces = players.flatMap((owner) =>
+          [0, 1, 2].map((number) => ({ id: `${owner}${number + 1}`, owner, position: -1, done: false }))
+        );
+        turn = "N";
+        roll = 0;
+        mustThrow = true;
+        winner = null;
+        elements.message.textContent = "North 先投棒。投出点数后，选择一个可移动棋子。";
+        render();
+      }
+
+      function throwSticks() {
+        if (winner || !mustThrow) return;
+        const sticks = Array.from({ length: 4 }, () => Math.random() < 0.5);
+        roll = sticks.filter(Boolean).length || 4;
+        mustThrow = false;
+        const moves = movablePieces();
+        elements.message.textContent = moves.length
+          ? `${playerName(turn)} 投出 ${roll} 点，选择一个棋子前进。`
+          : `${playerName(turn)} 投出 ${roll} 点，但没有可用棋子。`;
+        if (!moves.length) endTurn();
+        render();
+      }
+
+      function movablePieces() {
+        return pieces.filter((piece) => piece.owner === turn && !piece.done && piece.position + roll <= trackLength);
+      }
+
+      function movePiece(id) {
+        if (winner || mustThrow) return;
+        const piece = pieces.find((item) => item.id === id);
+        if (!piece || piece.owner !== turn || piece.done || piece.position + roll > trackLength) return;
+
+        piece.position += roll;
+        if (piece.position === trackLength) {
+          piece.done = true;
+          elements.message.textContent = `${piece.id} 跑完全程离场。`;
+        } else {
+          const captured = pieces.find(
+            (item) => item.owner !== turn && !item.done && item.position === piece.position
+          );
+          if (captured) {
+            captured.position = -1;
+            elements.message.textContent = `${piece.id} 前进到 ${piece.position + 1}，并送回 ${captured.id}。`;
+          } else {
+            elements.message.textContent = `${piece.id} 前进到第 ${piece.position + 1} 格。`;
+          }
+        }
+
+        if (pieces.filter((item) => item.owner === turn && item.done).length === 3) {
+          winner = turn;
+          elements.message.textContent = `${playerName(turn)} 全部离场并获胜。`;
+        } else {
+          endTurn();
+        }
+        render();
+      }
+
+      function endTurn() {
+        turn = turn === "N" ? "S" : "N";
+        roll = 0;
+        mustThrow = true;
+      }
+
+      function renderTrackCell(cell) {
+        const occupants = pieces.filter((piece) => !piece.done && piece.position === cell);
+        return occupants
+          .map((piece) => {
+            const color = piece.owner === "N" ? "bg-teal-300 text-stone-950" : "bg-orange-300 text-stone-950";
+            return `<span class="${color} flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold">${piece.id}</span>`;
+          })
+          .join("");
+      }
+
+      function render() {
+        elements.turn.textContent = winner ? playerName(winner) : playerName(turn);
+        elements.roll.textContent = roll ? String(roll) : "-";
+        elements.northHome.textContent = `${pieces.filter((piece) => piece.owner === "N" && piece.done).length} / 3`;
+        elements.southHome.textContent = `${pieces.filter((piece) => piece.owner === "S" && piece.done).length} / 3`;
+        elements.throw.disabled = Boolean(winner || !mustThrow);
+
+        elements.track.innerHTML = "";
+        for (let cell = 0; cell < trackLength; cell += 1) {
+          const square = document.createElement("div");
+          square.className =
+            "flex aspect-square min-h-14 flex-col items-center justify-center gap-1 rounded-md border border-stone-700 bg-stone-800 text-xs text-stone-400";
+          square.innerHTML = `<span>${cell + 1}</span><div class="flex flex-wrap justify-center gap-1">${renderTrackCell(
+            cell
+          )}</div>`;
+          elements.track.appendChild(square);
+        }
+
+        elements.pieces.innerHTML = "";
+        pieces
+          .filter((piece) => piece.owner === turn && !piece.done)
+          .forEach((piece) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className =
+              "rounded-md border border-stone-700 bg-stone-800 px-3 py-2 text-sm font-bold transition hover:border-teal-300 disabled:cursor-not-allowed disabled:opacity-40";
+            button.disabled = Boolean(winner || mustThrow || piece.position + roll > trackLength);
+            button.textContent = `${piece.id}: ${piece.position < 0 ? "起点" : piece.position + 1}`;
+            button.addEventListener("click", () => movePiece(piece.id));
+            elements.pieces.appendChild(button);
+          });
+      }
+
+      elements.throw.addEventListener("click", throwSticks);
+      elements.reset.addEventListener("click", setupGame);
+      setupGame();
+    </script>
+  </body>
+</html>
