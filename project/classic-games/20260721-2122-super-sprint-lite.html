@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Super Sprint</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      touch-action: manipulation;
+    }
+    canvas {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3 border-b border-lime-400/30 pb-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-lime-200">Mini Super Sprint</h1>
+        <p class="text-sm text-neutral-400">Drift a top-down racer around the loop, collect flags, and finish three clean laps.</p>
+      </div>
+      <button id="restartBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-lime-200 focus:outline-none focus:ring-2 focus:ring-lime-100">
+        Restart
+      </button>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-3 shadow-2xl shadow-lime-950/30">
+        <canvas id="gameCanvas" width="720" height="540" class="aspect-[4/3] w-full rounded bg-neutral-950"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 text-sm">
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-neutral-500">Score</div>
+              <div id="score" class="text-xl font-bold text-lime-200">0</div>
+            </div>
+            <div>
+              <div class="text-neutral-500">Lap</div>
+              <div id="lap" class="text-xl font-bold text-cyan-200">1/3</div>
+            </div>
+            <div>
+              <div class="text-neutral-500">Time</div>
+              <div id="time" class="text-xl font-bold text-amber-200">60</div>
+            </div>
+            <div>
+              <div class="text-neutral-500">Speed</div>
+              <div id="speed" class="text-xl font-bold text-rose-200">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-4 leading-6 text-neutral-300">
+          <p><span class="font-semibold text-neutral-100">Steer:</span> Left / Right or A / D</p>
+          <p><span class="font-semibold text-neutral-100">Gas:</span> Up or W</p>
+          <p><span class="font-semibold text-neutral-100">Brake:</span> Down or S</p>
+          <p><span class="font-semibold text-neutral-100">Restart:</span> Enter</p>
+        </div>
+
+        <div id="status" class="rounded border border-lime-500/40 bg-lime-950/20 p-4 text-lime-100">
+          Cross the stripe clockwise.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const lapEl = document.getElementById("lap");
+    const timeEl = document.getElementById("time");
+    const speedEl = document.getElementById("speed");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const keys = new Set();
+    const flags = [];
+    const slicks = [];
+    const sparks = [];
+    let car;
+    let score;
+    let lap;
+    let timeLeft;
+    let lastTime;
+    let state;
+    let nextGate;
+    let slickTimer;
+
+    const gates = [
+      { x: 360, y: 96, name: "north" },
+      { x: 574, y: 270, name: "east" },
+      { x: 360, y: 444, name: "south" },
+      { x: 146, y: 270, name: "west" }
+    ];
+
+    function setupGame() {
+      car = {
+        x: 360,
+        y: 430,
+        vx: 0,
+        vy: -70,
+        angle: -Math.PI / 2,
+        spin: 0,
+        radius: 13,
+        cooldown: 0
+      };
+      score = 0;
+      lap = 1;
+      timeLeft = 60;
+      nextGate = 0;
+      slickTimer = 2.2;
+      state = "playing";
+      lastTime = performance.now();
+      flags.length = 0;
+      slicks.length = 0;
+      sparks.length = 0;
+      seedFlags();
+      updateHud();
+      statusEl.textContent = "Cross the stripe clockwise.";
+    }
+
+    function seedFlags() {
+      for (let i = 0; i < 10; i += 1) {
+        const angle = (Math.PI * 2 * i) / 10;
+        flags.push({
+          x: 360 + Math.cos(angle) * 185,
+          y: 270 + Math.sin(angle) * 142,
+          taken: false
+        });
+      }
+    }
+
+    function spawnSlick() {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 118 + Math.random() * 92;
+      slicks.push({
+        x: 360 + Math.cos(angle) * radius,
+        y: 270 + Math.sin(angle) * radius * 0.76,
+        radius: 16 + Math.random() * 8,
+        life: 9
+      });
+    }
+
+    function updateCar(dt) {
+      const accelerating = keys.has("ArrowUp") || keys.has("w");
+      const braking = keys.has("ArrowDown") || keys.has("s");
+      const steerLeft = keys.has("ArrowLeft") || keys.has("a");
+      const steerRight = keys.has("ArrowRight") || keys.has("d");
+      const speed = Math.hypot(car.vx, car.vy);
+      const turnPower = 2.8 * (0.25 + Math.min(speed / 170, 1));
+
+      if (steerLeft) {
+        car.angle -= turnPower * dt;
+      }
+      if (steerRight) {
+        car.angle += turnPower * dt;
+      }
+      if (accelerating) {
+        car.vx += Math.cos(car.angle) * 190 * dt;
+        car.vy += Math.sin(car.angle) * 190 * dt;
+      }
+      if (braking) {
+        car.vx *= 1 - Math.min(0.08, dt * 2.8);
+        car.vy *= 1 - Math.min(0.08, dt * 2.8);
+      }
+
+      car.vx *= 1 - Math.min(0.035, dt * 0.8);
+      car.vy *= 1 - Math.min(0.035, dt * 0.8);
+      const capped = Math.min(Math.hypot(car.vx, car.vy), 255);
+      const currentAngle = Math.atan2(car.vy, car.vx);
+      car.vx = Math.cos(currentAngle) * capped;
+      car.vy = Math.sin(currentAngle) * capped;
+      car.x += car.vx * dt;
+      car.y += car.vy * dt;
+      car.cooldown = Math.max(0, car.cooldown - dt);
+
+      if (!isOnTrack(car.x, car.y)) {
+        car.vx *= -0.35;
+        car.vy *= -0.35;
+        car.x = clamp(car.x, 72, canvas.width - 72);
+        car.y = clamp(car.y, 58, canvas.height - 58);
+        crash("Off track.");
+      }
+    }
+
+    function updateRace(dt) {
+      timeLeft -= dt;
+      if (timeLeft <= 0 && state === "playing") {
+        state = "over";
+        statusEl.textContent = "Time expired. Press Enter to restart.";
+      }
+
+      slickTimer -= dt;
+      if (slickTimer <= 0) {
+        spawnSlick();
+        slickTimer = Math.max(1.4, 3.8 - lap * 0.4);
+      }
+
+      for (const slick of slicks) {
+        slick.life -= dt;
+        if (distance(car, slick) < car.radius + slick.radius) {
+          car.angle += (Math.random() > 0.5 ? 1 : -1) * 1.7;
+          car.vx *= 0.7;
+          car.vy *= 0.7;
+          burst(car.x, car.y, "#a3e635", 8);
+          statusEl.textContent = "Oil slick!";
+        }
+      }
+      for (let i = slicks.length - 1; i >= 0; i -= 1) {
+        if (slicks[i].life <= 0) {
+          slicks.splice(i, 1);
+        }
+      }
+
+      collectFlags();
+      checkGate();
+      score += Math.floor(dt * Math.hypot(car.vx, car.vy) * 0.12);
+    }
+
+    function collectFlags() {
+      for (const flag of flags) {
+        if (!flag.taken && distance(car, flag) < 20) {
+          flag.taken = true;
+          score += 120;
+          timeLeft = Math.min(75, timeLeft + 3);
+          burst(flag.x, flag.y, "#facc15", 10);
+          statusEl.textContent = "Bonus flag!";
+        }
+      }
+    }
+
+    function checkGate() {
+      const gate = gates[nextGate];
+      if (distance(car, gate) < 36) {
+        nextGate = (nextGate + 1) % gates.length;
+        score += 90;
+        if (nextGate === 0) {
+          lap += 1;
+          timeLeft += 8;
+          resetFlags();
+          burst(360, 96, "#67e8f9", 16);
+          statusEl.textContent = lap > 3 ? "Race won!" : "Lap " + lap + " started.";
+          if (lap > 3) {
+            state = "won";
+          }
+        } else {
+          statusEl.textContent = "Next gate: " + gates[nextGate].name + ".";
+        }
+      }
+    }
+
+    function resetFlags() {
+      for (const flag of flags) {
+        flag.taken = false;
+      }
+    }
+
+    function crash(reason) {
+      if (car.cooldown > 0 || state !== "playing") {
+        return;
+      }
+      score = Math.max(0, score - 150);
+      car.cooldown = 1.0;
+      burst(car.x, car.y, "#fb7185", 14);
+      statusEl.textContent = reason + " Keep it on the racing line.";
+    }
+
+    function updateSparks(dt) {
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+        if (spark.life <= 0) {
+          sparks.splice(i, 1);
+        }
+      }
+    }
+
+    function drawTrack() {
+      ctx.fillStyle = "#064e3b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawEllipse(360, 270, 274, 206, "#27272a");
+      drawEllipse(360, 270, 148, 92, "#064e3b");
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(326, 78);
+      ctx.lineTo(394, 78);
+      ctx.stroke();
+      ctx.setLineDash([18, 18]);
+      ctx.strokeStyle = "rgba(250,250,250,0.38)";
+      drawEllipseStroke(360, 270, 210, 150);
+      ctx.setLineDash([]);
+
+      for (let i = 0; i < gates.length; i += 1) {
+        const gate = gates[i];
+        ctx.fillStyle = i === nextGate ? "#67e8f9" : "rgba(212,212,216,0.45)";
+        ctx.beginPath();
+        ctx.arc(gate.x, gate.y, i === nextGate ? 7 : 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawFlags() {
+      for (const flag of flags) {
+        if (flag.taken) {
+          continue;
+        }
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(flag.x - 3, flag.y - 12, 6, 22);
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(flag.x + 3, flag.y - 12, 14, 9);
+      }
+    }
+
+    function drawSlicks() {
+      for (const slick of slicks) {
+        ctx.globalAlpha = Math.min(0.75, slick.life / 2);
+        ctx.fillStyle = "#020617";
+        ctx.beginPath();
+        ctx.ellipse(slick.x, slick.y, slick.radius * 1.35, slick.radius * 0.75, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawCar() {
+      const blink = car.cooldown > 0 && Math.floor(car.cooldown * 14) % 2 === 0;
+      if (blink) {
+        return;
+      }
+      ctx.save();
+      ctx.translate(car.x, car.y);
+      ctx.rotate(car.angle + Math.PI / 2);
+      ctx.fillStyle = "#f97316";
+      ctx.fillRect(-11, -18, 22, 36);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-7, -11, 14, 10);
+      ctx.fillStyle = "#fef3c7";
+      ctx.fillRect(-14, 5, 5, 9);
+      ctx.fillRect(9, 5, 5, 9);
+      ctx.restore();
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 2.2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state === "playing") {
+        return;
+      }
+      ctx.fillStyle = "rgba(10,10,10,0.74)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ecfccb";
+      ctx.font = "700 36px system-ui";
+      ctx.fillText(state === "won" ? "Race Won" : "Race Over", canvas.width / 2, canvas.height / 2 - 16);
+      ctx.font = "500 18px system-ui";
+      ctx.fillText("Press Enter to restart", canvas.width / 2, canvas.height / 2 + 22);
+      ctx.textAlign = "left";
+    }
+
+    function drawEllipse(x, y, rx, ry, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawEllipseStroke(x, y, rx, ry) {
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    function isOnTrack(x, y) {
+      const outer = ellipseValue(x, y, 360, 270, 274, 206);
+      const inner = ellipseValue(x, y, 360, 270, 148, 92);
+      return outer <= 1 && inner >= 1;
+    }
+
+    function ellipseValue(x, y, cx, cy, rx, ry) {
+      return ((x - cx) * (x - cx)) / (rx * rx) + ((y - cy) * (y - cy)) / (ry * ry);
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 45 + Math.random() * 140;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.25 + Math.random() * 0.45,
+          color
+        });
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      lapEl.textContent = Math.min(lap, 3) + "/3";
+      timeEl.textContent = Math.max(0, Math.ceil(timeLeft));
+      speedEl.textContent = Math.round(Math.hypot(car.vx, car.vy));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+      drawTrack();
+      if (state === "playing") {
+        updateCar(dt);
+        updateRace(dt);
+      }
+      updateSparks(dt);
+      drawFlags();
+      drawSlicks();
+      drawCar();
+      drawSparks();
+      drawOverlay();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter"].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === "Enter") {
+        setupGame();
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+
+    setupGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
