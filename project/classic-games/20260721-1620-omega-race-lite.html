@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Omega Race</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-orange-400/30 bg-neutral-900 p-4 shadow-2xl shadow-orange-950/30">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-orange-200">Mini Omega Race</h1>
+          <p class="text-sm text-neutral-400">Skim the arena wall, swing with inertia, and clear drone laps.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-neutral-700 px-3 py-2">
+            <div class="text-neutral-500">Score</div>
+            <div id="score" class="font-mono text-orange-200">0</div>
+          </div>
+          <div class="rounded border border-neutral-700 px-3 py-2">
+            <div class="text-neutral-500">Lives</div>
+            <div id="lives" class="font-mono text-rose-200">3</div>
+          </div>
+          <div class="rounded border border-neutral-700 px-3 py-2">
+            <div class="text-neutral-500">Wave</div>
+            <div id="wave" class="font-mono text-cyan-200">1</div>
+          </div>
+        </div>
+      </div>
+      <canvas id="game" width="760" height="520" class="aspect-[19/13] w-full rounded border border-neutral-700 bg-black"></canvas>
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-400">
+        <p>Turn: Left/Right or A/D. Thrust: Up/W. Fire: Space/J. Restart: Enter.</p>
+        <p id="status" class="font-medium text-orange-200">Press thrust or fire to begin.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const waveEl = document.getElementById('wave');
+    const statusEl = document.getElementById('status');
+    const keys = new Set();
+
+    const arena = { x: 72, y: 58, w: canvas.width - 144, h: canvas.height - 116 };
+    const stars = Array.from({ length: 70 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: Math.random() > 0.82 ? 2 : 1
+    }));
+
+    let ship;
+    let shots;
+    let drones;
+    let mines;
+    let score;
+    let lives;
+    let wave;
+    let frame;
+    let running;
+    let gameOver;
+    let fireCooldown;
+
+    function setupGame() {
+      ship = {
+        x: arena.x + arena.w / 2,
+        y: arena.y + arena.h - 46,
+        vx: 0,
+        vy: 0,
+        angle: -Math.PI / 2,
+        radius: 15,
+        invulnerable: 90
+      };
+      shots = [];
+      drones = [];
+      mines = [];
+      score = 0;
+      lives = 3;
+      wave = 1;
+      frame = 0;
+      running = false;
+      gameOver = false;
+      fireCooldown = 0;
+      spawnWave();
+      updateHud();
+      statusEl.textContent = 'Press thrust or fire to begin.';
+      draw();
+    }
+
+    function spawnWave() {
+      drones = [];
+      mines = [];
+      const count = Math.min(10, 4 + wave);
+      for (let i = 0; i < count; i++) {
+        spawnDrone(i);
+      }
+      for (let i = 0; i < Math.min(5, wave); i++) {
+        mines.push({
+          x: arena.x + 70 + Math.random() * (arena.w - 140),
+          y: arena.y + 65 + Math.random() * (arena.h - 130),
+          r: 9,
+          pulse: Math.random() * Math.PI * 2
+        });
+      }
+      statusEl.textContent = `Wave ${wave}: use the wall to arc shots.`;
+    }
+
+    function spawnDrone(index) {
+      const side = index % 4;
+      const x = side === 0 ? arena.x + 25 : side === 1 ? arena.x + arena.w - 25 : arena.x + 60 + Math.random() * (arena.w - 120);
+      const y = side === 2 ? arena.y + 25 : side === 3 ? arena.y + arena.h - 25 : arena.y + 60 + Math.random() * (arena.h - 120);
+      drones.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 2.2,
+        vy: (Math.random() - 0.5) * 2.2,
+        r: 14,
+        phase: Math.random() * Math.PI * 2,
+        hp: index % 4 === 0 ? 2 : 1
+      });
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      waveEl.textContent = wave;
+    }
+
+    function thrusting() {
+      return keys.has('ArrowUp') || keys.has('w');
+    }
+
+    function updateShip() {
+      if (keys.has('ArrowLeft') || keys.has('a')) {
+        ship.angle -= 0.08;
+        running = true;
+      }
+      if (keys.has('ArrowRight') || keys.has('d')) {
+        ship.angle += 0.08;
+        running = true;
+      }
+      if (thrusting()) {
+        ship.vx += Math.cos(ship.angle) * 0.22;
+        ship.vy += Math.sin(ship.angle) * 0.22;
+        running = true;
+      }
+      ship.vx *= 0.992;
+      ship.vy *= 0.992;
+      ship.x += ship.vx;
+      ship.y += ship.vy;
+      bounceInArena(ship, ship.radius);
+      if (fireCooldown > 0) fireCooldown -= 1;
+      if (ship.invulnerable > 0) ship.invulnerable -= 1;
+    }
+
+    function fireShot() {
+      if (gameOver || fireCooldown > 0) return;
+      running = true;
+      fireCooldown = 12;
+      shots.push({
+        x: ship.x + Math.cos(ship.angle) * 18,
+        y: ship.y + Math.sin(ship.angle) * 18,
+        vx: Math.cos(ship.angle) * 7.2 + ship.vx * 0.4,
+        vy: Math.sin(ship.angle) * 7.2 + ship.vy * 0.4,
+        r: 4,
+        life: 80
+      });
+    }
+
+    function updateShots() {
+      for (const shot of shots) {
+        shot.x += shot.vx;
+        shot.y += shot.vy;
+        shot.life -= 1;
+        if (shot.x < arena.x || shot.x > arena.x + arena.w) shot.vx *= -1;
+        if (shot.y < arena.y || shot.y > arena.y + arena.h) shot.vy *= -1;
+      }
+      shots = shots.filter((shot) => shot.life > 0);
+    }
+
+    function updateDrones() {
+      if (drones.length === 0) {
+        wave += 1;
+        score += 300;
+        ship.invulnerable = 70;
+        spawnWave();
+        updateHud();
+      }
+
+      for (const drone of drones) {
+        drone.phase += 0.05;
+        const dx = ship.x - drone.x;
+        const dy = ship.y - drone.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        drone.vx += (dx / dist) * (0.025 + wave * 0.002);
+        drone.vy += (dy / dist) * (0.025 + wave * 0.002);
+        drone.vx += Math.cos(drone.phase) * 0.012;
+        drone.vy += Math.sin(drone.phase) * 0.012;
+        const speed = Math.hypot(drone.vx, drone.vy);
+        const max = 2.1 + wave * 0.08;
+        if (speed > max) {
+          drone.vx = (drone.vx / speed) * max;
+          drone.vy = (drone.vy / speed) * max;
+        }
+        drone.x += drone.vx;
+        drone.y += drone.vy;
+        bounceInArena(drone, drone.r);
+      }
+
+      for (const mine of mines) {
+        mine.pulse += 0.08;
+      }
+    }
+
+    function bounceInArena(obj, radius) {
+      if (obj.x < arena.x + radius) {
+        obj.x = arena.x + radius;
+        obj.vx = Math.abs(obj.vx) * 0.85;
+      }
+      if (obj.x > arena.x + arena.w - radius) {
+        obj.x = arena.x + arena.w - radius;
+        obj.vx = -Math.abs(obj.vx) * 0.85;
+      }
+      if (obj.y < arena.y + radius) {
+        obj.y = arena.y + radius;
+        obj.vy = Math.abs(obj.vy) * 0.85;
+      }
+      if (obj.y > arena.y + arena.h - radius) {
+        obj.y = arena.y + arena.h - radius;
+        obj.vy = -Math.abs(obj.vy) * 0.85;
+      }
+    }
+
+    function checkCollisions() {
+      for (let i = drones.length - 1; i >= 0; i--) {
+        const drone = drones[i];
+        for (let j = shots.length - 1; j >= 0; j--) {
+          const shot = shots[j];
+          if (Math.hypot(shot.x - drone.x, shot.y - drone.y) < shot.r + drone.r) {
+            shots.splice(j, 1);
+            drone.hp -= 1;
+            if (drone.hp <= 0) {
+              drones.splice(i, 1);
+              score += 120;
+              updateHud();
+            }
+            break;
+          }
+        }
+      }
+
+      if (ship.invulnerable > 0) return;
+      const hitDrone = drones.some((drone) => Math.hypot(ship.x - drone.x, ship.y - drone.y) < ship.radius + drone.r);
+      const hitMine = mines.some((mine) => Math.hypot(ship.x - mine.x, ship.y - mine.y) < ship.radius + mine.r + 2);
+      if (hitDrone || hitMine) loseLife();
+    }
+
+    function loseLife() {
+      lives -= 1;
+      updateHud();
+      if (lives <= 0) {
+        gameOver = true;
+        running = false;
+        statusEl.textContent = 'Game over. Press Enter to restart.';
+        return;
+      }
+      ship.x = arena.x + arena.w / 2;
+      ship.y = arena.y + arena.h - 46;
+      ship.vx = 0;
+      ship.vy = 0;
+      ship.angle = -Math.PI / 2;
+      ship.invulnerable = 110;
+      shots = [];
+      statusEl.textContent = 'Hull rebuilt. Keep moving.';
+    }
+
+    function drawStars() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#fed7aa';
+      for (const star of stars) {
+        ctx.globalAlpha = star.size === 2 ? 0.8 : 0.45;
+        ctx.fillRect(star.x, star.y, star.size, star.size);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawArena() {
+      ctx.strokeStyle = '#fb923c';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(arena.x, arena.y, arena.w, arena.h);
+      ctx.strokeStyle = '#7c2d12';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(arena.x + 18, arena.y + 18, arena.w - 36, arena.h - 36);
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.rotate(ship.angle);
+      if (ship.invulnerable > 0 && Math.floor(frame / 6) % 2 === 0) ctx.globalAlpha = 0.48;
+      ctx.strokeStyle = '#fdba74';
+      ctx.fillStyle = thrusting() ? '#facc15' : '#fb923c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(20, 0);
+      ctx.lineTo(-13, -12);
+      ctx.lineTo(-8, 0);
+      ctx.lineTo(-13, 12);
+      ctx.closePath();
+      ctx.stroke();
+      if (thrusting()) {
+        ctx.beginPath();
+        ctx.moveTo(-14, -5);
+        ctx.lineTo(-26, 0);
+        ctx.lineTo(-14, 5);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawDrones() {
+      for (const mine of mines) {
+        ctx.strokeStyle = '#f43f5e';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(mine.x, mine.y, mine.r + Math.sin(mine.pulse) * 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      for (const drone of drones) {
+        ctx.save();
+        ctx.translate(drone.x, drone.y);
+        ctx.strokeStyle = drone.hp > 1 ? '#facc15' : '#67e8f9';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, -15);
+        ctx.lineTo(15, 0);
+        ctx.lineTo(0, 15);
+        ctx.lineTo(-15, 0);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function drawShots() {
+      ctx.fillStyle = '#fde68a';
+      for (const shot of shots) {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawOverlay() {
+      if (running && !gameOver) return;
+      ctx.fillStyle = 'rgba(10, 10, 10, 0.72)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#fed7aa';
+      ctx.font = '700 34px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(gameOver ? 'Race Over' : 'Mini Omega Race', canvas.width / 2, canvas.height / 2 - 18);
+      ctx.font = '16px system-ui, sans-serif';
+      ctx.fillStyle = '#d4d4d4';
+      ctx.fillText(gameOver ? 'Press Enter for a new race' : 'Thrust, drift, bounce shots, and clear every drone.', canvas.width / 2, canvas.height / 2 + 20);
+    }
+
+    function draw() {
+      drawStars();
+      drawArena();
+      drawShots();
+      drawDrones();
+      drawShip();
+      drawOverlay();
+    }
+
+    function tick() {
+      frame += 1;
+      if (running && !gameOver) {
+        updateShip();
+        updateShots();
+        updateDrones();
+        checkCollisions();
+      }
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'Spacebar'].includes(event.key)) event.preventDefault();
+      if (key === 'Enter' && gameOver) {
+        setupGame();
+        return;
+      }
+      keys.add(key);
+      if (event.key === ' ' || key === 'j') fireShot();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    setupGame();
+    tick();
+  </script>
+</body>
+</html>
