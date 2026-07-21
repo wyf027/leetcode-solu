@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Zoo Keeper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-lime-200">Mini Zoo Keeper</h1>
+        <p class="text-sm text-slate-300">Patch the fence, circle the pen, and keep the runaway animals from tagging you.</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-semibold text-amber-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Lives</div>
+          <div id="lives" class="font-semibold text-rose-200">3</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Fence</div>
+          <div id="fence" class="font-semibold text-lime-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Round</div>
+          <div id="round" class="font-semibold text-sky-200">1</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <div class="rounded bg-slate-900 p-3 ring-1 ring-slate-700">
+        <canvas id="game" width="800" height="520" class="aspect-[20/13] w-full rounded bg-slate-800"></canvas>
+      </div>
+      <aside class="rounded bg-slate-900 p-4 text-sm leading-6 text-slate-300 ring-1 ring-slate-700">
+        <h2 class="mb-2 font-semibold text-slate-100">Controls</h2>
+        <p>Move: Arrow keys or WASD</p>
+        <p>Patch fence: Space</p>
+        <p>Restart: Enter</p>
+        <button id="restart" class="mt-4 w-full rounded bg-lime-300 px-3 py-2 font-semibold text-slate-950 hover:bg-lime-200">Restart</button>
+        <p id="message" class="mt-4 min-h-16 rounded bg-slate-950 p-3 text-lime-100 ring-1 ring-slate-700">Patch every broken rail, then reach the gate.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const fenceEl = document.getElementById("fence");
+    const roundEl = document.getElementById("round");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const keys = new Set();
+    const pen = { x: 168, y: 92, w: 464, h: 318 };
+    const gate = { x: pen.x + pen.w - 34, y: pen.y + pen.h - 8, w: 68, h: 38 };
+    const rails = [];
+    let keeper;
+    let animals;
+    let puffs;
+    let score;
+    let lives;
+    let round;
+    let gameState;
+    let patchCooldown;
+    let tick;
+
+    function setupGame() {
+      score = 0;
+      lives = 3;
+      round = 1;
+      gameState = "playing";
+      patchCooldown = 0;
+      tick = 0;
+      keeper = { x: pen.x + pen.w / 2, y: pen.y + pen.h + 34, vx: 0, vy: 0, invincible: 0 };
+      animals = [];
+      puffs = [];
+      buildRails();
+      spawnAnimals();
+      setMessage("Patch every broken rail, then touch the bottom gate.");
+      updateHud();
+    }
+
+    function buildRails() {
+      rails.length = 0;
+      const topCount = 10;
+      const sideCount = 6;
+      for (let i = 0; i < topCount; i++) {
+        rails.push({ x: pen.x + i * (pen.w / topCount), y: pen.y, w: pen.w / topCount - 5, h: 10, fixed: Math.random() > 0.38 });
+        rails.push({ x: pen.x + i * (pen.w / topCount), y: pen.y + pen.h, w: pen.w / topCount - 5, h: 10, fixed: Math.random() > 0.38 });
+      }
+      for (let i = 0; i < sideCount; i++) {
+        rails.push({ x: pen.x, y: pen.y + i * (pen.h / sideCount), w: 10, h: pen.h / sideCount - 5, fixed: Math.random() > 0.38 });
+        rails.push({ x: pen.x + pen.w, y: pen.y + i * (pen.h / sideCount), w: 10, h: pen.h / sideCount - 5, fixed: Math.random() > 0.38 });
+      }
+      if (remainingRails() === 0) {
+        rails[2].fixed = false;
+        rails[11].fixed = false;
+      }
+    }
+
+    function spawnAnimals() {
+      animals = [];
+      const count = 3 + Math.min(round, 5);
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count;
+        animals.push({
+          x: pen.x + pen.w / 2 + Math.cos(angle) * 90,
+          y: pen.y + pen.h / 2 + Math.sin(angle) * 60,
+          vx: Math.cos(angle + 0.7) * (1.4 + round * 0.12),
+          vy: Math.sin(angle + 0.7) * (1.4 + round * 0.12),
+          mood: i % 3,
+          escaped: false
+        });
+      }
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function remainingRails() {
+      return rails.filter((rail) => !rail.fixed).length;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      fenceEl.textContent = remainingRails();
+      roundEl.textContent = round;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function moveKeeper() {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+      const len = Math.hypot(dx, dy) || 1;
+      keeper.x = clamp(keeper.x + (dx / len) * 3.7, pen.x - 58, pen.x + pen.w + 58);
+      keeper.y = clamp(keeper.y + (dy / len) * 3.7, pen.y - 58, pen.y + pen.h + 62);
+      keeper.invincible = Math.max(0, keeper.invincible - 1);
+      patchCooldown = Math.max(0, patchCooldown - 1);
+    }
+
+    function nearestBrokenRail() {
+      let best = null;
+      let bestDistance = Infinity;
+      rails.forEach((rail) => {
+        if (rail.fixed) return;
+        const center = { x: rail.x + rail.w / 2, y: rail.y + rail.h / 2 };
+        const d = distance(keeper, center);
+        if (d < bestDistance) {
+          bestDistance = d;
+          best = rail;
+        }
+      });
+      return bestDistance < 46 ? best : null;
+    }
+
+    function patchFence() {
+      if (gameState !== "playing" || patchCooldown > 0) return;
+      patchCooldown = 18;
+      const rail = nearestBrokenRail();
+      if (!rail) {
+        setMessage("Move closer to a broken rail.");
+        return;
+      }
+      rail.fixed = true;
+      score += 35;
+      burst(rail.x + rail.w / 2, rail.y + rail.h / 2, "#bef264");
+      setMessage("Fence patched.");
+      updateHud();
+    }
+
+    function updateAnimals() {
+      animals.forEach((animal) => {
+        if (!animal.escaped && Math.random() < 0.01 + round * 0.001) {
+          const broken = rails.filter((rail) => !rail.fixed);
+          if (broken.length) {
+            const rail = broken[Math.floor(Math.random() * broken.length)];
+            animal.vx += (rail.x + rail.w / 2 - animal.x) * 0.004;
+            animal.vy += (rail.y + rail.h / 2 - animal.y) * 0.004;
+          }
+        }
+        animal.x += animal.vx;
+        animal.y += animal.vy;
+
+        const outside = animal.x < pen.x + 14 || animal.x > pen.x + pen.w - 4 ||
+          animal.y < pen.y + 14 || animal.y > pen.y + pen.h - 4;
+        if (!outside) return;
+
+        const canEscape = rails.some((rail) => {
+          if (rail.fixed) return false;
+          const nearX = animal.x > rail.x - 14 && animal.x < rail.x + rail.w + 14;
+          const nearY = animal.y > rail.y - 14 && animal.y < rail.y + rail.h + 14;
+          return nearX && nearY;
+        });
+
+        if (!canEscape) {
+          animal.vx *= -1;
+          animal.vy *= -1;
+          animal.x = clamp(animal.x, pen.x + 18, pen.x + pen.w - 8);
+          animal.y = clamp(animal.y, pen.y + 18, pen.y + pen.h - 8);
+        } else {
+          animal.escaped = true;
+          animal.vx += (keeper.x - animal.x) * 0.003;
+          animal.vy += (keeper.y - animal.y) * 0.003;
+        }
+
+        if (animal.escaped) {
+          const chaseX = keeper.x - animal.x;
+          const chaseY = keeper.y - animal.y;
+          const chaseLen = Math.hypot(chaseX, chaseY) || 1;
+          animal.vx += (chaseX / chaseLen) * 0.055;
+          animal.vy += (chaseY / chaseLen) * 0.055;
+          const speed = Math.hypot(animal.vx, animal.vy) || 1;
+          const maxSpeed = 2.2 + round * 0.12;
+          animal.vx = (animal.vx / speed) * Math.min(speed, maxSpeed);
+          animal.vy = (animal.vy / speed) * Math.min(speed, maxSpeed);
+        }
+      });
+    }
+
+    function checkCollisions() {
+      animals.forEach((animal) => {
+        if (animal.escaped && keeper.invincible === 0 && distance(animal, keeper) < 26) {
+          lives -= 1;
+          keeper.invincible = 110;
+          keeper.x = pen.x + pen.w / 2;
+          keeper.y = pen.y + pen.h + 34;
+          burst(animal.x, animal.y, "#fda4af");
+          setMessage("An animal tagged you.");
+          if (lives <= 0) {
+            gameState = "over";
+            setMessage("The animals overran the zoo. Press Enter or Restart.");
+          }
+          updateHud();
+        }
+      });
+
+      if (remainingRails() === 0 &&
+          keeper.x > gate.x && keeper.x < gate.x + gate.w &&
+          keeper.y > gate.y && keeper.y < gate.y + gate.h) {
+        round += 1;
+        score += 200;
+        keeper.x = pen.x + pen.w / 2;
+        keeper.y = pen.y + pen.h + 34;
+        buildRails();
+        spawnAnimals();
+        setMessage("Pen secured. A rowdier group is loose.");
+        updateHud();
+      }
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 10; i++) {
+        puffs.push({
+          x,
+          y,
+          vx: Math.cos(i * 0.63) * (1 + Math.random() * 2),
+          vy: Math.sin(i * 0.63) * (1 + Math.random() * 2),
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updatePuffs() {
+      puffs = puffs.filter((puff) => {
+        puff.x += puff.vx;
+        puff.y += puff.vy;
+        puff.life -= 1;
+        return puff.life > 0;
+      });
+    }
+
+    function drawZoo() {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#064e3b";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#14532d";
+      for (let x = 0; x < width; x += 42) {
+        for (let y = 0; y < height; y += 42) {
+          if ((x + y) % 84 === 0) ctx.fillRect(x, y, 22, 22);
+        }
+      }
+
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(pen.x - 26, pen.y - 26, pen.w + 62, pen.h + 74);
+      ctx.fillStyle = "#166534";
+      ctx.fillRect(pen.x + 10, pen.y + 10, pen.w - 10, pen.h - 10);
+
+      ctx.fillStyle = remainingRails() === 0 ? "#22c55e" : "#475569";
+      ctx.fillRect(gate.x, gate.y, gate.w, gate.h);
+      ctx.fillStyle = "#dcfce7";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("GATE", gate.x + 16, gate.y + 23);
+
+      rails.forEach((rail) => {
+        ctx.fillStyle = rail.fixed ? "#facc15" : "#7f1d1d";
+        ctx.fillRect(rail.x, rail.y, rail.w, rail.h);
+        if (!rail.fixed) {
+          ctx.fillStyle = "#fecdd3";
+          ctx.fillRect(rail.x + rail.w / 2 - 3, rail.y, 6, rail.h);
+        }
+      });
+    }
+
+    function drawKeeper() {
+      ctx.save();
+      ctx.globalAlpha = keeper.invincible > 0 && Math.floor(keeper.invincible / 8) % 2 === 0 ? 0.5 : 1;
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(keeper.x - 11, keeper.y - 8, 22, 26);
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.arc(keeper.x, keeper.y - 15, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(keeper.x - 13, keeper.y - 26, 26, 8);
+      ctx.restore();
+    }
+
+    function drawAnimals() {
+      animals.forEach((animal) => {
+        ctx.save();
+        ctx.translate(animal.x, animal.y);
+        ctx.fillStyle = animal.mood === 0 ? "#f97316" : animal.mood === 1 ? "#a78bfa" : "#f8fafc";
+        ctx.beginPath();
+        ctx.ellipse(0, 2, 17, 13, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#020617";
+        ctx.beginPath();
+        ctx.arc(-6, -2, 2, 0, Math.PI * 2);
+        ctx.arc(7, -2, 2, 0, Math.PI * 2);
+        ctx.fill();
+        if (animal.escaped) {
+          ctx.strokeStyle = "#fecdd3";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(0, 2, 22, 0.1, Math.PI * 1.7);
+          ctx.stroke();
+        }
+        ctx.restore();
+      });
+    }
+
+    function drawPuffs() {
+      puffs.forEach((puff) => {
+        ctx.globalAlpha = Math.max(0, puff.life / 24);
+        ctx.fillStyle = puff.color;
+        ctx.fillRect(puff.x, puff.y, 4, 4);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawOverlay() {
+      if (gameState !== "over") return;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.76)";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#bef264";
+      ctx.font = "bold 38px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Zoo Breakout", width / 2, height / 2 - 8);
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Press Enter to restart", width / 2, height / 2 + 30);
+      ctx.textAlign = "start";
+    }
+
+    function loop() {
+      tick += 1;
+      if (gameState === "playing") {
+        moveKeeper();
+        updateAnimals();
+        checkCollisions();
+        updatePuffs();
+      }
+      drawZoo();
+      drawAnimals();
+      drawPuffs();
+      drawKeeper();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === " ") {
+        patchFence();
+      } else if (event.key === "Enter" && gameState === "over") {
+        setupGame();
+      } else {
+        keys.add(event.key);
+        keys.add(event.key.toLowerCase());
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
