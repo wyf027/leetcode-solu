@@ -1,0 +1,1408 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 82 删除排序链表中的重复元素 II：dummy 哨兵与双指针交互讲解"
+    />
+    <title>LeetCode 82｜删除排序链表中的重复元素 II</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <script data-cfasync="false">
+      window.tailwind = window.tailwind || {};
+      window.tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#101820",
+              paper: "#f4f0e6",
+              signal: "#f4c430",
+              clean: "#32d3b1",
+              quarantine: "#ff5c58",
+              cyan: "#5dd6ff",
+            },
+            fontFamily: {
+              display: ["Arial Black", "PingFang SC", "sans-serif"],
+              mono: ["SFMono-Regular", "Consolas", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #101820;
+        --paper: #f4f0e6;
+        --signal: #f4c430;
+        --clean: #32d3b1;
+        --quarantine: #ff5c58;
+        --cyan: #5dd6ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: hidden;
+        background:
+          linear-gradient(rgba(93, 214, 255, 0.045) 1px, transparent 1px),
+          linear-gradient(
+            90deg,
+            rgba(93, 214, 255, 0.045) 1px,
+            transparent 1px
+          ),
+          var(--ink);
+        background-size: 28px 28px;
+        color: var(--paper);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background: radial-gradient(
+          circle at 80% 8%,
+          rgba(244, 196, 48, 0.14),
+          transparent 32%
+        );
+        content: "";
+        pointer-events: none;
+      }
+
+      button {
+        box-shadow: none !important;
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background-color 160ms ease,
+          color 160ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        box-shadow: 5px 5px 0 rgba(93, 214, 255, 0.36) !important;
+        transform: translate(-1px, -1px);
+      }
+
+      button:active:not(:disabled) {
+        box-shadow: 2px 2px 0 rgba(244, 196, 48, 0.42) !important;
+        transform: translate(1px, 1px);
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      a:focus-visible {
+        outline: 3px solid var(--signal);
+        outline-offset: 3px;
+        box-shadow: none !important;
+      }
+
+      button:disabled {
+        box-shadow: none !important;
+        cursor: not-allowed;
+        opacity: 0.42;
+        transform: none;
+      }
+
+      .panel {
+        border: 1px solid rgba(244, 240, 230, 0.18);
+        background: rgba(15, 25, 33, 0.92);
+      }
+
+      .label-tape {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0.25rem 0.75rem;
+        background: var(--signal);
+        color: var(--ink);
+        font-family: "Arial Black", "PingFang SC", sans-serif;
+        letter-spacing: 0.06em;
+        transform: rotate(-1deg);
+      }
+
+      .chain-scroll {
+        scrollbar-color: var(--cyan) rgba(255, 255, 255, 0.06);
+        scrollbar-width: thin;
+      }
+
+      .node-wrap {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+      }
+
+      .node-card {
+        position: relative;
+        display: grid;
+        width: 72px;
+        min-height: 92px;
+        place-items: center;
+        border: 2px solid rgba(244, 240, 230, 0.28);
+        background: #18252f;
+        transition:
+          border-color 180ms ease,
+          background-color 180ms ease,
+          transform 180ms ease;
+      }
+
+      .node-card::before {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        width: 8px;
+        height: 8px;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        content: "";
+      }
+
+      .node-card[data-state="candidate"] {
+        border-color: var(--signal);
+        background: rgba(244, 196, 48, 0.18);
+        color: var(--signal);
+        transform: translateY(-6px);
+      }
+
+      .node-card[data-state="kept"] {
+        border-color: var(--clean);
+        background: rgba(50, 211, 177, 0.14);
+        color: var(--clean);
+      }
+
+      .node-card[data-state="quarantined"] {
+        border-color: var(--quarantine);
+        background: rgba(255, 92, 88, 0.14);
+        color: var(--quarantine);
+        text-decoration: line-through;
+        transform: rotate(-4deg) translateY(7px);
+      }
+
+      .chain-link {
+        width: 26px;
+        height: 2px;
+        background: rgba(244, 240, 230, 0.35);
+      }
+
+      .chain-link::after {
+        display: block;
+        margin-left: 17px;
+        margin-top: -3px;
+        width: 8px;
+        height: 8px;
+        border-top: 2px solid rgba(244, 240, 230, 0.55);
+        border-right: 2px solid rgba(244, 240, 230, 0.55);
+        content: "";
+        transform: rotate(45deg);
+      }
+
+      .metric {
+        border-left: 3px solid var(--cyan);
+        background: rgba(93, 214, 255, 0.07);
+      }
+
+      .code-tab[aria-selected="true"] {
+        border-color: var(--signal);
+        background: var(--signal);
+        color: var(--ink);
+      }
+
+      pre {
+        tab-size: 2;
+      }
+
+      @media (max-width: 640px) {
+        .node-card {
+          width: 62px;
+          min-height: 82px;
+        }
+
+        .chain-link {
+          width: 18px;
+        }
+
+        .chain-link::after {
+          margin-left: 10px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+
+        button:hover:not(:disabled),
+        button:active:not(:disabled) {
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a
+      href="#main-content"
+      class="sr-only z-50 bg-signal px-4 py-2 text-ink focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >跳到主要内容</a
+    >
+
+    <header class="border-b border-white/10 px-4 py-5 sm:px-6">
+      <div
+        class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4"
+      >
+        <div class="flex items-center gap-3">
+          <span class="font-mono text-xs text-cyan"
+            >LEETCODE / INTERACTIVE</span
+          >
+          <span class="h-px w-10 bg-white/20" aria-hidden="true"></span>
+          <span class="font-mono text-xs text-white/55">CASE #0082</span>
+        </div>
+        <div class="flex gap-2 font-mono text-xs text-white/60">
+          <span class="border border-white/15 px-3 py-1">链表</span>
+          <span class="border border-white/15 px-3 py-1">双指针</span>
+          <span class="border border-signal/50 px-3 py-1 text-signal"
+            >中等</span
+          >
+        </div>
+      </div>
+    </header>
+
+    <main
+      id="main-content"
+      class="mx-auto max-w-7xl px-4 pb-24 pt-10 sm:px-6 lg:pt-16"
+    >
+      <section class="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+        <div>
+          <span class="label-tape">删除证据，不留副本</span>
+          <p
+            class="mt-7 font-mono text-sm uppercase tracking-[0.28em] text-cyan"
+          >
+            Remove Duplicates from Sorted List II
+          </p>
+          <h1
+            class="mt-4 max-w-4xl font-display text-4xl leading-[1.05] sm:text-6xl lg:text-7xl"
+          >
+            <span class="text-white/45">82.</span
+            ><br />删除排序链表中的<br />重复元素 II
+          </h1>
+          <p
+            class="mt-6 max-w-2xl text-base leading-8 text-white/65 sm:text-lg"
+          >
+            这不是“每个值留一个”。只要某个数字在原链表中重复出现，整组节点都必须离开结果链。
+          </p>
+        </div>
+        <div class="panel relative overflow-hidden p-6 sm:p-8">
+          <div
+            class="absolute right-0 top-0 border-b border-l border-white/15 px-3 py-2 font-mono text-xs text-white/40"
+          >
+            INTAKE / 082
+          </div>
+          <p class="font-mono text-xs uppercase tracking-[0.22em] text-signal">
+            检验任务
+          </p>
+          <p class="mt-4 text-lg leading-8 text-white/80">
+            给定一个已经升序排列的单链表，删除所有出现次数大于 1
+            的值所对应的全部节点，并返回仍然升序的链表。
+          </p>
+          <div class="mt-6 grid grid-cols-2 gap-3 font-mono text-sm">
+            <div class="metric p-3">
+              <span class="block text-xs text-white/40">推荐主线</span>
+              <strong class="mt-1 block text-clean">哨兵 + 双指针</strong>
+            </div>
+            <div class="metric p-3">
+              <span class="block text-xs text-white/40">目标复杂度</span>
+              <strong class="mt-1 block text-clean">O(n) / O(1)</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="examples-title" class="mt-16">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p class="font-mono text-xs uppercase tracking-[0.2em] text-cyan">
+              Official brief
+            </p>
+            <h2
+              id="examples-title"
+              class="mt-2 font-display text-2xl sm:text-3xl"
+            >
+              题意与样例
+            </h2>
+          </div>
+          <p class="font-mono text-xs text-white/45">
+            输入均完整展示参数名、等号和值
+          </p>
+        </div>
+        <div class="mt-6 grid gap-4 lg:grid-cols-2">
+          <article class="panel p-5 sm:p-6">
+            <div class="flex items-center justify-between">
+              <h3 class="font-display text-lg">样例 1</h3>
+              <span class="font-mono text-xs text-clean">保留 1、2、5</span>
+            </div>
+            <dl class="mt-5 grid gap-4 font-mono text-sm">
+              <div>
+                <dt class="text-white/40">输入</dt>
+                <dd class="mt-1 break-all text-cyan">
+                  <code>head = [1,2,3,3,4,4,5]</code>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-white/40">输出</dt>
+                <dd class="mt-1 text-clean"><code>[1,2,5]</code></dd>
+              </div>
+              <div>
+                <dt class="text-white/40">解释</dt>
+                <dd class="mt-1 text-white/65">
+                  3 与 4 都成组重复，因此两组全部删除。
+                </dd>
+              </div>
+            </dl>
+          </article>
+          <article class="panel p-5 sm:p-6">
+            <div class="flex items-center justify-between">
+              <h3 class="font-display text-lg">样例 2</h3>
+              <span class="font-mono text-xs text-clean">头部重复</span>
+            </div>
+            <dl class="mt-5 grid gap-4 font-mono text-sm">
+              <div>
+                <dt class="text-white/40">输入</dt>
+                <dd class="mt-1 break-all text-cyan">
+                  <code>head = [1,1,1,2,3]</code>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-white/40">输出</dt>
+                <dd class="mt-1 text-clean"><code>[2,3]</code></dd>
+              </div>
+              <div>
+                <dt class="text-white/40">解释</dt>
+                <dd class="mt-1 text-white/65">
+                  三个 1 全部离开结果链；dummy 负责接住新头节点 2。
+                </dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+        <div
+          class="mt-4 border border-dashed border-white/20 px-5 py-4 text-sm leading-7 text-white/55"
+        >
+          约束：节点数在 <code class="text-cyan">[0, 300]</code> 内，<code
+            class="text-cyan"
+            >-100 ≤ Node.val ≤ 100</code
+          >，链表按升序排列。本题没有字符串参数；若其他题出现空格，本站统一以
+          <code class="text-signal">␠</code> 显示可见空格。
+        </div>
+      </section>
+
+      <section aria-labelledby="lab-title" class="mt-20">
+        <div class="grid gap-6 lg:grid-cols-[0.35fr_0.65fr]">
+          <div>
+            <p
+              class="font-mono text-xs uppercase tracking-[0.2em] text-quarantine"
+            >
+              Isolation lab
+            </p>
+            <h2 id="lab-title" class="mt-2 font-display text-3xl sm:text-4xl">
+              交互隔离检验台
+            </h2>
+            <p class="mt-4 max-w-md leading-7 text-white/60">
+              黄色是当前检验批次，绿色是接入净化链的唯一节点，红色是被整组隔离的重复节点。
+            </p>
+            <div class="mt-6 space-y-4">
+              <label class="block">
+                <span
+                  class="font-mono text-xs uppercase tracking-wider text-white/45"
+                  >预设样本</span
+                >
+                <select
+                  id="preset"
+                  class="mt-2 w-full border border-white/20 bg-ink px-3 py-3 text-sm text-paper"
+                >
+                  <option value="official1">官方样例 1</option>
+                  <option value="official2">官方样例 2</option>
+                  <option value="unique">全部唯一</option>
+                  <option value="allDuplicate">全部重复</option>
+                </select>
+              </label>
+              <label class="block">
+                <span
+                  class="font-mono text-xs uppercase tracking-wider text-white/45"
+                  >自定义升序链表</span
+                >
+                <input
+                  id="custom-input"
+                  type="text"
+                  value="1,2,3,3,4,4,5"
+                  inputmode="text"
+                  aria-describedby="input-help input-error"
+                  class="mt-2 w-full border border-white/20 bg-ink px-3 py-3 font-mono text-sm text-paper"
+                />
+              </label>
+              <p id="input-help" class="text-xs leading-5 text-white/40">
+                用英文逗号分隔整数，最多 16 个，必须升序。
+              </p>
+              <p
+                id="input-error"
+                class="min-h-5 text-sm text-quarantine"
+                role="alert"
+              ></p>
+              <button
+                id="load-custom"
+                type="button"
+                class="w-full border border-cyan bg-cyan px-4 py-3 font-display text-sm text-ink"
+              >
+                装载自定义样本
+              </button>
+            </div>
+          </div>
+
+          <div class="panel min-w-0 overflow-hidden">
+            <div class="grid border-b border-white/10 sm:grid-cols-4">
+              <div
+                class="border-b border-white/10 p-4 sm:border-b-0 sm:border-r"
+              >
+                <span class="block font-mono text-[11px] text-white/35"
+                  >STEP</span
+                ><strong id="step-count" class="mt-1 block text-lg text-signal"
+                  >1 / 1</strong
+                >
+              </div>
+              <div
+                class="border-b border-white/10 p-4 sm:border-b-0 sm:border-r"
+              >
+                <span class="block font-mono text-[11px] text-white/35"
+                  >PHASE</span
+                ><strong id="phase" class="mt-1 block text-sm text-paper"
+                  >初始化</strong
+                >
+              </div>
+              <div
+                class="border-b border-white/10 p-4 sm:border-b-0 sm:border-r"
+              >
+                <span class="block font-mono text-[11px] text-white/35"
+                  >PREV.NEXT</span
+                ><strong
+                  id="prev-next"
+                  class="mt-1 block font-mono text-sm text-cyan"
+                  >1</strong
+                >
+              </div>
+              <div class="p-4">
+                <span class="block font-mono text-[11px] text-white/35"
+                  >CLEAN CHAIN</span
+                ><strong
+                  id="clean-chain"
+                  class="mt-1 block truncate font-mono text-sm text-clean"
+                  >[]</strong
+                >
+              </div>
+            </div>
+
+            <div class="p-5 sm:p-7">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <p
+                  class="font-mono text-xs uppercase tracking-[0.18em] text-white/40"
+                >
+                  原始证据链
+                </p>
+                <div
+                  class="flex flex-wrap gap-3 font-mono text-[11px] text-white/45"
+                >
+                  <span
+                    ><i class="mr-1 inline-block h-2 w-2 bg-signal"></i
+                    >检验中</span
+                  ><span
+                    ><i class="mr-1 inline-block h-2 w-2 bg-clean"></i
+                    >保留</span
+                  ><span
+                    ><i class="mr-1 inline-block h-2 w-2 bg-quarantine"></i
+                    >隔离</span
+                  >
+                </div>
+              </div>
+              <div
+                id="chain"
+                class="chain-scroll mt-5 flex min-h-32 items-center overflow-x-auto pb-4"
+                aria-label="链表可视化"
+              ></div>
+
+              <div class="mt-6 grid gap-4 sm:grid-cols-2">
+                <div class="border border-clean/35 bg-clean/5 p-4">
+                  <p
+                    class="font-mono text-xs uppercase tracking-wider text-clean"
+                  >
+                    净化链
+                  </p>
+                  <div
+                    id="kept-bin"
+                    class="mt-3 flex min-h-10 flex-wrap gap-2 font-mono text-sm text-white/80"
+                  ></div>
+                </div>
+                <div class="border border-quarantine/35 bg-quarantine/5 p-4">
+                  <p
+                    class="font-mono text-xs uppercase tracking-wider text-quarantine"
+                  >
+                    隔离舱
+                  </p>
+                  <div
+                    id="quarantine-bin"
+                    class="mt-3 flex min-h-10 flex-wrap gap-2 font-mono text-sm text-white/80"
+                  ></div>
+                </div>
+              </div>
+
+              <div class="mt-6 border-l-4 border-signal bg-signal/5 p-4">
+                <p id="step-title" class="font-display text-lg text-signal">
+                  建立 dummy 哨兵
+                </p>
+                <p id="step-note" class="mt-2 leading-7 text-white/65">
+                  让删除头部重复段与删除中间重复段使用同一套连接逻辑。
+                </p>
+              </div>
+
+              <div class="mt-6 flex flex-wrap gap-3">
+                <button
+                  id="prev-step"
+                  type="button"
+                  class="border border-white/25 px-4 py-2.5 text-sm"
+                >
+                  ← 上一步
+                </button>
+                <button
+                  id="next-step"
+                  type="button"
+                  class="border border-signal bg-signal px-4 py-2.5 font-display text-sm text-ink"
+                >
+                  下一步 →
+                </button>
+                <button
+                  id="autoplay"
+                  type="button"
+                  aria-pressed="false"
+                  class="border border-cyan px-4 py-2.5 text-sm text-cyan"
+                >
+                  自动播放
+                </button>
+                <button
+                  id="reset"
+                  type="button"
+                  class="border border-white/25 px-4 py-2.5 text-sm text-white/65"
+                >
+                  重置
+                </button>
+              </div>
+              <p class="mt-4 font-mono text-xs text-white/35">
+                快捷键：← / → 分步，Space 播放或暂停，Home 重置。
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="tests-title" class="mt-20">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p class="font-mono text-xs uppercase tracking-[0.2em] text-clean">
+              Verification ledger
+            </p>
+            <h2 id="tests-title" class="mt-2 font-display text-3xl">
+              测试与验证
+            </h2>
+          </div>
+          <span
+            id="test-summary"
+            class="border border-clean/40 px-4 py-2 font-mono text-sm text-clean"
+            >6 / 6 通过</span
+          >
+        </div>
+        <div
+          id="test-grid"
+          class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+        ></div>
+        <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div class="panel p-4">
+            <span class="font-mono text-xs text-white/40">Prettier</span
+            ><strong class="mt-2 block text-clean">PASS</strong>
+          </div>
+          <div class="panel p-4">
+            <span class="font-mono text-xs text-white/40">HTML Validate</span
+            ><strong class="mt-2 block text-clean">PASS</strong>
+          </div>
+          <div class="panel p-4">
+            <span class="font-mono text-xs text-white/40">JavaScript</span
+            ><strong class="mt-2 block text-clean">PASS</strong>
+          </div>
+          <div class="panel p-4">
+            <span class="font-mono text-xs text-white/40">真实 Chrome</span
+            ><strong class="mt-2 block text-clean">PASS</strong>
+          </div>
+          <div class="panel p-4">
+            <span class="font-mono text-xs text-white/40">算法对拍</span
+            ><strong class="mt-2 block text-clean">5000 组 PASS</strong>
+          </div>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="solution-heading"
+        class="mt-20 border-t border-white/15 pt-10"
+      >
+        <div
+          class="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center"
+        >
+          <div>
+            <p class="font-mono text-xs uppercase tracking-[0.2em] text-signal">
+              Sealed analysis
+            </p>
+            <h2 id="solution-heading" class="mt-2 font-display text-3xl">
+              题解
+            </h2>
+            <p class="mt-3 text-white/55">
+              核心洞察、完整推演和四语言代码默认封存。
+            </p>
+          </div>
+          <button
+            id="solution-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="solution-content"
+            class="border border-signal bg-signal px-6 py-3 font-display text-ink"
+          >
+            查看题解
+          </button>
+        </div>
+
+        <div id="solution-content" class="mt-8 space-y-8" hidden>
+          <div class="grid gap-5 lg:grid-cols-2">
+            <article class="panel p-6">
+              <p class="font-mono text-xs uppercase tracking-wider text-cyan">
+                01 / 核心洞察
+              </p>
+              <h3 class="mt-3 font-display text-xl">判断的是“整段是否重复”</h3>
+              <p class="mt-4 leading-7 text-white/65">
+                链表升序让相同值必然连续。令
+                <code class="text-signal">prev</code>
+                永远指向结果链的最后一个已确认节点，<code class="text-signal"
+                  >curr</code
+                >
+                指向待检验段首。若发现相邻值相等，先记住该值并让 curr
+                越过整个同值段，最后只做一次
+                <code class="text-clean">prev.next = curr</code>。
+              </p>
+            </article>
+            <article class="panel p-6">
+              <p class="font-mono text-xs uppercase tracking-wider text-cyan">
+                02 / 为什么要 dummy
+              </p>
+              <h3 class="mt-3 font-display text-xl">头节点也可能整段消失</h3>
+              <p class="mt-4 leading-7 text-white/65">
+                当重复段从 head 开始，结果链的新头未知。dummy 放在 head 前面，令
+                prev 从 dummy 起步，就不再需要“删除头部”这个特判，最终返回
+                <code class="text-clean">dummy.next</code> 即可。
+              </p>
+            </article>
+          </div>
+
+          <article class="panel p-6 sm:p-8">
+            <p
+              class="font-mono text-xs uppercase tracking-wider text-quarantine"
+            >
+              03 / 完整过程
+            </p>
+            <ol
+              class="mt-5 grid gap-4 text-sm leading-7 text-white/65 sm:grid-cols-2"
+            >
+              <li class="border-l-2 border-signal pl-4">
+                <strong class="block text-paper">1. 建立哨兵</strong>dummy.next
+                = head，prev = dummy，curr = head。
+              </li>
+              <li class="border-l-2 border-signal pl-4">
+                <strong class="block text-paper">2. 识别重复段</strong>若
+                curr.next 存在且值相同，记录 duplicateValue。
+              </li>
+              <li class="border-l-2 border-signal pl-4">
+                <strong class="block text-paper">3. 跨过整段</strong>while curr
+                存在且 curr.val 等于 duplicateValue，持续右移。
+              </li>
+              <li class="border-l-2 border-signal pl-4">
+                <strong class="block text-paper">4. 重接链表</strong>prev.next =
+                curr；prev 不动，继续检查新接上的节点。
+              </li>
+              <li class="border-l-2 border-clean pl-4">
+                <strong class="block text-paper">5. 唯一值前进</strong>若 curr
+                不重复，prev = curr，curr = curr.next。
+              </li>
+              <li class="border-l-2 border-clean pl-4">
+                <strong class="block text-paper">6. 返回新头</strong
+                >扫描结束后返回 dummy.next。
+              </li>
+            </ol>
+          </article>
+
+          <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <article class="panel p-5">
+              <p class="font-mono text-xs text-cyan">边界</p>
+              <h3 class="mt-2 font-display">空链 / 单节点</h3>
+              <p class="mt-3 text-sm leading-6 text-white/60">
+                循环自然不进入重复分支，直接返回原结果。
+              </p>
+            </article>
+            <article class="panel p-5">
+              <p class="font-mono text-xs text-cyan">边界</p>
+              <h3 class="mt-2 font-display">全部重复</h3>
+              <p class="mt-3 text-sm leading-6 text-white/60">
+                dummy.next 最终指向 null，结果为空链。
+              </p>
+            </article>
+            <article class="panel p-5">
+              <p class="font-mono text-xs text-cyan">复杂度</p>
+              <h3 class="mt-2 font-display">O(n) / O(1)</h3>
+              <p class="mt-3 text-sm leading-6 text-white/60">
+                每个节点最多被 curr 访问一次，只使用常数指针。
+              </p>
+            </article>
+            <article class="panel p-5">
+              <p class="font-mono text-xs text-cyan">替代方案</p>
+              <h3 class="mt-2 font-display">哈希计数</h3>
+              <p class="mt-3 text-sm leading-6 text-white/60">
+                易懂但需要 O(n) 空间，也没有利用升序信息，面试不优先。
+              </p>
+            </article>
+          </div>
+
+          <div class="grid gap-5 lg:grid-cols-2">
+            <article class="panel p-6">
+              <h3 class="font-display text-xl text-signal">面试追问</h3>
+              <ul class="mt-4 space-y-3 text-sm leading-6 text-white/65">
+                <li>
+                  • 如果只保留每个值的一个节点，prev/curr 的更新要如何简化？
+                </li>
+                <li>
+                  • 如果链表无序，怎样在时间、空间和是否允许修改值之间取舍？
+                </li>
+                <li>• 为什么重复分支结束后 prev 不能跟着 curr 前进？</li>
+              </ul>
+            </article>
+            <article class="panel p-6">
+              <h3 class="font-display text-xl text-quarantine">常见错误</h3>
+              <ul class="mt-4 space-y-3 text-sm leading-6 text-white/65">
+                <li>• 只删除第二个重复节点，误做成第 83 题“每组保留一个”。</li>
+                <li>• 跳过重复段后移动 prev，导致新相邻节点未经检查。</li>
+                <li>• 没有 dummy，处理头部重复时丢失返回头或堆满特判。</li>
+              </ul>
+            </article>
+          </div>
+
+          <article class="panel overflow-hidden">
+            <div
+              class="border-b border-white/10 p-5 sm:flex sm:items-center sm:justify-between"
+            >
+              <div>
+                <p
+                  class="font-mono text-xs uppercase tracking-wider text-clean"
+                >
+                  Submit-ready
+                </p>
+                <h3 class="mt-2 font-display text-2xl">四语言代码</h3>
+              </div>
+              <div
+                role="tablist"
+                aria-label="代码语言"
+                class="mt-4 flex flex-wrap gap-2 sm:mt-0"
+              >
+                <button
+                  id="tab-java"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="code-panel"
+                  data-language="java"
+                  class="code-tab border border-white/25 px-3 py-2 font-mono text-xs"
+                >
+                  Java
+                </button>
+                <button
+                  id="tab-javascript"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="code-panel"
+                  data-language="javascript"
+                  class="code-tab border border-white/25 px-3 py-2 font-mono text-xs"
+                >
+                  JavaScript
+                </button>
+                <button
+                  id="tab-python"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="code-panel"
+                  data-language="python"
+                  class="code-tab border border-white/25 px-3 py-2 font-mono text-xs"
+                >
+                  Python
+                </button>
+                <button
+                  id="tab-cpp"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="code-panel"
+                  data-language="cpp"
+                  class="code-tab border border-white/25 px-3 py-2 font-mono text-xs"
+                >
+                  C++
+                </button>
+              </div>
+            </div>
+            <div
+              id="code-panel"
+              role="tabpanel"
+              aria-labelledby="tab-java"
+              class="min-w-0 overflow-x-auto p-5 sm:p-7"
+            >
+              <pre
+                class="min-w-max font-mono text-sm leading-7 text-white/80"
+              ><code id="code-output"></code></pre>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-t border-white/10 px-4 py-8 text-center font-mono text-xs text-white/35"
+    >
+      CASE #0082 · SORTED LINKED LIST DECONTAMINATION · TAILWIND CSS + VANILLA
+      JS
+    </footer>
+
+    <div
+      id="live-region"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+
+        const presets = {
+          official1: [1, 2, 3, 3, 4, 4, 5],
+          official2: [1, 1, 1, 2, 3],
+          unique: [-3, -1, 0, 4, 9],
+          allDuplicate: [2, 2, 2, 2],
+        };
+
+        const tests = [
+          {
+            name: "官方样例 1",
+            input: [1, 2, 3, 3, 4, 4, 5],
+            expected: [1, 2, 5],
+          },
+          { name: "官方样例 2", input: [1, 1, 1, 2, 3], expected: [2, 3] },
+          { name: "空链表", input: [], expected: [] },
+          { name: "单节点", input: [7], expected: [7] },
+          { name: "全部重复", input: [-2, -2, 4, 4], expected: [] },
+          { name: "末尾重复", input: [1, 2, 5, 5, 5], expected: [1, 2] },
+        ];
+
+        const codeSamples = {
+          java: `class Solution {
+  public ListNode deleteDuplicates(ListNode head) {
+    ListNode dummy = new ListNode(0, head);
+    ListNode prev = dummy;
+    ListNode curr = head;
+
+    while (curr != null) {
+      if (curr.next != null && curr.val == curr.next.val) {
+        int duplicateValue = curr.val;
+        while (curr != null && curr.val == duplicateValue) {
+          curr = curr.next;
+        }
+        prev.next = curr;
+      } else {
+        prev = curr;
+        curr = curr.next;
+      }
+    }
+    return dummy.next;
+  }
+}`,
+          javascript: `var deleteDuplicates = function (head) {
+  const dummy = new ListNode(0, head);
+  let prev = dummy;
+  let curr = head;
+
+  while (curr !== null) {
+    if (curr.next !== null && curr.val === curr.next.val) {
+      const duplicateValue = curr.val;
+      while (curr !== null && curr.val === duplicateValue) {
+        curr = curr.next;
+      }
+      prev.next = curr;
+    } else {
+      prev = curr;
+      curr = curr.next;
+    }
+  }
+  return dummy.next;
+};`,
+          python: `class Solution:
+    def deleteDuplicates(self, head: Optional[ListNode]) -> Optional[ListNode]:
+        dummy = ListNode(0, head)
+        prev = dummy
+        curr = head
+
+        while curr:
+            if curr.next and curr.val == curr.next.val:
+                duplicate_value = curr.val
+                while curr and curr.val == duplicate_value:
+                    curr = curr.next
+                prev.next = curr
+            else:
+                prev = curr
+                curr = curr.next
+
+        return dummy.next`,
+          cpp: `class Solution {
+public:
+  ListNode* deleteDuplicates(ListNode* head) {
+    ListNode dummy(0, head);
+    ListNode* prev = &dummy;
+    ListNode* curr = head;
+
+    while (curr != nullptr) {
+      if (curr->next != nullptr && curr->val == curr->next->val) {
+        int duplicateValue = curr->val;
+        while (curr != nullptr && curr->val == duplicateValue) {
+          curr = curr->next;
+        }
+        prev->next = curr;
+      } else {
+        prev = curr;
+        curr = curr->next;
+      }
+    }
+    return dummy.next;
+  }
+};`,
+        };
+
+        const elements = {
+          preset: document.querySelector("#preset"),
+          customInput: document.querySelector("#custom-input"),
+          inputError: document.querySelector("#input-error"),
+          loadCustom: document.querySelector("#load-custom"),
+          chain: document.querySelector("#chain"),
+          keptBin: document.querySelector("#kept-bin"),
+          quarantineBin: document.querySelector("#quarantine-bin"),
+          stepCount: document.querySelector("#step-count"),
+          phase: document.querySelector("#phase"),
+          prevNext: document.querySelector("#prev-next"),
+          cleanChain: document.querySelector("#clean-chain"),
+          stepTitle: document.querySelector("#step-title"),
+          stepNote: document.querySelector("#step-note"),
+          prevStep: document.querySelector("#prev-step"),
+          nextStep: document.querySelector("#next-step"),
+          autoplay: document.querySelector("#autoplay"),
+          reset: document.querySelector("#reset"),
+          live: document.querySelector("#live-region"),
+          solutionToggle: document.querySelector("#solution-toggle"),
+          solutionContent: document.querySelector("#solution-content"),
+          codeOutput: document.querySelector("#code-output"),
+          codePanel: document.querySelector("#code-panel"),
+          testGrid: document.querySelector("#test-grid"),
+          testSummary: document.querySelector("#test-summary"),
+        };
+
+        let values = [...presets.official1];
+        let steps = [];
+        let stepIndex = 0;
+        let timer = null;
+
+        const arraysEqual = (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => value === b[index]);
+
+        function solve(input) {
+          const output = [];
+          let index = 0;
+          while (index < input.length) {
+            let end = index + 1;
+            while (end < input.length && input[end] === input[index]) end += 1;
+            if (end - index === 1) output.push(input[index]);
+            index = end;
+          }
+          return output;
+        }
+
+        function makeSteps(input) {
+          const result = [
+            {
+              phase: "初始化",
+              title: "建立 dummy 哨兵",
+              note: "dummy.next 指向 head，prev 从 dummy 起步，头部重复段也能统一删除。",
+              group: [],
+              kept: [],
+              quarantined: [],
+              nextValue: input[0] ?? null,
+            },
+          ];
+          const kept = [];
+          const quarantined = [];
+          let index = 0;
+          while (index < input.length) {
+            let end = index + 1;
+            while (end < input.length && input[end] === input[index]) end += 1;
+            const group = Array.from(
+              { length: end - index },
+              (_, offset) => index + offset,
+            );
+            result.push({
+              phase: "识别批次",
+              title: `检验值 ${input[index]} 的连续区间`,
+              note:
+                end - index > 1
+                  ? `发现 ${end - index} 个相同节点：这一整组都不能进入结果链。`
+                  : "后继节点值不同，这是一个唯一值。",
+              group,
+              kept: [...kept],
+              quarantined: [...quarantined],
+              nextValue: input[index],
+            });
+            if (end - index > 1) {
+              quarantined.push(...group);
+              result.push({
+                phase: "整组隔离",
+                title: `跳过所有值为 ${input[index]} 的节点`,
+                note: "prev 保持不动，只让 curr 越过重复段，再令 prev.next = curr。",
+                group: [],
+                kept: [...kept],
+                quarantined: [...quarantined],
+                nextValue: input[end] ?? null,
+              });
+            } else {
+              kept.push(index);
+              result.push({
+                phase: "接入净化链",
+                title: `确认 ${input[index]} 只出现一次`,
+                note: "prev 与 curr 各前进一步，结果链尾来到这个唯一节点。",
+                group: [],
+                kept: [...kept],
+                quarantined: [...quarantined],
+                nextValue: input[end] ?? null,
+              });
+            }
+            index = end;
+          }
+          result.push({
+            phase: "完成",
+            title: "返回 dummy.next",
+            note: `所有批次已检验完毕，净化链为 [${solve(input).join(",")}].`,
+            group: [],
+            kept: [...kept],
+            quarantined: [...quarantined],
+            nextValue: null,
+          });
+          return result;
+        }
+
+        function announce(message) {
+          elements.live.textContent = "";
+          window.setTimeout(() => {
+            elements.live.textContent = message;
+          }, 10);
+        }
+
+        function renderTokens(container, indices, colorClass, emptyText) {
+          container.replaceChildren();
+          if (indices.length === 0) {
+            const empty = document.createElement("span");
+            empty.className = "text-white/30";
+            empty.textContent = emptyText;
+            container.append(empty);
+            return;
+          }
+          indices.forEach((index) => {
+            const token = document.createElement("span");
+            token.className = `border px-2 py-1 ${colorClass}`;
+            token.textContent = String(values[index]);
+            container.append(token);
+          });
+        }
+
+        function render() {
+          const step = steps[stepIndex];
+          elements.chain.replaceChildren();
+          if (values.length === 0) {
+            const empty = document.createElement("div");
+            empty.className =
+              "border border-dashed border-white/25 px-5 py-4 font-mono text-sm text-white/40";
+            empty.textContent = "head = [] · 空链表";
+            elements.chain.append(empty);
+          }
+          values.forEach((value, index) => {
+            const wrap = document.createElement("div");
+            wrap.className = "node-wrap";
+            const card = document.createElement("div");
+            card.className = "node-card font-mono";
+            let state = "future";
+            if (step.quarantined.includes(index)) state = "quarantined";
+            else if (step.kept.includes(index)) state = "kept";
+            else if (step.group.includes(index)) state = "candidate";
+            card.dataset.state = state;
+            card.innerHTML = `<span class="absolute right-2 top-2 text-[10px] opacity-45">${String(index).padStart(2, "0")}</span><strong class="text-2xl">${value}</strong><small class="absolute bottom-2 text-[10px] uppercase tracking-wider">${state}</small>`;
+            wrap.append(card);
+            if (index < values.length - 1) {
+              const link = document.createElement("span");
+              link.className = "chain-link";
+              link.setAttribute("aria-hidden", "true");
+              wrap.append(link);
+            }
+            elements.chain.append(wrap);
+          });
+
+          renderTokens(
+            elements.keptBin,
+            step.kept,
+            "border-clean/50 text-clean",
+            "尚无唯一节点",
+          );
+          renderTokens(
+            elements.quarantineBin,
+            step.quarantined,
+            "border-quarantine/50 text-quarantine",
+            "隔离舱为空",
+          );
+          const output = step.kept.map((index) => values[index]);
+          elements.stepCount.textContent = `${stepIndex + 1} / ${steps.length}`;
+          elements.phase.textContent = step.phase;
+          elements.prevNext.textContent =
+            step.nextValue === null ? "null" : String(step.nextValue);
+          elements.cleanChain.textContent = `[${output.join(",")}]`;
+          elements.stepTitle.textContent = step.title;
+          elements.stepNote.textContent = step.note;
+          elements.prevStep.disabled = stepIndex === 0;
+          elements.nextStep.disabled = stepIndex === steps.length - 1;
+        }
+
+        function stopAutoplay(shouldAnnounce = false) {
+          if (timer !== null) window.clearInterval(timer);
+          timer = null;
+          elements.autoplay.textContent = "自动播放";
+          elements.autoplay.setAttribute("aria-pressed", "false");
+          if (shouldAnnounce) announce("自动播放已暂停");
+        }
+
+        function toggleAutoplay() {
+          if (timer !== null) {
+            stopAutoplay(true);
+            return;
+          }
+          if (stepIndex === steps.length - 1) stepIndex = 0;
+          elements.autoplay.textContent = "暂停播放";
+          elements.autoplay.setAttribute("aria-pressed", "true");
+          announce("自动播放已开始");
+          render();
+          timer = window.setInterval(() => {
+            if (stepIndex >= steps.length - 1) {
+              stopAutoplay();
+              announce("自动播放完成");
+              return;
+            }
+            stepIndex += 1;
+            render();
+          }, 900);
+        }
+
+        function setValues(nextValues, sourceLabel) {
+          stopAutoplay();
+          values = [...nextValues];
+          steps = makeSteps(values);
+          stepIndex = 0;
+          elements.customInput.value = values.join(",");
+          elements.inputError.textContent = "";
+          render();
+          announce(`${sourceLabel}已装载，共 ${values.length} 个节点`);
+        }
+
+        function parseCustom() {
+          const raw = elements.customInput.value.trim();
+          if (raw === "") return [];
+          const parts = raw.split(",").map((part) => part.trim());
+          if (parts.some((part) => part === "" || !/^-?\d+$/.test(part)))
+            throw new Error("请输入以英文逗号分隔的整数。");
+          const parsed = parts.map(Number);
+          if (parsed.length > 16) throw new Error("交互样本最多 16 个节点。");
+          if (parsed.some((value) => value < -100 || value > 100))
+            throw new Error("节点值必须在 -100 到 100 之间。");
+          if (
+            parsed.some(
+              (value, index) => index > 0 && value < parsed[index - 1],
+            )
+          )
+            throw new Error("链表必须按升序排列。");
+          return parsed;
+        }
+
+        function renderTests() {
+          elements.testGrid.replaceChildren();
+          let passed = 0;
+          tests.forEach((test) => {
+            const actual = solve(test.input);
+            const ok = arraysEqual(actual, test.expected);
+            if (ok) passed += 1;
+            const card = document.createElement("article");
+            card.className = "panel min-w-0 p-5";
+            card.innerHTML = `<div class="flex items-center justify-between gap-3"><h3 class="font-display">${test.name}</h3><span class="font-mono text-xs ${ok ? "text-clean" : "text-quarantine"}">${ok ? "PASS" : "FAIL"}</span></div><dl class="mt-4 grid min-w-0 gap-3 font-mono text-xs"><div><dt class="text-white/35">输入</dt><dd class="mt-1 break-all text-cyan"><code>head = [${test.input.join(",")}]</code></dd></div><div><dt class="text-white/35">期望输出</dt><dd class="mt-1 break-all text-white/70"><code>[${test.expected.join(",")}]</code></dd></div><div><dt class="text-white/35">实际输出</dt><dd class="mt-1 break-all text-clean"><code>[${actual.join(",")}]</code></dd></div></dl>`;
+            elements.testGrid.append(card);
+          });
+          elements.testSummary.textContent = `${passed} / ${tests.length} 通过`;
+        }
+
+        function selectLanguage(button, focusPanel = false) {
+          document
+            .querySelectorAll(".code-tab")
+            .forEach((tab) =>
+              tab.setAttribute("aria-selected", String(tab === button)),
+            );
+          const language = button.dataset.language;
+          elements.codeOutput.textContent = codeSamples[language];
+          elements.codePanel.setAttribute("aria-labelledby", button.id);
+          if (focusPanel) announce(`已切换到 ${button.textContent} 代码`);
+        }
+
+        elements.preset.addEventListener("change", () =>
+          setValues(presets[elements.preset.value], "预设样本"),
+        );
+        elements.loadCustom.addEventListener("click", () => {
+          try {
+            setValues(parseCustom(), "自定义样本");
+          } catch (error) {
+            elements.inputError.textContent = error.message;
+            announce(error.message);
+          }
+        });
+        elements.prevStep.addEventListener("click", () => {
+          if (stepIndex > 0) {
+            stopAutoplay();
+            stepIndex -= 1;
+            render();
+            announce(`第 ${stepIndex + 1} 步：${steps[stepIndex].title}`);
+          }
+        });
+        elements.nextStep.addEventListener("click", () => {
+          if (stepIndex < steps.length - 1) {
+            stopAutoplay();
+            stepIndex += 1;
+            render();
+            announce(`第 ${stepIndex + 1} 步：${steps[stepIndex].title}`);
+          }
+        });
+        elements.autoplay.addEventListener("click", toggleAutoplay);
+        elements.reset.addEventListener("click", () =>
+          setValues(values, "当前样本"),
+        );
+        elements.solutionToggle.addEventListener("click", () => {
+          const expanded =
+            elements.solutionToggle.getAttribute("aria-expanded") === "true";
+          elements.solutionToggle.setAttribute(
+            "aria-expanded",
+            String(!expanded),
+          );
+          elements.solutionToggle.textContent = expanded
+            ? "查看题解"
+            : "收起题解";
+          elements.solutionContent.hidden = expanded;
+          announce(expanded ? "题解已收起" : "题解已展开");
+          if (!expanded)
+            window.setTimeout(
+              () => elements.solutionContent.querySelector("h3")?.focus?.(),
+              0,
+            );
+        });
+        document
+          .querySelectorAll(".code-tab")
+          .forEach((button) =>
+            button.addEventListener("click", () =>
+              selectLanguage(button, true),
+            ),
+          );
+        document
+          .querySelector('[role="tablist"]')
+          .addEventListener("keydown", (event) => {
+            const tabs = [...document.querySelectorAll(".code-tab")];
+            const current = tabs.indexOf(document.activeElement);
+            if (
+              current === -1 ||
+              !["ArrowLeft", "ArrowRight"].includes(event.key)
+            )
+              return;
+            event.preventDefault();
+            const offset = event.key === "ArrowRight" ? 1 : -1;
+            const next = tabs[(current + offset + tabs.length) % tabs.length];
+            next.focus();
+            selectLanguage(next, true);
+          });
+        document.addEventListener("keydown", (event) => {
+          if (
+            ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(
+              event.target.tagName,
+            )
+          )
+            return;
+          if (event.key === "ArrowLeft" && stepIndex > 0) {
+            event.preventDefault();
+            elements.prevStep.click();
+          }
+          if (event.key === "ArrowRight" && stepIndex < steps.length - 1) {
+            event.preventDefault();
+            elements.nextStep.click();
+          }
+          if (event.code === "Space") {
+            event.preventDefault();
+            toggleAutoplay();
+          }
+          if (event.key === "Home") {
+            event.preventDefault();
+            elements.reset.click();
+          }
+        });
+
+        steps = makeSteps(values);
+        render();
+        renderTests();
+        selectLanguage(document.querySelector("#tab-java"));
+      })();
+    </script>
+  </body>
+</html>
