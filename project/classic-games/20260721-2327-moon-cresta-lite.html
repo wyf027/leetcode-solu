@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Moon Cresta</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-[0.25em] text-cyan-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Moon Cresta</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-xs text-zinc-400">得分</p>
+          <p id="score" class="font-semibold text-cyan-200">0</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-xs text-zinc-400">生命</p>
+          <p id="lives" class="font-semibold text-emerald-200">3</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-xs text-zinc-400">段数</p>
+          <p id="modules" class="font-semibold text-amber-200">1</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-xs text-zinc-400">波次</p>
+          <p id="wave" class="font-semibold text-fuchsia-200">1</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3 shadow-2xl shadow-black/30">
+        <canvas id="game" width="720" height="520" class="h-auto w-full rounded bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <h2 class="text-lg font-semibold text-white">任务</h2>
+        <p class="mt-2 text-sm leading-6 text-zinc-300">清理轨道中的敌机。每过一波会进入对接窗口，靠近降落段即可扩展机身和火力。</p>
+        <dl class="mt-4 space-y-3 text-sm">
+          <div>
+            <dt class="font-semibold text-cyan-200">移动</dt>
+            <dd class="text-zinc-300">方向键 / A D</dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-cyan-200">射击</dt>
+            <dd class="text-zinc-300">空格键</dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-cyan-200">重新开始</dt>
+            <dd class="text-zinc-300">R</dd>
+          </div>
+        </dl>
+        <button id="restart" class="mt-5 w-full rounded bg-cyan-300 px-4 py-2 font-semibold text-zinc-950 hover:bg-cyan-200">重新开始</button>
+        <p id="status" class="mt-4 min-h-14 rounded border border-zinc-700 bg-zinc-950 p-3 text-sm text-zinc-300">按空格发射，清空第一波后尝试对接。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const modulesEl = document.getElementById("modules");
+    const waveEl = document.getElementById("wave");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restart");
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const keys = new Set();
+    let ship;
+    let shots;
+    let enemyShots;
+    let enemies;
+    let particles;
+    let score;
+    let lives;
+    let wave;
+    let cooldown;
+    let enemyTimer;
+    let mode;
+    let docker;
+    let message;
+    let running;
+    let lastTime = 0;
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rectsHit(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function makeShip() {
+      return {
+        x: W / 2 - 18,
+        y: H - 55,
+        w: 36,
+        h: 32,
+        speed: 290,
+        modules: 1,
+        invulnerable: 0,
+      };
+    }
+
+    function enemyWave() {
+      const list = [];
+      const rows = Math.min(2 + wave, 5);
+      const cols = 8;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          list.push({
+            x: 78 + col * 68,
+            y: 58 + row * 42,
+            w: 28,
+            h: 22,
+            baseX: 78 + col * 68,
+            baseY: 58 + row * 42,
+            drift: Math.random() * Math.PI * 2,
+            hp: row === 0 && wave > 1 ? 2 : 1,
+            alive: true,
+          });
+        }
+      }
+      return list;
+    }
+
+    function resetGame() {
+      ship = makeShip();
+      shots = [];
+      enemyShots = [];
+      particles = [];
+      score = 0;
+      lives = 3;
+      wave = 1;
+      cooldown = 0;
+      enemyTimer = 0.8;
+      mode = "combat";
+      docker = null;
+      running = true;
+      enemies = enemyWave();
+      message = "清除敌机，准备进入对接序列。";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      modulesEl.textContent = ship.modules;
+      waveEl.textContent = wave;
+      statusEl.textContent = message;
+    }
+
+    function burst(x, y, color, amount) {
+      for (let i = 0; i < amount; i += 1) {
+        particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 170,
+          vy: (Math.random() - 0.5) * 170,
+          life: 0.35 + Math.random() * 0.45,
+          color,
+        });
+      }
+    }
+
+    function shoot() {
+      if (!running || mode !== "combat" || cooldown > 0) return;
+      const lanes = ship.modules === 1 ? [0] : ship.modules === 2 ? [-9, 9] : [-17, 0, 17];
+      for (const offset of lanes) {
+        shots.push({
+          x: ship.x + ship.w / 2 + offset - 2,
+          y: ship.y - 10,
+          w: 4,
+          h: 12,
+          vy: -470,
+        });
+      }
+      cooldown = Math.max(0.13, 0.24 - ship.modules * 0.035);
+    }
+
+    function startDocking() {
+      mode = "dock";
+      shots = [];
+      enemyShots = [];
+      docker = {
+        x: W / 2 - 18,
+        y: 38,
+        w: 36,
+        h: 24,
+        vx: 90,
+        vy: 72 + wave * 6,
+      };
+      message = ship.modules < 3 ? "对接窗口开启：移动到降落段下方。" : "满载编队完成，下一波火力最大。";
+      updateHud();
+    }
+
+    function nextWave() {
+      wave += 1;
+      enemies = enemyWave();
+      mode = "combat";
+      docker = null;
+      enemyTimer = 0.7;
+      ship.invulnerable = 1.2;
+      message = `第 ${wave} 波敌机接近。`;
+      updateHud();
+    }
+
+    function loseLife() {
+      if (ship.invulnerable > 0) return;
+      burst(ship.x + ship.w / 2, ship.y + ship.h / 2, "#67e8f9", 20);
+      lives -= 1;
+      if (lives <= 0) {
+        running = false;
+        message = "任务失败。按 R 重新开始。";
+      } else {
+        const keptModules = Math.max(1, ship.modules - 1);
+        ship = makeShip();
+        ship.modules = keptModules;
+        ship.w = 30 + keptModules * 12;
+        ship.invulnerable = 1.6;
+        enemyShots = [];
+        message = "机体受损，损失一个对接段。";
+      }
+      updateHud();
+    }
+
+    function updateCombat(dt) {
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        enemy.drift += dt * (1.2 + wave * 0.08);
+        enemy.x = enemy.baseX + Math.sin(enemy.drift) * (22 + wave * 3);
+        enemy.y += (5 + wave * 0.8) * dt;
+        if (enemy.y + enemy.h > ship.y) loseLife();
+      }
+
+      enemyTimer -= dt;
+      const liveEnemies = enemies.filter((enemy) => enemy.alive);
+      if (enemyTimer <= 0 && liveEnemies.length) {
+        const shooter = liveEnemies[Math.floor(Math.random() * liveEnemies.length)];
+        enemyShots.push({
+          x: shooter.x + shooter.w / 2 - 3,
+          y: shooter.y + shooter.h,
+          w: 6,
+          h: 12,
+          vy: 160 + wave * 18,
+        });
+        enemyTimer = Math.max(0.28, 0.85 - wave * 0.06);
+      }
+
+      for (const shot of shots) {
+        for (const enemy of enemies) {
+          if (enemy.alive && rectsHit(shot, enemy)) {
+            enemy.hp -= 1;
+            shot.dead = true;
+            burst(shot.x, shot.y, enemy.hp > 0 ? "#f59e0b" : "#a78bfa", enemy.hp > 0 ? 7 : 14);
+            if (enemy.hp <= 0) {
+              enemy.alive = false;
+              score += 40 + wave * 8;
+              message = "命中敌机。";
+              updateHud();
+            }
+            break;
+          }
+        }
+      }
+
+      if (!enemies.some((enemy) => enemy.alive)) startDocking();
+    }
+
+    function updateDocking(dt) {
+      if (!docker) return;
+      docker.x += docker.vx * dt;
+      docker.y += docker.vy * dt;
+      if (docker.x < 35 || docker.x + docker.w > W - 35) docker.vx *= -1;
+
+      const catchZone = {
+        x: ship.x + ship.w / 2 - 25,
+        y: ship.y - 28,
+        w: 50,
+        h: 34,
+      };
+      if (rectsHit(docker, catchZone)) {
+        if (ship.modules < 3) {
+          ship.modules += 1;
+          ship.w = 30 + ship.modules * 12;
+          ship.x = clamp(ship.x - 6, 12, W - ship.w - 12);
+          score += 150;
+          burst(ship.x + ship.w / 2, ship.y - 8, "#22d3ee", 24);
+          message = `对接成功，火力提升到 ${ship.modules} 段。`;
+        }
+        updateHud();
+        nextWave();
+      } else if (docker.y > H + 30) {
+        message = "错过对接窗口，下一波保持当前火力。";
+        updateHud();
+        nextWave();
+      }
+    }
+
+    function update(dt) {
+      if (!running) return;
+      cooldown = Math.max(0, cooldown - dt);
+      ship.invulnerable = Math.max(0, ship.invulnerable - dt);
+
+      if (keys.has("arrowleft") || keys.has("a")) ship.x -= ship.speed * dt;
+      if (keys.has("arrowright") || keys.has("d")) ship.x += ship.speed * dt;
+      ship.x = clamp(ship.x, 12, W - ship.w - 12);
+
+      for (const shot of shots) shot.y += shot.vy * dt;
+      for (const shot of enemyShots) shot.y += shot.vy * dt;
+      shots = shots.filter((shot) => shot.y + shot.h > 0 && !shot.dead);
+      enemyShots = enemyShots.filter((shot) => shot.y < H + 24 && !shot.dead);
+
+      if (mode === "combat") updateCombat(dt);
+      if (mode === "dock") updateDocking(dt);
+
+      for (const shot of enemyShots) {
+        if (rectsHit(shot, ship)) {
+          shot.dead = true;
+          loseLife();
+        }
+      }
+
+      particles = particles.filter((p) => p.life > 0);
+      for (const p of particles) {
+        p.life -= dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      }
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      const shielded = ship.invulnerable > 0;
+      for (let i = 0; i < ship.modules; i += 1) {
+        const offset = i * 12;
+        ctx.fillStyle = i === 0 ? "#22d3ee" : i === 1 ? "#f59e0b" : "#a78bfa";
+        ctx.beginPath();
+        ctx.moveTo(ship.w / 2, offset);
+        ctx.lineTo(ship.w, 18 + offset);
+        ctx.lineTo(ship.w * 0.68, 28 + offset);
+        ctx.lineTo(ship.w / 2, 22 + offset);
+        ctx.lineTo(ship.w * 0.32, 28 + offset);
+        ctx.lineTo(0, 18 + offset);
+        ctx.closePath();
+        ctx.fill();
+      }
+      if (shielded) {
+        ctx.strokeStyle = "#e0f2fe";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-5, -5, ship.w + 10, ship.h + 10);
+      }
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.fillStyle = enemy.hp > 1 ? "#f97316" : "#ef4444";
+      ctx.fillRect(4, 4, 20, 14);
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(0, 9, 8, 5);
+      ctx.fillRect(20, 9, 8, 5);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(11, 8, 6, 4);
+      ctx.restore();
+    }
+
+    function drawDockingModule() {
+      if (!docker) return;
+      ctx.save();
+      ctx.translate(docker.x, docker.y);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(4, 4, docker.w - 8, docker.h - 8);
+      ctx.fillStyle = "#22d3ee";
+      ctx.fillRect(0, 10, docker.w, 5);
+      ctx.strokeStyle = "#a78bfa";
+      ctx.strokeRect(1, 1, docker.w - 2, docker.h - 2);
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "#334155";
+      for (let i = 0; i < 85; i += 1) {
+        const x = (i * 89 + wave * 23) % W;
+        const y = (i * 47 + (mode === "dock" ? 20 : 0)) % H;
+        ctx.fillRect(x, y, 1.5, 1.5);
+      }
+
+      for (const enemy of enemies) {
+        if (enemy.alive) drawEnemy(enemy);
+      }
+      drawDockingModule();
+
+      ctx.fillStyle = "#e0f2fe";
+      for (const shot of shots) ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
+      ctx.fillStyle = "#fb7185";
+      for (const shot of enemyShots) ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
+
+      drawShip();
+
+      for (const p of particles) {
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 3, 3);
+      }
+      ctx.globalAlpha = 1;
+
+      if (mode === "dock" && docker) {
+        ctx.strokeStyle = "rgba(34, 211, 238, 0.5)";
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(ship.x + ship.w / 2 - 25, ship.y - 28, 50, 34);
+        ctx.setLineDash([]);
+      }
+
+      if (!running) {
+        ctx.fillStyle = "rgba(3, 7, 18, 0.8)";
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 32px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("Mission Failed", W / 2, H / 2 - 12);
+        ctx.font = "18px system-ui";
+        ctx.fillText("按 R 或点击重新开始", W / 2, H / 2 + 24);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      const key = event.key.toLowerCase();
+      keys.add(key);
+      if (event.code === "Space") {
+        event.preventDefault();
+        shoot();
+      }
+      if (key === "r") resetGame();
+    });
+
+    document.addEventListener("keyup", (event) => {
+      keys.delete(event.key.toLowerCase());
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
