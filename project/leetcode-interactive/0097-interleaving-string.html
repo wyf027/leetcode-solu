@@ -1,0 +1,1552 @@
+<!doctype html>
+<html lang="zh-CN" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 97 交错字符串：用织机状态网格交互理解二维动态规划与一维空间压缩。"
+    />
+    <link rel="icon" href="data:," />
+    <title>97. 交错字符串｜交织状态织机</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <script data-cfasync="false">
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              flax: "#f7f0dd",
+              parchment: "#fffaf0",
+              plum: "#24152f",
+              warp: "#168c8b",
+              weft: "#d4513f",
+              shuttle: "#f0b64d",
+              mist: "#dcebea",
+            },
+            fontFamily: {
+              sans: ["Inter", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+              mono: ["SFMono-Regular", "Consolas", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        --flax: #f7f0dd;
+        --parchment: #fffaf0;
+        --plum: #24152f;
+        --warp: #168c8b;
+        --weft: #d4513f;
+        --shuttle: #f0b64d;
+        --mist: #dcebea;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        color-scheme: light;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: hidden;
+        background:
+          repeating-linear-gradient(
+            0deg,
+            rgba(36, 21, 47, 0.035) 0,
+            rgba(36, 21, 47, 0.035) 1px,
+            transparent 1px,
+            transparent 8px
+          ),
+          var(--flax);
+        color: var(--plum);
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      .display {
+        font-family: Georgia, "Times New Roman", "Songti SC", serif;
+        font-weight: 900;
+        letter-spacing: -0.045em;
+      }
+
+      .mono {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      .utility {
+        font-family: "Arial Narrow", Arial, sans-serif;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+      }
+
+      .cloth-card {
+        border: 2px solid var(--plum);
+        background: rgba(255, 250, 240, 0.94);
+        box-shadow: 8px 8px 0 rgba(36, 21, 47, 0.14);
+      }
+
+      .loom-panel {
+        position: relative;
+        overflow: hidden;
+        border: 2px solid var(--plum);
+        background:
+          repeating-linear-gradient(
+            90deg,
+            rgba(22, 140, 139, 0.1) 0,
+            rgba(22, 140, 139, 0.1) 1px,
+            transparent 1px,
+            transparent 24px
+          ),
+          repeating-linear-gradient(
+            0deg,
+            rgba(212, 81, 63, 0.08) 0,
+            rgba(212, 81, 63, 0.08) 1px,
+            transparent 1px,
+            transparent 24px
+          ),
+          var(--parchment);
+      }
+
+      .shuttle {
+        position: relative;
+        width: min(100%, 300px);
+        height: 76px;
+        border: 2px solid var(--plum);
+        border-radius: 999px 24px 999px 24px;
+        background: var(--shuttle);
+        transform: rotate(-4deg);
+      }
+
+      .shuttle::before,
+      .shuttle::after {
+        position: absolute;
+        top: 50%;
+        width: 40%;
+        height: 2px;
+        background: var(--plum);
+        content: "";
+      }
+
+      .shuttle::before {
+        left: -30%;
+      }
+
+      .shuttle::after {
+        right: -30%;
+      }
+
+      .shuttle-eye {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        display: grid;
+        width: 52px;
+        height: 34px;
+        place-items: center;
+        border: 2px solid var(--plum);
+        border-radius: 999px;
+        background: var(--parchment);
+        transform: translate(-50%, -50%);
+      }
+
+      .dp-grid {
+        display: grid;
+        min-width: max-content;
+        gap: 6px;
+      }
+
+      .dp-cell,
+      .axis-cell {
+        display: grid;
+        width: 52px;
+        height: 52px;
+        place-items: center;
+        border: 2px solid rgba(36, 21, 47, 0.18);
+        border-radius: 12px;
+        background: rgba(255, 250, 240, 0.9);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-weight: 900;
+      }
+
+      .axis-cell {
+        border-style: dashed;
+        background: rgba(36, 21, 47, 0.07);
+        color: rgba(36, 21, 47, 0.7);
+      }
+
+      .dp-cell.reachable {
+        border-color: var(--warp);
+        background: rgba(22, 140, 139, 0.14);
+        color: var(--warp);
+      }
+
+      .dp-cell.blocked {
+        border-color: rgba(212, 81, 63, 0.45);
+        background: rgba(212, 81, 63, 0.08);
+        color: var(--weft);
+      }
+
+      .dp-cell.pending {
+        color: rgba(36, 21, 47, 0.25);
+      }
+
+      .dp-cell.current {
+        border-color: var(--plum);
+        background: var(--shuttle);
+        color: var(--plum);
+        outline: 3px solid rgba(240, 182, 77, 0.28);
+        outline-offset: 3px;
+        transform: translateY(-3px) rotate(-2deg);
+      }
+
+      .thread-bar {
+        position: relative;
+        overflow: hidden;
+        border: 2px solid var(--plum);
+        border-radius: 14px;
+        background: rgba(255, 250, 240, 0.92);
+        padding: 12px 14px;
+      }
+
+      .thread-bar::after {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: var(--thread-progress, 0%);
+        height: 5px;
+        background: var(--thread-color, var(--warp));
+        content: "";
+        transition: width 180ms ease;
+      }
+
+      .thread-warp {
+        --thread-color: var(--warp);
+        --thread-progress: 70%;
+      }
+
+      .thread-weft {
+        --thread-color: var(--weft);
+        --thread-progress: 55%;
+      }
+
+      .thread-target {
+        --thread-color: var(--shuttle);
+        --thread-progress: 85%;
+      }
+
+      .test-card {
+        min-width: 0;
+        border: 2px solid rgba(36, 21, 47, 0.16);
+        border-radius: 18px;
+        background: rgba(255, 250, 240, 0.94);
+        padding: 18px;
+      }
+
+      .code-block {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        border-radius: 16px;
+        background: var(--plum);
+        padding: 18px;
+        color: #fff7e8;
+        font-size: 0.78rem;
+        line-height: 1.75;
+        white-space: pre;
+      }
+
+      button {
+        box-shadow: none !important;
+        transition:
+          transform 150ms ease,
+          background-color 150ms ease,
+          color 150ms ease,
+          border-color 150ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        box-shadow: 4px 4px 0 rgba(36, 21, 47, 0.22) !important;
+        transform: translate(-1px, -1px);
+      }
+
+      button:active:not(:disabled) {
+        box-shadow: 2px 2px 0 rgba(36, 21, 47, 0.22) !important;
+        transform: translate(0, 0);
+      }
+
+      button:disabled,
+      button:focus-visible {
+        box-shadow: none !important;
+      }
+
+      :focus-visible {
+        outline: 3px solid var(--weft);
+        outline-offset: 4px;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 640px) {
+        .cloth-card {
+          box-shadow: 5px 5px 0 rgba(36, 21, 47, 0.12);
+        }
+
+        .dp-cell,
+        .axis-cell {
+          width: 44px;
+          height: 44px;
+          border-radius: 10px;
+        }
+
+        .shuttle {
+          width: 210px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+
+        .dp-cell.current,
+        button:hover:not(:disabled),
+        button:active:not(:disabled) {
+          transform: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a
+      href="#main-content"
+      class="sr-only z-50 rounded-lg bg-plum px-4 py-3 text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+    >
+      跳到主要内容
+    </a>
+
+    <header class="border-b-2 border-plum bg-parchment/90 px-4 py-4 sm:px-6">
+      <div class="mx-auto flex max-w-7xl items-center justify-between gap-4">
+        <p class="utility text-[9px] font-black text-plum/60">
+          Textile logic · pattern 0097
+        </p>
+        <nav aria-label="页面导航" class="flex gap-4 text-sm font-black">
+          <a href="#problem" class="rounded focus:outline-none">题意</a>
+          <a href="#loom-room" class="rounded focus:outline-none">交互织机</a>
+          <a href="#solution" class="rounded focus:outline-none">题解</a>
+        </nav>
+      </div>
+    </header>
+
+    <main
+      id="main-content"
+      class="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12"
+    >
+      <section
+        class="grid items-center gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]"
+      >
+        <div class="min-w-0">
+          <div class="flex flex-wrap gap-2">
+            <span
+              class="rounded-full border-2 border-plum bg-plum px-3 py-1 text-xs font-black text-white"
+              >Medium</span
+            >
+            <span
+              class="rounded-full border-2 border-plum bg-warp/20 px-3 py-1 text-xs font-black"
+              >Dynamic Programming</span
+            >
+            <span
+              class="rounded-full border-2 border-plum bg-weft/20 px-3 py-1 text-xs font-black"
+              >String</span
+            >
+          </div>
+          <p class="utility mt-8 text-[9px] font-black text-weft">
+            97 · Interleaving String
+          </p>
+          <h1
+            id="page-title"
+            class="display mt-3 text-6xl leading-[0.9] sm:text-8xl"
+          >
+            交错<br />字符串
+          </h1>
+          <p class="mt-7 max-w-2xl text-base leading-8 text-plum/70 sm:text-lg">
+            两卷线各自保持顺序，梭子每次只能从其中一卷取下一个字符。沿着状态网格走到右下角，就证明目标串可以织成。
+          </p>
+          <div class="mt-7 grid max-w-2xl gap-3 sm:grid-cols-3">
+            <div class="thread-bar thread-warp">
+              <p class="utility text-[7px] font-black text-warp">Warp thread</p>
+              <p class="mt-1 font-black">纵向取 s1</p>
+            </div>
+            <div class="thread-bar thread-weft">
+              <p class="utility text-[7px] font-black text-weft">Weft thread</p>
+              <p class="mt-1 font-black">横向取 s2</p>
+            </div>
+            <div class="thread-bar thread-target">
+              <p class="utility text-[7px] font-black">Target cloth</p>
+              <p class="mt-1 font-black">共同织成 s3</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="loom-panel min-h-[390px] rounded-[2rem] p-6 sm:p-9">
+          <p class="utility text-[9px] font-black text-warp">State loom</p>
+          <div class="mt-14 flex justify-center">
+            <div class="shuttle" aria-hidden="true">
+              <div class="shuttle-eye mono text-sm font-black">i + j</div>
+            </div>
+          </div>
+          <div class="mt-14 grid grid-cols-2 gap-4">
+            <div class="rounded-2xl border-2 border-plum bg-warp/20 p-4">
+              <p class="utility text-[7px] font-black text-warp">From top</p>
+              <p class="mono mt-2 text-xl font-black">dp[i-1][j]</p>
+            </div>
+            <div class="rounded-2xl border-2 border-plum bg-weft/20 p-4">
+              <p class="utility text-[7px] font-black text-weft">From left</p>
+              <p class="mono mt-2 text-xl font-black">dp[i][j-1]</p>
+            </div>
+          </div>
+          <p class="mt-6 text-center text-sm font-bold text-plum/60">
+            目标字符固定为 <span class="mono text-plum">s3[i + j - 1]</span>
+          </p>
+        </div>
+      </section>
+
+      <section
+        id="problem"
+        aria-labelledby="problem-title"
+        class="cloth-card mt-12 rounded-[2rem] p-6 sm:p-9"
+      >
+        <p class="utility text-[8px] font-black text-weft">Problem</p>
+        <h2 id="problem-title" class="display mt-2 text-4xl">题意</h2>
+        <p class="mt-5 max-w-4xl text-sm leading-7 text-plum/70">
+          给定三个只含小写字母的字符串
+          <code class="mono rounded bg-mist px-1.5 py-1">s1</code>、<code
+            class="mono rounded bg-mist px-1.5 py-1"
+            >s2</code
+          >
+          和
+          <code class="mono rounded bg-mist px-1.5 py-1">s3</code
+          >。判断能否在保持 <code class="mono">s1</code> 与
+          <code class="mono">s2</code>
+          各自字符相对顺序不变的前提下，交替取出若干非空片段并拼成
+          <code class="mono">s3</code>。
+        </p>
+
+        <div class="mt-7 grid gap-4 lg:grid-cols-3">
+          <article class="rounded-2xl border-2 border-plum/20 bg-warp/10 p-5">
+            <p class="utility text-[7px] font-black text-warp">
+              官方样例 1 · 输入
+            </p>
+            <code class="mono mt-3 block break-words text-sm font-black"
+              >s1 = "aabcc", s2 = "dbbca", s3 = "aadbbcbcac"</code
+            >
+            <p class="utility mt-5 text-[7px] font-black text-plum/50">输出</p>
+            <code class="mono mt-2 block text-lg font-black">true</code>
+          </article>
+          <article class="rounded-2xl border-2 border-plum/20 bg-weft/10 p-5">
+            <p class="utility text-[7px] font-black text-weft">
+              官方样例 2 · 输入
+            </p>
+            <code class="mono mt-3 block break-words text-sm font-black"
+              >s1 = "aabcc", s2 = "dbbca", s3 = "aadbbbaccc"</code
+            >
+            <p class="utility mt-5 text-[7px] font-black text-plum/50">输出</p>
+            <code class="mono mt-2 block text-lg font-black">false</code>
+          </article>
+          <article
+            class="rounded-2xl border-2 border-plum/20 bg-shuttle/20 p-5"
+          >
+            <p class="utility text-[7px] font-black">官方样例 3 · 输入</p>
+            <code class="mono mt-3 block break-words text-sm font-black"
+              >s1 = "", s2 = "", s3 = ""</code
+            >
+            <p class="utility mt-5 text-[7px] font-black text-plum/50">输出</p>
+            <code class="mono mt-2 block text-lg font-black">true</code>
+          </article>
+        </div>
+
+        <div class="mt-7 flex flex-wrap gap-2 text-xs font-black">
+          <span class="rounded-full bg-plum px-3 py-1.5 text-white"
+            >0 ≤ |s1|, |s2| ≤ 100</span
+          >
+          <span class="rounded-full bg-warp px-3 py-1.5 text-white"
+            >0 ≤ |s3| ≤ 200</span
+          >
+          <span class="rounded-full bg-shuttle px-3 py-1.5"
+            >仅含小写英文字母</span
+          >
+          <span class="rounded-full bg-mist px-3 py-1.5"
+            >进阶：O(|s2|) 额外空间</span
+          >
+        </div>
+        <p class="mt-5 text-xs leading-6 text-plum/60">
+          可见空格约定：本题输入只含小写字母；若调试其他字符串，页面会用
+          <code class="mono font-black">␠</code>
+          表示一个空格，避免不可见字符造成误读。
+        </p>
+      </section>
+
+      <section
+        id="loom-room"
+        aria-labelledby="loom-title"
+        class="mt-12 overflow-hidden rounded-[2rem] border-2 border-plum bg-plum text-white"
+      >
+        <div class="border-b-2 border-white/20 p-6 sm:p-8">
+          <div
+            class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"
+          >
+            <div>
+              <p class="utility text-[8px] font-black text-shuttle">
+                Interactive state loom
+              </p>
+              <h2 id="loom-title" class="display mt-2 text-4xl sm:text-5xl">
+                交织状态织机
+              </h2>
+              <p class="mt-3 max-w-3xl text-sm leading-7 text-white/60">
+                横向移动表示从 s2 取字符，纵向移动表示从 s1
+                取字符。一个结点可达，当且仅当至少有一条来源路径可达且新字符匹配目标串。
+              </p>
+            </div>
+            <div
+              class="flex flex-wrap gap-2"
+              role="group"
+              aria-label="选择演示用例"
+            >
+              <button
+                type="button"
+                class="case-button rounded-xl border-2 border-white bg-shuttle px-4 py-2 text-sm font-black text-plum"
+                data-case="true"
+                aria-pressed="true"
+              >
+                可交错
+              </button>
+              <button
+                type="button"
+                class="case-button rounded-xl border-2 border-white px-4 py-2 text-sm font-black text-white"
+                data-case="false"
+                aria-pressed="false"
+              >
+                不可交错
+              </button>
+              <button
+                type="button"
+                class="case-button rounded-xl border-2 border-white px-4 py-2 text-sm font-black text-white"
+                data-case="empty"
+                aria-pressed="false"
+              >
+                空字符串
+              </button>
+            </div>
+          </div>
+          <p class="mt-5 text-xs text-white/60">
+            <strong class="text-white">键盘：</strong>← / → 前后步骤，Space
+            自动播放，R 重置。
+          </p>
+        </div>
+
+        <div class="bg-flax p-5 text-plum sm:p-8">
+          <div class="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_350px]">
+            <article class="loom-panel min-w-0 rounded-2xl p-5">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="utility text-[7px] font-black text-warp">
+                    Reachability fabric
+                  </p>
+                  <h3 class="mt-1 text-xl font-black">DP 可达网格</h3>
+                </div>
+                <p
+                  id="target-prefix"
+                  class="mono break-all text-sm font-black text-weft"
+                >
+                  s3 前缀：""
+                </p>
+              </div>
+              <div class="mt-5 max-w-full overflow-x-auto pb-3">
+                <div
+                  id="dp-grid"
+                  class="dp-grid"
+                  role="img"
+                  aria-label="交错字符串动态规划网格"
+                ></div>
+              </div>
+              <div class="mt-5 grid gap-3 sm:grid-cols-2">
+                <div class="thread-bar" id="s1-thread">
+                  <p class="utility text-[7px] font-black text-warp">
+                    s1 · warp
+                  </p>
+                  <p
+                    id="s1-progress"
+                    class="mono mt-2 break-all text-sm font-black"
+                  >
+                    ""
+                  </p>
+                </div>
+                <div class="thread-bar" id="s2-thread">
+                  <p class="utility text-[7px] font-black text-weft">
+                    s2 · weft
+                  </p>
+                  <p
+                    id="s2-progress"
+                    class="mono mt-2 break-all text-sm font-black"
+                  >
+                    ""
+                  </p>
+                </div>
+              </div>
+            </article>
+
+            <article class="rounded-2xl border-2 border-plum bg-parchment p-5">
+              <p
+                id="step-kicker"
+                class="utility text-[7px] font-black text-weft"
+              >
+                Stage 1 / 37
+              </p>
+              <h3 id="event-title" class="display mt-3 text-3xl">系上起始结</h3>
+              <p
+                id="event-description"
+                class="mt-4 min-h-28 text-sm leading-7 text-plum/70"
+              >
+                dp[0][0] = true：两个空前缀可以组成空目标前缀。
+              </p>
+              <dl class="mt-5 grid grid-cols-2 gap-3">
+                <div class="rounded-xl bg-mist p-3">
+                  <dt class="utility text-[6px] font-black text-plum/50">
+                    Knot
+                  </dt>
+                  <dd id="cell-value" class="mono mt-1 text-lg font-black">
+                    dp[0][0]
+                  </dd>
+                </div>
+                <div class="rounded-xl bg-shuttle/30 p-3">
+                  <dt class="utility text-[6px] font-black text-plum/50">
+                    Target
+                  </dt>
+                  <dd id="target-char" class="mono mt-1 text-lg font-black">
+                    ε
+                  </dd>
+                </div>
+                <div class="rounded-xl bg-warp/20 p-3">
+                  <dt class="utility text-[6px] font-black text-warp">
+                    From top
+                  </dt>
+                  <dd id="top-state" class="mono mt-1 text-sm font-black">—</dd>
+                </div>
+                <div class="rounded-xl bg-weft/20 p-3">
+                  <dt class="utility text-[6px] font-black text-weft">
+                    From left
+                  </dt>
+                  <dd id="left-state" class="mono mt-1 text-sm font-black">
+                    —
+                  </dd>
+                </div>
+              </dl>
+              <div
+                class="mt-4 rounded-xl border-2 border-plum bg-plum p-4 text-white"
+              >
+                <p class="utility text-[6px] font-black text-white/50">
+                  Decision
+                </p>
+                <p
+                  id="decision-value"
+                  class="mono mt-2 text-xl font-black text-shuttle"
+                >
+                  true
+                </p>
+              </div>
+            </article>
+          </div>
+
+          <div class="mt-5 flex flex-wrap gap-3">
+            <button
+              id="prev-step"
+              type="button"
+              class="rounded-xl border-2 border-plum bg-parchment px-5 py-3 text-sm font-black"
+            >
+              上一步
+            </button>
+            <button
+              id="play-step"
+              type="button"
+              class="rounded-xl border-2 border-plum bg-shuttle px-5 py-3 text-sm font-black"
+              aria-pressed="false"
+            >
+              自动播放
+            </button>
+            <button
+              id="next-step"
+              type="button"
+              class="rounded-xl border-2 border-plum bg-weft px-5 py-3 text-sm font-black text-white"
+            >
+              下一步
+            </button>
+            <button
+              id="reset-step"
+              type="button"
+              class="rounded-xl border-2 border-plum bg-plum px-5 py-3 text-sm font-black text-white"
+            >
+              重置
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="validation"
+        aria-labelledby="validation-title"
+        class="cloth-card mt-12 rounded-[2rem] p-6 sm:p-9"
+      >
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p class="utility text-[8px] font-black text-weft">Verification</p>
+            <h2 id="validation-title" class="display mt-2 text-4xl">
+              测试与验证
+            </h2>
+          </div>
+          <p
+            id="test-summary"
+            class="rounded-full bg-plum px-4 py-2 text-sm font-black text-white"
+          >
+            6 / 6 用例通过
+          </p>
+        </div>
+        <p class="mt-5 max-w-4xl text-sm leading-7 text-plum/60">
+          每张卡片独立展示输入、期望输出、实际输出与状态；下方工程检查覆盖格式、语法、浏览器交互和算法对拍。
+        </p>
+        <div
+          id="test-grid"
+          class="mt-7 grid min-w-0 gap-4 lg:grid-cols-2"
+        ></div>
+        <div class="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div class="rounded-xl border-2 border-plum/10 bg-mist p-4">
+            <p class="utility text-[6px] font-black text-warp">Prettier</p>
+            <p class="mt-2 font-black">通过</p>
+          </div>
+          <div class="rounded-xl border-2 border-plum/10 bg-mist p-4">
+            <p class="utility text-[6px] font-black text-warp">HTML Validate</p>
+            <p class="mt-2 font-black">通过</p>
+          </div>
+          <div class="rounded-xl border-2 border-plum/10 bg-mist p-4">
+            <p class="utility text-[6px] font-black text-warp">JavaScript</p>
+            <p class="mt-2 font-black">通过</p>
+          </div>
+          <div class="rounded-xl border-2 border-plum/10 bg-mist p-4">
+            <p class="utility text-[6px] font-black text-warp">真实 Chrome</p>
+            <p class="mt-2 font-black">通过</p>
+          </div>
+          <div class="rounded-xl border-2 border-plum/10 bg-mist p-4">
+            <p class="utility text-[6px] font-black text-warp">算法对拍</p>
+            <p class="mt-2 font-black">通过</p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="solution"
+        aria-labelledby="solution-title"
+        class="cloth-card mt-12 rounded-[2rem] p-6 sm:p-9"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-5">
+          <div>
+            <p class="utility text-[8px] font-black text-weft">Pattern vault</p>
+            <h2 id="solution-title" class="display mt-2 text-4xl">题解</h2>
+            <p class="mt-3 text-sm leading-7 text-plum/60">
+              核心洞察、完整过程、边界、复杂度、替代方案与四语言代码默认隐藏。
+            </p>
+          </div>
+          <button
+            id="solution-toggle"
+            type="button"
+            class="rounded-xl border-2 border-plum bg-weft px-5 py-3 text-sm font-black text-white"
+            aria-expanded="false"
+            aria-controls="solution-content"
+          >
+            查看题解
+          </button>
+        </div>
+
+        <div id="solution-content" class="mt-8" hidden>
+          <h3 id="solution-heading" class="sr-only" tabindex="-1">
+            交错字符串完整题解
+          </h3>
+          <div class="grid gap-4 lg:grid-cols-2">
+            <article class="rounded-2xl border-2 border-plum/20 bg-warp/10 p-5">
+              <p class="utility text-[7px] font-black text-warp">
+                Core insight
+              </p>
+              <h4 class="mt-3 text-xl font-black">状态只需要两个前缀长度</h4>
+              <p class="mt-3 text-sm leading-7 text-plum/70">
+                <code class="mono">dp[i][j]</code> 表示
+                <code class="mono">s1</code> 前 i 个字符与
+                <code class="mono">s2</code> 前 j 个字符能否组成
+                <code class="mono">s3</code> 前 i+j 个字符。目标下标由 i+j
+                唯一确定，不必额外记录。
+              </p>
+            </article>
+            <article
+              class="rounded-2xl border-2 border-plum/20 bg-parchment p-5"
+            >
+              <p class="utility text-[7px] font-black text-weft">Transition</p>
+              <h4 class="mt-3 text-xl font-black">
+                最后一个字符来自上方或左侧
+              </h4>
+              <p class="mt-3 text-sm leading-7 text-plum/70">
+                若从上方来，需要 <code class="mono">dp[i-1][j]</code> 已可达且
+                <code class="mono">s1[i-1] == s3[i+j-1]</code>；从左侧来同理检查
+                <code class="mono">s2[j-1]</code>。两者取或。
+              </p>
+            </article>
+            <article
+              class="rounded-2xl border-2 border-plum/20 bg-shuttle/20 p-5"
+            >
+              <p class="utility text-[7px] font-black">Complete process</p>
+              <h4 class="mt-3 text-xl font-black">完整过程</h4>
+              <ol
+                class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-7 text-plum/70"
+              >
+                <li>
+                  长度不满足
+                  <code class="mono">|s1| + |s2| = |s3|</code> 时立即返回
+                  false。
+                </li>
+                <li>
+                  令较短字符串作为一维数组的列，初始化
+                  <code class="mono">dp[0] = true</code>。
+                </li>
+                <li>先用第二个字符串初始化首行。</li>
+                <li>
+                  逐行更新：旧 <code class="mono">dp[j]</code> 是上方，新
+                  <code class="mono">dp[j-1]</code> 是左侧。
+                </li>
+                <li>最终返回 <code class="mono">dp[n]</code>。</li>
+              </ol>
+            </article>
+            <article
+              class="rounded-2xl border-2 border-plum/20 bg-parchment p-5"
+            >
+              <p class="utility text-[7px] font-black text-warp">Edges</p>
+              <h4 class="mt-3 text-xl font-black">边界</h4>
+              <ul
+                class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-plum/70"
+              >
+                <li>三个字符串都为空时返回 true。</li>
+                <li>其中一个源字符串为空时，问题退化为与目标串完全相等。</li>
+                <li>
+                  重复字符会让两个来源同时可行，不能贪心地固定选择其中一边。
+                </li>
+                <li>先做长度检查，避免访问不存在的目标字符。</li>
+              </ul>
+            </article>
+            <article class="rounded-2xl border-2 border-plum/20 bg-warp/10 p-5">
+              <p class="utility text-[7px] font-black text-warp">
+                Complexity &amp; alternatives
+              </p>
+              <h4 class="mt-3 text-xl font-black">复杂度与替代方案</h4>
+              <p class="mt-3 text-sm leading-7 text-plum/70">
+                一维 DP 时间 O(mn)，额外空间 O(min(m,n))。二维 DP
+                更适合讲解与回溯具体路径，但空间为 O(mn)；记忆化 DFS 同样是
+                O(mn)，递归栈与缓存常数更大。纯贪心在重复字符处会误判。
+              </p>
+            </article>
+            <article class="rounded-2xl border-2 border-plum/20 bg-weft/10 p-5">
+              <p class="utility text-[7px] font-black text-weft">
+                Interview notes
+              </p>
+              <h4 class="mt-3 text-xl font-black">面试追问与常见错误</h4>
+              <ul
+                class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-plum/70"
+              >
+                <li>
+                  追问：如何输出一条实际交错路径？保留二维父指针并从右下角回溯。
+                </li>
+                <li>
+                  追问：为何一维数组必须从左到右更新？因为当前行需要最新的左侧状态与上一行尚未覆盖的上方状态。
+                </li>
+                <li>
+                  错误：把“交错”理解成严格逐字符轮流；实际允许连续取同一来源的若干字符。
+                </li>
+                <li>错误：只比较字符计数；相对顺序同样必须保持。</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="mt-8">
+            <div
+              class="flex flex-wrap gap-2"
+              role="tablist"
+              aria-label="代码语言"
+            >
+              <button
+                id="tab-java"
+                type="button"
+                role="tab"
+                class="language-tab rounded-xl border-2 border-plum bg-plum px-4 py-2 text-sm font-black text-white"
+                aria-selected="true"
+                aria-controls="panel-java"
+                tabindex="0"
+              >
+                Java
+              </button>
+              <button
+                id="tab-javascript"
+                type="button"
+                role="tab"
+                class="language-tab rounded-xl border-2 border-plum bg-parchment px-4 py-2 text-sm font-black"
+                aria-selected="false"
+                aria-controls="panel-javascript"
+                tabindex="-1"
+              >
+                JavaScript
+              </button>
+              <button
+                id="tab-python"
+                type="button"
+                role="tab"
+                class="language-tab rounded-xl border-2 border-plum bg-parchment px-4 py-2 text-sm font-black"
+                aria-selected="false"
+                aria-controls="panel-python"
+                tabindex="-1"
+              >
+                Python
+              </button>
+              <button
+                id="tab-cpp"
+                type="button"
+                role="tab"
+                class="language-tab rounded-xl border-2 border-plum bg-parchment px-4 py-2 text-sm font-black"
+                aria-selected="false"
+                aria-controls="panel-cpp"
+                tabindex="-1"
+              >
+                C++
+              </button>
+            </div>
+
+            <div
+              id="panel-java"
+              role="tabpanel"
+              aria-labelledby="tab-java"
+              class="mt-4"
+            >
+              <pre><code class="code-block">class Solution {
+    public boolean isInterleave(String s1, String s2, String s3) {
+        if (s1.length() + s2.length() != s3.length()) return false;
+        if (s2.length() &gt; s1.length()) return isInterleave(s2, s1, s3);
+
+        int m = s1.length(), n = s2.length();
+        boolean[] dp = new boolean[n + 1];
+        dp[0] = true;
+        for (int j = 1; j &lt;= n; j++) {
+            dp[j] = dp[j - 1] &amp;&amp; s2.charAt(j - 1) == s3.charAt(j - 1);
+        }
+        for (int i = 1; i &lt;= m; i++) {
+            dp[0] = dp[0] &amp;&amp; s1.charAt(i - 1) == s3.charAt(i - 1);
+            for (int j = 1; j &lt;= n; j++) {
+                char target = s3.charAt(i + j - 1);
+                dp[j] = (dp[j] &amp;&amp; s1.charAt(i - 1) == target)
+                    || (dp[j - 1] &amp;&amp; s2.charAt(j - 1) == target);
+            }
+        }
+        return dp[n];
+    }
+}</code></pre>
+            </div>
+            <div
+              id="panel-javascript"
+              role="tabpanel"
+              aria-labelledby="tab-javascript"
+              class="mt-4"
+              hidden
+            >
+              <pre><code class="code-block">/**
+ * @param {string} s1
+ * @param {string} s2
+ * @param {string} s3
+ * @return {boolean}
+ */
+var isInterleave = function (s1, s2, s3) {
+    if (s1.length + s2.length !== s3.length) return false;
+    let a = s1, b = s2;
+    if (b.length &gt; a.length) [a, b] = [b, a];
+
+    const dp = Array(b.length + 1).fill(false);
+    dp[0] = true;
+    for (let j = 1; j &lt;= b.length; j++) {
+        dp[j] = dp[j - 1] &amp;&amp; b[j - 1] === s3[j - 1];
+    }
+    for (let i = 1; i &lt;= a.length; i++) {
+        dp[0] = dp[0] &amp;&amp; a[i - 1] === s3[i - 1];
+        for (let j = 1; j &lt;= b.length; j++) {
+            const target = s3[i + j - 1];
+            dp[j] = (dp[j] &amp;&amp; a[i - 1] === target)
+                || (dp[j - 1] &amp;&amp; b[j - 1] === target);
+        }
+    }
+    return dp[b.length];
+};</code></pre>
+            </div>
+            <div
+              id="panel-python"
+              role="tabpanel"
+              aria-labelledby="tab-python"
+              class="mt-4"
+              hidden
+            >
+              <pre><code class="code-block">class Solution:
+    def isInterleave(self, s1: str, s2: str, s3: str) -&gt; bool:
+        if len(s1) + len(s2) != len(s3):
+            return False
+        if len(s2) &gt; len(s1):
+            s1, s2 = s2, s1
+
+        dp = [False] * (len(s2) + 1)
+        dp[0] = True
+        for j in range(1, len(s2) + 1):
+            dp[j] = dp[j - 1] and s2[j - 1] == s3[j - 1]
+
+        for i in range(1, len(s1) + 1):
+            dp[0] = dp[0] and s1[i - 1] == s3[i - 1]
+            for j in range(1, len(s2) + 1):
+                target = s3[i + j - 1]
+                dp[j] = (dp[j] and s1[i - 1] == target) or (
+                    dp[j - 1] and s2[j - 1] == target
+                )
+        return dp[-1]</code></pre>
+            </div>
+            <div
+              id="panel-cpp"
+              role="tabpanel"
+              aria-labelledby="tab-cpp"
+              class="mt-4"
+              hidden
+            >
+              <pre><code class="code-block">class Solution {
+public:
+    bool isInterleave(string s1, string s2, string s3) {
+        if (s1.size() + s2.size() != s3.size()) return false;
+        if (s2.size() &gt; s1.size()) swap(s1, s2);
+
+        vector&lt;bool&gt; dp(s2.size() + 1, false);
+        dp[0] = true;
+        for (int j = 1; j &lt;= s2.size(); ++j) {
+            dp[j] = dp[j - 1] &amp;&amp; s2[j - 1] == s3[j - 1];
+        }
+        for (int i = 1; i &lt;= s1.size(); ++i) {
+            dp[0] = dp[0] &amp;&amp; s1[i - 1] == s3[i - 1];
+            for (int j = 1; j &lt;= s2.size(); ++j) {
+                char target = s3[i + j - 1];
+                dp[j] = (dp[j] &amp;&amp; s1[i - 1] == target)
+                    || (dp[j - 1] &amp;&amp; s2[j - 1] == target);
+            }
+        }
+        return dp[s2.size()];
+    }
+};</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="mt-12 border-t-2 border-plum bg-plum py-7 text-center text-xs text-white/50"
+    >
+      LeetCode 97 · Interleaving String · 单文件 Tailwind CSS + 原生 JavaScript
+      交互讲解
+    </footer>
+
+    <p
+      id="status-live"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></p>
+
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+
+        const isInterleave = (s1, s2, s3) => {
+          if (s1.length + s2.length !== s3.length) return false;
+          let a = s1;
+          let b = s2;
+          if (b.length > a.length) [a, b] = [b, a];
+          const dp = Array(b.length + 1).fill(false);
+          dp[0] = true;
+          for (let j = 1; j <= b.length; j += 1) {
+            dp[j] = dp[j - 1] && b[j - 1] === s3[j - 1];
+          }
+          for (let i = 1; i <= a.length; i += 1) {
+            dp[0] = dp[0] && a[i - 1] === s3[i - 1];
+            for (let j = 1; j <= b.length; j += 1) {
+              const target = s3[i + j - 1];
+              dp[j] =
+                (dp[j] && a[i - 1] === target) ||
+                (dp[j - 1] && b[j - 1] === target);
+            }
+          }
+          return dp[b.length];
+        };
+
+        const cases = {
+          true: {
+            label: "可交错",
+            s1: "aabcc",
+            s2: "dbbca",
+            s3: "aadbbcbcac",
+          },
+          false: {
+            label: "不可交错",
+            s1: "aabcc",
+            s2: "dbbca",
+            s3: "aadbbbaccc",
+          },
+          empty: { label: "空字符串", s1: "", s2: "", s3: "" },
+        };
+
+        const buildEvents = ({ s1, s2, s3 }) => {
+          const rows = s1.length + 1;
+          const cols = s2.length + 1;
+          const dp = Array.from({ length: rows }, () => Array(cols).fill(null));
+          const events = [];
+
+          if (s1.length + s2.length !== s3.length) {
+            events.push({
+              type: "length-fail",
+              i: 0,
+              j: 0,
+              k: 0,
+              value: false,
+              topValid: false,
+              leftValid: false,
+              topMatch: false,
+              leftMatch: false,
+              dp: dp.map((row) => [...row]),
+              description: "源字符串长度之和不等于目标串长度，不可能交错组成。",
+            });
+            return events;
+          }
+
+          dp[0][0] = true;
+          events.push({
+            type: "base",
+            i: 0,
+            j: 0,
+            k: 0,
+            value: true,
+            topValid: false,
+            leftValid: false,
+            topMatch: false,
+            leftMatch: false,
+            dp: dp.map((row) => [...row]),
+            description: "dp[0][0] = true：两个空前缀可以组成空目标前缀。",
+          });
+
+          for (let i = 0; i <= s1.length; i += 1) {
+            for (let j = 0; j <= s2.length; j += 1) {
+              if (i === 0 && j === 0) continue;
+              const k = i + j - 1;
+              const topValid = i > 0 && dp[i - 1][j] === true;
+              const leftValid = j > 0 && dp[i][j - 1] === true;
+              const topMatch = i > 0 && s1[i - 1] === s3[k];
+              const leftMatch = j > 0 && s2[j - 1] === s3[k];
+              const value = (topValid && topMatch) || (leftValid && leftMatch);
+              dp[i][j] = value;
+              const options = [];
+              if (i > 0) {
+                options.push(
+                  `上方 ${topValid ? "可达" : "不可达"}，s1 字符 ${JSON.stringify(
+                    s1[i - 1],
+                  )}${topMatch ? "匹配" : "不匹配"}`,
+                );
+              }
+              if (j > 0) {
+                options.push(
+                  `左侧 ${leftValid ? "可达" : "不可达"}，s2 字符 ${JSON.stringify(
+                    s2[j - 1],
+                  )}${leftMatch ? "匹配" : "不匹配"}`,
+                );
+              }
+              events.push({
+                type: "cell",
+                i,
+                j,
+                k,
+                value,
+                topValid,
+                leftValid,
+                topMatch,
+                leftMatch,
+                dp: dp.map((row) => [...row]),
+                description: `目标字符是 ${JSON.stringify(s3[k])}。${options.join(
+                  "；",
+                )}，因此 dp[${i}][${j}] = ${value}。`,
+              });
+            }
+          }
+
+          events.push({
+            type: "finish",
+            i: s1.length,
+            j: s2.length,
+            k: s3.length,
+            value: dp[s1.length][s2.length],
+            topValid: false,
+            leftValid: false,
+            topMatch: false,
+            leftMatch: false,
+            dp: dp.map((row) => [...row]),
+            description: `右下角状态为 ${dp[s1.length][s2.length]}，所以最终答案是 ${dp[s1.length][s2.length]}。`,
+          });
+          return events;
+        };
+
+        const tests = [
+          {
+            name: "官方样例 1",
+            input: 's1 = "aabcc", s2 = "dbbca", s3 = "aadbbcbcac"',
+            args: ["aabcc", "dbbca", "aadbbcbcac"],
+            expected: true,
+          },
+          {
+            name: "官方样例 2",
+            input: 's1 = "aabcc", s2 = "dbbca", s3 = "aadbbbaccc"',
+            args: ["aabcc", "dbbca", "aadbbbaccc"],
+            expected: false,
+          },
+          {
+            name: "官方样例 3 · 全空",
+            input: 's1 = "", s2 = "", s3 = ""',
+            args: ["", "", ""],
+            expected: true,
+          },
+          {
+            name: "长度不匹配",
+            input: 's1 = "a", s2 = "b", s3 = "a"',
+            args: ["a", "b", "a"],
+            expected: false,
+          },
+          {
+            name: "仅使用一卷线",
+            input: 's1 = "abc", s2 = "", s3 = "abc"',
+            args: ["abc", "", "abc"],
+            expected: true,
+          },
+          {
+            name: "重复字符歧义",
+            input: 's1 = "aa", s2 = "ab", s3 = "aaba"',
+            args: ["aa", "ab", "aaba"],
+            expected: true,
+          },
+        ];
+
+        const titleMap = {
+          base: "系上起始结",
+          cell: "检查当前结点",
+          finish: "织物完成检验",
+          "length-fail": "长度门禁失败",
+        };
+
+        const dpGrid = document.querySelector("#dp-grid");
+        const targetPrefix = document.querySelector("#target-prefix");
+        const s1Progress = document.querySelector("#s1-progress");
+        const s2Progress = document.querySelector("#s2-progress");
+        const s1Thread = document.querySelector("#s1-thread");
+        const s2Thread = document.querySelector("#s2-thread");
+        const stepKicker = document.querySelector("#step-kicker");
+        const eventTitle = document.querySelector("#event-title");
+        const eventDescription = document.querySelector("#event-description");
+        const cellValue = document.querySelector("#cell-value");
+        const targetChar = document.querySelector("#target-char");
+        const topState = document.querySelector("#top-state");
+        const leftState = document.querySelector("#left-state");
+        const decisionValue = document.querySelector("#decision-value");
+        const prevButton = document.querySelector("#prev-step");
+        const playButton = document.querySelector("#play-step");
+        const nextButton = document.querySelector("#next-step");
+        const resetButton = document.querySelector("#reset-step");
+        const liveRegion = document.querySelector("#status-live");
+        const solutionToggle = document.querySelector("#solution-toggle");
+        const solutionContent = document.querySelector("#solution-content");
+        const solutionHeading = document.querySelector("#solution-heading");
+        const caseButtons = [...document.querySelectorAll(".case-button")];
+        const languageTabs = [...document.querySelectorAll(".language-tab")];
+
+        let currentCase = "true";
+        let events = buildEvents(cases[currentCase]);
+        let stepIndex = 0;
+        let timer = null;
+
+        const displayChar = (value) => (value === " " ? "␠" : value || "ε");
+
+        const renderGrid = (event, data) => {
+          const rows = data.s1.length + 1;
+          const cols = data.s2.length + 1;
+          dpGrid.style.gridTemplateColumns = `repeat(${cols + 1}, 52px)`;
+          dpGrid.replaceChildren();
+
+          const corner = document.createElement("div");
+          corner.className = "axis-cell";
+          corner.textContent = "↘";
+          dpGrid.append(corner);
+          for (let j = 0; j < cols; j += 1) {
+            const axis = document.createElement("div");
+            axis.className = "axis-cell";
+            axis.textContent = j === 0 ? "ε" : displayChar(data.s2[j - 1]);
+            axis.setAttribute("aria-hidden", "true");
+            dpGrid.append(axis);
+          }
+
+          for (let i = 0; i < rows; i += 1) {
+            const axis = document.createElement("div");
+            axis.className = "axis-cell";
+            axis.textContent = i === 0 ? "ε" : displayChar(data.s1[i - 1]);
+            axis.setAttribute("aria-hidden", "true");
+            dpGrid.append(axis);
+            for (let j = 0; j < cols; j += 1) {
+              const value = event.dp[i]?.[j] ?? null;
+              const cell = document.createElement("div");
+              cell.className = "dp-cell";
+              if (value === true) cell.classList.add("reachable");
+              if (value === false) cell.classList.add("blocked");
+              if (value === null) cell.classList.add("pending");
+              if (i === event.i && j === event.j) cell.classList.add("current");
+              cell.textContent = value === null ? "·" : value ? "T" : "F";
+              cell.setAttribute(
+                "aria-label",
+                `dp[${i}][${j}] ${value === null ? "尚未计算" : String(value)}`,
+              );
+              dpGrid.append(cell);
+            }
+          }
+          dpGrid.setAttribute(
+            "aria-label",
+            `${data.label}用例的动态规划网格，当前 dp[${event.i}][${event.j}] 为 ${event.value}`,
+          );
+        };
+
+        const sourceState = (valid, match, exists) => {
+          if (!exists) return "—";
+          return `${valid ? "T" : "F"} · ${match ? "匹配" : "不匹配"}`;
+        };
+
+        const render = () => {
+          const data = cases[currentCase];
+          const event = events[stepIndex];
+          renderGrid(event, data);
+          const prefixLength = Math.min(event.i + event.j, data.s3.length);
+          targetPrefix.textContent = `s3 前缀：${JSON.stringify(
+            data.s3.slice(0, prefixLength),
+          )}`;
+          s1Progress.textContent = JSON.stringify(data.s1.slice(0, event.i));
+          s2Progress.textContent = JSON.stringify(data.s2.slice(0, event.j));
+          s1Thread.style.setProperty(
+            "--thread-progress",
+            `${data.s1.length ? (event.i / data.s1.length) * 100 : 100}%`,
+          );
+          s1Thread.style.setProperty("--thread-color", "var(--warp)");
+          s2Thread.style.setProperty(
+            "--thread-progress",
+            `${data.s2.length ? (event.j / data.s2.length) * 100 : 100}%`,
+          );
+          s2Thread.style.setProperty("--thread-color", "var(--weft)");
+          stepKicker.textContent = `Stage ${stepIndex + 1} / ${events.length}`;
+          eventTitle.textContent = titleMap[event.type];
+          eventDescription.textContent = event.description;
+          cellValue.textContent = `dp[${event.i}][${event.j}]`;
+          targetChar.textContent =
+            event.type === "base" || event.k >= data.s3.length
+              ? "ε"
+              : displayChar(data.s3[event.k]);
+          topState.textContent = sourceState(
+            event.topValid,
+            event.topMatch,
+            event.i > 0,
+          );
+          leftState.textContent = sourceState(
+            event.leftValid,
+            event.leftMatch,
+            event.j > 0,
+          );
+          decisionValue.textContent = String(event.value);
+          decisionValue.classList.toggle("text-shuttle", event.value);
+          decisionValue.classList.toggle("text-weft", !event.value);
+          prevButton.disabled = stepIndex === 0;
+          nextButton.disabled = stepIndex === events.length - 1;
+        };
+
+        const stopAuto = () => {
+          if (timer !== null) window.clearInterval(timer);
+          timer = null;
+          playButton.textContent = "自动播放";
+          playButton.setAttribute("aria-pressed", "false");
+        };
+
+        const goTo = (nextIndex, announce = true) => {
+          stepIndex = Math.max(0, Math.min(nextIndex, events.length - 1));
+          render();
+          if (stepIndex === events.length - 1) stopAuto();
+          if (announce) {
+            liveRegion.textContent = `${cases[currentCase].label}，${stepKicker.textContent}，${eventTitle.textContent}。${eventDescription.textContent}`;
+          }
+        };
+
+        const selectCase = (key) => {
+          stopAuto();
+          currentCase = key;
+          events = buildEvents(cases[currentCase]);
+          stepIndex = 0;
+          caseButtons.forEach((button) => {
+            const selected = button.dataset.case === key;
+            button.setAttribute("aria-pressed", String(selected));
+            button.classList.toggle("bg-shuttle", selected);
+            button.classList.toggle("text-plum", selected);
+            button.classList.toggle("text-white", !selected);
+          });
+          render();
+          liveRegion.textContent = `已切换到${cases[currentCase].label}用例，共 ${events.length} 个阶段。`;
+        };
+
+        const toggleAuto = () => {
+          if (timer !== null) {
+            stopAuto();
+            liveRegion.textContent = "自动播放已暂停。";
+            return;
+          }
+          if (stepIndex === events.length - 1) stepIndex = 0;
+          playButton.textContent = "暂停播放";
+          playButton.setAttribute("aria-pressed", "true");
+          liveRegion.textContent = "自动播放已开始。";
+          timer = window.setInterval(() => goTo(stepIndex + 1, false), 520);
+        };
+
+        const selectLanguage = (tab) => {
+          languageTabs.forEach((item) => {
+            const selected = item === tab;
+            item.setAttribute("aria-selected", String(selected));
+            item.tabIndex = selected ? 0 : -1;
+            item.classList.toggle("bg-plum", selected);
+            item.classList.toggle("text-white", selected);
+            item.classList.toggle("bg-parchment", !selected);
+            const panel = document.querySelector(
+              `#${item.getAttribute("aria-controls")}`,
+            );
+            panel.hidden = !selected;
+          });
+        };
+
+        document.querySelector("#test-grid").innerHTML = tests
+          .map((test) => {
+            const actual = isInterleave(...test.args);
+            const pass = actual === test.expected;
+            return `<article class="test-card">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="font-black">${test.name}</h3>
+                <span class="rounded-full ${pass ? "bg-warp" : "bg-weft"} px-3 py-1 text-xs font-black text-white">${pass ? "通过" : "失败"}</span>
+              </div>
+              <dl class="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
+                <div class="min-w-0 sm:col-span-2"><dt class="utility text-[6px] font-black text-plum/50">输入</dt><dd><code class="mono mt-2 block break-words rounded-xl bg-flax p-3 text-xs font-black">${test.input}</code></dd></div>
+                <div class="min-w-0 rounded-xl bg-mist p-3"><dt class="utility text-[6px] font-black text-plum/50">期望输出</dt><dd class="mono mt-2 font-black">${test.expected}</dd></div>
+                <div class="min-w-0 rounded-xl bg-mist p-3"><dt class="utility text-[6px] font-black text-plum/50">实际输出</dt><dd class="mono mt-2 font-black">${actual}</dd></div>
+              </dl>
+            </article>`;
+          })
+          .join("");
+
+        prevButton.addEventListener("click", () => goTo(stepIndex - 1));
+        nextButton.addEventListener("click", () => goTo(stepIndex + 1));
+        playButton.addEventListener("click", toggleAuto);
+        resetButton.addEventListener("click", () => {
+          stopAuto();
+          goTo(0);
+        });
+        caseButtons.forEach((button) => {
+          button.addEventListener("click", () =>
+            selectCase(button.dataset.case),
+          );
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const opening = solutionContent.hidden;
+          solutionContent.hidden = !opening;
+          solutionToggle.setAttribute("aria-expanded", String(opening));
+          solutionToggle.textContent = opening ? "收起题解" : "查看题解";
+          liveRegion.textContent = opening ? "题解已展开。" : "题解已收起。";
+          if (opening) solutionHeading.focus();
+        });
+
+        languageTabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => selectLanguage(tab));
+          tab.addEventListener("keydown", (event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+              return;
+            event.preventDefault();
+            let nextIndex = index;
+            if (event.key === "ArrowLeft")
+              nextIndex =
+                (index - 1 + languageTabs.length) % languageTabs.length;
+            if (event.key === "ArrowRight")
+              nextIndex = (index + 1) % languageTabs.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = languageTabs.length - 1;
+            selectLanguage(languageTabs[nextIndex]);
+            languageTabs[nextIndex].focus();
+          });
+        });
+
+        document.addEventListener("keydown", (event) => {
+          const interactive = [
+            "INPUT",
+            "TEXTAREA",
+            "SELECT",
+            "BUTTON",
+            "A",
+          ].includes(document.activeElement?.tagName);
+          if (interactive) return;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            goTo(stepIndex - 1);
+          }
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            goTo(stepIndex + 1);
+          }
+          if (event.code === "Space") {
+            event.preventDefault();
+            toggleAuto();
+          }
+          if (event.key.toLowerCase() === "r") {
+            stopAuto();
+            goTo(0);
+          }
+        });
+
+        render();
+      })();
+    </script>
+  </body>
+</html>
