@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Mappy</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-4 px-4 py-6">
+    <section class="w-full rounded-lg border border-sky-700 bg-sky-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-pink-200">Mini Mappy</h1>
+          <p class="text-sm text-sky-200/80">在楼层间收集赃物，用门震退追兵。</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-sky-700 bg-sky-800 px-3 py-2">
+            <div class="text-sky-200/70">分数</div>
+            <div id="score" class="text-lg font-bold text-lime-300">0</div>
+          </div>
+          <div class="rounded border border-sky-700 bg-sky-800 px-3 py-2">
+            <div class="text-sky-200/70">赃物</div>
+            <div id="loot" class="text-lg font-bold text-amber-300">0</div>
+          </div>
+          <div class="rounded border border-sky-700 bg-sky-800 px-3 py-2">
+            <div class="text-sky-200/70">生命</div>
+            <div id="lives" class="text-lg font-bold text-rose-300">3</div>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="game" width="720" height="520" class="mx-auto block h-auto w-full rounded border border-sky-700 bg-sky-950"></canvas>
+
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-sky-100/85">
+        <span>方向键 / WASD 移动，空格开门，R 重新开始。</span>
+        <button id="restart" class="rounded bg-pink-300 px-4 py-2 font-semibold text-sky-950 hover:bg-pink-200">重新开始</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const lootEl = document.getElementById("loot");
+    const livesEl = document.getElementById("lives");
+    const restartBtn = document.getElementById("restart");
+    const keys = new Set();
+
+    const floors = [88, 188, 288, 388, 488];
+    const ladders = [
+      { x: 120, top: 88, bottom: 288 },
+      { x: 360, top: 188, bottom: 488 },
+      { x: 590, top: 88, bottom: 388 }
+    ];
+    const doors = [
+      { x: 240, y: 188, open: 0 },
+      { x: 500, y: 288, open: 0 },
+      { x: 170, y: 388, open: 0 }
+    ];
+    let player;
+    let cats;
+    let loot;
+    let score;
+    let lives;
+    let running;
+    let message;
+    let lastTime;
+
+    function nearestFloor(y) {
+      return floors.reduce((best, floor) => Math.abs(floor - y) < Math.abs(best - y) ? floor : best, floors[0]);
+    }
+
+    function setupLoot() {
+      loot = [
+        { x: 84, y: 88 }, { x: 430, y: 88 }, { x: 650, y: 188 },
+        { x: 70, y: 288 }, { x: 505, y: 388 }, { x: 640, y: 488 },
+        { x: 280, y: 488 }, { x: 330, y: 188 }
+      ];
+    }
+
+    function setupGame() {
+      player = { x: 60, y: 488, vx: 0, vy: 0, stunned: 0, face: 1 };
+      cats = [
+        { x: 640, y: 488, speed: 78, dir: -1, stunned: 0 },
+        { x: 610, y: 288, speed: 88, dir: -1, stunned: 0 },
+        { x: 100, y: 188, speed: 72, dir: 1, stunned: 0 }
+      ];
+      setupLoot();
+      score = 0;
+      lives = 3;
+      running = true;
+      message = "";
+      lastTime = performance.now();
+      updateHud();
+      requestAnimationFrame(loop);
+    }
+
+    function ladderAt(x, y) {
+      return ladders.find((ladder) => Math.abs(ladder.x - x) < 26 && y >= ladder.top - 8 && y <= ladder.bottom + 8);
+    }
+
+    function updatePlayer(dt) {
+      if (player.stunned > 0) {
+        player.stunned -= dt;
+        return;
+      }
+      const onLadder = ladderAt(player.x, player.y);
+      const wantLeft = keys.has("ArrowLeft") || keys.has("a");
+      const wantRight = keys.has("ArrowRight") || keys.has("d");
+      const wantUp = keys.has("ArrowUp") || keys.has("w");
+      const wantDown = keys.has("ArrowDown") || keys.has("s");
+
+      if (wantLeft || wantRight) {
+        player.face = wantRight ? 1 : -1;
+        player.x += player.face * 150 * dt;
+      }
+      if (onLadder && (wantUp || wantDown)) {
+        player.y += (wantDown ? 1 : -1) * 135 * dt;
+        player.y = Math.max(onLadder.top, Math.min(onLadder.bottom, player.y));
+        player.x += (onLadder.x - player.x) * 0.12;
+      } else {
+        player.y += (nearestFloor(player.y) - player.y) * 0.22;
+      }
+      player.x = Math.max(30, Math.min(canvas.width - 30, player.x));
+    }
+
+    function openDoor() {
+      const door = doors.find((item) => item.y === nearestFloor(player.y) && Math.abs(item.x - player.x) < 52);
+      if (!door || door.open > 0) return;
+      door.open = 0.8;
+      cats.forEach((cat) => {
+        if (nearestFloor(cat.y) === door.y && Math.abs(cat.x - door.x) < 95) {
+          cat.stunned = 1.5;
+          cat.dir *= -1;
+          score += 40;
+        }
+      });
+      updateHud();
+    }
+
+    function updateCats(dt) {
+      cats.forEach((cat) => {
+        if (cat.stunned > 0) {
+          cat.stunned -= dt;
+          return;
+        }
+        const chase = Math.abs(cat.y - player.y) < 8 ? Math.sign(player.x - cat.x) || cat.dir : cat.dir;
+        cat.x += chase * cat.speed * dt;
+        cat.dir = chase;
+        if (cat.x < 35 || cat.x > canvas.width - 35) cat.dir *= -1;
+        const ladder = ladderAt(cat.x, cat.y);
+        if (ladder && Math.random() < 0.012) {
+          const target = player.y < cat.y ? ladder.top : ladder.bottom;
+          cat.y += Math.sign(target - cat.y) * 100 * dt;
+          cat.x += (ladder.x - cat.x) * 0.2;
+        } else {
+          cat.y += (nearestFloor(cat.y) - cat.y) * 0.18;
+        }
+        if (Math.hypot(cat.x - player.x, cat.y - player.y) < 28) loseLife();
+      });
+    }
+
+    function collectLoot() {
+      loot = loot.filter((item) => {
+        if (Math.hypot(item.x - player.x, item.y - player.y) < 28) {
+          score += 100;
+          return false;
+        }
+        return true;
+      });
+      if (loot.length === 0) {
+        running = false;
+        message = "Stage Clear";
+      }
+      updateHud();
+    }
+
+    function loseLife() {
+      lives -= 1;
+      player.x = 60;
+      player.y = 488;
+      player.stunned = 1;
+      cats.forEach((cat) => cat.stunned = 0.5);
+      if (lives <= 0) {
+        running = false;
+        message = "Game Over";
+      }
+      updateHud();
+    }
+
+    function updateDoors(dt) {
+      doors.forEach((door) => door.open = Math.max(0, door.open - dt));
+    }
+
+    function drawHouse() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#082f49";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      floors.forEach((y) => {
+        ctx.fillStyle = "#38bdf8";
+        ctx.fillRect(30, y + 14, canvas.width - 60, 8);
+      });
+      ladders.forEach((ladder) => {
+        ctx.strokeStyle = "#bae6fd";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(ladder.x - 10, ladder.top + 14);
+        ctx.lineTo(ladder.x - 10, ladder.bottom + 14);
+        ctx.moveTo(ladder.x + 10, ladder.top + 14);
+        ctx.lineTo(ladder.x + 10, ladder.bottom + 14);
+        ctx.stroke();
+        for (let y = ladder.top + 28; y < ladder.bottom + 12; y += 24) {
+          ctx.fillStyle = "#bae6fd";
+          ctx.fillRect(ladder.x - 13, y, 26, 4);
+        }
+      });
+      doors.forEach((door) => {
+        ctx.fillStyle = door.open > 0 ? "#f9a8d4" : "#fb7185";
+        ctx.fillRect(door.x - 18, door.y - 22, door.open > 0 ? 8 : 36, 36);
+      });
+    }
+
+    function drawActors() {
+      loot.forEach((item) => {
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(item.x - 10, item.y - 18, 20, 20);
+        ctx.fillStyle = "#fef3c7";
+        ctx.fillRect(item.x - 5, item.y - 13, 10, 10);
+      });
+      cats.forEach((cat) => {
+        ctx.fillStyle = cat.stunned > 0 ? "#94a3b8" : "#f97316";
+        ctx.beginPath();
+        ctx.arc(cat.x, cat.y - 8, 16, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.fillStyle = "#f0abfc";
+      ctx.beginPath();
+      ctx.arc(player.x, player.y - 8, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#1e1b4b";
+      ctx.fillRect(player.x + player.face * 4, player.y - 13, 6, 6);
+    }
+
+    function drawOverlay() {
+      if (!message) return;
+      ctx.fillStyle = "rgba(8, 47, 73, 0.76)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#fbcfe8";
+      ctx.font = "bold 36px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(message, canvas.width / 2, canvas.height / 2 - 8);
+      ctx.font = "18px sans-serif";
+      ctx.fillText("按 R 或点击重新开始", canvas.width / 2, canvas.height / 2 + 30);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      lootEl.textContent = loot.length;
+      livesEl.textContent = lives;
+    }
+
+    function loop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      if (running) {
+        updatePlayer(dt);
+        updateCats(dt);
+        updateDoors(dt);
+        collectLoot();
+      }
+      drawHouse();
+      drawActors();
+      drawOverlay();
+      if (running) requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "w", "a", "s", "d", " ", "r"].includes(key)) event.preventDefault();
+      if (key === " ") openDoor();
+      if (key === "r") setupGame();
+      keys.add(key);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
