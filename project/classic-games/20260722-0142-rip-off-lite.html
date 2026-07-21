@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Rip Off</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-lime-300/20 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-lime-200">Mini Rip Off</h1>
+        <p class="text-sm text-zinc-400">守住中央燃料罐，拦截来袭的掠夺艇，撑过一波又一波攻击。</p>
+      </div>
+      <button id="restartBtn" class="rounded border border-lime-300/50 px-4 py-2 text-sm font-semibold text-lime-100 transition hover:bg-lime-300/10">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px]">
+      <div class="rounded-lg border border-zinc-700 bg-zinc-900/80 p-3 shadow-2xl shadow-lime-950/20">
+        <canvas id="gameCanvas" width="720" height="480" class="h-auto w-full rounded bg-black"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/75 p-4 text-sm">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-zinc-400">分数</div>
+            <div id="score" class="text-xl font-bold text-lime-200">0</div>
+          </div>
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-zinc-400">燃料</div>
+            <div id="fuel" class="text-xl font-bold text-amber-200">8</div>
+          </div>
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-zinc-400">生命</div>
+            <div id="lives" class="text-xl font-bold text-rose-200">3</div>
+          </div>
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-zinc-400">波次</div>
+            <div id="wave" class="text-xl font-bold text-cyan-200">1</div>
+          </div>
+        </div>
+        <div class="rounded border border-lime-300/20 bg-lime-300/5 p-3 text-zinc-300">
+          <p>方向键 / WASD 转向与推进。</p>
+          <p>Space 发射能量弹。</p>
+          <p>R 重新开始。</p>
+        </div>
+        <div id="status" class="rounded border border-zinc-700 p-3 text-zinc-300">保护中央燃料罐，别让掠夺艇拖走它们。</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const fuelEl = document.getElementById("fuel");
+    const livesEl = document.getElementById("lives");
+    const waveEl = document.getElementById("wave");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const input = new Set();
+    const player = { x: 360, y: 390, a: -Math.PI / 2, vx: 0, vy: 0, r: 14, cooldown: 0, invulnerable: 0 };
+    let bullets = [];
+    let raiders = [];
+    let fuelPods = [];
+    let sparks = [];
+    let score = 0;
+    let lives = 3;
+    let wave = 1;
+    let frame = 0;
+    let gameOver = false;
+    let waveTimer = 0;
+
+    function reset() {
+      player.x = 360;
+      player.y = 390;
+      player.a = -Math.PI / 2;
+      player.vx = 0;
+      player.vy = 0;
+      player.cooldown = 0;
+      player.invulnerable = 90;
+      bullets = [];
+      raiders = [];
+      sparks = [];
+      score = 0;
+      lives = 3;
+      wave = 1;
+      frame = 0;
+      gameOver = false;
+      waveTimer = 90;
+      fuelPods = [];
+      for (let i = 0; i < 8; i += 1) {
+        const angle = (Math.PI * 2 * i) / 8;
+        fuelPods.push({
+          x: 360 + Math.cos(angle) * 62,
+          y: 245 + Math.sin(angle) * 46,
+          carriedBy: null,
+          lost: false
+        });
+      }
+      updateHud("保护中央燃料罐，别让掠夺艇拖走它们。");
+    }
+
+    function updateHud(message) {
+      scoreEl.textContent = score;
+      fuelEl.textContent = fuelPods.filter((pod) => !pod.lost).length;
+      livesEl.textContent = lives;
+      waveEl.textContent = wave;
+      if (message) statusEl.textContent = message;
+    }
+
+    function wrapShip(obj) {
+      if (obj.x < -20) obj.x = canvas.width + 20;
+      if (obj.x > canvas.width + 20) obj.x = -20;
+      if (obj.y < -20) obj.y = canvas.height + 20;
+      if (obj.y > canvas.height + 20) obj.y = -20;
+    }
+
+    function spawnRaiders() {
+      if (waveTimer > 0) {
+        waveTimer -= 1;
+        return;
+      }
+      const active = raiders.length;
+      const target = Math.min(4 + wave, 9);
+      if (active < target && frame % Math.max(34, 80 - wave * 4) === 0) {
+        const edge = Math.floor(Math.random() * 4);
+        const x = edge === 0 ? -20 : edge === 1 ? canvas.width + 20 : Math.random() * canvas.width;
+        const y = edge === 2 ? -20 : edge === 3 ? canvas.height + 20 : Math.random() * canvas.height;
+        raiders.push({
+          x,
+          y,
+          vx: 0,
+          vy: 0,
+          r: 13,
+          mode: "seek",
+          pod: null,
+          wobble: Math.random() * Math.PI * 2
+        });
+      }
+    }
+
+    function turnPlayer() {
+      if (input.has("ArrowLeft") || input.has("a")) player.a -= 0.08;
+      if (input.has("ArrowRight") || input.has("d")) player.a += 0.08;
+      if (input.has("ArrowUp") || input.has("w")) {
+        player.vx += Math.cos(player.a) * 0.22;
+        player.vy += Math.sin(player.a) * 0.22;
+        if (frame % 3 === 0) {
+          sparks.push({ x: player.x - Math.cos(player.a) * 15, y: player.y - Math.sin(player.a) * 15, life: 18, color: "#bef264" });
+        }
+      }
+      if (input.has("ArrowDown") || input.has("s")) {
+        player.vx *= 0.96;
+        player.vy *= 0.96;
+      }
+      player.vx *= 0.99;
+      player.vy *= 0.99;
+      player.x += player.vx;
+      player.y += player.vy;
+      wrapShip(player);
+      player.cooldown = Math.max(0, player.cooldown - 1);
+      player.invulnerable = Math.max(0, player.invulnerable - 1);
+    }
+
+    function fire() {
+      if (player.cooldown > 0 || gameOver) return;
+      bullets.push({
+        x: player.x + Math.cos(player.a) * 18,
+        y: player.y + Math.sin(player.a) * 18,
+        vx: Math.cos(player.a) * 7.2 + player.vx,
+        vy: Math.sin(player.a) * 7.2 + player.vy,
+        life: 62,
+        r: 3
+      });
+      player.cooldown = 14;
+    }
+
+    function nearestFuel(raider) {
+      let best = null;
+      let bestDist = Infinity;
+      for (const pod of fuelPods) {
+        if (pod.lost || pod.carriedBy) continue;
+        const d = Math.hypot(pod.x - raider.x, pod.y - raider.y);
+        if (d < bestDist) {
+          best = pod;
+          bestDist = d;
+        }
+      }
+      return best;
+    }
+
+    function updateRaiders() {
+      for (const raider of raiders) {
+        raider.wobble += 0.06;
+        let targetX = 360;
+        let targetY = 245;
+        if (raider.mode === "seek") {
+          const pod = nearestFuel(raider);
+          if (pod) {
+            targetX = pod.x;
+            targetY = pod.y;
+            if (Math.hypot(pod.x - raider.x, pod.y - raider.y) < 20) {
+              raider.mode = "escape";
+              raider.pod = pod;
+              pod.carriedBy = raider;
+              score = Math.max(0, score - 35);
+              updateHud("一艘掠夺艇拖走了燃料罐，击毁它可夺回。");
+            }
+          }
+        } else {
+          const away = Math.atan2(raider.y - 245, raider.x - 360);
+          targetX = raider.x + Math.cos(away) * 160;
+          targetY = raider.y + Math.sin(away) * 160;
+          if (raider.pod) {
+            raider.pod.x = raider.x - Math.cos(away) * 18;
+            raider.pod.y = raider.y - Math.sin(away) * 18;
+          }
+        }
+
+        const angle = Math.atan2(targetY - raider.y, targetX - raider.x) + Math.sin(raider.wobble) * 0.35;
+        const speed = raider.mode === "escape" ? 2.45 + wave * 0.08 : 1.75 + wave * 0.07;
+        raider.vx += Math.cos(angle) * 0.07;
+        raider.vy += Math.sin(angle) * 0.07;
+        const current = Math.hypot(raider.vx, raider.vy) || 1;
+        if (current > speed) {
+          raider.vx = (raider.vx / current) * speed;
+          raider.vy = (raider.vy / current) * speed;
+        }
+        raider.x += raider.vx;
+        raider.y += raider.vy;
+
+        if (raider.mode === "escape" && (raider.x < -36 || raider.x > canvas.width + 36 || raider.y < -36 || raider.y > canvas.height + 36)) {
+          if (raider.pod) raider.pod.lost = true;
+          raider.dead = true;
+          updateHud("燃料罐被拖离战场。");
+        } else {
+          wrapShip(raider);
+        }
+      }
+      raiders = raiders.filter((raider) => !raider.dead);
+    }
+
+    function updateBullets() {
+      for (const bullet of bullets) {
+        bullet.x += bullet.vx;
+        bullet.y += bullet.vy;
+        bullet.life -= 1;
+      }
+      bullets = bullets.filter((bullet) => bullet.life > 0 && bullet.x > -10 && bullet.x < canvas.width + 10 && bullet.y > -10 && bullet.y < canvas.height + 10);
+    }
+
+    function hit(a, b, radius) {
+      return Math.hypot(a.x - b.x, a.y - b.y) < radius;
+    }
+
+    function explode(x, y, color) {
+      for (let i = 0; i < 16; i += 1) {
+        sparks.push({ x, y, vx: Math.cos(i) * (1 + Math.random() * 2), vy: Math.sin(i) * (1 + Math.random() * 2), life: 24, color });
+      }
+    }
+
+    function checkHits() {
+      for (const bullet of bullets) {
+        for (const raider of raiders) {
+          if (!raider.dead && hit(bullet, raider, raider.r + bullet.r)) {
+            bullet.life = 0;
+            raider.dead = true;
+            if (raider.pod) {
+              raider.pod.carriedBy = null;
+              raider.pod.x = Math.max(40, Math.min(canvas.width - 40, raider.x));
+              raider.pod.y = Math.max(44, Math.min(canvas.height - 44, raider.y));
+              raider.pod = null;
+              score += 180;
+              updateHud("夺回燃料罐。");
+            } else {
+              score += 100;
+            }
+            explode(raider.x, raider.y, "#bef264");
+          }
+        }
+      }
+      raiders = raiders.filter((raider) => !raider.dead);
+
+      for (const raider of raiders) {
+        if (player.invulnerable <= 0 && hit(player, raider, player.r + raider.r)) {
+          lives -= 1;
+          player.x = 360;
+          player.y = 390;
+          player.vx = 0;
+          player.vy = 0;
+          player.invulnerable = 105;
+          explode(raider.x, raider.y, "#fb7185");
+          raider.dead = true;
+          if (raider.pod) {
+            raider.pod.carriedBy = null;
+            raider.pod = null;
+          }
+          updateHud("护卫艇受损，重新部署。");
+          if (lives <= 0) {
+            gameOver = true;
+            updateHud("防线崩溃，按 R 重新开始。");
+          }
+          break;
+        }
+      }
+      raiders = raiders.filter((raider) => !raider.dead);
+    }
+
+    function updateWave() {
+      const remainingFuel = fuelPods.filter((pod) => !pod.lost).length;
+      if (remainingFuel <= 0 && !gameOver) {
+        gameOver = true;
+        updateHud("燃料罐全部丢失，按 R 重新开始。");
+        return;
+      }
+      if (!gameOver && frame > 240 && raiders.length === 0 && waveTimer <= 0) {
+        wave += 1;
+        waveTimer = 120;
+        score += remainingFuel * 75;
+        updateHud("下一波正在接近，剩余燃料给予奖励分。");
+      }
+    }
+
+    function updateSparks() {
+      for (const spark of sparks) {
+        spark.x += spark.vx || 0;
+        spark.y += spark.vy || 0;
+        spark.life -= 1;
+      }
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function drawGrid() {
+      ctx.fillStyle = "#050505";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(163, 230, 53, 0.11)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = "#3f6212";
+      ctx.strokeRect(96, 42, 528, 394);
+    }
+
+    function drawFuel() {
+      ctx.strokeStyle = "#facc15";
+      ctx.lineWidth = 2;
+      ctx.fillStyle = "rgba(250, 204, 21, 0.09)";
+      ctx.beginPath();
+      ctx.arc(360, 245, 88, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fill();
+      for (const pod of fuelPods) {
+        if (pod.lost) continue;
+        ctx.save();
+        ctx.translate(pod.x, pod.y);
+        ctx.strokeStyle = pod.carriedBy ? "#fb923c" : "#fde047";
+        ctx.fillStyle = pod.carriedBy ? "rgba(251, 146, 60, 0.25)" : "rgba(250, 204, 21, 0.18)";
+        ctx.fillRect(-8, -10, 16, 20);
+        ctx.strokeRect(-8, -10, 16, 20);
+        ctx.restore();
+      }
+    }
+
+    function drawShip(obj, color, scale) {
+      ctx.save();
+      ctx.translate(obj.x, obj.y);
+      const angle = obj === player ? obj.a : Math.atan2(obj.vy, obj.vx);
+      ctx.rotate(angle);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(16 * scale, 0);
+      ctx.lineTo(-12 * scale, -10 * scale);
+      ctx.lineTo(-7 * scale, 0);
+      ctx.lineTo(-12 * scale, 10 * scale);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawObjects() {
+      for (const bullet of bullets) {
+        ctx.fillStyle = "#e7ff8f";
+        ctx.beginPath();
+        ctx.arc(bullet.x, bullet.y, bullet.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (const raider of raiders) {
+        drawShip(raider, raider.mode === "escape" ? "#fb923c" : "#f472b6", 0.86);
+        if (raider.pod) {
+          ctx.strokeStyle = "rgba(251, 146, 60, 0.65)";
+          ctx.beginPath();
+          ctx.moveTo(raider.x, raider.y);
+          ctx.lineTo(raider.pod.x, raider.pod.y);
+          ctx.stroke();
+        }
+      }
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life / 24);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+      if (!(player.invulnerable > 0 && Math.floor(frame / 6) % 2 === 0)) {
+        drawShip(player, "#a3e635", 1);
+      }
+    }
+
+    function drawOverlay() {
+      if (waveTimer > 0 && !gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.54)";
+        ctx.fillRect(230, 198, 260, 66);
+        ctx.strokeStyle = "#a3e635";
+        ctx.strokeRect(230, 198, 260, 66);
+        ctx.fillStyle = "#d9f99d";
+        ctx.font = "bold 20px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("WAVE " + wave, 360, 238);
+      }
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fef08a";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("防守结束", 360, 220);
+        ctx.fillStyle = "#d4d4d8";
+        ctx.font = "18px sans-serif";
+        ctx.fillText("按 R 或点击重新开始", 360, 258);
+      }
+    }
+
+    function loop() {
+      frame += 1;
+      if (!gameOver) {
+        spawnRaiders();
+        turnPlayer();
+        updateBullets();
+        updateRaiders();
+        checkHits();
+        updateWave();
+        updateSparks();
+        updateHud();
+      }
+      drawGrid();
+      drawFuel();
+      drawObjects();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "a", "d", "w", "s", "r"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") {
+        fire();
+        return;
+      }
+      if (key === "r") {
+        reset();
+        return;
+      }
+      input.add(key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      input.delete(key);
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
