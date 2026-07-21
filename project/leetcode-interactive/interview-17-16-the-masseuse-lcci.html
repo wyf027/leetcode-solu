@@ -1,0 +1,1279 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 面试题 17.16 按摩师：滚动动态规划交互讲解"
+    />
+    <title>面试题 17.16 按摩师｜预约节拍实验室</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <script data-cfasync="false">
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#0b1020",
+              paper: "#f7efdF",
+              coral: "#ff7657",
+              mint: "#62d9c5",
+              lilac: "#b7a8ff",
+              dusk: "#252b45",
+            },
+            fontFamily: {
+              display: ["Georgia", "STSong", "serif"],
+              body: ["Avenir Next", "PingFang SC", "sans-serif"],
+              mono: ["SFMono-Regular", "Consolas", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        overflow-x: hidden;
+        background:
+          radial-gradient(
+            circle at 10% 8%,
+            rgb(98 217 197 / 14%),
+            transparent 28rem
+          ),
+          radial-gradient(
+            circle at 90% 18%,
+            rgb(183 168 255 / 14%),
+            transparent 24rem
+          ),
+          #0b1020;
+      }
+
+      button,
+      [role="tab"] {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus-visible,
+      [role="tab"]:focus-visible,
+      a:focus-visible {
+        outline: 3px solid #f7efdf;
+        outline-offset: 4px;
+      }
+
+      .grain {
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.08'/%3E%3C/svg%3E");
+        pointer-events: none;
+      }
+
+      .pulse-line {
+        background:
+          linear-gradient(
+            90deg,
+            transparent 0 2%,
+            #62d9c5 2% 8%,
+            transparent 8% 12%
+          ),
+          repeating-linear-gradient(
+            90deg,
+            rgb(255 255 255 / 10%) 0 1px,
+            transparent 1px 48px
+          );
+      }
+
+      .appointment {
+        transition:
+          transform 220ms ease,
+          border-color 220ms ease,
+          background-color 220ms ease,
+          opacity 220ms ease;
+      }
+
+      .appointment[data-state="past"] {
+        opacity: 0.5;
+      }
+
+      .appointment[data-state="current"] {
+        transform: translateY(-8px);
+        border-color: #ff7657;
+        background: rgb(255 118 87 / 14%);
+      }
+
+      .metric-flash {
+        animation: metric-flash 420ms ease;
+      }
+
+      @keyframes metric-flash {
+        0% {
+          transform: translateY(5px);
+          opacity: 0.4;
+        }
+        100% {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+        }
+      }
+
+      @media (max-width: 420px) {
+        .mobile-tight {
+          padding-left: 1rem;
+          padding-right: 1rem;
+        }
+
+        pre {
+          font-size: 0.72rem;
+        }
+      }
+    </style>
+  </head>
+  <body class="font-body text-paper antialiased">
+    <div class="grain fixed inset-0 z-50 opacity-30" aria-hidden="true"></div>
+    <div
+      id="status-live"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <header
+      class="mobile-tight relative mx-auto max-w-6xl px-6 pb-14 pt-8 sm:pb-20 sm:pt-12"
+    >
+      <nav
+        class="flex items-center justify-between gap-4"
+        aria-label="页面导航"
+      >
+        <div
+          class="flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-mint"
+        >
+          <span
+            class="inline-block size-2 rounded-full bg-mint shadow-[0_0_18px_#62d9c5]"
+          ></span>
+          Interview Lab
+        </div>
+        <a
+          href="#tests"
+          class="rounded-full border border-white/15 px-4 py-2 text-sm text-white/70 transition hover:border-mint hover:text-mint"
+        >
+          查看验证
+        </a>
+      </nav>
+
+      <div class="mt-16 grid items-end gap-10 lg:grid-cols-[1.25fr_0.75fr]">
+        <div>
+          <p class="mb-5 font-mono text-sm tracking-[0.28em] text-coral">
+            面试题 17.16 · EASY · DYNAMIC PROGRAMMING
+          </p>
+          <h1
+            class="font-display text-5xl leading-[0.96] sm:text-7xl lg:text-[6.6rem]"
+          >
+            把一天排成<br />
+            <span class="italic text-mint">舒服的节拍</span>
+          </h1>
+          <p
+            class="mt-7 max-w-2xl text-base leading-8 text-white/65 sm:text-lg"
+          >
+            预约一场接一场，但按摩师不能连续接单。拖动时间来到每个预约，
+            看“接下这一单”和“留出休息”怎样竞争出最长工作时长。
+          </p>
+        </div>
+
+        <div
+          class="rounded-[2rem] border border-white/10 bg-white/[0.045] p-6 backdrop-blur"
+        >
+          <div class="flex items-center justify-between">
+            <span class="font-mono text-xs tracking-[0.18em] text-white/45"
+              >TODAY / 08 SLOTS</span
+            >
+            <span class="rounded-full bg-coral/15 px-3 py-1 text-xs text-coral"
+              >不可相邻</span
+            >
+          </div>
+          <div class="mt-8 flex h-24 items-end gap-2" aria-hidden="true">
+            <span class="h-[42%] flex-1 rounded-t-xl bg-mint/35"></span>
+            <span class="h-[20%] flex-1 rounded-t-xl bg-white/10"></span>
+            <span class="h-[68%] flex-1 rounded-t-xl bg-lilac/50"></span>
+            <span class="h-[82%] flex-1 rounded-t-xl bg-coral/60"></span>
+            <span class="h-[52%] flex-1 rounded-t-xl bg-mint/45"></span>
+            <span class="h-[25%] flex-1 rounded-t-xl bg-white/10"></span>
+            <span class="h-[25%] flex-1 rounded-t-xl bg-lilac/30"></span>
+            <span class="h-[52%] flex-1 rounded-t-xl bg-coral/50"></span>
+          </div>
+          <p class="mt-4 text-sm leading-6 text-white/55">
+            每根柱子是一段预约分钟数。相邻柱子不能同时被选中。
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="border-y border-white/10 bg-white/[0.025]">
+        <div
+          class="mobile-tight mx-auto grid max-w-6xl gap-10 px-6 py-14 lg:grid-cols-[0.85fr_1.15fr] lg:py-20"
+        >
+          <div>
+            <p class="font-mono text-xs tracking-[0.2em] text-lilac">
+              PROBLEM BRIEF
+            </p>
+            <h2 class="mt-4 font-display text-4xl">题意</h2>
+            <p class="mt-6 leading-8 text-white/68">
+              给定整数数组
+              <code class="rounded bg-white/10 px-2 py-1 font-mono text-mint"
+                >nums</code
+              >，
+              其中每个元素表示一项连续到来的预约时长。按摩师不能接受相邻的两项预约；
+              请返回她能接受的预约总分钟数最大值。
+            </p>
+            <div
+              class="mt-7 rounded-2xl border border-white/10 bg-ink/70 p-5 text-sm leading-7 text-white/58"
+            >
+              <p class="font-semibold text-paper">输入约定</p>
+              <p class="mt-2">
+                官方当前题面未单列数值范围；函数签名给出整数数组。空数组应返回
+                <code class="font-mono text-coral">0</code>。
+              </p>
+            </div>
+          </div>
+
+          <div class="grid gap-4 sm:grid-cols-3">
+            <article class="rounded-3xl border border-white/10 bg-dusk/70 p-5">
+              <p
+                class="text-xs font-bold uppercase tracking-[0.16em] text-mint"
+              >
+                官方样例 1
+              </p>
+              <dl class="mt-5 space-y-4 text-sm">
+                <div>
+                  <dt class="text-white/40">输入</dt>
+                  <dd class="mt-1 break-words font-mono text-paper">
+                    nums = [1, 2, 3, 1]
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-white/40">输出</dt>
+                  <dd class="mt-1 font-mono text-coral">4</dd>
+                </div>
+              </dl>
+            </article>
+            <article class="rounded-3xl border border-white/10 bg-dusk/70 p-5">
+              <p
+                class="text-xs font-bold uppercase tracking-[0.16em] text-lilac"
+              >
+                官方样例 2
+              </p>
+              <dl class="mt-5 space-y-4 text-sm">
+                <div>
+                  <dt class="text-white/40">输入</dt>
+                  <dd class="mt-1 break-words font-mono text-paper">
+                    nums = [2, 7, 9, 3, 1]
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-white/40">输出</dt>
+                  <dd class="mt-1 font-mono text-coral">12</dd>
+                </div>
+              </dl>
+            </article>
+            <article class="rounded-3xl border border-white/10 bg-dusk/70 p-5">
+              <p
+                class="text-xs font-bold uppercase tracking-[0.16em] text-coral"
+              >
+                官方样例 3
+              </p>
+              <dl class="mt-5 space-y-4 text-sm">
+                <div>
+                  <dt class="text-white/40">输入</dt>
+                  <dd class="mt-1 break-words font-mono text-paper">
+                    nums = [2, 1, 4, 5, 3, 1, 1, 3]
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-white/40">输出</dt>
+                  <dd class="mt-1 font-mono text-coral">12</dd>
+                </div>
+              </dl>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="mobile-tight mx-auto max-w-6xl px-6 py-16 sm:py-24"
+        aria-labelledby="demo-title"
+      >
+        <div
+          class="flex flex-col justify-between gap-6 md:flex-row md:items-end"
+        >
+          <div>
+            <p class="font-mono text-xs tracking-[0.2em] text-coral">
+              RHYTHM CONSOLE
+            </p>
+            <h2 id="demo-title" class="mt-4 font-display text-4xl sm:text-5xl">
+              交互分步演示
+            </h2>
+            <p class="mt-4 max-w-2xl leading-7 text-white/58">
+              选择一组预约，使用按钮或键盘方向键逐步查看。Home 回到开始，End
+              跳到结果。
+            </p>
+          </div>
+          <label class="block min-w-64 text-sm text-white/55">
+            演示用例
+            <select
+              id="case-select"
+              class="mt-2 w-full rounded-2xl border border-white/15 bg-dusk px-4 py-3 text-paper focus:border-mint focus:outline-none"
+            >
+              <option value="0">nums = [2, 7, 9, 3, 1]</option>
+              <option value="1">nums = [1, 2, 3, 1]</option>
+              <option value="2">nums = [2, 1, 4, 5, 3, 1, 1, 3]</option>
+              <option value="3">nums = []</option>
+            </select>
+          </label>
+        </div>
+
+        <div
+          class="mt-10 overflow-hidden rounded-[2rem] border border-white/10 bg-[#11172a]"
+        >
+          <div class="pulse-line h-2 w-full" aria-hidden="true"></div>
+          <div class="p-5 sm:p-8">
+            <div class="grid gap-4 md:grid-cols-3">
+              <div class="rounded-2xl bg-white/[0.045] p-5">
+                <p
+                  class="font-mono text-xs uppercase tracking-[0.16em] text-white/42"
+                >
+                  当前预约
+                </p>
+                <p
+                  id="current-slot"
+                  class="mt-3 font-display text-3xl text-paper"
+                >
+                  准备开始
+                </p>
+              </div>
+              <div class="rounded-2xl border border-mint/20 bg-mint/[0.06] p-5">
+                <p
+                  class="font-mono text-xs uppercase tracking-[0.16em] text-mint"
+                >
+                  不接当前
+                </p>
+                <p id="skip-value" class="mt-3 font-display text-3xl text-mint">
+                  0 分钟
+                </p>
+              </div>
+              <div
+                class="rounded-2xl border border-coral/20 bg-coral/[0.06] p-5"
+              >
+                <p
+                  class="font-mono text-xs uppercase tracking-[0.16em] text-coral"
+                >
+                  接下当前
+                </p>
+                <p
+                  id="take-value"
+                  class="mt-3 font-display text-3xl text-coral"
+                >
+                  0 分钟
+                </p>
+              </div>
+            </div>
+
+            <div
+              id="timeline"
+              class="mt-10 flex min-h-32 gap-3 overflow-x-auto pb-4"
+              role="list"
+              aria-label="预约时间轴"
+            ></div>
+
+            <div class="mt-5 grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div class="rounded-2xl border border-white/10 bg-black/20 p-5">
+                <p class="font-mono text-xs tracking-[0.14em] text-white/42">
+                  STEP NOTE
+                </p>
+                <p id="step-note" class="mt-3 min-h-14 leading-7 text-white/72">
+                  从 0 分钟开始，准备扫描预约序列。
+                </p>
+                <div
+                  class="mt-4 h-2 overflow-hidden rounded-full bg-white/10"
+                  aria-hidden="true"
+                >
+                  <div
+                    id="progress"
+                    class="h-full w-0 rounded-full bg-gradient-to-r from-mint to-coral"
+                  ></div>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3 sm:flex">
+                <button
+                  id="reset-button"
+                  type="button"
+                  class="rounded-full border border-white/15 px-5 py-3 text-sm font-bold text-white/70 transition hover:border-white/40 hover:text-white"
+                >
+                  ↤ 开始
+                </button>
+                <button
+                  id="prev-button"
+                  type="button"
+                  class="rounded-full border border-white/15 px-5 py-3 text-sm font-bold text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  ← 上一步
+                </button>
+                <button
+                  id="play-button"
+                  type="button"
+                  class="rounded-full bg-lilac px-5 py-3 text-sm font-extrabold text-ink transition hover:bg-paper"
+                  aria-pressed="false"
+                >
+                  ▶ 自动
+                </button>
+                <button
+                  id="next-button"
+                  type="button"
+                  class="rounded-full bg-coral px-5 py-3 text-sm font-extrabold text-ink transition hover:bg-paper disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  下一步 →
+                </button>
+              </div>
+            </div>
+
+            <div
+              class="mt-7 flex flex-col justify-between gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center"
+            >
+              <p class="text-sm text-white/48">
+                当前最优：
+                <strong
+                  id="best-value"
+                  class="ml-2 font-display text-2xl text-paper"
+                  >0 分钟</strong
+                >
+              </p>
+              <p
+                id="step-counter"
+                class="font-mono text-xs tracking-[0.16em] text-white/38"
+              >
+                STEP 0 / 5
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="tests"
+        class="border-y border-white/10 bg-paper text-ink"
+        aria-labelledby="tests-title"
+      >
+        <div class="mobile-tight mx-auto max-w-6xl px-6 py-16 sm:py-24">
+          <p class="font-mono text-xs tracking-[0.2em] text-[#7d4a42]">
+            TEST FLIGHT
+          </p>
+          <h2 id="tests-title" class="mt-4 font-display text-4xl sm:text-5xl">
+            测试与验证
+          </h2>
+          <p class="mt-4 max-w-2xl leading-7 text-ink/60">
+            每条用例独立展示输入、期望与页面算法的实际输出；下方同时记录交付检查。
+          </p>
+
+          <div id="test-grid" class="mt-10 grid gap-5 lg:grid-cols-2"></div>
+
+          <div class="mt-10 rounded-[2rem] bg-ink p-6 text-paper sm:p-8">
+            <div
+              class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"
+            >
+              <h3 class="font-display text-2xl">交付检查</h3>
+              <span
+                class="rounded-full bg-mint/15 px-4 py-2 text-xs font-bold text-mint"
+                >6 / 6 PASS</span
+              >
+            </div>
+            <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div class="rounded-2xl border border-white/10 p-4">
+                <b class="text-mint">✓</b> Prettier
+              </div>
+              <div class="rounded-2xl border border-white/10 p-4">
+                <b class="text-mint">✓</b> HTML Validate
+              </div>
+              <div class="rounded-2xl border border-white/10 p-4">
+                <b class="text-mint">✓</b> 内联 JavaScript
+              </div>
+              <div class="rounded-2xl border border-white/10 p-4">
+                <b class="text-mint">✓</b> 真实 Chrome
+              </div>
+              <div class="rounded-2xl border border-white/10 p-4">
+                <b class="text-mint">✓</b> 390px 移动端
+              </div>
+              <div class="rounded-2xl border border-white/10 p-4">
+                <b class="text-mint">✓</b> 随机算法对拍
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="mobile-tight mx-auto max-w-6xl px-6 py-16 sm:py-24"
+        aria-labelledby="solution-gate-title"
+      >
+        <div
+          class="rounded-[2rem] border border-lilac/25 bg-lilac/[0.055] p-6 text-center sm:p-10"
+        >
+          <p class="font-mono text-xs tracking-[0.2em] text-lilac">
+            SOLUTION VAULT
+          </p>
+          <h2 id="solution-gate-title" class="mt-4 font-display text-4xl">
+            准备好核对思路了吗？
+          </h2>
+          <p class="mx-auto mt-4 max-w-xl leading-7 text-white/58">
+            核心洞察、完整推导、边界、复杂度、追问与四语言代码都收在这里。
+          </p>
+          <button
+            id="solution-toggle"
+            type="button"
+            class="mt-7 rounded-full bg-paper px-7 py-4 font-extrabold text-ink transition hover:bg-mint"
+            aria-expanded="false"
+            aria-controls="solution-panel"
+          >
+            查看题解
+          </button>
+        </div>
+
+        <div id="solution-panel" class="mt-8" hidden>
+          <div class="space-y-7">
+            <article
+              class="rounded-[2rem] border border-white/10 bg-dusk/60 p-6 sm:p-9"
+            >
+              <p class="font-mono text-xs tracking-[0.18em] text-mint">
+                01 / CORE
+              </p>
+              <h3 class="mt-4 font-display text-3xl">
+                核心洞察：只需要记住前两拍
+              </h3>
+              <p class="mt-5 leading-8 text-white/68">
+                处理第 i 项预约时，最优方案只有两类：不接当前项，答案沿用前 i −
+                1 项的最优值； 接当前项，则必须跳过相邻的第 i − 1 项，用前 i − 2
+                项的最优值加上当前时长。 因而有
+                <code
+                  class="mx-1 rounded bg-black/30 px-2 py-1 font-mono text-mint"
+                >
+                  dp[i] = max(dp[i − 1], dp[i − 2] + nums[i]) </code
+                >。
+              </p>
+            </article>
+
+            <div class="grid gap-7 lg:grid-cols-2">
+              <article
+                class="rounded-[2rem] border border-white/10 bg-dusk/60 p-6 sm:p-8"
+              >
+                <p class="font-mono text-xs tracking-[0.18em] text-coral">
+                  02 / PROCESS
+                </p>
+                <h3 class="mt-4 font-display text-3xl">完整过程</h3>
+                <ol class="mt-5 space-y-4 leading-7 text-white/65">
+                  <li>
+                    <b class="text-paper">初始化：</b>前两拍的最优值均视作 0。
+                  </li>
+                  <li>
+                    <b class="text-paper">枚举预约：</b
+                    >计算跳过当前与接下当前两种收益。
+                  </li>
+                  <li>
+                    <b class="text-paper">取较大者：</b
+                    >得到扫描到当前位置的最优值。
+                  </li>
+                  <li>
+                    <b class="text-paper">滚动更新：</b
+                    >将前两项状态向前移动，无需保存整张表。
+                  </li>
+                </ol>
+              </article>
+
+              <article
+                class="rounded-[2rem] border border-white/10 bg-dusk/60 p-6 sm:p-8"
+              >
+                <p class="font-mono text-xs tracking-[0.18em] text-lilac">
+                  03 / BOUNDARIES
+                </p>
+                <h3 class="mt-4 font-display text-3xl">边界</h3>
+                <ul class="mt-5 space-y-4 leading-7 text-white/65">
+                  <li><b class="text-paper">空数组：</b>没有预约，返回 0。</li>
+                  <li>
+                    <b class="text-paper">单项预约：</b>直接接受该项即可。
+                  </li>
+                  <li>
+                    <b class="text-paper">两项预约：</b>只能取较大的一个。
+                  </li>
+                  <li>
+                    <b class="text-paper">相同最优值：</b
+                    >题目只要求分钟数，不必恢复具体方案。
+                  </li>
+                </ul>
+              </article>
+            </div>
+
+            <div class="grid gap-7 md:grid-cols-3">
+              <article
+                class="rounded-3xl border border-mint/20 bg-mint/[0.06] p-6"
+              >
+                <p class="text-sm text-white/48">时间复杂度</p>
+                <p class="mt-3 font-display text-4xl text-mint">O(n)</p>
+                <p class="mt-3 text-sm leading-6 text-white/55">
+                  每项预约只处理一次。
+                </p>
+              </article>
+              <article
+                class="rounded-3xl border border-coral/20 bg-coral/[0.06] p-6"
+              >
+                <p class="text-sm text-white/48">空间复杂度</p>
+                <p class="mt-3 font-display text-4xl text-coral">O(1)</p>
+                <p class="mt-3 text-sm leading-6 text-white/55">
+                  仅保留两个滚动状态。
+                </p>
+              </article>
+              <article
+                class="rounded-3xl border border-lilac/20 bg-lilac/[0.06] p-6"
+              >
+                <p class="text-sm text-white/48">推荐程度</p>
+                <p class="mt-3 font-display text-4xl text-lilac">首选</p>
+                <p class="mt-3 text-sm leading-6 text-white/55">
+                  状态清晰，代码短，便于追问。
+                </p>
+              </article>
+            </div>
+
+            <div class="grid gap-7 lg:grid-cols-2">
+              <article
+                class="rounded-[2rem] border border-white/10 bg-dusk/60 p-6 sm:p-8"
+              >
+                <p class="font-mono text-xs tracking-[0.18em] text-mint">
+                  ALTERNATIVES
+                </p>
+                <h3 class="mt-4 font-display text-3xl">替代方案取舍</h3>
+                <div class="mt-5 space-y-5 leading-7 text-white/65">
+                  <p>
+                    <b class="text-paper">完整 DP 数组：</b>同样是 O(n)
+                    时间，但需要 O(n) 空间；
+                    优点是便于恢复具体选择，若只返回最大分钟数则没有必要。
+                  </p>
+                  <p>
+                    <b class="text-paper">递归枚举：</b
+                    >思路直观，但会重复计算同一后缀， 朴素版本达到
+                    O(2ⁿ)，不适合作为面试主线。
+                  </p>
+                </div>
+              </article>
+
+              <article
+                class="rounded-[2rem] border border-white/10 bg-dusk/60 p-6 sm:p-8"
+              >
+                <p class="font-mono text-xs tracking-[0.18em] text-coral">
+                  COMMON MISSTEPS
+                </p>
+                <h3 class="mt-4 font-display text-3xl">常见错误</h3>
+                <ul class="mt-5 space-y-4 leading-7 text-white/65">
+                  <li>把“不能接相邻预约”误解为每隔固定两项必须接一项。</li>
+                  <li>更新滚动变量时顺序错误，覆盖了仍要使用的前两项状态。</li>
+                  <li>只比较当前两个元素，忽略更早选择形成的累计最优值。</li>
+                  <li>空数组直接访问首元素，造成越界。</li>
+                </ul>
+              </article>
+            </div>
+
+            <article
+              class="rounded-[2rem] border border-white/10 bg-dusk/60 p-6 sm:p-8"
+            >
+              <p class="font-mono text-xs tracking-[0.18em] text-lilac">
+                INTERVIEW FOLLOW-UPS
+              </p>
+              <h3 class="mt-4 font-display text-3xl">面试追问</h3>
+              <div class="mt-6 grid gap-5 md:grid-cols-3">
+                <div class="rounded-2xl bg-black/20 p-5">
+                  <p class="font-bold text-paper">如何恢复预约集合？</p>
+                  <p class="mt-3 text-sm leading-6 text-white/55">
+                    保留完整 dp，并从末尾比较 dp[i] 与 dp[i − 1] 回溯。
+                  </p>
+                </div>
+                <div class="rounded-2xl bg-black/20 p-5">
+                  <p class="font-bold text-paper">如果首尾也相邻？</p>
+                  <p class="mt-3 text-sm leading-6 text-white/55">
+                    拆成“不选首项”和“不选尾项”两次线性 DP。
+                  </p>
+                </div>
+                <div class="rounded-2xl bg-black/20 p-5">
+                  <p class="font-bold text-paper">如果允许负数？</p>
+                  <p class="mt-3 text-sm leading-6 text-white/55">
+                    以 0 初始化仍可选择全部跳过，返回不小于 0 的最优值。
+                  </p>
+                </div>
+              </div>
+            </article>
+
+            <article
+              class="overflow-hidden rounded-[2rem] border border-white/10 bg-[#090d18]"
+            >
+              <div class="border-b border-white/10 p-5 sm:px-8">
+                <p class="font-mono text-xs tracking-[0.18em] text-mint">
+                  SUBMITTABLE CODE
+                </p>
+                <h3 class="mt-3 font-display text-3xl">四语言可提交代码</h3>
+                <div
+                  class="mt-6 flex gap-2 overflow-x-auto pb-2"
+                  role="tablist"
+                  aria-label="代码语言"
+                >
+                  <button
+                    class="code-tab rounded-full bg-mint px-4 py-2 text-sm font-bold text-ink"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="code-java"
+                    id="tab-java"
+                    data-language="java"
+                  >
+                    Java
+                  </button>
+                  <button
+                    class="code-tab rounded-full border border-white/15 px-4 py-2 text-sm font-bold text-white/65"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="code-javascript"
+                    id="tab-javascript"
+                    data-language="javascript"
+                  >
+                    JavaScript
+                  </button>
+                  <button
+                    class="code-tab rounded-full border border-white/15 px-4 py-2 text-sm font-bold text-white/65"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="code-python"
+                    id="tab-python"
+                    data-language="python"
+                  >
+                    Python
+                  </button>
+                  <button
+                    class="code-tab rounded-full border border-white/15 px-4 py-2 text-sm font-bold text-white/65"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="code-cpp"
+                    id="tab-cpp"
+                    data-language="cpp"
+                  >
+                    C++
+                  </button>
+                </div>
+              </div>
+
+              <div
+                id="code-java"
+                class="code-panel overflow-x-auto p-5 sm:p-8"
+                role="tabpanel"
+                aria-labelledby="tab-java"
+              >
+                <pre><code class="font-mono text-sm leading-7 text-white/78">class Solution {
+    public int massage(int[] nums) {
+        int prevTwo = 0;
+        int prevOne = 0;
+
+        for (int minutes : nums) {
+            int current = Math.max(prevOne, prevTwo + minutes);
+            prevTwo = prevOne;
+            prevOne = current;
+        }
+
+        return prevOne;
+    }
+}</code></pre>
+              </div>
+              <div
+                id="code-javascript"
+                class="code-panel overflow-x-auto p-5 sm:p-8"
+                role="tabpanel"
+                aria-labelledby="tab-javascript"
+                hidden
+              >
+                <pre><code class="font-mono text-sm leading-7 text-white/78">/**
+ * @param {number[]} nums
+ * @return {number}
+ */
+var massage = function (nums) {
+    let prevTwo = 0;
+    let prevOne = 0;
+
+    for (const minutes of nums) {
+        const current = Math.max(prevOne, prevTwo + minutes);
+        prevTwo = prevOne;
+        prevOne = current;
+    }
+
+    return prevOne;
+};</code></pre>
+              </div>
+              <div
+                id="code-python"
+                class="code-panel overflow-x-auto p-5 sm:p-8"
+                role="tabpanel"
+                aria-labelledby="tab-python"
+                hidden
+              >
+                <pre><code class="font-mono text-sm leading-7 text-white/78">class Solution:
+    def massage(self, nums: List[int]) -&gt; int:
+        prev_two = 0
+        prev_one = 0
+
+        for minutes in nums:
+            current = max(prev_one, prev_two + minutes)
+            prev_two = prev_one
+            prev_one = current
+
+        return prev_one</code></pre>
+              </div>
+              <div
+                id="code-cpp"
+                class="code-panel overflow-x-auto p-5 sm:p-8"
+                role="tabpanel"
+                aria-labelledby="tab-cpp"
+                hidden
+              >
+                <pre><code class="font-mono text-sm leading-7 text-white/78">class Solution {
+public:
+    int massage(vector&lt;int&gt;&amp; nums) {
+        int prevTwo = 0;
+        int prevOne = 0;
+
+        for (int minutes : nums) {
+            int current = max(prevOne, prevTwo + minutes);
+            prevTwo = prevOne;
+            prevOne = current;
+        }
+
+        return prevOne;
+    }
+};</code></pre>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-t border-white/10 px-6 py-10 text-center text-sm text-white/38"
+    >
+      面试题 17.16 · 按摩师 · 用一格休息换更长的节拍
+    </footer>
+
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+
+        const cases = [
+          [2, 7, 9, 3, 1],
+          [1, 2, 3, 1],
+          [2, 1, 4, 5, 3, 1, 1, 3],
+          [],
+        ];
+
+        const tests = [
+          { name: "官方样例 1", nums: [1, 2, 3, 1], expected: 4 },
+          { name: "官方样例 2", nums: [2, 7, 9, 3, 1], expected: 12 },
+          { name: "官方样例 3", nums: [2, 1, 4, 5, 3, 1, 1, 3], expected: 12 },
+          { name: "空数组边界", nums: [], expected: 0 },
+          { name: "单项预约", nums: [8], expected: 8 },
+          { name: "首尾组合", nums: [5, 1, 1, 5], expected: 10 },
+        ];
+
+        const elements = {
+          select: document.querySelector("#case-select"),
+          timeline: document.querySelector("#timeline"),
+          current: document.querySelector("#current-slot"),
+          skip: document.querySelector("#skip-value"),
+          take: document.querySelector("#take-value"),
+          best: document.querySelector("#best-value"),
+          note: document.querySelector("#step-note"),
+          progress: document.querySelector("#progress"),
+          counter: document.querySelector("#step-counter"),
+          reset: document.querySelector("#reset-button"),
+          prev: document.querySelector("#prev-button"),
+          play: document.querySelector("#play-button"),
+          next: document.querySelector("#next-button"),
+          live: document.querySelector("#status-live"),
+          solutionToggle: document.querySelector("#solution-toggle"),
+          solutionPanel: document.querySelector("#solution-panel"),
+          testGrid: document.querySelector("#test-grid"),
+        };
+
+        let nums = cases[0];
+        let steps = buildSteps(nums);
+        let stepIndex = 0;
+        let timer = null;
+
+        function solve(values) {
+          let prevTwo = 0;
+          let prevOne = 0;
+          values.forEach((minutes) => {
+            const current = Math.max(prevOne, prevTwo + minutes);
+            prevTwo = prevOne;
+            prevOne = current;
+          });
+          return prevOne;
+        }
+
+        function buildSteps(values) {
+          const result = [
+            {
+              index: -1,
+              skip: 0,
+              take: 0,
+              best: 0,
+              note: values.length
+                ? "从 0 分钟开始，准备扫描预约序列。"
+                : "预约序列为空，没有可接的预约，答案是 0。",
+            },
+          ];
+          let prevTwo = 0;
+          let prevOne = 0;
+
+          values.forEach((minutes, index) => {
+            const skip = prevOne;
+            const take = prevTwo + minutes;
+            const best = Math.max(skip, take);
+            result.push({
+              index,
+              skip,
+              take,
+              best,
+              note:
+                "第 " +
+                (index + 1) +
+                " 项为 " +
+                minutes +
+                " 分钟：不接得到 " +
+                skip +
+                "；接下则用前两项最优 " +
+                prevTwo +
+                " 加当前，得到 " +
+                take +
+                "。本步保留 " +
+                best +
+                "。",
+            });
+            prevTwo = prevOne;
+            prevOne = best;
+          });
+
+          return result;
+        }
+
+        function renderTimeline() {
+          elements.timeline.innerHTML = "";
+          nums.forEach((minutes, index) => {
+            const item = document.createElement("div");
+            item.className =
+              "appointment min-w-24 flex-1 rounded-2xl border border-white/10 bg-white/[0.035] p-4";
+            item.dataset.state =
+              index < steps[stepIndex].index
+                ? "past"
+                : index === steps[stepIndex].index
+                  ? "current"
+                  : "future";
+            item.setAttribute("role", "listitem");
+            item.setAttribute(
+              "aria-current",
+              index === steps[stepIndex].index ? "step" : "false",
+            );
+            item.innerHTML =
+              '<p class="font-mono text-[0.65rem] tracking-[0.14em] text-white/35">SLOT ' +
+              String(index + 1).padStart(2, "0") +
+              '</p><p class="mt-4 font-display text-3xl text-paper">' +
+              minutes +
+              '</p><p class="mt-1 text-xs text-white/38">分钟</p>';
+            elements.timeline.appendChild(item);
+          });
+
+          if (!nums.length) {
+            elements.timeline.innerHTML =
+              '<div class="flex w-full items-center justify-center rounded-2xl border border-dashed border-white/15 p-8 text-white/42">空数组：今天没有预约</div>';
+          }
+        }
+
+        function animateMetric(element) {
+          element.classList.remove("metric-flash");
+          void element.offsetWidth;
+          element.classList.add("metric-flash");
+        }
+
+        function render(announce) {
+          const step = steps[stepIndex];
+          elements.current.textContent =
+            step.index < 0
+              ? nums.length
+                ? "准备开始"
+                : "无预约"
+              : "第 " +
+                (step.index + 1) +
+                " 项 · " +
+                nums[step.index] +
+                " 分钟";
+          elements.skip.textContent = step.skip + " 分钟";
+          elements.take.textContent = step.take + " 分钟";
+          elements.best.textContent = step.best + " 分钟";
+          elements.note.textContent = step.note;
+          elements.counter.textContent =
+            "STEP " + stepIndex + " / " + Math.max(0, steps.length - 1);
+          elements.progress.style.width =
+            (steps.length === 1
+              ? 100
+              : (stepIndex / (steps.length - 1)) * 100) + "%";
+          elements.prev.disabled = stepIndex === 0;
+          elements.next.disabled = stepIndex === steps.length - 1;
+          renderTimeline();
+          animateMetric(elements.best);
+
+          if (announce) {
+            elements.live.textContent =
+              "第 " +
+              stepIndex +
+              " 步，共 " +
+              Math.max(0, steps.length - 1) +
+              " 步。当前最优 " +
+              step.best +
+              " 分钟。";
+          }
+        }
+
+        function stopPlayback(announce) {
+          if (timer) {
+            window.clearInterval(timer);
+            timer = null;
+          }
+          elements.play.textContent = "▶ 自动";
+          elements.play.setAttribute("aria-pressed", "false");
+          if (announce) elements.live.textContent = "自动播放已暂停。";
+        }
+
+        function moveTo(index, announce = true) {
+          stepIndex = Math.max(0, Math.min(index, steps.length - 1));
+          render(announce);
+          if (stepIndex === steps.length - 1) stopPlayback(false);
+        }
+
+        function startPlayback() {
+          if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            moveTo(Math.min(stepIndex + 1, steps.length - 1));
+            elements.live.textContent = "已启用减少动态效果，仅前进一步。";
+            return;
+          }
+
+          if (timer) {
+            stopPlayback(true);
+            return;
+          }
+
+          if (stepIndex === steps.length - 1) moveTo(0, false);
+          elements.play.textContent = "Ⅱ 暂停";
+          elements.play.setAttribute("aria-pressed", "true");
+          elements.live.textContent = "自动播放已开始。";
+          timer = window.setInterval(() => {
+            moveTo(stepIndex + 1);
+          }, 1100);
+        }
+
+        function changeCase() {
+          stopPlayback(false);
+          nums = cases[Number(elements.select.value)];
+          steps = buildSteps(nums);
+          stepIndex = 0;
+          render(true);
+          elements.live.textContent =
+            "已切换演示用例：nums = [" + nums.join(", ") + "]。";
+        }
+
+        function renderTests() {
+          elements.testGrid.innerHTML = "";
+          tests.forEach((test) => {
+            const actual = solve(test.nums);
+            const pass = actual === test.expected;
+            const card = document.createElement("article");
+            card.className =
+              "rounded-[1.75rem] border border-ink/10 bg-white p-6 shadow-sm";
+            card.innerHTML =
+              '<div class="flex items-center justify-between gap-4">' +
+              '<h3 class="font-display text-2xl">' +
+              test.name +
+              "</h3>" +
+              '<span class="rounded-full px-3 py-1 text-xs font-extrabold ' +
+              (pass
+                ? "bg-[#d9f7ef] text-[#176655]"
+                : "bg-red-100 text-red-700") +
+              '">' +
+              (pass ? "通过" : "失败") +
+              "</span></div>" +
+              '<dl class="mt-6 grid gap-4 sm:grid-cols-2">' +
+              '<div class="rounded-2xl bg-ink/[0.045] p-4 sm:col-span-2"><dt class="text-xs font-bold uppercase tracking-[0.14em] text-ink/45">输入</dt><dd class="mt-2 break-words font-mono text-sm">nums = [' +
+              test.nums.join(", ") +
+              "]</dd></div>" +
+              '<div class="rounded-2xl bg-ink/[0.045] p-4"><dt class="text-xs font-bold uppercase tracking-[0.14em] text-ink/45">期望输出</dt><dd class="mt-2 font-mono text-lg">' +
+              test.expected +
+              "</dd></div>" +
+              '<div class="rounded-2xl bg-ink/[0.045] p-4"><dt class="text-xs font-bold uppercase tracking-[0.14em] text-ink/45">实际输出</dt><dd class="mt-2 font-mono text-lg">' +
+              actual +
+              "</dd></div>" +
+              '<div class="rounded-2xl bg-ink/[0.045] p-4 sm:col-span-2"><dt class="text-xs font-bold uppercase tracking-[0.14em] text-ink/45">通过状态</dt><dd class="mt-2 font-semibold ' +
+              (pass ? "text-[#176655]" : "text-red-700") +
+              '">' +
+              (pass ? "PASS · 结果一致" : "FAIL · 结果不一致") +
+              "</dd></div></dl>";
+            elements.testGrid.appendChild(card);
+          });
+        }
+
+        function toggleSolution() {
+          const willOpen =
+            elements.solutionToggle.getAttribute("aria-expanded") !== "true";
+          elements.solutionToggle.setAttribute(
+            "aria-expanded",
+            String(willOpen),
+          );
+          elements.solutionPanel.hidden = !willOpen;
+          elements.solutionToggle.textContent = willOpen
+            ? "收起题解"
+            : "查看题解";
+          elements.live.textContent = willOpen
+            ? "题解已展开。"
+            : "题解已收起。";
+        }
+
+        function activateTab(tab) {
+          document.querySelectorAll(".code-tab").forEach((candidate) => {
+            const selected = candidate === tab;
+            candidate.setAttribute("aria-selected", String(selected));
+            candidate.className =
+              "code-tab rounded-full px-4 py-2 text-sm font-bold " +
+              (selected
+                ? "bg-mint text-ink"
+                : "border border-white/15 text-white/65");
+            document.querySelector(
+              "#code-" + candidate.dataset.language,
+            ).hidden = !selected;
+          });
+          elements.live.textContent =
+            "已切换到 " + tab.textContent.trim() + " 代码。";
+        }
+
+        elements.select.addEventListener("change", changeCase);
+        elements.reset.addEventListener("click", () => {
+          stopPlayback(false);
+          moveTo(0);
+        });
+        elements.prev.addEventListener("click", () => {
+          stopPlayback(false);
+          moveTo(stepIndex - 1);
+        });
+        elements.next.addEventListener("click", () => {
+          stopPlayback(false);
+          moveTo(stepIndex + 1);
+        });
+        elements.play.addEventListener("click", startPlayback);
+        elements.solutionToggle.addEventListener("click", toggleSolution);
+
+        document.querySelectorAll(".code-tab").forEach((tab) => {
+          tab.addEventListener("click", () => activateTab(tab));
+          tab.addEventListener("keydown", (event) => {
+            if (
+              !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+            ) {
+              return;
+            }
+            event.preventDefault();
+            const tabs = Array.from(document.querySelectorAll(".code-tab"));
+            const current = tabs.indexOf(tab);
+            let target = current;
+            if (event.key === "ArrowLeft") {
+              target = (current - 1 + tabs.length) % tabs.length;
+            } else if (event.key === "ArrowRight") {
+              target = (current + 1) % tabs.length;
+            } else if (event.key === "Home") {
+              target = 0;
+            } else {
+              target = tabs.length - 1;
+            }
+            tabs[target].focus();
+            activateTab(tabs[target]);
+          });
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (
+            event.target.matches("select, input, textarea, [role='tab']") ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey
+          ) {
+            return;
+          }
+
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            stopPlayback(false);
+            moveTo(stepIndex - 1);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            stopPlayback(false);
+            moveTo(stepIndex + 1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            stopPlayback(false);
+            moveTo(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            stopPlayback(false);
+            moveTo(steps.length - 1);
+          }
+        });
+
+        renderTests();
+        render(false);
+
+        window.masseuseVerification = {
+          solve,
+          bruteForce(values) {
+            function search(index) {
+              if (index >= values.length) return 0;
+              return Math.max(
+                search(index + 1),
+                values[index] + search(index + 2),
+              );
+            }
+            return search(0);
+          },
+        };
+      })();
+    </script>
+  </body>
+</html>
