@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Stargate Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-violet-200">Mini Stargate</h1>
+        <p class="text-sm text-slate-400">W/S 或方向键移动，空格射击，Shift 进入星门跃迁，Enter 重开。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-violet-500/40 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">分数</div>
+          <div id="score" class="text-lg font-semibold text-violet-200">0</div>
+        </div>
+        <div class="rounded border border-cyan-500/40 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">乘员</div>
+          <div id="rescued" class="text-lg font-semibold text-cyan-200">0/5</div>
+        </div>
+        <div class="rounded border border-amber-500/40 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">护盾</div>
+          <div id="shield" class="text-lg font-semibold text-amber-200">3</div>
+        </div>
+        <div class="rounded border border-fuchsia-500/40 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">跃迁</div>
+          <div id="warp" class="text-lg font-semibold text-fuchsia-200">100</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="relative overflow-hidden rounded border border-slate-700 bg-slate-900 shadow-2xl shadow-violet-950/40">
+      <canvas id="game" width="960" height="540" class="block aspect-video w-full bg-black"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-6 top-6 rounded border border-violet-300/40 bg-slate-950/85 px-4 py-3 text-center text-sm text-violet-100">
+        穿过星门补充跃迁能量，接回地面乘员并击落追击敌机。按空格开始。
+      </div>
+    </section>
+
+    <div class="grid gap-3 text-sm text-slate-300 sm:grid-cols-3">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">星门会短暂加速并让飞船闪避碰撞。</div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">贴近地面乘员即可接回，全部接回后进入下一波。</div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">敌机从右侧追击，保持移动并控制射击节奏。</div>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const rescuedEl = document.getElementById("rescued");
+    const shieldEl = document.getElementById("shield");
+    const warpEl = document.getElementById("warp");
+    const messageEl = document.getElementById("message");
+    const keys = new Set();
+    const W = canvas.width;
+    const H = canvas.height;
+    const GROUND = 466;
+    const TAU = Math.PI * 2;
+
+    let player;
+    let shots;
+    let enemies;
+    let crew;
+    let stars;
+    let gates;
+    let bursts;
+    let score;
+    let wave;
+    let running;
+    let over;
+    let world;
+    let lastTime;
+
+    function makeStars() {
+      return Array.from({ length: 120 }, () => ({
+        x: Math.random() * W,
+        y: Math.random() * (GROUND - 20),
+        r: Math.random() * 1.5 + 0.4,
+        speed: Math.random() * 32 + 12
+      }));
+    }
+
+    function reset() {
+      player = { x: 165, y: 240, vx: 0, vy: 0, w: 48, h: 20, reload: 0, shield: 3, warp: 100, phase: 0 };
+      shots = [];
+      enemies = [];
+      crew = [];
+      gates = [];
+      bursts = [];
+      stars = makeStars();
+      score = 0;
+      wave = 1;
+      world = 0;
+      running = false;
+      over = false;
+      lastTime = 0;
+      spawnWave();
+      setMessage("穿过星门补充跃迁能量，接回地面乘员并击落追击敌机。按空格开始。");
+      updateHud();
+    }
+
+    function spawnWave() {
+      crew = Array.from({ length: 5 }, (_, i) => ({ x: 350 + i * 340 + Math.random() * 80, y: GROUND - 22, saved: false }));
+      enemies = Array.from({ length: wave + 3 }, (_, i) => ({
+        x: 720 + i * 210,
+        y: 100 + Math.random() * 250,
+        vx: 75 + wave * 12 + Math.random() * 40,
+        radius: 15,
+        alive: true
+      }));
+      gates = [
+        { x: 650, y: 188, r: 35, used: false },
+        { x: 1540, y: 320, r: 42, used: false }
+      ];
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.toggle("hidden", !text);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      rescuedEl.textContent = `${crew.filter((c) => c.saved).length}/5`;
+      shieldEl.textContent = player.shield;
+      warpEl.textContent = Math.max(0, Math.floor(player.warp));
+    }
+
+    function fire() {
+      if (player.reload > 0 || over) return;
+      shots.push({ x: player.x + player.w, y: player.y + player.h / 2, vx: 520, life: 1.1, r: 3 });
+      player.reload = 0.17;
+      if (!running) {
+        running = true;
+        setMessage("");
+      }
+    }
+
+    function useGate() {
+      if (!running || over || player.warp < 35) return;
+      player.warp -= 35;
+      player.phase = 1.15;
+      world += 250;
+      bursts.push({ x: player.x + 24, y: player.y + 10, r: 10, life: 0.45, color: "#c084fc" });
+    }
+
+    function explode(x, y, color) {
+      bursts.push({ x, y, r: 5, life: 0.35, color });
+    }
+
+    function hitPlayer() {
+      if (player.phase > 0 || over) return;
+      player.shield -= 1;
+      player.phase = 1;
+      explode(player.x + 20, player.y + 10, "#fb7185");
+      if (player.shield <= 0) {
+        over = true;
+        running = false;
+        setMessage("护盾耗尽。按 Enter 重新开始。");
+      }
+      updateHud();
+    }
+
+    function update(dt) {
+      if (!running || over) return;
+      world += (120 + wave * 10) * dt;
+      player.reload = Math.max(0, player.reload - dt);
+      player.phase = Math.max(0, player.phase - dt);
+      player.warp = Math.min(100, player.warp + dt * 4);
+
+      const ax = (keys.has("ArrowRight") || keys.has("KeyD") ? 260 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 190 : 0);
+      const ay = (keys.has("ArrowDown") || keys.has("KeyS") ? 280 : 0) - (keys.has("ArrowUp") || keys.has("KeyW") ? 280 : 0);
+      player.vx += ax * dt;
+      player.vy += ay * dt;
+      player.vx *= 0.94;
+      player.vy *= 0.94;
+      player.x = Math.max(28, Math.min(W - 90, player.x + player.vx * dt));
+      player.y = Math.max(42, Math.min(GROUND - 42, player.y + player.vy * dt));
+
+      stars.forEach((star) => {
+        star.x -= (star.speed + 50) * dt;
+        if (star.x < -4) {
+          star.x = W + Math.random() * 40;
+          star.y = Math.random() * (GROUND - 20);
+        }
+      });
+
+      shots.forEach((shot) => {
+        shot.x += shot.vx * dt;
+        shot.life -= dt;
+      });
+      shots = shots.filter((shot) => shot.life > 0 && shot.x < W + 20);
+
+      enemies.forEach((enemy) => {
+        if (!enemy.alive) return;
+        const sx = enemy.x - world;
+        const dy = player.y - enemy.y;
+        enemy.y += Math.sign(dy) * Math.min(Math.abs(dy), (55 + wave * 8) * dt);
+        enemy.x -= enemy.vx * dt;
+        if (sx < -120) {
+          enemy.x = world + W + 160 + Math.random() * 260;
+          enemy.y = 70 + Math.random() * 320;
+        }
+        if (Math.abs(sx - player.x) < enemy.radius + player.w * 0.45 && Math.abs(enemy.y - player.y) < enemy.radius + player.h) {
+          hitPlayer();
+        }
+      });
+
+      shots.forEach((shot) => {
+        enemies.forEach((enemy) => {
+          const sx = enemy.x - world;
+          if (enemy.alive && Math.hypot(shot.x - sx, shot.y - enemy.y) < enemy.radius + shot.r) {
+            enemy.alive = false;
+            shot.life = 0;
+            score += 120;
+            explode(sx, enemy.y, "#22d3ee");
+          }
+        });
+      });
+
+      crew.forEach((person) => {
+        const sx = person.x - world;
+        if (!person.saved && Math.abs(sx - player.x) < 32 && Math.abs(person.y - player.y) < 34) {
+          person.saved = true;
+          score += 250;
+          player.warp = Math.min(100, player.warp + 15);
+          explode(sx, person.y, "#facc15");
+        }
+      });
+
+      gates.forEach((gate) => {
+        const sx = gate.x - world;
+        if (!gate.used && Math.hypot(sx - player.x, gate.y - player.y) < gate.r + 22) {
+          gate.used = true;
+          player.phase = 1.2;
+          player.warp = Math.min(100, player.warp + 35);
+          score += 180;
+          explode(sx, gate.y, "#c084fc");
+        }
+      });
+
+      bursts.forEach((burst) => {
+        burst.r += 80 * dt;
+        burst.life -= dt;
+      });
+      bursts = bursts.filter((burst) => burst.life > 0);
+
+      if (crew.every((person) => person.saved)) {
+        wave += 1;
+        score += 500;
+        world = 0;
+        spawnWave();
+      }
+      updateHud();
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.globalAlpha = player.phase > 0 && Math.floor(player.phase * 16) % 2 ? 0.45 : 1;
+      ctx.fillStyle = "#a78bfa";
+      ctx.beginPath();
+      ctx.moveTo(0, 4);
+      ctx.lineTo(34, 0);
+      ctx.lineTo(50, 10);
+      ctx.lineTo(34, 20);
+      ctx.lineTo(0, 16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#67e8f9";
+      ctx.fillRect(28, 6, 10, 7);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function drawWorld() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, W, H);
+      stars.forEach((star) => {
+        ctx.fillStyle = "rgba(221, 214, 254, 0.7)";
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, TAU);
+        ctx.fill();
+      });
+
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, GROUND, W, H - GROUND);
+      ctx.strokeStyle = "#475569";
+      ctx.beginPath();
+      ctx.moveTo(0, GROUND);
+      ctx.lineTo(W, GROUND);
+      ctx.stroke();
+
+      gates.forEach((gate) => {
+        const x = gate.x - world;
+        if (x < -70 || x > W + 70 || gate.used) return;
+        ctx.strokeStyle = "#c084fc";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(x, gate.y, gate.r, 0, TAU);
+        ctx.stroke();
+        ctx.strokeStyle = "#67e8f9";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, gate.y, gate.r * 0.62, 0, TAU);
+        ctx.stroke();
+      });
+
+      crew.forEach((person) => {
+        if (person.saved) return;
+        const x = person.x - world;
+        if (x < -30 || x > W + 30) return;
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(x - 5, person.y - 10, 10, 18);
+        ctx.beginPath();
+        ctx.arc(x, person.y - 16, 5, 0, TAU);
+        ctx.fill();
+      });
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy) => {
+        if (!enemy.alive) return;
+        const x = enemy.x - world;
+        if (x < -40 || x > W + 60) return;
+        ctx.fillStyle = "#fb7185";
+        ctx.beginPath();
+        ctx.moveTo(x - 16, enemy.y);
+        ctx.lineTo(x + 14, enemy.y - 12);
+        ctx.lineTo(x + 10, enemy.y);
+        ctx.lineTo(x + 14, enemy.y + 12);
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+
+    function drawShots() {
+      ctx.fillStyle = "#22d3ee";
+      shots.forEach((shot) => {
+        ctx.fillRect(shot.x - 2, shot.y - 2, 18, 4);
+      });
+    }
+
+    function drawBursts() {
+      bursts.forEach((burst) => {
+        ctx.globalAlpha = Math.max(0, burst.life / 0.35);
+        ctx.strokeStyle = burst.color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(burst.x, burst.y, burst.r, 0, TAU);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function draw() {
+      drawWorld();
+      drawEnemies();
+      drawShots();
+      drawBursts();
+      drawPlayer();
+    }
+
+    function loop(time) {
+      if (!lastTime) lastTime = time;
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      keys.add(event.code);
+      if (event.code === "Space") {
+        event.preventDefault();
+        fire();
+      }
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") useGate();
+      if (event.code === "Enter") reset();
+    });
+
+    document.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
