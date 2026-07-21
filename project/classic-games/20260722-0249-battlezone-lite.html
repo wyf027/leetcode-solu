@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Battlezone</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-black text-emerald-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-300/20 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-emerald-200">Mini Battlezone</h1>
+        <p class="text-sm text-emerald-100/60">线框战场中驾驶坦克，锁定敌车，利用雷达和地平线生存到最后。</p>
+      </div>
+      <button id="restartBtn" class="rounded border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/10">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px]">
+      <div class="rounded-lg border border-emerald-800 bg-zinc-950 p-3 shadow-2xl shadow-emerald-950/25">
+        <canvas id="gameCanvas" width="720" height="480" class="h-auto w-full rounded bg-black"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 rounded-lg border border-emerald-900 bg-zinc-950 p-4 text-sm">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded border border-emerald-800 p-3">
+            <div class="text-emerald-100/50">分数</div>
+            <div id="score" class="text-xl font-bold text-emerald-200">0</div>
+          </div>
+          <div class="rounded border border-emerald-800 p-3">
+            <div class="text-emerald-100/50">装甲</div>
+            <div id="armor" class="text-xl font-bold text-lime-200">3</div>
+          </div>
+          <div class="rounded border border-emerald-800 p-3">
+            <div class="text-emerald-100/50">目标</div>
+            <div id="targets" class="text-xl font-bold text-cyan-200">6</div>
+          </div>
+          <div class="rounded border border-emerald-800 p-3">
+            <div class="text-emerald-100/50">距离</div>
+            <div id="range" class="text-xl font-bold text-amber-200">--</div>
+          </div>
+        </div>
+        <div class="rounded border border-emerald-300/20 bg-emerald-300/5 p-3 text-emerald-100/70">
+          <p>W/S 前进后退，A/D 转向。</p>
+          <p>Space 发射主炮。</p>
+          <p>R 重新开始。</p>
+        </div>
+        <div id="status" class="rounded border border-emerald-800 p-3 text-emerald-100/70">雷达亮点越靠近中心，敌车越接近你的炮口。</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const armorEl = document.getElementById("armor");
+    const targetsEl = document.getElementById("targets");
+    const rangeEl = document.getElementById("range");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const input = new Set();
+    const player = { x: 0, y: 0, a: 0, armor: 3, cooldown: 0, invulnerable: 0 };
+    let enemies = [];
+    let shots = [];
+    let blasts = [];
+    let obstacles = [];
+    let score = 0;
+    let targetsLeft = 6;
+    let frame = 0;
+    let gameOver = false;
+    let won = false;
+
+    function reset() {
+      player.x = 0;
+      player.y = 0;
+      player.a = 0;
+      player.armor = 3;
+      player.cooldown = 0;
+      player.invulnerable = 100;
+      enemies = [];
+      shots = [];
+      blasts = [];
+      obstacles = [];
+      score = 0;
+      targetsLeft = 6;
+      frame = 0;
+      gameOver = false;
+      won = false;
+      for (let i = 0; i < 10; i += 1) {
+        obstacles.push({ x: -900 + Math.random() * 1800, y: 180 + Math.random() * 1450, w: 45 + Math.random() * 55 });
+      }
+      for (let i = 0; i < targetsLeft; i += 1) spawnEnemy(i);
+      updateHud("雷达亮点越靠近中心，敌车越接近你的炮口。");
+    }
+
+    function spawnEnemy(seed) {
+      const angle = (Math.PI * 2 * seed) / Math.max(1, targetsLeft) + Math.random() * 0.6;
+      const dist = 650 + Math.random() * 780;
+      enemies.push({
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist,
+        a: angle + Math.PI,
+        reload: 80 + Math.random() * 90,
+        alive: true,
+        drift: Math.random() < 0.5 ? -1 : 1
+      });
+    }
+
+    function updateHud(message) {
+      scoreEl.textContent = score;
+      armorEl.textContent = player.armor;
+      targetsEl.textContent = enemies.filter((enemy) => enemy.alive).length;
+      const nearest = nearestEnemy();
+      rangeEl.textContent = nearest ? Math.round(nearest.dist) : "--";
+      if (message) statusEl.textContent = message;
+    }
+
+    function nearestEnemy() {
+      let best = null;
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        const dx = enemy.x - player.x;
+        const dy = enemy.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        if (!best || dist < best.dist) best = { enemy, dist, dx, dy };
+      }
+      return best;
+    }
+
+    function normAngle(angle) {
+      return Math.atan2(Math.sin(angle), Math.cos(angle));
+    }
+
+    function updatePlayer() {
+      if (input.has("a") || input.has("ArrowLeft")) player.a -= 0.045;
+      if (input.has("d") || input.has("ArrowRight")) player.a += 0.045;
+      let speed = 0;
+      if (input.has("w") || input.has("ArrowUp")) speed += 3.1;
+      if (input.has("s") || input.has("ArrowDown")) speed -= 2.1;
+      player.x += Math.sin(player.a) * speed;
+      player.y += Math.cos(player.a) * speed;
+      player.cooldown = Math.max(0, player.cooldown - 1);
+      player.invulnerable = Math.max(0, player.invulnerable - 1);
+    }
+
+    function firePlayer() {
+      if (player.cooldown > 0 || gameOver) return;
+      shots.push({
+        owner: "player",
+        x: player.x,
+        y: player.y,
+        a: player.a,
+        speed: 12,
+        life: 95
+      });
+      player.cooldown = 34;
+      updateHud("主炮发射。");
+    }
+
+    function updateEnemies() {
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const target = Math.atan2(dx, dy);
+        enemy.a += Math.max(-0.025, Math.min(0.025, normAngle(target - enemy.a)));
+        const dist = Math.hypot(dx, dy);
+        const strafe = Math.sin(frame / 70) * enemy.drift;
+        enemy.x += Math.sin(enemy.a + strafe * 0.45) * (dist > 390 ? 1.45 : 0.5);
+        enemy.y += Math.cos(enemy.a + strafe * 0.45) * (dist > 390 ? 1.45 : 0.5);
+        enemy.reload -= 1;
+        if (enemy.reload <= 0 && dist < 820) {
+          shots.push({ owner: "enemy", x: enemy.x, y: enemy.y, a: enemy.a, speed: 8, life: 95 });
+          enemy.reload = 100 + Math.random() * 70;
+        }
+      }
+    }
+
+    function updateShots() {
+      for (const shot of shots) {
+        shot.x += Math.sin(shot.a) * shot.speed;
+        shot.y += Math.cos(shot.a) * shot.speed;
+        shot.life -= 1;
+      }
+      for (const shot of shots) {
+        if (shot.life <= 0) continue;
+        if (shot.owner === "player") {
+          for (const enemy of enemies) {
+            if (enemy.alive && Math.hypot(shot.x - enemy.x, shot.y - enemy.y) < 42) {
+              enemy.alive = false;
+              shot.life = 0;
+              score += 250;
+              blasts.push({ x: enemy.x, y: enemy.y, life: 36 });
+              updateHud("目标摧毁。");
+            }
+          }
+        } else if (Math.hypot(shot.x - player.x, shot.y - player.y) < 35 && player.invulnerable <= 0) {
+          shot.life = 0;
+          player.armor -= 1;
+          player.invulnerable = 100;
+          blasts.push({ x: player.x, y: player.y, life: 42 });
+          updateHud("装甲被击中。");
+          if (player.armor <= 0) {
+            gameOver = true;
+            updateHud("装甲失效，按 R 重新开始。");
+          }
+        }
+      }
+      shots = shots.filter((shot) => shot.life > 0);
+      blasts.forEach((blast) => blast.life -= 1);
+      blasts = blasts.filter((blast) => blast.life > 0);
+    }
+
+    function checkWin() {
+      if (!gameOver && enemies.every((enemy) => !enemy.alive)) {
+        won = true;
+        gameOver = true;
+        score += player.armor * 500;
+        updateHud("战区清空，按 R 再玩一局。");
+      }
+    }
+
+    function project(worldX, worldY) {
+      const dx = worldX - player.x;
+      const dy = worldY - player.y;
+      const forward = dx * Math.sin(player.a) + dy * Math.cos(player.a);
+      const side = dx * Math.cos(player.a) - dy * Math.sin(player.a);
+      if (forward <= 35) return null;
+      const scale = 260 / forward;
+      return {
+        x: canvas.width / 2 + side * scale,
+        y: 310 - 92 * scale,
+        s: scale,
+        forward
+      };
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#064e3b";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 242);
+      ctx.lineTo(canvas.width, 242);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.22)";
+      for (let i = -8; i <= 8; i += 1) {
+        const x = canvas.width / 2 + i * 72 - (player.a * 100 % 72);
+        ctx.beginPath();
+        ctx.moveTo(x, 242);
+        ctx.lineTo(canvas.width / 2 + i * 160, canvas.height);
+        ctx.stroke();
+      }
+      for (let z = 120; z < 1300; z += 120) {
+        const y = 242 + z * 0.18;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawWireObject(px, py, size, color, kind) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (kind === "enemy") {
+        ctx.rect(px - size, py - size * 0.45, size * 2, size * 0.9);
+        ctx.moveTo(px - size * 0.35, py - size * 0.45);
+        ctx.lineTo(px, py - size);
+        ctx.lineTo(px + size * 0.35, py - size * 0.45);
+        ctx.moveTo(px, py - size * 0.45);
+        ctx.lineTo(px, py - size * 1.55);
+      } else {
+        ctx.moveTo(px - size, py + size);
+        ctx.lineTo(px, py - size);
+        ctx.lineTo(px + size, py + size);
+        ctx.closePath();
+      }
+      ctx.stroke();
+    }
+
+    function drawWorld() {
+      for (const obstacle of obstacles) {
+        const pos = project(obstacle.x, obstacle.y);
+        if (!pos || pos.forward > 1500) continue;
+        drawWireObject(pos.x, pos.y, Math.max(7, obstacle.w * pos.s), "#10b981", "pyramid");
+      }
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        const pos = project(enemy.x, enemy.y);
+        if (!pos || pos.forward > 1500) continue;
+        drawWireObject(pos.x, pos.y, Math.max(12, 55 * pos.s), "#86efac", "enemy");
+      }
+      for (const shot of shots) {
+        const pos = project(shot.x, shot.y);
+        if (!pos || pos.forward > 1500) continue;
+        ctx.fillStyle = shot.owner === "player" ? "#ecfccb" : "#fca5a5";
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, Math.max(2, 8 * pos.s), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (const blast of blasts) {
+        const pos = project(blast.x, blast.y);
+        if (!pos) continue;
+        ctx.strokeStyle = "#fef08a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, (44 - blast.life) * Math.max(0.4, pos.s), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawCockpit() {
+      ctx.strokeStyle = "#22c55e";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(18, 18, 132, 96);
+      ctx.fillStyle = "#052e16";
+      ctx.fillRect(21, 21, 126, 90);
+      const radarCenter = { x: 84, y: 66 };
+      ctx.strokeStyle = "#4ade80";
+      ctx.beginPath();
+      ctx.arc(radarCenter.x, radarCenter.y, 38, 0, Math.PI * 2);
+      ctx.stroke();
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        const dx = enemy.x - player.x;
+        const dy = enemy.y - player.y;
+        const rx = radarCenter.x + Math.max(-35, Math.min(35, dx / 22));
+        const ry = radarCenter.y - Math.max(-35, Math.min(35, dy / 22));
+        ctx.fillStyle = "#bbf7d0";
+        ctx.fillRect(rx - 2, ry - 2, 4, 4);
+      }
+      ctx.strokeStyle = "#34d399";
+      ctx.beginPath();
+      ctx.moveTo(350, 390);
+      ctx.lineTo(370, 390);
+      ctx.moveTo(360, 380);
+      ctx.lineTo(360, 400);
+      ctx.stroke();
+      if (player.cooldown > 0) {
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(318, 420, 84 * (1 - player.cooldown / 34), 8);
+      }
+    }
+
+    function drawOverlay() {
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = won ? "#bbf7d0" : "#fecaca";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "战区清空" : "任务失败", 360, 220);
+        ctx.fillStyle = "#d1fae5";
+        ctx.font = "18px sans-serif";
+        ctx.fillText("按 R 或点击重新开始", 360, 258);
+      }
+    }
+
+    function loop() {
+      frame += 1;
+      if (!gameOver) {
+        updatePlayer();
+        updateEnemies();
+        updateShots();
+        checkWin();
+        updateHud();
+      }
+      drawBackground();
+      drawWorld();
+      drawCockpit();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "a", "d", "w", "s", "r"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") {
+        firePlayer();
+        return;
+      }
+      if (key === "r") {
+        reset();
+        return;
+      }
+      input.add(key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      input.delete(key);
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
