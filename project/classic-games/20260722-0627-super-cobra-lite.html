@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Super Cobra Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-lime-200">Mini Super Cobra</h1>
+        <p class="text-sm text-zinc-400">W/上箭头拉升，S/下箭头下降，空格发射，B 投弹，Enter 重开。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-lime-500/40 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">分数</div>
+          <div id="score" class="text-lg font-semibold text-lime-200">0</div>
+        </div>
+        <div class="rounded border border-sky-500/40 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">距离</div>
+          <div id="distance" class="text-lg font-semibold text-sky-200">0</div>
+        </div>
+        <div class="rounded border border-amber-500/40 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">燃料</div>
+          <div id="fuel" class="text-lg font-semibold text-amber-200">100</div>
+        </div>
+        <div class="rounded border border-rose-500/40 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">状态</div>
+          <div id="status" class="text-lg font-semibold text-rose-200">待命</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="relative overflow-hidden rounded border border-zinc-700 bg-zinc-900 shadow-2xl shadow-lime-950/30">
+      <canvas id="game" width="960" height="540" class="block aspect-video w-full bg-black"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-6 top-6 rounded border border-lime-300/40 bg-zinc-950/85 px-4 py-3 text-center text-sm text-lime-100">
+        穿越洞穴、摧毁炮台并保存燃料。按空格开始。
+      </div>
+    </section>
+
+    <div class="grid gap-3 text-sm text-zinc-300 sm:grid-cols-3">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">火箭水平飞行，适合清除空中障碍。</div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">炸弹垂直下落，用来摧毁地面炮台和燃料仓。</div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">碰到洞壁或耗尽燃料都会结束任务。</div>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const distanceEl = document.getElementById("distance");
+    const fuelEl = document.getElementById("fuel");
+    const statusEl = document.getElementById("status");
+    const messageEl = document.getElementById("message");
+    const keys = new Set();
+    const W = canvas.width;
+    const H = canvas.height;
+    const TAU = Math.PI * 2;
+
+    let copter;
+    let terrain;
+    let objects;
+    let rockets;
+    let bombs;
+    let bursts;
+    let scroll;
+    let speed;
+    let score;
+    let fuel;
+    let running;
+    let over;
+    let lastTime;
+
+    function buildTerrain() {
+      const points = [];
+      for (let i = 0; i < 90; i++) {
+        const x = i * 80;
+        const top = 62 + Math.sin(i * 0.7) * 28 + Math.sin(i * 0.23) * 22;
+        const floor = 418 + Math.sin(i * 0.55 + 1.5) * 34 + Math.sin(i * 0.18) * 16;
+        points.push({ x, top, floor });
+      }
+      return points;
+    }
+
+    function buildObjects() {
+      const list = [];
+      for (let i = 5; i < 86; i += 5) {
+        const point = terrain[i];
+        list.push({
+          type: i % 10 === 0 ? "fuel" : "turret",
+          x: point.x + 36,
+          y: point.floor - 20,
+          w: i % 10 === 0 ? 34 : 30,
+          h: i % 10 === 0 ? 34 : 28,
+          alive: true
+        });
+      }
+      for (let i = 8; i < 86; i += 9) {
+        const point = terrain[i];
+        list.push({ type: "rocket", x: point.x + 45, y: point.top + 96, w: 42, h: 16, alive: true });
+      }
+      return list;
+    }
+
+    function reset() {
+      terrain = buildTerrain();
+      objects = buildObjects();
+      copter = { x: 155, y: 245, vy: 0, w: 52, h: 22, reload: 0, bombReload: 0 };
+      rockets = [];
+      bombs = [];
+      bursts = [];
+      scroll = 0;
+      speed = 145;
+      score = 0;
+      fuel = 100;
+      running = false;
+      over = false;
+      lastTime = 0;
+      setMessage("穿越洞穴、摧毁炮台并保存燃料。按空格开始。");
+      updateHud();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.toggle("hidden", !text);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      distanceEl.textContent = Math.floor(scroll / 10);
+      fuelEl.textContent = Math.max(0, Math.floor(fuel));
+      statusEl.textContent = over ? "结束" : running ? "飞行" : "待命";
+    }
+
+    function sampleTerrain(worldX) {
+      const index = Math.max(0, Math.min(terrain.length - 2, Math.floor(worldX / 80)));
+      const a = terrain[index];
+      const b = terrain[index + 1];
+      const t = (worldX - a.x) / (b.x - a.x);
+      return {
+        top: a.top + (b.top - a.top) * t,
+        floor: a.floor + (b.floor - a.floor) * t
+      };
+    }
+
+    function fireRocket() {
+      if (copter.reload > 0 || over) return;
+      rockets.push({ x: copter.x + copter.w - 4, y: copter.y + 6, vx: 430, r: 4, life: 1.4 });
+      copter.reload = 0.22;
+      if (!running) {
+        running = true;
+        setMessage("");
+      }
+    }
+
+    function dropBomb() {
+      if (copter.bombReload > 0 || !running || over) return;
+      bombs.push({ x: copter.x + 24, y: copter.y + copter.h, vy: 185, r: 5, life: 2.2 });
+      copter.bombReload = 0.55;
+    }
+
+    function explode(x, y, color) {
+      bursts.push({ x, y, r: 4, life: 0.35, color });
+    }
+
+    function endGame(text) {
+      running = false;
+      over = true;
+      setMessage(text + " 按 Enter 重新开始。");
+      updateHud();
+    }
+
+    function rectHit(a, b) {
+      return a.x < b.x + b.w && a.x + (a.w || a.r * 2) > b.x && a.y < b.y + b.h && a.y + (a.h || a.r * 2) > b.y;
+    }
+
+    function update(dt) {
+      if (!running || over) return;
+      scroll += speed * dt;
+      speed = Math.min(235, speed + dt * 1.4);
+      fuel -= dt * 4.6;
+      if (fuel <= 0) endGame("燃料耗尽。");
+
+      const lift = keys.has("ArrowUp") || keys.has("KeyW") ? -360 : keys.has("ArrowDown") || keys.has("KeyS") ? 240 : 72;
+      copter.vy += lift * dt;
+      copter.vy *= 0.986;
+      copter.y += copter.vy * dt;
+      copter.reload = Math.max(0, copter.reload - dt);
+      copter.bombReload = Math.max(0, copter.bombReload - dt);
+
+      const noseWorld = scroll + copter.x + copter.w;
+      const cave = sampleTerrain(noseWorld);
+      if (copter.y < cave.top + 8 || copter.y + copter.h > cave.floor - 5) {
+        explode(copter.x + copter.w / 2, copter.y + copter.h / 2, "#fb7185");
+        endGame("撞上洞壁。");
+      }
+
+      rockets.forEach((shot) => {
+        shot.x += shot.vx * dt;
+        shot.life -= dt;
+      });
+      rockets = rockets.filter((shot) => shot.life > 0 && shot.x < W + 30);
+
+      bombs.forEach((bomb) => {
+        bomb.y += bomb.vy * dt;
+        bomb.vy += 260 * dt;
+        bomb.life -= dt;
+      });
+      bombs = bombs.filter((bomb) => bomb.life > 0 && bomb.y < H + 30);
+
+      objects.forEach((obj) => {
+        if (!obj.alive) return;
+        const screen = { x: obj.x - scroll, y: obj.y, w: obj.w, h: obj.h };
+        if (screen.x < -90 || screen.x > W + 90) return;
+        if (rectHit({ x: copter.x, y: copter.y, w: copter.w, h: copter.h }, screen)) {
+          explode(copter.x + 25, copter.y + 10, "#fb7185");
+          endGame("任务机被击中。");
+        }
+        rockets.forEach((shot) => {
+          if (obj.alive && rectHit({ x: shot.x - shot.r, y: shot.y - shot.r, r: shot.r }, screen)) {
+            obj.alive = false;
+            shot.life = 0;
+            score += obj.type === "rocket" ? 160 : 100;
+            explode(screen.x + obj.w / 2, screen.y + obj.h / 2, "#bef264");
+          }
+        });
+        bombs.forEach((bomb) => {
+          if (obj.alive && rectHit({ x: bomb.x - bomb.r, y: bomb.y - bomb.r, r: bomb.r }, screen)) {
+            obj.alive = false;
+            bomb.life = 0;
+            if (obj.type === "fuel") {
+              fuel = Math.min(100, fuel + 22);
+              score += 120;
+            } else {
+              score += 140;
+            }
+            explode(screen.x + obj.w / 2, screen.y + obj.h / 2, "#fbbf24");
+          }
+        });
+      });
+
+      bursts.forEach((burst) => {
+        burst.r += 90 * dt;
+        burst.life -= dt;
+      });
+      bursts = bursts.filter((burst) => burst.life > 0);
+
+      if (scroll > terrain[terrain.length - 2].x - W) {
+        score += Math.floor(fuel) * 10;
+        endGame("抵达终点。");
+      }
+      updateHud();
+    }
+
+    function drawTerrain() {
+      ctx.fillStyle = "#1f2937";
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      terrain.forEach((point) => ctx.lineTo(point.x - scroll, point.top));
+      ctx.lineTo(W, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#3f3f46";
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      terrain.forEach((point) => ctx.lineTo(point.x - scroll, point.floor));
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "#84cc16";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      terrain.forEach((point, index) => {
+        const x = point.x - scroll;
+        if (index === 0) ctx.moveTo(x, point.top);
+        else ctx.lineTo(x, point.top);
+      });
+      ctx.stroke();
+      ctx.beginPath();
+      terrain.forEach((point, index) => {
+        const x = point.x - scroll;
+        if (index === 0) ctx.moveTo(x, point.floor);
+        else ctx.lineTo(x, point.floor);
+      });
+      ctx.stroke();
+    }
+
+    function drawCopter() {
+      ctx.save();
+      ctx.translate(copter.x, copter.y);
+      ctx.fillStyle = "#bef264";
+      ctx.fillRect(9, 6, 34, 14);
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(31, 9, 9, 6);
+      ctx.strokeStyle = "#e4e4e7";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, 2);
+      ctx.lineTo(48, 2);
+      ctx.moveTo(10, 22);
+      ctx.lineTo(35, 22);
+      ctx.stroke();
+      ctx.fillStyle = "#84cc16";
+      ctx.fillRect(43, 11, 12, 5);
+      ctx.restore();
+    }
+
+    function drawObjects() {
+      objects.forEach((obj) => {
+        if (!obj.alive) return;
+        const x = obj.x - scroll;
+        if (x < -90 || x > W + 90) return;
+        if (obj.type === "fuel") {
+          ctx.fillStyle = "#f59e0b";
+          ctx.fillRect(x, obj.y, obj.w, obj.h);
+          ctx.fillStyle = "#111827";
+          ctx.fillRect(x + 6, obj.y + 11, obj.w - 12, 6);
+        } else if (obj.type === "rocket") {
+          ctx.fillStyle = "#fb7185";
+          ctx.fillRect(x, obj.y, obj.w, obj.h);
+          ctx.fillStyle = "#fef2f2";
+          ctx.beginPath();
+          ctx.moveTo(x + obj.w, obj.y + obj.h / 2);
+          ctx.lineTo(x + obj.w - 10, obj.y + 2);
+          ctx.lineTo(x + obj.w - 10, obj.y + obj.h - 2);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "#a78bfa";
+          ctx.fillRect(x, obj.y + 10, obj.w, obj.h - 10);
+          ctx.fillStyle = "#ddd6fe";
+          ctx.fillRect(x + 11, obj.y, 8, 16);
+        }
+      });
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = "#d9f99d";
+      rockets.forEach((shot) => {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.r, 0, TAU);
+        ctx.fill();
+      });
+      ctx.fillStyle = "#fbbf24";
+      bombs.forEach((bomb) => {
+        ctx.beginPath();
+        ctx.arc(bomb.x, bomb.y, bomb.r, 0, TAU);
+        ctx.fill();
+      });
+    }
+
+    function drawBursts() {
+      bursts.forEach((burst) => {
+        ctx.strokeStyle = burst.color;
+        ctx.globalAlpha = Math.max(0, burst.life / 0.35);
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(burst.x, burst.y, burst.r, 0, TAU);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function draw() {
+      ctx.fillStyle = "#030712";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(132, 204, 22, 0.2)";
+      for (let x = -((scroll * 0.35) % 80); x < W; x += 80) {
+        ctx.fillRect(x, 0, 1, H);
+      }
+      drawTerrain();
+      drawObjects();
+      drawProjectiles();
+      drawBursts();
+      drawCopter();
+    }
+
+    function loop(time) {
+      if (!lastTime) lastTime = time;
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      keys.add(event.code);
+      if (event.code === "Space") {
+        event.preventDefault();
+        fireRocket();
+      }
+      if (event.code === "KeyB") dropBomb();
+      if (event.code === "Enter") reset();
+    });
+
+    document.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
