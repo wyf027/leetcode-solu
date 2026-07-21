@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bagman</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-amber-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-amber-500/40 bg-stone-900 p-4 shadow-2xl shadow-black/50">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-amber-200">Mini Bagman</h1>
+          <p class="text-sm text-stone-300">Grab money bags, dodge guards, and carry loot to the mine cart.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-stone-700 px-3 py-2">
+            <div class="text-stone-400">Score</div>
+            <div id="score" class="text-lg font-bold text-emerald-300">0</div>
+          </div>
+          <div class="rounded border border-stone-700 px-3 py-2">
+            <div class="text-stone-400">Lives</div>
+            <div id="lives" class="text-lg font-bold text-rose-300">3</div>
+          </div>
+          <div class="rounded border border-stone-700 px-3 py-2">
+            <div class="text-stone-400">Bags</div>
+            <div id="bags" class="text-lg font-bold text-amber-200">0/5</div>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="game" width="900" height="520" class="h-auto w-full rounded border border-stone-700 bg-slate-950"></canvas>
+
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-stone-300">
+        <div>Arrow keys or WASD move. Space picks up or drops a bag. Enter restarts.</div>
+        <button id="restart" class="rounded bg-amber-300 px-4 py-2 font-semibold text-stone-950 hover:bg-amber-200">Restart</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const bagsEl = document.getElementById("bags");
+    const restartBtn = document.getElementById("restart");
+    const keys = new Set();
+
+    const platforms = [
+      { x: 55, y: 420, w: 790 },
+      { x: 95, y: 325, w: 300 },
+      { x: 500, y: 325, w: 305 },
+      { x: 70, y: 230, w: 245 },
+      { x: 400, y: 230, w: 405 },
+      { x: 125, y: 135, w: 650 }
+    ];
+    const ladders = [
+      { x: 170, y: 230, h: 190 },
+      { x: 610, y: 230, h: 190 },
+      { x: 270, y: 135, h: 190 },
+      { x: 705, y: 135, h: 190 }
+    ];
+
+    const state = {
+      score: 0,
+      lives: 3,
+      delivered: 0,
+      player: null,
+      guards: [],
+      bags: [],
+      cart: { x: 778, y: 382, w: 72, h: 40 },
+      message: "Collect every bag",
+      messageTimer: 1300,
+      over: false,
+      lastTime: 0
+    };
+
+    function setupGame() {
+      state.score = 0;
+      state.lives = 3;
+      state.delivered = 0;
+      state.player = { x: 92, y: 388, vx: 0, vy: 0, carrying: null, onLadder: false };
+      state.guards = [
+        { x: 690, y: 388, dir: -1, speed: 82 },
+        { x: 155, y: 293, dir: 1, speed: 70 },
+        { x: 650, y: 198, dir: -1, speed: 76 }
+      ];
+      state.bags = makeBags();
+      state.message = "Collect every bag";
+      state.messageTimer = 1300;
+      state.over = false;
+      state.lastTime = performance.now();
+      updateHud();
+      requestAnimationFrame(tick);
+    }
+
+    function makeBags() {
+      return [
+        { x: 235, y: 292, homeX: 235, homeY: 292, delivered: false },
+        { x: 548, y: 292, homeX: 548, homeY: 292, delivered: false },
+        { x: 172, y: 197, homeX: 172, homeY: 197, delivered: false },
+        { x: 478, y: 197, homeX: 478, homeY: 197, delivered: false },
+        { x: 720, y: 102, homeX: 720, homeY: 102, delivered: false }
+      ];
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      bagsEl.textContent = `${state.delivered}/5`;
+    }
+
+    function nearestPlatformY(x, y) {
+      let best = null;
+      for (const platform of platforms) {
+        if (x >= platform.x - 12 && x <= platform.x + platform.w + 12 && y <= platform.y + 18) {
+          if (!best || Math.abs(platform.y - y) < Math.abs(best - y)) best = platform.y;
+        }
+      }
+      return best;
+    }
+
+    function nearLadder(x, y) {
+      return ladders.find((ladder) => Math.abs(x - ladder.x) < 24 && y >= ladder.y - 10 && y <= ladder.y + ladder.h + 16);
+    }
+
+    function handleAction() {
+      if (state.over) {
+        setupGame();
+        return;
+      }
+      const player = state.player;
+      if (player.carrying) {
+        dropBag();
+        return;
+      }
+      const bag = state.bags.find((item) => !item.delivered && Math.hypot(player.x - item.x, player.y - item.y) < 34);
+      if (bag) {
+        player.carrying = bag;
+        state.message = "Carry it to the cart";
+        state.messageTimer = 850;
+      }
+    }
+
+    function dropBag() {
+      const bag = state.player.carrying;
+      if (!bag) return;
+      if (intersects({ x: state.player.x - 14, y: state.player.y - 30, w: 28, h: 46 }, state.cart)) {
+        bag.delivered = true;
+        state.delivered += 1;
+        state.score += 250;
+        state.message = "Bag delivered";
+        if (state.delivered === state.bags.length) {
+          state.over = true;
+          state.message = "Mine cleared - press Enter";
+        }
+      } else {
+        bag.x = state.player.x;
+        bag.y = state.player.y - 6;
+        state.message = "Bag dropped";
+      }
+      state.player.carrying = null;
+      state.messageTimer = 900;
+      updateHud();
+    }
+
+    function updatePlayer(delta) {
+      const seconds = delta / 1000;
+      const player = state.player;
+      const horizontal = (keys.has("ArrowRight") || keys.has("d") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("a") ? 1 : 0);
+      const vertical = (keys.has("ArrowDown") || keys.has("s") ? 1 : 0) - (keys.has("ArrowUp") || keys.has("w") ? 1 : 0);
+      const ladder = nearLadder(player.x, player.y);
+      player.onLadder = Boolean(ladder && vertical !== 0);
+
+      player.x += horizontal * (player.carrying ? 130 : 175) * seconds;
+      if (player.onLadder) {
+        player.y += vertical * 150 * seconds;
+        player.vy = 0;
+        player.x += (ladder.x - player.x) * 0.1;
+      } else {
+        player.vy += 720 * seconds;
+        player.y += player.vy * seconds;
+      }
+
+      const floor = nearestPlatformY(player.x, player.y + 28);
+      if (floor && player.y + 28 >= floor && player.vy >= 0 && !player.onLadder) {
+        player.y = floor - 28;
+        player.vy = 0;
+      }
+
+      player.x = clamp(player.x, 42, 858);
+      player.y = clamp(player.y, 74, 440);
+      if (player.carrying) {
+        player.carrying.x = player.x + 18;
+        player.carrying.y = player.y - 22;
+      }
+    }
+
+    function updateGuards(delta) {
+      const seconds = delta / 1000;
+      for (const guard of state.guards) {
+        guard.x += guard.dir * guard.speed * seconds;
+        const platform = platforms.find((item) => Math.abs(item.y - (guard.y + 32)) < 6 && guard.x >= item.x - 10 && guard.x <= item.x + item.w + 10);
+        if (!platform || guard.x < platform.x + 12 || guard.x > platform.x + platform.w - 12) {
+          guard.dir *= -1;
+          guard.x += guard.dir * guard.speed * seconds * 2;
+        }
+      }
+    }
+
+    function checkGuardCollision() {
+      const playerBox = { x: state.player.x - 15, y: state.player.y - 28, w: 30, h: 52 };
+      for (const guard of state.guards) {
+        if (intersects(playerBox, { x: guard.x - 16, y: guard.y - 28, w: 32, h: 52 })) {
+          loseLife();
+          return;
+        }
+      }
+    }
+
+    function loseLife() {
+      state.lives -= 1;
+      state.message = "Caught by a guard";
+      state.messageTimer = 1100;
+      if (state.player.carrying) {
+        const bag = state.player.carrying;
+        bag.x = bag.homeX;
+        bag.y = bag.homeY;
+      }
+      state.player = { x: 92, y: 388, vx: 0, vy: 0, carrying: null, onLadder: false };
+      if (state.lives <= 0) {
+        state.over = true;
+        state.message = "Captured - press Enter";
+      }
+      updateHud();
+    }
+
+    function drawMine() {
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#292524";
+      for (let i = 0; i < 40; i += 1) {
+        ctx.fillRect((i * 67) % canvas.width, 62 + ((i * 41) % 330), 24, 10);
+      }
+
+      ctx.strokeStyle = "#a16207";
+      ctx.lineWidth = 10;
+      ctx.lineCap = "round";
+      for (const platform of platforms) {
+        ctx.beginPath();
+        ctx.moveTo(platform.x, platform.y);
+        ctx.lineTo(platform.x + platform.w, platform.y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 4;
+      for (const ladder of ladders) {
+        ctx.beginPath();
+        ctx.moveTo(ladder.x - 14, ladder.y);
+        ctx.lineTo(ladder.x - 14, ladder.y + ladder.h);
+        ctx.moveTo(ladder.x + 14, ladder.y);
+        ctx.lineTo(ladder.x + 14, ladder.y + ladder.h);
+        ctx.stroke();
+        for (let y = ladder.y + 12; y < ladder.y + ladder.h; y += 24) {
+          ctx.beginPath();
+          ctx.moveTo(ladder.x - 16, y);
+          ctx.lineTo(ladder.x + 16, y);
+          ctx.stroke();
+        }
+      }
+
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(state.cart.x, state.cart.y, state.cart.w, state.cart.h);
+      ctx.fillStyle = "#94a3b8";
+      ctx.beginPath();
+      ctx.arc(state.cart.x + 16, state.cart.y + 44, 10, 0, Math.PI * 2);
+      ctx.arc(state.cart.x + 56, state.cart.y + 44, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#fde68a";
+      ctx.font = "bold 22px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(state.messageTimer > 0 || state.over ? state.message : "Find the next bag", canvas.width / 2, 42);
+    }
+
+    function drawBag(bag) {
+      if (bag.delivered) return;
+      ctx.fillStyle = "#fbbf24";
+      ctx.beginPath();
+      ctx.arc(bag.x, bag.y, 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(bag.x - 8, bag.y - 6, 16, 5);
+      ctx.fillStyle = "#451a03";
+      ctx.font = "bold 14px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("$", bag.x, bag.y + 7);
+    }
+
+    function drawPlayer() {
+      const p = state.player;
+      ctx.fillStyle = "#fef3c7";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - 34, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(p.x - 13, p.y - 21, 26, 34);
+      ctx.fillStyle = "#f97316";
+      ctx.fillRect(p.x - 14, p.y - 48, 28, 8);
+      ctx.strokeStyle = "#fef3c7";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(p.x - 10, p.y + 10);
+      ctx.lineTo(p.x - 22, p.y + 28);
+      ctx.moveTo(p.x + 10, p.y + 10);
+      ctx.lineTo(p.x + 22, p.y + 28);
+      ctx.stroke();
+    }
+
+    function drawGuards() {
+      for (const guard of state.guards) {
+        ctx.fillStyle = "#fca5a5";
+        ctx.beginPath();
+        ctx.arc(guard.x, guard.y - 34, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#dc2626";
+        ctx.fillRect(guard.x - 14, guard.y - 21, 28, 34);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(guard.x - 18, guard.y - 49, 36, 9);
+      }
+    }
+
+    function drawOverlay() {
+      if (!state.over) return;
+      ctx.fillStyle = "rgba(28, 25, 23, 0.84)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#fde68a";
+      ctx.font = "bold 42px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(state.delivered === state.bags.length ? "Loot Secured" : "Mine Run Over", canvas.width / 2, 238);
+      ctx.font = "22px ui-sans-serif, system-ui";
+      ctx.fillText("Press Enter or Restart", canvas.width / 2, 278);
+    }
+
+    function draw() {
+      drawMine();
+      for (const bag of state.bags) drawBag(bag);
+      drawGuards();
+      drawPlayer();
+      drawOverlay();
+    }
+
+    function tick(now) {
+      const delta = Math.min(60, now - state.lastTime);
+      state.lastTime = now;
+      if (!state.over) {
+        updatePlayer(delta);
+        updateGuards(delta);
+        checkGuardCollision();
+        state.messageTimer = Math.max(0, state.messageTimer - delta);
+      }
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    function intersects(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    document.addEventListener("keydown", (event) => {
+      keys.add(event.key);
+      keys.add(event.key.toLowerCase());
+      if (event.key === " ") handleAction();
+      if (event.key === "Enter") setupGame();
+    });
+
+    document.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    canvas.addEventListener("click", handleAction);
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
