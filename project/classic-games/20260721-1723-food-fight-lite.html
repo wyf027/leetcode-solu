@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Food Fight</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-amber-200">Mini Food Fight</h1>
+        <p class="text-sm text-slate-300">Grab snacks, throw tomatoes, reach the exit before the chefs box you in.</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-semibold text-amber-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Lives</div>
+          <div id="lives" class="font-semibold text-rose-200">3</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Food</div>
+          <div id="food" class="font-semibold text-lime-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Wave</div>
+          <div id="wave" class="font-semibold text-sky-200">1</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <div class="rounded bg-slate-900 p-3 ring-1 ring-slate-700">
+        <canvas id="game" width="800" height="520" class="aspect-[20/13] w-full rounded bg-slate-800"></canvas>
+      </div>
+      <aside class="rounded bg-slate-900 p-4 text-sm leading-6 text-slate-300 ring-1 ring-slate-700">
+        <h2 class="mb-2 font-semibold text-slate-100">Controls</h2>
+        <p>Move: Arrow keys or WASD</p>
+        <p>Throw: Space or J</p>
+        <p>Restart: Enter</p>
+        <button id="restart" class="mt-4 w-full rounded bg-amber-300 px-3 py-2 font-semibold text-slate-950 hover:bg-amber-200">Restart</button>
+        <p id="message" class="mt-4 min-h-16 rounded bg-slate-950 p-3 text-amber-100 ring-1 ring-slate-700">Collect all food and reach the green exit.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const foodEl = document.getElementById("food");
+    const waveEl = document.getElementById("wave");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const width = canvas.width;
+    const height = canvas.height;
+    const playerRadius = 15;
+    let player;
+    let foods;
+    let chefs;
+    let tomatoes;
+    let particles;
+    let score;
+    let lives;
+    let wave;
+    let gameState;
+    let lastShot;
+
+    const exit = { x: width - 58, y: height - 74, w: 40, h: 56 };
+    const counters = [
+      { x: 145, y: 88, w: 190, h: 26 },
+      { x: 435, y: 100, w: 210, h: 26 },
+      { x: 92, y: 286, w: 210, h: 26 },
+      { x: 455, y: 326, w: 210, h: 26 }
+    ];
+
+    function setupGame() {
+      player = { x: 64, y: height - 68, vx: 0, vy: 0, dirX: 1, dirY: 0, invincible: 0 };
+      foods = [];
+      chefs = [];
+      tomatoes = [];
+      particles = [];
+      score = 0;
+      lives = 3;
+      wave = 1;
+      gameState = "playing";
+      lastShot = 0;
+      spawnFood(8);
+      spawnChef(3);
+      setMessage("Collect every snack, then sprint to the green exit.");
+      updateHud();
+    }
+
+    function spawnFood(count) {
+      foods = [];
+      const spots = [
+        [92, 86], [248, 166], [382, 66], [680, 92],
+        [142, 386], [338, 286], [526, 222], [704, 430],
+        [256, 430], [602, 388], [82, 222], [410, 442]
+      ];
+      for (let i = 0; i < count; i++) {
+        const spot = spots[(i + wave) % spots.length];
+        foods.push({ x: spot[0], y: spot[1], r: 9, wobble: Math.random() * 9 });
+      }
+    }
+
+    function spawnChef(count) {
+      chefs = [];
+      const starts = [
+        [width - 90, 86], [width - 120, height - 132],
+        [100, 118], [438, height - 90], [608, 248]
+      ];
+      for (let i = 0; i < count; i++) {
+        const start = starts[i % starts.length];
+        chefs.push({ x: start[0], y: start[1], stun: 0, speed: 1.1 + wave * 0.08 + i * 0.08 });
+      }
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      foodEl.textContent = foods.length;
+      waveEl.textContent = wave;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function isBlocked(x, y, radius) {
+      return counters.some((counter) =>
+        x + radius > counter.x &&
+        x - radius < counter.x + counter.w &&
+        y + radius > counter.y &&
+        y - radius < counter.y + counter.h
+      );
+    }
+
+    function moveEntity(entity, dx, dy, radius) {
+      const nextX = clamp(entity.x + dx, radius, width - radius);
+      if (!isBlocked(nextX, entity.y, radius)) {
+        entity.x = nextX;
+      }
+      const nextY = clamp(entity.y + dy, radius, height - radius);
+      if (!isBlocked(entity.x, nextY, radius)) {
+        entity.y = nextY;
+      }
+    }
+
+    function throwTomato() {
+      const now = performance.now();
+      if (gameState !== "playing" || now - lastShot < 210) {
+        return;
+      }
+      lastShot = now;
+      const len = Math.hypot(player.dirX, player.dirY) || 1;
+      tomatoes.push({
+        x: player.x + (player.dirX / len) * 20,
+        y: player.y + (player.dirY / len) * 20,
+        vx: (player.dirX / len) * 7.5,
+        vy: (player.dirY / len) * 7.5,
+        life: 58
+      });
+    }
+
+    function updatePlayer() {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+      const len = Math.hypot(dx, dy) || 1;
+      if (dx || dy) {
+        player.dirX = dx;
+        player.dirY = dy;
+      }
+      moveEntity(player, (dx / len) * 3.2, (dy / len) * 3.2, playerRadius);
+      player.invincible = Math.max(0, player.invincible - 1);
+    }
+
+    function updateChefs() {
+      chefs.forEach((chef) => {
+        if (chef.stun > 0) {
+          chef.stun -= 1;
+          return;
+        }
+        const dx = player.x - chef.x;
+        const dy = player.y - chef.y;
+        const len = Math.hypot(dx, dy) || 1;
+        moveEntity(chef, (dx / len) * chef.speed, (dy / len) * chef.speed, 17);
+      });
+    }
+
+    function updateTomatoes() {
+      tomatoes = tomatoes.filter((tomato) => {
+        tomato.x += tomato.vx;
+        tomato.y += tomato.vy;
+        tomato.life -= 1;
+        if (tomato.x < 0 || tomato.x > width || tomato.y < 0 || tomato.y > height || tomato.life <= 0) {
+          return false;
+        }
+        if (isBlocked(tomato.x, tomato.y, 5)) {
+          burst(tomato.x, tomato.y, "#f97316");
+          return false;
+        }
+        for (const chef of chefs) {
+          if (distance(tomato, chef) < 23) {
+            chef.stun = 92;
+            score += 40;
+            burst(chef.x, chef.y, "#fb7185");
+            updateHud();
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 9; i++) {
+        particles.push({
+          x,
+          y,
+          vx: Math.cos(i * 0.7) * (1 + Math.random() * 2),
+          vy: Math.sin(i * 0.7) * (1 + Math.random() * 2),
+          life: 22,
+          color
+        });
+      }
+    }
+
+    function updateParticles() {
+      particles = particles.filter((particle) => {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.life -= 1;
+        return particle.life > 0;
+      });
+    }
+
+    function checkCollisions() {
+      foods = foods.filter((food) => {
+        if (distance(player, food) < playerRadius + food.r) {
+          score += 25;
+          burst(food.x, food.y, "#bef264");
+          updateHud();
+          return false;
+        }
+        return true;
+      });
+
+      chefs.forEach((chef) => {
+        if (chef.stun <= 0 && player.invincible === 0 && distance(player, chef) < 31) {
+          lives -= 1;
+          player.invincible = 130;
+          player.x = 64;
+          player.y = height - 68;
+          burst(chef.x, chef.y, "#fde68a");
+          if (lives <= 0) {
+            gameState = "over";
+            setMessage("The chefs caught you. Press Enter or Restart.");
+          } else {
+            setMessage("Caught by a chef. You dropped back to the start.");
+          }
+          updateHud();
+        }
+      });
+
+      if (foods.length === 0 &&
+          player.x > exit.x &&
+          player.x < exit.x + exit.w &&
+          player.y > exit.y &&
+          player.y < exit.y + exit.h) {
+        wave += 1;
+        score += 150;
+        player.x = 64;
+        player.y = height - 68;
+        spawnFood(7 + Math.min(wave, 5));
+        spawnChef(2 + Math.min(wave, 4));
+        setMessage("Wave cleared. The cafeteria gets faster.");
+        updateHud();
+      }
+    }
+
+    function drawArena() {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = "#334155";
+      ctx.lineWidth = 2;
+      for (let x = 0; x < width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = foods.length === 0 ? "#22c55e" : "#475569";
+      ctx.fillRect(exit.x, exit.y, exit.w, exit.h);
+      ctx.fillStyle = "#dcfce7";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("EXIT", exit.x + 5, exit.y + 32);
+
+      counters.forEach((counter) => {
+        ctx.fillStyle = "#78350f";
+        ctx.fillRect(counter.x, counter.y, counter.w, counter.h);
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(counter.x, counter.y, counter.w, 5);
+      });
+    }
+
+    function drawFood() {
+      foods.forEach((food) => {
+        food.wobble += 0.06;
+        ctx.fillStyle = "#a3e635";
+        ctx.beginPath();
+        ctx.arc(food.x, food.y + Math.sin(food.wobble) * 2, food.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fef9c3";
+        ctx.fillRect(food.x - 3, food.y - 10 + Math.sin(food.wobble) * 2, 6, 5);
+      });
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.globalAlpha = player.invincible > 0 && Math.floor(player.invincible / 8) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, playerRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#e0f2fe";
+      ctx.beginPath();
+      ctx.arc(player.x + player.dirX * 6, player.y + player.dirY * 6, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawChefs() {
+      chefs.forEach((chef) => {
+        ctx.fillStyle = chef.stun > 0 ? "#94a3b8" : "#f97316";
+        ctx.beginPath();
+        ctx.arc(chef.x, chef.y, 17, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff7ed";
+        ctx.fillRect(chef.x - 13, chef.y - 25, 26, 10);
+        ctx.fillRect(chef.x - 9, chef.y - 32, 18, 9);
+      });
+    }
+
+    function drawProjectiles() {
+      tomatoes.forEach((tomato) => {
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(tomato.x, tomato.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      particles.forEach((particle) => {
+        ctx.globalAlpha = Math.max(0, particle.life / 22);
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(particle.x, particle.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawOverlay() {
+      if (gameState !== "over") return;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.74)";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#fde68a";
+      ctx.font = "bold 38px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Game Over", width / 2, height / 2 - 12);
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Press Enter to restart", width / 2, height / 2 + 26);
+      ctx.textAlign = "start";
+    }
+
+    function loop() {
+      if (gameState === "playing") {
+        updatePlayer();
+        updateChefs();
+        updateTomatoes();
+        updateParticles();
+        checkCollisions();
+      }
+      drawArena();
+      drawFood();
+      drawProjectiles();
+      drawPlayer();
+      drawChefs();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === " " || event.key.toLowerCase() === "j") {
+        throwTomato();
+      } else if (event.key === "Enter" && gameState === "over") {
+        setupGame();
+      } else {
+        keys.add(event.key.toLowerCase());
+        keys.add(event.key);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key.toLowerCase());
+      keys.delete(event.key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
