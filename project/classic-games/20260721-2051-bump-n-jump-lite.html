@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bump n Jump</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      touch-action: manipulation;
+    }
+    canvas {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3 border-b border-amber-400/30 pb-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-amber-200">Mini Bump n Jump</h1>
+        <p class="text-sm text-zinc-400">Dodge road gaps, bump rival cars, and jump at the last clean stretch.</p>
+      </div>
+      <button id="restartBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-100">
+        Restart
+      </button>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-3 shadow-2xl shadow-amber-950/30">
+        <canvas id="gameCanvas" width="720" height="540" class="aspect-[4/3] w-full rounded bg-zinc-950"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-zinc-500">Score</div>
+              <div id="score" class="text-xl font-bold text-amber-200">0</div>
+            </div>
+            <div>
+              <div class="text-zinc-500">Stage</div>
+              <div id="stage" class="text-xl font-bold text-cyan-200">1</div>
+            </div>
+            <div>
+              <div class="text-zinc-500">Lives</div>
+              <div id="lives" class="text-xl font-bold text-rose-200">3</div>
+            </div>
+            <div>
+              <div class="text-zinc-500">Speed</div>
+              <div id="speed" class="text-xl font-bold text-emerald-200">1x</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-zinc-700 bg-zinc-900 p-4 leading-6 text-zinc-300">
+          <p><span class="font-semibold text-zinc-100">Steer:</span> Arrow keys or WASD</p>
+          <p><span class="font-semibold text-zinc-100">Jump:</span> Space, J, or Up</p>
+          <p><span class="font-semibold text-zinc-100">Restart:</span> Enter</p>
+          <p><span class="font-semibold text-zinc-100">Goal:</span> survive 60 seconds</p>
+        </div>
+
+        <div id="status" class="rounded border border-amber-500/40 bg-amber-950/20 p-4 text-amber-100">
+          Find a gap and jump clean.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const stageEl = document.getElementById("stage");
+    const livesEl = document.getElementById("lives");
+    const speedEl = document.getElementById("speed");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const keys = new Set();
+    const rivals = [];
+    const hazards = [];
+    const sparks = [];
+    const laneXs = [214, 304, 394, 484];
+    let car;
+    let score;
+    let lives;
+    let stage;
+    let roadOffset;
+    let elapsed;
+    let worldSpeed;
+    let rivalTimer;
+    let hazardTimer;
+    let state;
+    let lastTime;
+
+    function setupGame() {
+      car = {
+        lane: 1,
+        x: laneXs[1],
+        y: 424,
+        width: 42,
+        height: 66,
+        jump: 0,
+        jumpVelocity: 0,
+        invincible: 0
+      };
+      score = 0;
+      lives = 3;
+      stage = 1;
+      roadOffset = 0;
+      elapsed = 0;
+      worldSpeed = 190;
+      rivalTimer = 0.7;
+      hazardTimer = 1.4;
+      state = "playing";
+      lastTime = performance.now();
+      rivals.length = 0;
+      hazards.length = 0;
+      sparks.length = 0;
+      statusEl.textContent = "Find a gap and jump clean.";
+      updateHud();
+    }
+
+    function spawnRival() {
+      const lane = Math.floor(Math.random() * laneXs.length);
+      const colors = ["#38bdf8", "#f472b6", "#a3e635", "#f97316"];
+      rivals.push({
+        lane,
+        x: laneXs[lane],
+        y: -80,
+        width: 40,
+        height: 62,
+        speed: worldSpeed * (0.58 + Math.random() * 0.35),
+        color: colors[Math.floor(Math.random() * colors.length)],
+        bumped: false
+      });
+    }
+
+    function spawnHazard() {
+      const lane = Math.floor(Math.random() * laneXs.length);
+      hazards.push({
+        lane,
+        x: laneXs[lane],
+        y: -70,
+        width: 54,
+        height: 38,
+        passed: false
+      });
+    }
+
+    function steerCar(dt) {
+      if (keys.has("ArrowLeft") || keys.has("a")) {
+        car.x -= 290 * dt;
+      }
+      if (keys.has("ArrowRight") || keys.has("d")) {
+        car.x += 290 * dt;
+      }
+      car.x = clamp(car.x, 170, 530);
+      car.lane = nearestLane(car.x);
+
+      if (car.jump > 0 || car.jumpVelocity > 0) {
+        car.jump += car.jumpVelocity * dt;
+        car.jumpVelocity -= 780 * dt;
+        if (car.jump <= 0) {
+          car.jump = 0;
+          car.jumpVelocity = 0;
+        }
+      }
+      car.invincible = Math.max(0, car.invincible - dt);
+    }
+
+    function jumpCar() {
+      if (state !== "playing" || car.jump > 0 || car.jumpVelocity > 0) {
+        return;
+      }
+      car.jumpVelocity = 420;
+      car.jump = 1;
+      statusEl.textContent = "Jump committed.";
+    }
+
+    function updateRoad(dt) {
+      elapsed += dt;
+      roadOffset = (roadOffset + worldSpeed * dt) % 72;
+      stage = Math.min(6, Math.floor(elapsed / 12) + 1);
+      worldSpeed = 185 + stage * 30;
+      score += Math.floor(dt * (35 + stage * 8));
+      if (elapsed >= 60 && state === "playing") {
+        state = "won";
+        statusEl.textContent = "Stage cleared. Press Enter for another run.";
+      }
+    }
+
+    function updateRivals(dt) {
+      rivalTimer -= dt;
+      if (rivalTimer <= 0) {
+        spawnRival();
+        rivalTimer = Math.max(0.5, 1.35 - stage * 0.12);
+      }
+
+      for (let i = rivals.length - 1; i >= 0; i -= 1) {
+        const rival = rivals[i];
+        rival.y += (worldSpeed - rival.speed) * dt + 130 * dt;
+        const laneDrift = laneXs[rival.lane] - rival.x;
+        rival.x += laneDrift * dt * 3;
+
+        if (rival.y > canvas.height + 90) {
+          rivals.splice(i, 1);
+          score += 25;
+          continue;
+        }
+
+        if (!isAirborne() && overlap(carBox(), boxFor(rival))) {
+          const sideHit = Math.abs(car.x - rival.x) > 28;
+          if (sideHit) {
+            rival.bumped = true;
+            rival.x += car.x < rival.x ? 80 : -80;
+            rival.y += 30;
+            score += 90;
+            burst(rival.x, rival.y, rival.color, 10);
+            statusEl.textContent = "Side bump!";
+          } else {
+            crash("Front collision.");
+          }
+        }
+      }
+    }
+
+    function updateHazards(dt) {
+      hazardTimer -= dt;
+      if (hazardTimer <= 0) {
+        spawnHazard();
+        hazardTimer = Math.max(1.0, 2.3 - stage * 0.15);
+      }
+
+      for (let i = hazards.length - 1; i >= 0; i -= 1) {
+        const hazard = hazards[i];
+        hazard.y += worldSpeed * dt;
+        if (!hazard.passed && hazard.y > car.y + 42) {
+          hazard.passed = true;
+          score += 70;
+        }
+        if (hazard.y > canvas.height + 70) {
+          hazards.splice(i, 1);
+          continue;
+        }
+        if (!isAirborne() && overlap(carBox(), boxFor(hazard))) {
+          crash("Hit a road gap.");
+        }
+      }
+    }
+
+    function updateSparks(dt) {
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+        if (spark.life <= 0) {
+          sparks.splice(i, 1);
+        }
+      }
+    }
+
+    function crash(reason) {
+      if (car.invincible > 0 || state !== "playing") {
+        return;
+      }
+      lives -= 1;
+      car.invincible = 1.7;
+      burst(car.x, car.y, "#fb7185", 18);
+      statusEl.textContent = reason + " Resetting lane.";
+      car.x = laneXs[1];
+      car.lane = 1;
+      car.jump = 0;
+      car.jumpVelocity = 0;
+      rivals.length = 0;
+      hazards.length = 0;
+      if (lives <= 0) {
+        state = "over";
+        statusEl.textContent = "Run ended. Press Enter or Restart.";
+      }
+      updateHud();
+    }
+
+    function drawRoad() {
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#27272a";
+      ctx.beginPath();
+      ctx.moveTo(150, 0);
+      ctx.lineTo(570, 0);
+      ctx.lineTo(620, canvas.height);
+      ctx.lineTo(100, canvas.height);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#fef3c7";
+      for (const x of [260, 350, 440]) {
+        for (let y = -70 + roadOffset; y < canvas.height; y += 72) {
+          ctx.fillRect(x - 4, y, 8, 36);
+        }
+      }
+      ctx.fillStyle = "#78350f";
+      for (let y = -72 + roadOffset; y < canvas.height; y += 72) {
+        ctx.fillRect(86, y, 34, 32);
+        ctx.fillRect(600, y + 20, 34, 32);
+      }
+    }
+
+    function drawHazards() {
+      for (const hazard of hazards) {
+        ctx.save();
+        ctx.translate(hazard.x, hazard.y);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(-hazard.width / 2, -hazard.height / 2, hazard.width, hazard.height);
+        ctx.strokeStyle = "#facc15";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-hazard.width / 2, -hazard.height / 2, hazard.width, hazard.height);
+        ctx.restore();
+      }
+    }
+
+    function drawRivals() {
+      for (const rival of rivals) {
+        drawCarShape(rival.x, rival.y, rival.color, rival.bumped ? -0.18 : 0);
+      }
+    }
+
+    function drawPlayer() {
+      const blink = car.invincible > 0 && Math.floor(car.invincible * 14) % 2 === 0;
+      if (blink) {
+        return;
+      }
+      const lift = Math.max(0, car.jump);
+      drawCarShape(car.x, car.y - lift, "#fbbf24", 0);
+      if (isAirborne()) {
+        ctx.strokeStyle = "rgba(251,191,36,0.35)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(car.x, car.y + 28, 28, 8, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawCarShape(x, y, color, tilt) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(tilt);
+      ctx.fillStyle = color;
+      ctx.fillRect(-18, -30, 36, 60);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(-12, -22, 24, 16);
+      ctx.fillRect(-12, 8, 24, 12);
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fillRect(-22, -22, 6, 18);
+      ctx.fillRect(16, -22, 6, 18);
+      ctx.fillRect(-22, 9, 6, 18);
+      ctx.fillRect(16, 9, 6, 18);
+      ctx.restore();
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 2.3);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state === "playing") {
+        return;
+      }
+      ctx.fillStyle = "rgba(9,9,11,0.76)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fef3c7";
+      ctx.font = "700 36px system-ui";
+      ctx.fillText(state === "won" ? "Stage Clear" : "Run Ended", canvas.width / 2, canvas.height / 2 - 16);
+      ctx.font = "500 18px system-ui";
+      ctx.fillText("Press Enter to restart", canvas.width / 2, canvas.height / 2 + 22);
+      ctx.textAlign = "left";
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 70 + Math.random() * 150;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.25 + Math.random() * 0.45,
+          color
+        });
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      stageEl.textContent = stage;
+      livesEl.textContent = lives;
+      speedEl.textContent = (worldSpeed / 190).toFixed(1) + "x";
+    }
+
+    function carBox() {
+      const lift = Math.max(0, car.jump);
+      return {
+        x: car.x - car.width / 2,
+        y: car.y - lift - car.height / 2,
+        width: car.width,
+        height: car.height
+      };
+    }
+
+    function boxFor(item) {
+      return {
+        x: item.x - item.width / 2,
+        y: item.y - item.height / 2,
+        width: item.width,
+        height: item.height
+      };
+    }
+
+    function overlap(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function isAirborne() {
+      return car.jump > 28 || car.jumpVelocity > 0;
+    }
+
+    function nearestLane(x) {
+      let best = 0;
+      let distance = Infinity;
+      for (let i = 0; i < laneXs.length; i += 1) {
+        const current = Math.abs(laneXs[i] - x);
+        if (current < distance) {
+          distance = current;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+      drawRoad();
+      if (state === "playing") {
+        updateRoad(dt);
+        steerCar(dt);
+        updateRivals(dt);
+        updateHazards(dt);
+      }
+      updateSparks(dt);
+      drawHazards();
+      drawRivals();
+      drawPlayer();
+      drawSparks();
+      drawOverlay();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", " ", "Enter"].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === " " || key === "j" || key === "ArrowUp" || key === "w") {
+        jumpCar();
+      }
+      if (key === "Enter") {
+        setupGame();
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+
+    setupGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
