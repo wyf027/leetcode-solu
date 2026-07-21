@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Major Havoc</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-400/20 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-cyan-200">Mini Major Havoc</h1>
+        <p class="text-sm text-slate-400">穿过太空通道，收集能量钥匙，闯入反应堆核心后撤离。</p>
+      </div>
+      <button id="restartBtn" class="rounded border border-cyan-300/50 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px]">
+      <div class="rounded-lg border border-slate-700 bg-slate-900/80 p-3 shadow-2xl shadow-cyan-950/30">
+        <canvas id="gameCanvas" width="720" height="480" class="h-auto w-full rounded bg-slate-950"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-4 text-sm">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded border border-slate-700 p-3">
+            <div class="text-slate-400">分数</div>
+            <div id="score" class="text-xl font-bold text-cyan-200">0</div>
+          </div>
+          <div class="rounded border border-slate-700 p-3">
+            <div class="text-slate-400">生命</div>
+            <div id="lives" class="text-xl font-bold text-rose-200">3</div>
+          </div>
+          <div class="rounded border border-slate-700 p-3">
+            <div class="text-slate-400">钥匙</div>
+            <div id="keys" class="text-xl font-bold text-amber-200">0/4</div>
+          </div>
+          <div class="rounded border border-slate-700 p-3">
+            <div class="text-slate-400">阶段</div>
+            <div id="phase" class="text-xl font-bold text-emerald-200">通道</div>
+          </div>
+        </div>
+        <div class="rounded border border-cyan-300/20 bg-cyan-300/5 p-3 text-slate-300">
+          <p>方向键 / WASD 移动飞行员。</p>
+          <p>Space 激活短促护盾。</p>
+          <p>R 重新开始。</p>
+        </div>
+        <div id="status" class="rounded border border-slate-700 p-3 text-slate-300">收集 4 把钥匙后进入反应堆门。</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const keysEl = document.getElementById("keys");
+    const phaseEl = document.getElementById("phase");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const keys = new Set();
+    const player = { x: 360, y: 410, r: 13, speed: 4.4, shield: 0, invulnerable: 0 };
+    let score = 0;
+    let lives = 3;
+    let keyCount = 0;
+    let frame = 0;
+    let phase = "tunnel";
+    let gameOver = false;
+    let won = false;
+    let gatePulse = 0;
+    let escapeTimer = 0;
+    let hazards = [];
+    let pickups = [];
+    let stars = [];
+
+    function reset() {
+      player.x = 360;
+      player.y = 410;
+      player.shield = 0;
+      player.invulnerable = 70;
+      score = 0;
+      lives = 3;
+      keyCount = 0;
+      frame = 0;
+      phase = "tunnel";
+      gameOver = false;
+      won = false;
+      gatePulse = 0;
+      escapeTimer = 0;
+      hazards = [];
+      pickups = [];
+      stars = Array.from({ length: 80 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        s: 0.5 + Math.random() * 1.8
+      }));
+      updateHud("收集 4 把钥匙后进入反应堆门。");
+    }
+
+    function updateHud(message) {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      keysEl.textContent = keyCount + "/4";
+      phaseEl.textContent = phase === "tunnel" ? "通道" : phase === "reactor" ? "核心" : "撤离";
+      if (message) statusEl.textContent = message;
+    }
+
+    function spawnTunnel() {
+      if (frame % 52 === 0) {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        hazards.push({
+          type: "mine",
+          x: side < 0 ? -20 : canvas.width + 20,
+          y: 90 + Math.random() * 270,
+          vx: side * -(2.2 + Math.random() * 1.6),
+          vy: Math.sin(frame / 24) * 0.7,
+          r: 15 + Math.random() * 7
+        });
+      }
+      if (frame % 130 === 20) {
+        pickups.push({
+          type: "key",
+          x: 80 + Math.random() * 560,
+          y: -16,
+          vy: 2.1,
+          r: 10,
+          spin: 0
+        });
+      }
+    }
+
+    function spawnReactor() {
+      if (frame % 44 === 0) {
+        hazards.push({
+          type: "spark",
+          x: 115 + Math.random() * 490,
+          y: 164,
+          vx: -1.7 + Math.random() * 3.4,
+          vy: 2.4 + Math.random() * 1.2,
+          r: 9
+        });
+      }
+    }
+
+    function movePlayer() {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+      const len = Math.hypot(dx, dy) || 1;
+      player.x += (dx / len) * player.speed;
+      player.y += (dy / len) * player.speed;
+      const topLimit = phase === "tunnel" ? 76 : 164;
+      player.x = Math.max(34, Math.min(canvas.width - 34, player.x));
+      player.y = Math.max(topLimit, Math.min(canvas.height - 34, player.y));
+      player.shield = Math.max(0, player.shield - 1);
+      player.invulnerable = Math.max(0, player.invulnerable - 1);
+    }
+
+    function circleHit(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r;
+    }
+
+    function updateObjects() {
+      for (const star of stars) {
+        star.y += star.s * (phase === "escape" ? 2.8 : 1);
+        if (star.y > canvas.height) {
+          star.y = 0;
+          star.x = Math.random() * canvas.width;
+        }
+      }
+      for (const hazard of hazards) {
+        hazard.x += hazard.vx;
+        hazard.y += hazard.vy;
+        if (hazard.type === "mine") hazard.vy += Math.sin((frame + hazard.x) / 50) * 0.03;
+      }
+      for (const pickup of pickups) {
+        pickup.y += pickup.vy;
+        pickup.spin += 0.1;
+      }
+      hazards = hazards.filter((h) => h.x > -60 && h.x < canvas.width + 60 && h.y > -60 && h.y < canvas.height + 60);
+      pickups = pickups.filter((p) => p.y < canvas.height + 40);
+    }
+
+    function checkCollisions() {
+      for (const pickup of pickups) {
+        if (!pickup.used && circleHit(player, pickup)) {
+          pickup.used = true;
+          keyCount = Math.min(4, keyCount + 1);
+          score += 250;
+          updateHud(keyCount >= 4 ? "钥匙齐备，进入上方反应堆门。" : "拿到一把能量钥匙。");
+        }
+      }
+      pickups = pickups.filter((p) => !p.used);
+
+      for (const hazard of hazards) {
+        if (circleHit(player, hazard) && player.shield <= 0 && player.invulnerable <= 0) {
+          lives -= 1;
+          player.invulnerable = 95;
+          player.x = 360;
+          player.y = phase === "tunnel" ? 410 : 420;
+          updateHud("撞上防御装置，重新定位。");
+          if (lives <= 0) {
+            gameOver = true;
+            updateHud("任务失败，按 R 重新开始。");
+          }
+          break;
+        }
+      }
+
+      if (phase === "tunnel" && keyCount >= 4 && player.y < 92 && player.x > 280 && player.x < 440) {
+        phase = "reactor";
+        hazards = [];
+        pickups = [];
+        player.y = 430;
+        player.invulnerable = 80;
+        score += 500;
+        updateHud("已进入核心，触碰反应堆后立即撤离。");
+      }
+
+      if (phase === "reactor" && Math.hypot(player.x - 360, player.y - 205) < 42) {
+        phase = "escape";
+        escapeTimer = 540;
+        hazards = [];
+        score += 1000;
+        updateHud("反应堆已过载，倒计时内返回底部出口。");
+      }
+
+      if (phase === "escape") {
+        escapeTimer -= 1;
+        if (player.y > 442 && player.x > 280 && player.x < 440) {
+          won = true;
+          gameOver = true;
+          score += Math.max(0, escapeTimer) * 2;
+          updateHud("撤离成功，按 R 再玩一局。");
+        } else if (escapeTimer <= 0) {
+          gameOver = true;
+          updateHud("撤离超时，按 R 重新开始。");
+        }
+      }
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#67e8f9";
+      for (const star of stars) {
+        ctx.globalAlpha = 0.2 + star.s / 3;
+        ctx.fillRect(star.x, star.y, star.s, star.s);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawTunnel() {
+      ctx.strokeStyle = "#164e63";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(130, 70);
+      ctx.lineTo(72, 456);
+      ctx.lineTo(648, 456);
+      ctx.lineTo(590, 70);
+      ctx.closePath();
+      ctx.stroke();
+
+      gatePulse += 0.05;
+      ctx.fillStyle = keyCount >= 4 ? "rgba(45, 212, 191, 0.2)" : "rgba(148, 163, 184, 0.12)";
+      ctx.strokeStyle = keyCount >= 4 ? "#2dd4bf" : "#475569";
+      ctx.lineWidth = 4;
+      ctx.fillRect(280, 54, 160, 42);
+      ctx.strokeRect(280, 54, 160, 42);
+      ctx.fillStyle = "#cbd5e1";
+      ctx.font = "14px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(keyCount >= 4 ? "REACTOR GATE" : "LOCKED", 360, 80);
+    }
+
+    function drawReactor() {
+      ctx.strokeStyle = "#0f766e";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(110, 150, 500, 290);
+      ctx.fillStyle = "rgba(20, 184, 166, 0.08)";
+      ctx.fillRect(110, 150, 500, 290);
+      ctx.fillStyle = "#f59e0b";
+      ctx.beginPath();
+      ctx.arc(360, 205, 30 + Math.sin(frame / 12) * 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fef3c7";
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(phase === "escape" ? "EXIT BELOW" : "CORE", 360, 210);
+      if (phase === "escape") {
+        ctx.strokeStyle = "#22c55e";
+        ctx.strokeRect(280, 442, 160, 28);
+        ctx.fillStyle = "#bbf7d0";
+        ctx.fillText("ESCAPE", 360, 461);
+      }
+    }
+
+    function drawObjects() {
+      for (const pickup of pickups) {
+        ctx.save();
+        ctx.translate(pickup.x, pickup.y);
+        ctx.rotate(pickup.spin);
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(-8, -8, 16, 16);
+        ctx.fillStyle = "#fef3c7";
+        ctx.fillRect(2, -2, 12, 4);
+        ctx.restore();
+      }
+      for (const hazard of hazards) {
+        ctx.fillStyle = hazard.type === "mine" ? "#fb7185" : "#a78bfa";
+        ctx.beginPath();
+        ctx.arc(hazard.x, hazard.y, hazard.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#fee2e2";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      const blink = player.invulnerable > 0 && Math.floor(frame / 7) % 2 === 0;
+      if (!blink) {
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.moveTo(0, -16);
+        ctx.lineTo(15, 14);
+        ctx.lineTo(0, 8);
+        ctx.lineTo(-15, 14);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#e0f2fe";
+        ctx.fillRect(-4, -3, 8, 8);
+      }
+      if (player.shield > 0) {
+        ctx.strokeStyle = "rgba(125, 211, 252, 0.85)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 24, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawOverlay() {
+      if (phase === "escape" && !gameOver) {
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "18px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("撤离倒计时 " + Math.ceil(escapeTimer / 60), 24, 32);
+      }
+      if (gameOver) {
+        ctx.fillStyle = "rgba(2, 6, 23, 0.76)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = won ? "#86efac" : "#fecaca";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "任务完成" : "任务失败", canvas.width / 2, 220);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "18px sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 258);
+      }
+    }
+
+    function loop() {
+      frame += 1;
+      if (!gameOver) {
+        if (phase === "tunnel") spawnTunnel();
+        if (phase === "reactor" || phase === "escape") spawnReactor();
+        movePlayer();
+        updateObjects();
+        checkCollisions();
+        score += frame % 20 === 0 ? 5 : 0;
+        updateHud();
+      }
+      drawBackground();
+      if (phase === "tunnel") drawTunnel();
+      if (phase === "reactor" || phase === "escape") drawReactor();
+      drawObjects();
+      drawPlayer();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "a", "d", "w", "s", "r"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") {
+        if (player.shield <= 0) player.shield = 48;
+        return;
+      }
+      if (key === "r") {
+        reset();
+        return;
+      }
+      keys.add(key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
