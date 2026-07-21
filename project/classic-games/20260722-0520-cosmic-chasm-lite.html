@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Cosmic Chasm</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-cyan-300">Mini Cosmic Chasm</h1>
+        <p class="text-sm text-neutral-400">Pierce the reactor shield, trigger the core, then escape through the chasm.</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2"><div class="text-xs uppercase text-neutral-500">Score</div><div id="score" class="font-mono text-lg text-cyan-200">0</div></div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2"><div class="text-xs uppercase text-neutral-500">Stage</div><div id="stage" class="font-mono text-lg text-violet-200">1</div></div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2"><div class="text-xs uppercase text-neutral-500">Timer</div><div id="timer" class="font-mono text-lg text-amber-200">--</div></div>
+        <div class="rounded border border-neutral-800 bg-neutral-900 px-3 py-2"><div class="text-xs uppercase text-neutral-500">Hull</div><div id="hull" class="font-mono text-lg text-rose-200">3</div></div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <div class="rounded border border-neutral-800 bg-black p-3 shadow-2xl">
+        <canvas id="game" width="720" height="520" class="block h-auto w-full rounded bg-neutral-950"></canvas>
+      </div>
+      <aside class="space-y-3 rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div>
+          <h2 class="text-sm font-semibold uppercase text-neutral-400">Controls</h2>
+          <dl class="mt-2 space-y-2 text-sm text-neutral-300">
+            <div class="flex justify-between gap-3"><dt>Rotate</dt><dd class="font-mono text-cyan-200">Left / Right</dd></div>
+            <div class="flex justify-between gap-3"><dt>Thrust</dt><dd class="font-mono text-cyan-200">Up</dd></div>
+            <div class="flex justify-between gap-3"><dt>Fire</dt><dd class="font-mono text-cyan-200">Space</dd></div>
+            <div class="flex justify-between gap-3"><dt>Restart</dt><dd class="font-mono text-cyan-200">R</dd></div>
+          </dl>
+        </div>
+        <button id="restart" class="w-full rounded bg-cyan-400 px-4 py-2 font-semibold text-neutral-950 hover:bg-cyan-300">Restart</button>
+        <p id="message" class="min-h-20 rounded border border-neutral-800 bg-neutral-950 p-3 text-sm leading-6 text-neutral-300">
+          Shoot all reactor locks. When the countdown starts, escape to the rim.
+        </p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const stageEl = document.getElementById('stage');
+    const timerEl = document.getElementById('timer');
+    const hullEl = document.getElementById('hull');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+    const keys = new Set();
+    const center = { x: canvas.width / 2, y: canvas.height / 2 };
+
+    let ship;
+    let shots;
+    let locks;
+    let sparks;
+    let score;
+    let stage;
+    let hull;
+    let state;
+    let timer;
+    let lastTime;
+    let cooldown;
+    let invulnerable;
+
+    function reset() {
+      score = 0;
+      stage = 1;
+      hull = 3;
+      startStage();
+    }
+
+    function startStage() {
+      ship = { x: center.x, y: center.y + 170, vx: 0, vy: 0, angle: -Math.PI / 2, r: 13 };
+      shots = [];
+      sparks = [];
+      locks = [];
+      const count = Math.min(5 + stage, 10);
+      for (let i = 0; i < count; i++) {
+        const a = Math.PI * 2 * i / count;
+        locks.push({ angle: a, radius: 90 + (i % 2) * 28, hp: 1, alive: true, spin: Math.random() * Math.PI });
+      }
+      state = 'attack';
+      timer = 0;
+      cooldown = 0;
+      invulnerable = 1.2;
+      messageEl.textContent = 'Shoot all reactor locks. When the countdown starts, escape to the rim.';
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = String(score);
+      stageEl.textContent = String(stage);
+      hullEl.textContent = String(hull);
+      timerEl.textContent = state === 'escape' ? timer.toFixed(1) : '--';
+    }
+
+    function wrapShip() {
+      ship.x = Math.max(18, Math.min(canvas.width - 18, ship.x));
+      ship.y = Math.max(18, Math.min(canvas.height - 18, ship.y));
+    }
+
+    function fire() {
+      if (cooldown > 0 || state === 'over') return;
+      cooldown = 0.18;
+      shots.push({
+        x: ship.x + Math.cos(ship.angle) * 18,
+        y: ship.y + Math.sin(ship.angle) * 18,
+        vx: ship.vx + Math.cos(ship.angle) * 430,
+        vy: ship.vy + Math.sin(ship.angle) * 430,
+        life: 0.9
+      });
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const speed = 45 + Math.random() * 180;
+        sparks.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: 0.25 + Math.random() * 0.45, color });
+      }
+    }
+
+    function lockPosition(lock) {
+      const spin = performance.now() * 0.00025 * (stage + 2);
+      const a = lock.angle + spin;
+      return { x: center.x + Math.cos(a) * lock.radius, y: center.y + Math.sin(a) * lock.radius };
+    }
+
+    function updateShip(dt) {
+      if (keys.has('ArrowLeft')) ship.angle -= 4.2 * dt;
+      if (keys.has('ArrowRight')) ship.angle += 4.2 * dt;
+      if (keys.has('ArrowUp')) {
+        ship.vx += Math.cos(ship.angle) * 230 * dt;
+        ship.vy += Math.sin(ship.angle) * 230 * dt;
+      }
+      ship.vx *= 0.988;
+      ship.vy *= 0.988;
+      ship.x += ship.vx * dt;
+      ship.y += ship.vy * dt;
+      wrapShip();
+      cooldown = Math.max(0, cooldown - dt);
+      invulnerable = Math.max(0, invulnerable - dt);
+    }
+
+    function updateShots(dt) {
+      for (const shot of shots) {
+        shot.x += shot.vx * dt;
+        shot.y += shot.vy * dt;
+        shot.life -= dt;
+      }
+      shots = shots.filter((shot) => shot.life > 0 && shot.x > -20 && shot.x < canvas.width + 20 && shot.y > -20 && shot.y < canvas.height + 20);
+    }
+
+    function updateSparks(dt) {
+      for (const spark of sparks) {
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.vx *= 0.96;
+        spark.vy *= 0.96;
+        spark.life -= dt;
+      }
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function checkHits() {
+      for (const lock of locks) {
+        if (!lock.alive) continue;
+        const p = lockPosition(lock);
+        for (let i = shots.length - 1; i >= 0; i--) {
+          const shot = shots[i];
+          if (Math.hypot(shot.x - p.x, shot.y - p.y) < 17) {
+            shots.splice(i, 1);
+            lock.alive = false;
+            score += 120;
+            burst(p.x, p.y, '#22d3ee', 15);
+            break;
+          }
+        }
+      }
+      if (state === 'attack' && locks.every((lock) => !lock.alive)) {
+        state = 'escape';
+        timer = Math.max(8.5, 14 - stage * 0.8);
+        score += 300;
+        burst(center.x, center.y, '#f59e0b', 32);
+        messageEl.textContent = 'Core breached. Escape to any edge before detonation.';
+      }
+    }
+
+    function checkCollisions() {
+      if (invulnerable > 0 || state === 'over') return;
+      const reactorRadius = state === 'attack' ? 47 : 70 + Math.sin(performance.now() * 0.012) * 12;
+      if (Math.hypot(ship.x - center.x, ship.y - center.y) < reactorRadius + ship.r) {
+        damage('Reactor contact. Hull integrity reduced.');
+      }
+      for (const lock of locks) {
+        if (!lock.alive) continue;
+        const p = lockPosition(lock);
+        if (Math.hypot(ship.x - p.x, ship.y - p.y) < ship.r + 15) {
+          damage('Shield lock collision. Re-center and continue.');
+          break;
+        }
+      }
+    }
+
+    function damage(text) {
+      hull -= 1;
+      invulnerable = 1.4;
+      ship.x = center.x;
+      ship.y = center.y + 170;
+      ship.vx = 0;
+      ship.vy = 0;
+      ship.angle = -Math.PI / 2;
+      burst(ship.x, ship.y, '#fb7185', 20);
+      if (hull <= 0) {
+        state = 'over';
+        messageEl.textContent = 'Ship destroyed. Press R or Restart to try again.';
+      } else {
+        messageEl.textContent = text;
+      }
+      updateHud();
+    }
+
+    function checkEscape(dt) {
+      if (state !== 'escape') return;
+      timer -= dt;
+      const escaped = ship.x < 28 || ship.x > canvas.width - 28 || ship.y < 28 || ship.y > canvas.height - 28;
+      if (escaped) {
+        score += Math.ceil(timer * 80);
+        stage += 1;
+        messageEl.textContent = `Stage ${stage}. Reactor escape confirmed.`;
+        startStage();
+      } else if (timer <= 0) {
+        state = 'over';
+        burst(center.x, center.y, '#f97316', 60);
+        messageEl.textContent = 'Detonation caught the ship. Press R or Restart.';
+      }
+    }
+
+    function update(dt) {
+      if (state === 'over') return;
+      updateShip(dt);
+      updateShots(dt);
+      updateSparks(dt);
+      checkHits();
+      checkCollisions();
+      checkEscape(dt);
+      updateHud();
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#1f2937';
+      ctx.lineWidth = 2;
+      for (let r = 70; r < 260; r += 38) {
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#334155';
+      for (let i = 0; i < 12; i++) {
+        const a = Math.PI * 2 * i / 12;
+        ctx.beginPath();
+        ctx.moveTo(center.x + Math.cos(a) * 42, center.y + Math.sin(a) * 42);
+        ctx.lineTo(center.x + Math.cos(a) * 255, center.y + Math.sin(a) * 255);
+        ctx.stroke();
+      }
+    }
+
+    function drawReactor() {
+      const pulse = state === 'escape' ? 18 + Math.sin(performance.now() * 0.014) * 12 : 0;
+      const radius = 42 + pulse;
+      ctx.fillStyle = state === 'escape' ? '#7c2d12' : '#164e63';
+      ctx.strokeStyle = state === 'escape' ? '#f97316' : '#22d3ee';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function drawLocks() {
+      for (const lock of locks) {
+        if (!lock.alive) continue;
+        const p = lockPosition(lock);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(lock.angle + performance.now() * 0.002);
+        ctx.fillStyle = '#581c87';
+        ctx.strokeStyle = '#c084fc';
+        ctx.lineWidth = 2;
+        ctx.fillRect(-13, -13, 26, 26);
+        ctx.strokeRect(-13, -13, 26, 26);
+        ctx.restore();
+      }
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.rotate(ship.angle);
+      ctx.globalAlpha = invulnerable > 0 && Math.floor(invulnerable * 12) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = '#0891b2';
+      ctx.strokeStyle = '#a5f3fc';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(18, 0);
+      ctx.lineTo(-12, -10);
+      ctx.lineTo(-8, 0);
+      ctx.lineTo(-12, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (keys.has('ArrowUp')) {
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.moveTo(-12, -5);
+        ctx.lineTo(-24 - Math.random() * 8, 0);
+        ctx.lineTo(-12, 5);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawShots() {
+      ctx.fillStyle = '#fef08a';
+      for (const shot of shots) {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 2);
+        ctx.fillStyle = spark.color;
+        ctx.beginPath();
+        ctx.arc(spark.x, spark.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state !== 'over') return;
+      ctx.fillStyle = 'rgba(5, 5, 5, 0.76)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#67e8f9';
+      ctx.font = 'bold 34px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('CHASM CLOSED', canvas.width / 2, canvas.height / 2 - 8);
+      ctx.fillStyle = '#e5e5e5';
+      ctx.font = '16px system-ui';
+      ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 28);
+    }
+
+    function draw() {
+      drawBackground();
+      drawReactor();
+      drawLocks();
+      drawShots();
+      drawSparks();
+      drawShip();
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.05, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Space'].includes(event.code)) event.preventDefault();
+      keys.add(event.code);
+      if (event.code === 'Space') fire();
+      if (event.code === 'KeyR') reset();
+    });
+    window.addEventListener('keyup', (event) => keys.delete(event.code));
+    restartBtn.addEventListener('click', reset);
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
