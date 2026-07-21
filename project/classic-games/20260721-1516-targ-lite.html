@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Targ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-lime-400/30 bg-zinc-900 p-4 shadow-2xl shadow-lime-950/30">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-lime-200">Mini Targ</h1>
+          <p class="text-sm text-zinc-400">Race the grid, turn cleanly, and blast rammers before they box you in.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-zinc-700 px-3 py-2">
+            <div class="text-zinc-500">Score</div>
+            <div id="score" class="font-mono text-lime-200">0</div>
+          </div>
+          <div class="rounded border border-zinc-700 px-3 py-2">
+            <div class="text-zinc-500">Lives</div>
+            <div id="lives" class="font-mono text-rose-200">3</div>
+          </div>
+          <div class="rounded border border-zinc-700 px-3 py-2">
+            <div class="text-zinc-500">Wave</div>
+            <div id="wave" class="font-mono text-sky-200">1</div>
+          </div>
+        </div>
+      </div>
+      <canvas id="game" width="720" height="520" class="aspect-[18/13] w-full rounded border border-zinc-700 bg-black"></canvas>
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-zinc-400">
+        <p>Move: Arrow keys / WASD. Fire: Space / J. Restart: Enter.</p>
+        <p id="status" class="font-medium text-lime-200">Press an arrow key to start.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const waveEl = document.getElementById('wave');
+    const statusEl = document.getElementById('status');
+
+    const grid = {
+      cols: 18,
+      rows: 13,
+      cell: 40,
+      left: 0,
+      top: 0
+    };
+
+    const dirs = {
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 }
+    };
+
+    let player;
+    let rammers;
+    let shot;
+    let score;
+    let lives;
+    let wave;
+    let frame;
+    let running;
+    let gameOver;
+    let pendingDir;
+
+    function setupGame() {
+      player = makeCar(9, 10, 'right', '#bef264');
+      rammers = [];
+      shot = null;
+      score = 0;
+      lives = 3;
+      wave = 1;
+      frame = 0;
+      running = false;
+      gameOver = false;
+      pendingDir = null;
+      spawnWave();
+      updateHud();
+      statusEl.textContent = 'Press an arrow key to start.';
+      draw();
+    }
+
+    function makeCar(col, row, dir, color) {
+      return {
+        col,
+        row,
+        x: cellCenterX(col),
+        y: cellCenterY(row),
+        dir,
+        nextDir: dir,
+        progress: 0,
+        speed: 0.11,
+        color,
+        cooldown: 0,
+        invulnerable: 70
+      };
+    }
+
+    function spawnWave() {
+      const count = Math.min(7, 3 + wave);
+      rammers = [];
+      for (let i = 0; i < count; i++) {
+        spawnRammer(i);
+      }
+      statusEl.textContent = `Wave ${wave}: clear the grid.`;
+    }
+
+    function spawnRammer(index) {
+      const side = index % 4;
+      const col = side === 0 ? 1 : side === 1 ? grid.cols - 2 : 2 + (index * 3) % (grid.cols - 4);
+      const row = side === 2 ? 1 : side === 3 ? grid.rows - 2 : 1 + (index * 2) % (grid.rows - 2);
+      const dir = side === 0 ? 'right' : side === 1 ? 'left' : side === 2 ? 'down' : 'up';
+      const rammer = makeCar(col, row, dir, index % 2 ? '#38bdf8' : '#fb7185');
+      rammer.speed = 0.075 + wave * 0.008 + Math.random() * 0.02;
+      rammer.turnTimer = 12 + Math.floor(Math.random() * 32);
+      rammers.push(rammer);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      waveEl.textContent = wave;
+    }
+
+    function cellCenterX(col) {
+      return grid.left + col * grid.cell + grid.cell / 2;
+    }
+
+    function cellCenterY(row) {
+      return grid.top + row * grid.cell + grid.cell / 2;
+    }
+
+    function setDirection(dir) {
+      if (gameOver) return;
+      running = true;
+      pendingDir = dir;
+      player.nextDir = dir;
+    }
+
+    function fireShot() {
+      if (gameOver || !running || player.cooldown > 0 || shot) return;
+      const dir = dirs[player.dir];
+      shot = {
+        x: player.x + dir.x * 18,
+        y: player.y + dir.y * 18,
+        dir: player.dir,
+        speed: 8,
+        radius: 5
+      };
+      player.cooldown = 24;
+    }
+
+    function updatePlayer() {
+      if (player.cooldown > 0) player.cooldown -= 1;
+      if (player.invulnerable > 0) player.invulnerable -= 1;
+      moveCar(player, true);
+    }
+
+    function moveCar(car, canUsePending) {
+      if (car.progress === 0) {
+        if (canUsePending && pendingDir && canMove(car.col, car.row, pendingDir)) {
+          car.dir = pendingDir;
+          car.nextDir = pendingDir;
+        } else if (canMove(car.col, car.row, car.nextDir)) {
+          car.dir = car.nextDir;
+        } else if (!canMove(car.col, car.row, car.dir)) {
+          car.dir = chooseOpenDirection(car);
+        }
+      }
+
+      const dir = dirs[car.dir];
+      car.progress += car.speed;
+      car.x = cellCenterX(car.col) + dir.x * grid.cell * car.progress;
+      car.y = cellCenterY(car.row) + dir.y * grid.cell * car.progress;
+
+      if (car.progress >= 1) {
+        car.col += dir.x;
+        car.row += dir.y;
+        car.col = wrap(car.col, grid.cols);
+        car.row = wrap(car.row, grid.rows);
+        car.x = cellCenterX(car.col);
+        car.y = cellCenterY(car.row);
+        car.progress = 0;
+      }
+    }
+
+    function updateEnemies() {
+      for (const rammer of rammers) {
+        rammer.turnTimer -= 1;
+        if (rammer.progress === 0 && rammer.turnTimer <= 0) {
+          rammer.nextDir = chooseRammerDirection(rammer);
+          rammer.turnTimer = 10 + Math.floor(Math.random() * 24);
+        }
+        moveCar(rammer, false);
+      }
+    }
+
+    function chooseRammerDirection(rammer) {
+      const options = Object.keys(dirs).filter((dir) => canMove(rammer.col, rammer.row, dir));
+      options.sort((a, b) => distanceAfterMove(rammer, a) - distanceAfterMove(rammer, b));
+      return Math.random() < 0.72 ? options[0] : options[Math.floor(Math.random() * options.length)];
+    }
+
+    function chooseOpenDirection(car) {
+      const options = Object.keys(dirs).filter((dir) => canMove(car.col, car.row, dir));
+      return options[Math.floor(Math.random() * options.length)] || car.dir;
+    }
+
+    function distanceAfterMove(car, dirName) {
+      const dir = dirs[dirName];
+      const x = cellCenterX(wrap(car.col + dir.x, grid.cols));
+      const y = cellCenterY(wrap(car.row + dir.y, grid.rows));
+      return Math.hypot(player.x - x, player.y - y);
+    }
+
+    function canMove(col, row, dirName) {
+      const dir = dirs[dirName];
+      const nextCol = wrap(col + dir.x, grid.cols);
+      const nextRow = wrap(row + dir.y, grid.rows);
+      return !isBlocked(nextCol, nextRow);
+    }
+
+    function isBlocked(col, row) {
+      const verticalWall = col === 5 && row > 1 && row < grid.rows - 2;
+      const verticalWallTwo = col === 12 && row > 2 && row < grid.rows - 1;
+      const horizontalWall = row === 4 && col > 2 && col < grid.cols - 3;
+      const horizontalWallTwo = row === 8 && col > 1 && col < grid.cols - 4;
+      return verticalWall || verticalWallTwo || horizontalWall || horizontalWallTwo;
+    }
+
+    function wrap(value, max) {
+      if (value < 0) return max - 1;
+      if (value >= max) return 0;
+      return value;
+    }
+
+    function updateShot() {
+      if (!shot) return;
+      const dir = dirs[shot.dir];
+      shot.x += dir.x * shot.speed;
+      shot.y += dir.y * shot.speed;
+      if (shot.x < -20 || shot.x > canvas.width + 20 || shot.y < -20 || shot.y > canvas.height + 20) {
+        shot = null;
+      }
+    }
+
+    function checkCollisions() {
+      if (shot) {
+        for (let i = rammers.length - 1; i >= 0; i--) {
+          if (Math.hypot(shot.x - rammers[i].x, shot.y - rammers[i].y) < 22) {
+            rammers.splice(i, 1);
+            shot = null;
+            score += 100;
+            updateHud();
+            break;
+          }
+        }
+      }
+
+      if (player.invulnerable <= 0) {
+        for (const rammer of rammers) {
+          if (Math.hypot(player.x - rammer.x, player.y - rammer.y) < 24) {
+            loseLife();
+            break;
+          }
+        }
+      }
+
+      if (rammers.length === 0) {
+        wave += 1;
+        score += 250;
+        player.invulnerable = 65;
+        spawnWave();
+        updateHud();
+      }
+    }
+
+    function loseLife() {
+      lives -= 1;
+      updateHud();
+      if (lives <= 0) {
+        gameOver = true;
+        running = false;
+        statusEl.textContent = 'Game over. Press Enter to restart.';
+        return;
+      }
+      player = makeCar(9, 10, 'right', '#bef264');
+      pendingDir = null;
+      shot = null;
+      statusEl.textContent = 'Crash. New car ready.';
+    }
+
+    function drawGrid() {
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#3f6212';
+      ctx.lineWidth = 1;
+      for (let col = 0; col <= grid.cols; col++) {
+        ctx.beginPath();
+        ctx.moveTo(col * grid.cell, 0);
+        ctx.lineTo(col * grid.cell, grid.rows * grid.cell);
+        ctx.stroke();
+      }
+      for (let row = 0; row <= grid.rows; row++) {
+        ctx.beginPath();
+        ctx.moveTo(0, row * grid.cell);
+        ctx.lineTo(grid.cols * grid.cell, row * grid.cell);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#1f2937';
+      for (let row = 0; row < grid.rows; row++) {
+        for (let col = 0; col < grid.cols; col++) {
+          if (isBlocked(col, row)) ctx.fillRect(col * grid.cell + 3, row * grid.cell + 3, grid.cell - 6, grid.cell - 6);
+        }
+      }
+    }
+
+    function drawCar(car, isPlayer) {
+      ctx.save();
+      ctx.translate(car.x, car.y);
+      const angle = car.dir === 'right' ? 0 : car.dir === 'down' ? Math.PI / 2 : car.dir === 'left' ? Math.PI : -Math.PI / 2;
+      ctx.rotate(angle);
+      if (isPlayer && car.invulnerable > 0 && Math.floor(frame / 5) % 2 === 0) ctx.globalAlpha = 0.45;
+      ctx.fillStyle = car.color;
+      ctx.fillRect(-16, -11, 32, 22);
+      ctx.fillStyle = '#18181b';
+      ctx.fillRect(2, -7, 10, 14);
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(15, -4, 5, 8);
+      ctx.restore();
+    }
+
+    function drawShot() {
+      if (!shot) return;
+      ctx.fillStyle = '#fef3c7';
+      ctx.beginPath();
+      ctx.arc(shot.x, shot.y, shot.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawOverlay() {
+      if (running && !gameOver) return;
+      ctx.fillStyle = 'rgba(9, 9, 11, 0.72)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#d9f99d';
+      ctx.font = '700 34px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(gameOver ? 'Grid Locked' : 'Mini Targ', canvas.width / 2, canvas.height / 2 - 18);
+      ctx.font = '16px system-ui, sans-serif';
+      ctx.fillStyle = '#d4d4d8';
+      ctx.fillText(gameOver ? 'Press Enter for a new run' : 'Use the grid lanes, line up shots, and keep moving.', canvas.width / 2, canvas.height / 2 + 20);
+    }
+
+    function draw() {
+      drawGrid();
+      drawShot();
+      for (const rammer of rammers) drawCar(rammer, false);
+      drawCar(player, true);
+      drawOverlay();
+    }
+
+    function tick() {
+      frame += 1;
+      if (running && !gameOver) {
+        updatePlayer();
+        updateEnemies();
+        updateShot();
+        checkCollisions();
+      }
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Spacebar'].includes(event.key)) {
+        event.preventDefault();
+      }
+      if ((key === 'Enter') && gameOver) {
+        setupGame();
+        return;
+      }
+      if (key === 'ArrowLeft' || key === 'a') setDirection('left');
+      if (key === 'ArrowRight' || key === 'd') setDirection('right');
+      if (key === 'ArrowUp' || key === 'w') setDirection('up');
+      if (key === 'ArrowDown' || key === 's') setDirection('down');
+      if (event.key === ' ' || key === 'j') fireShot();
+    });
+
+    setupGame();
+    tick();
+  </script>
+</body>
+</html>
