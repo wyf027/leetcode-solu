@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tac Scan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-fuchsia-400/30 bg-slate-900 p-4 shadow-2xl shadow-fuchsia-950/30">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-fuchsia-200">Mini Tac Scan</h1>
+          <p class="text-sm text-slate-400">Slide your squad along the rail, shoot the dive lanes, and protect every ship.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-700 px-3 py-2">
+            <div class="text-slate-500">Score</div>
+            <div id="score" class="font-mono text-fuchsia-200">0</div>
+          </div>
+          <div class="rounded border border-slate-700 px-3 py-2">
+            <div class="text-slate-500">Ships</div>
+            <div id="ships" class="font-mono text-cyan-200">4</div>
+          </div>
+          <div class="rounded border border-slate-700 px-3 py-2">
+            <div class="text-slate-500">Wave</div>
+            <div id="wave" class="font-mono text-amber-200">1</div>
+          </div>
+        </div>
+      </div>
+      <canvas id="game" width="760" height="520" class="aspect-[19/13] w-full rounded border border-slate-700 bg-black"></canvas>
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-400">
+        <p>Move: Arrow keys / A-D. Fire: Space / J. Restart: Enter.</p>
+        <p id="status" class="font-medium text-fuchsia-200">Press Space to begin.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const shipsEl = document.getElementById('ships');
+    const waveEl = document.getElementById('wave');
+    const statusEl = document.getElementById('status');
+
+    const keys = new Set();
+    const laneCount = 9;
+    const laneWidth = canvas.width / laneCount;
+    const railY = canvas.height - 74;
+    const stars = Array.from({ length: 80 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      speed: 0.3 + Math.random() * 1.1
+    }));
+
+    let squad;
+    let shots;
+    let enemies;
+    let enemyShots;
+    let score;
+    let wave;
+    let frame;
+    let running;
+    let gameOver;
+    let cooldown;
+
+    function setupGame() {
+      squad = {
+        lane: 4,
+        x: laneToX(4),
+        targetX: laneToX(4),
+        ships: 4,
+        invulnerable: 80
+      };
+      shots = [];
+      enemies = [];
+      enemyShots = [];
+      score = 0;
+      wave = 1;
+      frame = 0;
+      running = false;
+      gameOver = false;
+      cooldown = 0;
+      spawnWave();
+      updateHud();
+      statusEl.textContent = 'Press Space to begin.';
+      draw();
+    }
+
+    function laneToX(lane) {
+      return lane * laneWidth + laneWidth / 2;
+    }
+
+    function spawnWave() {
+      const count = Math.min(16, 7 + wave * 2);
+      enemies = [];
+      for (let i = 0; i < count; i++) {
+        spawnEnemy(i);
+      }
+      statusEl.textContent = `Wave ${wave}: watch the dive lanes.`;
+    }
+
+    function spawnEnemy(index) {
+      const lane = index % laneCount;
+      enemies.push({
+        lane,
+        x: laneToX(lane),
+        y: -30 - Math.floor(index / laneCount) * 46,
+        baseX: laneToX(lane),
+        radius: 14,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.75 + wave * 0.08 + Math.random() * 0.4,
+        diving: false,
+        diveTimer: 90 + Math.random() * 150,
+        hp: index % 5 === 0 ? 2 : 1
+      });
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      shipsEl.textContent = squad.ships;
+      waveEl.textContent = wave;
+    }
+
+    function moveSquad(dir) {
+      if (gameOver) return;
+      running = true;
+      squad.lane = Math.max(0, Math.min(laneCount - 1, squad.lane + dir));
+      squad.targetX = laneToX(squad.lane);
+    }
+
+    function fireShot() {
+      if (gameOver || cooldown > 0) return;
+      running = true;
+      cooldown = 10;
+      shots.push({ x: squad.x, y: railY - 34, vy: -8.5, radius: 4 });
+      statusEl.textContent = 'Keep the rail moving between lanes.';
+    }
+
+    function updateSquad() {
+      if (cooldown > 0) cooldown -= 1;
+      if (squad.invulnerable > 0) squad.invulnerable -= 1;
+      if (keys.has('ArrowLeft') || keys.has('a')) moveSquad(-1);
+      if (keys.has('ArrowRight') || keys.has('d')) moveSquad(1);
+      squad.x += (squad.targetX - squad.x) * 0.25;
+    }
+
+    function updateEnemies() {
+      if (enemies.length === 0) {
+        wave += 1;
+        score += 300;
+        spawnWave();
+        updateHud();
+      }
+
+      for (const enemy of enemies) {
+        enemy.phase += 0.04;
+        enemy.diveTimer -= 1;
+        if (!enemy.diving && enemy.diveTimer <= 0 && Math.random() < 0.025) {
+          enemy.diving = true;
+          enemy.lane = Math.round((squad.x - laneWidth / 2) / laneWidth);
+        }
+
+        if (enemy.diving) {
+          enemy.x += (laneToX(enemy.lane) - enemy.x) * 0.04;
+          enemy.y += enemy.speed + 2.2;
+        } else {
+          enemy.x = enemy.baseX + Math.sin(enemy.phase + frame * 0.02) * 18;
+          enemy.y += enemy.speed;
+          if (enemy.y > 150) enemy.y = 150 + Math.sin(enemy.phase) * 20;
+        }
+
+        if (frame % 70 === 0 && enemy.y > 20 && Math.random() < 0.32 + wave * 0.01) {
+          enemyShots.push({ x: enemy.x, y: enemy.y + 13, vy: 3.4 + wave * 0.12, radius: 4 });
+        }
+
+        if (enemy.y > canvas.height + 35) {
+          enemy.y = -40;
+          enemy.diving = false;
+          enemy.lane = Math.floor(Math.random() * laneCount);
+          enemy.baseX = laneToX(enemy.lane);
+          enemy.diveTimer = 80 + Math.random() * 160;
+        }
+      }
+    }
+
+    function updateProjectiles() {
+      for (const shot of shots) shot.y += shot.vy;
+      shots = shots.filter((shot) => shot.y > -12);
+      for (const bolt of enemyShots) bolt.y += bolt.vy;
+      enemyShots = enemyShots.filter((bolt) => bolt.y < canvas.height + 20);
+    }
+
+    function checkCollisions() {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        for (let j = shots.length - 1; j >= 0; j--) {
+          const shot = shots[j];
+          if (Math.hypot(shot.x - enemy.x, shot.y - enemy.y) < shot.radius + enemy.radius) {
+            shots.splice(j, 1);
+            enemy.hp -= 1;
+            if (enemy.hp <= 0) {
+              enemies.splice(i, 1);
+              score += enemy.diving ? 160 : 90;
+              updateHud();
+            }
+            break;
+          }
+        }
+      }
+
+      if (squad.invulnerable > 0) return;
+      const squadHit = enemyShots.some((bolt) => Math.hypot(bolt.x - squad.x, bolt.y - railY) < 24);
+      const crashHit = enemies.some((enemy) => Math.hypot(enemy.x - squad.x, enemy.y - railY) < 26);
+      if (squadHit || crashHit) {
+        loseShip();
+      }
+    }
+
+    function loseShip() {
+      squad.ships -= 1;
+      squad.invulnerable = 95;
+      enemyShots = [];
+      updateHud();
+      if (squad.ships <= 0) {
+        gameOver = true;
+        running = false;
+        statusEl.textContent = 'Fleet lost. Press Enter to restart.';
+      } else {
+        statusEl.textContent = 'Ship lost. Formation tightened.';
+      }
+    }
+
+    function drawStars() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const star of stars) {
+        if (running && !gameOver) {
+          star.y += star.speed;
+          if (star.y > canvas.height) {
+            star.y = 0;
+            star.x = Math.random() * canvas.width;
+          }
+        }
+        ctx.fillStyle = '#c4b5fd';
+        ctx.globalAlpha = 0.35 + star.speed * 0.2;
+        ctx.fillRect(star.x, star.y, 2, 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawRail() {
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(laneWidth / 2, railY + 22);
+      ctx.lineTo(canvas.width - laneWidth / 2, railY + 22);
+      ctx.stroke();
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < laneCount; i++) {
+        const x = laneToX(i);
+        ctx.beginPath();
+        ctx.moveTo(x, 40);
+        ctx.lineTo(x, railY + 28);
+        ctx.stroke();
+      }
+    }
+
+    function drawSquad() {
+      for (let i = 0; i < squad.ships; i++) {
+        const offset = (i - (squad.ships - 1) / 2) * 16;
+        ctx.save();
+        ctx.translate(squad.x + offset, railY);
+        if (squad.invulnerable > 0 && Math.floor(frame / 6) % 2 === 0) ctx.globalAlpha = 0.45;
+        ctx.fillStyle = i === 0 ? '#f0abfc' : '#67e8f9';
+        ctx.beginPath();
+        ctx.moveTo(0, -18);
+        ctx.lineTo(12, 14);
+        ctx.lineTo(0, 8);
+        ctx.lineTo(-12, 14);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.fillStyle = enemy.hp > 1 ? '#f97316' : '#a78bfa';
+        ctx.beginPath();
+        ctx.moveTo(0, -14);
+        ctx.lineTo(16, 9);
+        ctx.lineTo(0, 16);
+        ctx.lineTo(-16, 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(-5, -4, 10, 4);
+        ctx.restore();
+      }
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = '#fde68a';
+      for (const shot of shots) {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#fb7185';
+      for (const bolt of enemyShots) {
+        ctx.beginPath();
+        ctx.arc(bolt.x, bolt.y, bolt.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawOverlay() {
+      if (running && !gameOver) return;
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.68)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#f5d0fe';
+      ctx.font = '700 34px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(gameOver ? 'Fleet Lost' : 'Mini Tac Scan', canvas.width / 2, canvas.height / 2 - 18);
+      ctx.font = '16px system-ui, sans-serif';
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText(gameOver ? 'Press Enter for a new sortie' : 'Slide lanes, fire upward, and preserve your squad.', canvas.width / 2, canvas.height / 2 + 20);
+    }
+
+    function draw() {
+      drawStars();
+      drawRail();
+      drawProjectiles();
+      drawEnemies();
+      drawSquad();
+      drawOverlay();
+    }
+
+    function tick() {
+      frame += 1;
+      if (running && !gameOver) {
+        updateSquad();
+        updateEnemies();
+        updateProjectiles();
+        checkCollisions();
+      }
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', ' ', 'Spacebar'].includes(event.key)) event.preventDefault();
+      if (key === 'Enter' && gameOver) {
+        setupGame();
+        return;
+      }
+      keys.add(key);
+      if (event.key === ' ' || key === 'j') fireShot();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    setupGame();
+    tick();
+  </script>
+</body>
+</html>
