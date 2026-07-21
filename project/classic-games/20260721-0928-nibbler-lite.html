@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Nibbler</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-4 px-4 py-6">
+    <section class="w-full rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-lime-300">Mini Nibbler</h1>
+          <p class="text-sm text-zinc-400">吃掉所有能量豆，避开墙壁和自己的身体。</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">
+            <div class="text-zinc-400">分数</div>
+            <div id="score" class="text-lg font-bold text-lime-300">0</div>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">
+            <div class="text-zinc-400">关卡</div>
+            <div id="level" class="text-lg font-bold text-cyan-300">1</div>
+          </div>
+          <div class="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">
+            <div class="text-zinc-400">剩余</div>
+            <div id="pellets" class="text-lg font-bold text-amber-300">0</div>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="game" width="640" height="640" class="mx-auto block h-auto w-full max-w-[640px] rounded border border-zinc-700 bg-black"></canvas>
+
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-300">
+        <span>方向键或 WASD 转向，空格暂停 / 继续，撞墙后空格重开。</span>
+        <button id="restart" class="rounded bg-lime-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-lime-300">重新开始</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const levelEl = document.getElementById("level");
+    const pelletsEl = document.getElementById("pellets");
+    const restartBtn = document.getElementById("restart");
+
+    const cols = 20;
+    const rows = 20;
+    const cell = canvas.width / cols;
+    const walls = new Set();
+    const pellets = new Set();
+    let snake;
+    let dir;
+    let nextDir;
+    let score;
+    let level;
+    let tickMs;
+    let lastTick;
+    let running;
+    let paused;
+    let message;
+
+    function keyOf(x, y) {
+      return `${x},${y}`;
+    }
+
+    function setupMaze() {
+      walls.clear();
+      for (let x = 0; x < cols; x += 1) {
+        walls.add(keyOf(x, 0));
+        walls.add(keyOf(x, rows - 1));
+      }
+      for (let y = 0; y < rows; y += 1) {
+        walls.add(keyOf(0, y));
+        walls.add(keyOf(cols - 1, y));
+      }
+
+      const bars = [
+        [4, 4, 11, 4], [5, 15, 15, 15], [4, 7, 4, 12],
+        [15, 7, 15, 12], [8, 8, 12, 8], [8, 11, 12, 11]
+      ];
+      bars.forEach(([x1, y1, x2, y2]) => {
+        for (let x = x1; x <= x2; x += 1) {
+          for (let y = y1; y <= y2; y += 1) walls.add(keyOf(x, y));
+        }
+      });
+    }
+
+    function setupPellets() {
+      pellets.clear();
+      for (let y = 2; y < rows - 2; y += 2) {
+        for (let x = 2; x < cols - 2; x += 2) {
+          const key = keyOf(x, y);
+          if (!walls.has(key)) pellets.add(key);
+        }
+      }
+    }
+
+    function setupGame() {
+      setupMaze();
+      setupPellets();
+      snake = [{ x: 2, y: 17 }, { x: 2, y: 18 }, { x: 1, y: 18 }];
+      dir = { x: 1, y: 0 };
+      nextDir = { x: 1, y: 0 };
+      score = 0;
+      level = 1;
+      tickMs = 155;
+      lastTick = 0;
+      running = true;
+      paused = true;
+      message = "Ready";
+      updateHud();
+      requestAnimationFrame(loop);
+    }
+
+    function canTurn(newDir) {
+      return newDir.x + dir.x !== 0 || newDir.y + dir.y !== 0;
+    }
+
+    function updateSnake() {
+      if (canTurn(nextDir)) dir = nextDir;
+      const head = snake[0];
+      const next = { x: head.x + dir.x, y: head.y + dir.y };
+      const nextKey = keyOf(next.x, next.y);
+      const bodyHit = snake.some((part, index) => index < snake.length - 1 && part.x === next.x && part.y === next.y);
+
+      if (walls.has(nextKey) || bodyHit) {
+        running = false;
+        message = "Crashed";
+        return;
+      }
+
+      snake.unshift(next);
+      if (pellets.has(nextKey)) {
+        pellets.delete(nextKey);
+        score += 15 + level * 5;
+        if (pellets.size === 0) advanceLevel();
+      } else {
+        snake.pop();
+      }
+      updateHud();
+    }
+
+    function advanceLevel() {
+      level += 1;
+      tickMs = Math.max(72, tickMs - 16);
+      message = `Level ${level}`;
+      setupPellets();
+      snake = snake.slice(0, Math.min(snake.length, 8));
+    }
+
+    function drawCell(x, y, color, inset = 2) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * cell + inset, y * cell + inset, cell - inset * 2, cell - inset * 2);
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = "#18181b";
+      for (let i = 0; i <= cols; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(i * cell, 0);
+        ctx.lineTo(i * cell, canvas.height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i * cell);
+        ctx.lineTo(canvas.width, i * cell);
+        ctx.stroke();
+      }
+
+      walls.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        drawCell(x, y, "#334155", 1);
+      });
+      pellets.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        ctx.fillStyle = "#fbbf24";
+        ctx.beginPath();
+        ctx.arc(x * cell + cell / 2, y * cell + cell / 2, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      snake.forEach((part, index) => drawCell(part.x, part.y, index === 0 ? "#bef264" : "#22c55e", 3));
+
+      if (!running || paused || message === "Ready") {
+        ctx.fillStyle = "rgba(0,0,0,0.58)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#ecfccb";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(message, canvas.width / 2, canvas.height / 2 - 10);
+        ctx.font = "18px sans-serif";
+        ctx.fillText(running ? "按空格开始" : "按空格重新开始", canvas.width / 2, canvas.height / 2 + 28);
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      levelEl.textContent = level;
+      pelletsEl.textContent = pellets.size;
+    }
+
+    function loop(now) {
+      if (running && !paused && now - lastTick > tickMs) {
+        lastTick = now;
+        message = "";
+        updateSnake();
+      }
+      drawBoard();
+      if (running) requestAnimationFrame(loop);
+    }
+
+    function setDirection(key) {
+      const map = {
+        ArrowUp: { x: 0, y: -1 }, w: { x: 0, y: -1 },
+        ArrowDown: { x: 0, y: 1 }, s: { x: 0, y: 1 },
+        ArrowLeft: { x: -1, y: 0 }, a: { x: -1, y: 0 },
+        ArrowRight: { x: 1, y: 0 }, d: { x: 1, y: 0 }
+      };
+      if (map[key]) nextDir = map[key];
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d", " "].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") {
+        if (!running) setupGame();
+        else paused = !paused;
+        return;
+      }
+      setDirection(key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
