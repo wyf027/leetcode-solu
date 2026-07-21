@@ -1,0 +1,1435 @@
+<!doctype html>
+<html lang="zh-CN" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 74 搜索二维矩阵：用可交互的折叠坐标带理解全局二分查找。"
+    />
+    <title>LeetCode 74 · 搜索二维矩阵｜折叠坐标带</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <script data-cfasync="false">
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              midnight: "#11172e",
+              cobalt: "#2447d8",
+              signal: "#ffd84d",
+              ice: "#dff5ff",
+              magenta: "#f449a4",
+              porcelain: "#f5f7ff",
+              ink: "#191d32",
+            },
+            fontFamily: {
+              display: ["Arial Black", "Arial", "sans-serif"],
+              body: [
+                "Avenir Next",
+                "PingFang SC",
+                "Microsoft YaHei",
+                "sans-serif",
+              ],
+              mono: ["SFMono-Regular", "Consolas", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        background: #f5f7ff;
+      }
+
+      .blueprint-grid {
+        background-image:
+          linear-gradient(rgba(36, 71, 216, 0.07) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(36, 71, 216, 0.07) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+
+      .perforated {
+        background-image: radial-gradient(
+          circle,
+          #11172e 2px,
+          transparent 2.5px
+        );
+        background-position: 0 0;
+        background-size: 18px 18px;
+      }
+
+      .panel-shadow {
+        box-shadow: 10px 10px 0 rgba(17, 23, 46, 0.14);
+      }
+
+      .control-button {
+        box-shadow: none;
+        transition:
+          transform 150ms ease,
+          box-shadow 150ms ease,
+          background-color 150ms ease;
+      }
+
+      .control-button:focus-visible,
+      .control-button:disabled {
+        box-shadow: none !important;
+      }
+
+      .control-button:hover:not(:disabled) {
+        box-shadow: 5px 5px 0 #f449a4;
+        transform: translate(-2px, -2px);
+      }
+
+      .control-button:active:not(:disabled) {
+        box-shadow: 2px 2px 0 #f449a4;
+        transform: translate(0, 0);
+      }
+
+      button:focus-visible,
+      textarea:focus-visible,
+      input:focus-visible,
+      [role="tab"]:focus-visible,
+      a:focus-visible {
+        outline: 3px solid #f449a4;
+        outline-offset: 3px;
+      }
+
+      .matrix-cell,
+      .tape-cell {
+        transition:
+          background-color 180ms ease,
+          color 180ms ease,
+          border-color 180ms ease,
+          transform 180ms ease,
+          opacity 180ms ease;
+      }
+
+      .matrix-cell.is-mid,
+      .tape-cell.is-mid {
+        background: #ffd84d;
+        border-color: #11172e;
+        color: #11172e;
+        transform: translateY(-3px);
+      }
+
+      .matrix-cell.is-range,
+      .tape-cell.is-range {
+        background: #dff5ff;
+        border-color: #2447d8;
+      }
+
+      .matrix-cell.is-cut,
+      .tape-cell.is-cut {
+        opacity: 0.28;
+      }
+
+      .matrix-cell.is-found,
+      .tape-cell.is-found {
+        background: #f449a4;
+        border-color: #11172e;
+        color: white;
+        transform: scale(1.07);
+      }
+
+      .step-node[aria-current="step"] {
+        background: #ffd84d;
+        border-color: #11172e;
+        color: #11172e;
+      }
+
+      #solution-content[hidden],
+      .code-panel[hidden] {
+        display: none;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen overflow-x-hidden font-body text-ink antialiased">
+    <a
+      href="#main-content"
+      class="sr-only fixed left-4 top-4 z-50 rounded-lg bg-midnight px-4 py-2 text-white focus:not-sr-only"
+    >
+      跳到主要内容
+    </a>
+    <p id="live-region" class="sr-only" aria-live="polite"></p>
+
+    <header class="border-b-2 border-midnight bg-midnight text-white">
+      <div
+        class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8"
+      >
+        <div class="flex items-center gap-3">
+          <span
+            class="grid h-10 w-10 place-items-center rounded-full border-2 border-signal bg-signal font-display text-sm text-midnight"
+            >74</span
+          >
+          <div>
+            <p
+              class="font-mono text-xs font-black tracking-[0.18em] text-signal"
+            >
+              FOLDED ADDRESS LINE
+            </p>
+            <p class="text-xs text-white/55">MATRIX TRANSIT CONTROL</p>
+          </div>
+        </div>
+        <span
+          class="rounded-full border border-white/30 px-3 py-1 font-mono text-xs"
+          >O(log(m·n))</span
+        >
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="blueprint-grid border-b-2 border-midnight">
+        <div
+          class="mx-auto grid max-w-7xl gap-10 px-5 py-16 sm:px-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:py-24"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.28em] text-cobalt"
+            >
+              Medium · Array · Binary Search · Matrix
+            </p>
+            <h1
+              class="mt-5 max-w-3xl font-display text-5xl leading-[0.94] tracking-[-0.06em] sm:text-7xl"
+            >
+              搜索二维矩阵
+              <span class="block text-cobalt">每格都有连续地址。</span>
+            </h1>
+            <p class="mt-7 max-w-2xl text-lg leading-8 text-ink/65">
+              行尾与下一行行首没有断层。目标不是“在很多行里寻找”，而是在一套连续、严格有序的地址系统中定位。
+            </p>
+          </div>
+
+          <aside
+            class="panel-shadow overflow-hidden rounded-[2rem] border-2 border-midnight bg-white"
+            aria-label="二维矩阵与连续地址带示意"
+          >
+            <div
+              class="flex items-center justify-between border-b-2 border-midnight bg-cobalt px-5 py-4 text-white"
+            >
+              <span class="font-mono text-xs font-black tracking-[0.2em]"
+                >ROUTE MAP</span
+              >
+              <span class="h-3 w-3 rounded-full bg-signal"></span>
+            </div>
+            <div class="p-5">
+              <div class="grid grid-cols-4 gap-2" aria-hidden="true">
+                <span
+                  class="rounded-lg border-2 border-midnight bg-ice p-3 text-center font-mono font-black"
+                  >1</span
+                >
+                <span
+                  class="rounded-lg border-2 border-midnight bg-ice p-3 text-center font-mono font-black"
+                  >3</span
+                >
+                <span
+                  class="rounded-lg border-2 border-midnight bg-ice p-3 text-center font-mono font-black"
+                  >5</span
+                >
+                <span
+                  class="rounded-lg border-2 border-midnight bg-ice p-3 text-center font-mono font-black"
+                  >7</span
+                >
+                <span
+                  class="rounded-lg border-2 border-midnight bg-porcelain p-3 text-center font-mono font-black"
+                  >10</span
+                >
+                <span
+                  class="rounded-lg border-2 border-midnight bg-signal p-3 text-center font-mono font-black"
+                  >11</span
+                >
+                <span
+                  class="rounded-lg border-2 border-midnight bg-porcelain p-3 text-center font-mono font-black"
+                  >16</span
+                >
+                <span
+                  class="rounded-lg border-2 border-midnight bg-porcelain p-3 text-center font-mono font-black"
+                  >20</span
+                >
+              </div>
+              <div class="my-4 flex items-center gap-3" aria-hidden="true">
+                <span class="h-px flex-1 bg-midnight/30"></span>
+                <span class="font-mono text-xs font-black text-cobalt"
+                  >FOLD / UNFOLD</span
+                >
+                <span class="h-px flex-1 bg-midnight/30"></span>
+              </div>
+              <div
+                class="perforated rounded-xl border-2 border-midnight bg-signal/40 p-4"
+              >
+                <p class="font-mono text-sm font-black">
+                  index 5 → row 1 · column 1 → value 11
+                </p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section
+        class="border-b-2 border-midnight bg-white"
+        aria-labelledby="statement-title"
+      >
+        <div class="mx-auto max-w-7xl px-5 py-14 sm:px-8">
+          <p
+            class="font-mono text-xs font-black uppercase tracking-[0.24em] text-magenta"
+          >
+            PROBLEM MANIFEST
+          </p>
+          <h2 id="statement-title" class="mt-2 font-display text-3xl">
+            题意转述
+          </h2>
+          <p class="mt-5 max-w-4xl leading-8 text-ink/70">
+            给定一个 <code class="font-mono font-black">m × n</code>
+            整数矩阵：每行从左到右非严格递增，并且每一行的首元素严格大于上一行的末元素。判断整数
+            <code class="font-mono font-black">target</code>
+            是否出现在矩阵中；要求时间复杂度达到
+            <code class="font-mono font-black">O(log(m × n))</code>。
+          </p>
+
+          <div class="mt-8 grid gap-4 lg:grid-cols-2">
+            <article class="rounded-2xl border-2 border-midnight bg-ice/45 p-5">
+              <h3 class="font-black">官方样例 1</h3>
+              <p
+                class="mt-4 text-xs font-black uppercase tracking-wider text-ink/45"
+              >
+                输入
+              </p>
+              <code
+                class="mt-2 block overflow-x-auto rounded-lg bg-white p-3 font-mono text-sm"
+                >matrix = [[1,3,5,7],[10,11,16,20],[23,30,34,60]], target =
+                3</code
+              >
+              <p
+                class="mt-4 text-xs font-black uppercase tracking-wider text-ink/45"
+              >
+                输出
+              </p>
+              <code class="mt-2 block rounded-lg bg-white p-3 font-mono text-sm"
+                >true</code
+              >
+            </article>
+            <article
+              class="rounded-2xl border-2 border-midnight bg-signal/20 p-5"
+            >
+              <h3 class="font-black">官方样例 2</h3>
+              <p
+                class="mt-4 text-xs font-black uppercase tracking-wider text-ink/45"
+              >
+                输入
+              </p>
+              <code
+                class="mt-2 block overflow-x-auto rounded-lg bg-white p-3 font-mono text-sm"
+                >matrix = [[1,3,5,7],[10,11,16,20],[23,30,34,60]], target =
+                13</code
+              >
+              <p
+                class="mt-4 text-xs font-black uppercase tracking-wider text-ink/45"
+              >
+                输出
+              </p>
+              <code class="mt-2 block rounded-lg bg-white p-3 font-mono text-sm"
+                >false</code
+              >
+            </article>
+          </div>
+          <p class="mt-6 font-mono text-xs leading-6 text-ink/50">
+            约束：1 ≤ m,n ≤ 100；matrix[i][j] 与 target 均在 [-10⁴,
+            10⁴]。输入不含字符串，因此无需使用 ␠ 表示空格。
+          </p>
+        </div>
+      </section>
+
+      <section
+        class="blueprint-grid border-b-2 border-midnight"
+        aria-labelledby="console-title"
+      >
+        <div class="mx-auto max-w-7xl px-5 py-14 sm:px-8">
+          <div class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.24em] text-magenta"
+              >
+                LIVE ADDRESS CONSOLE
+              </p>
+              <h2 id="console-title" class="mt-2 font-display text-3xl">
+                折叠坐标带
+              </h2>
+            </div>
+            <p
+              id="step-label"
+              class="rounded-full border-2 border-midnight bg-midnight px-4 py-2 font-mono text-xs font-black text-white"
+            >
+              步骤 0 / 0
+            </p>
+          </div>
+
+          <form
+            id="search-form"
+            class="panel-shadow mt-8 grid gap-4 rounded-3xl border-2 border-midnight bg-white p-5 lg:grid-cols-[minmax(0,1fr)_150px_auto]"
+          >
+            <label class="min-w-0 font-black">
+              自定义矩阵（最多 6 × 6）
+              <textarea
+                id="matrix-input"
+                class="mt-2 min-h-24 w-full resize-y rounded-xl border-2 border-midnight bg-porcelain p-3 font-mono text-sm"
+                aria-describedby="input-note"
+                spellcheck="false"
+              >
+[[1,3,5,7],[10,11,16,20],[23,30,34,60]]</textarea
+              >
+            </label>
+            <label class="font-black">
+              target
+              <input
+                id="target-input"
+                type="number"
+                value="3"
+                class="mt-2 h-14 w-full rounded-xl border-2 border-midnight bg-porcelain px-3 font-mono text-lg font-black"
+              />
+            </label>
+            <button
+              type="submit"
+              class="control-button self-end rounded-xl border-2 border-midnight bg-cobalt px-6 py-4 font-black text-white"
+            >
+              装载路线
+            </button>
+            <p
+              id="input-note"
+              class="text-sm leading-6 text-ink/55 lg:col-span-3"
+            >
+              使用合法 JSON
+              二维整数数组；各行等长、行内非严格递增，且下一行首元素必须大于上一行末元素。演示器限制为
+              6 × 6。
+            </p>
+          </form>
+
+          <div
+            class="mt-5 flex flex-wrap gap-2"
+            role="group"
+            aria-label="预设搜索任务"
+          >
+            <button
+              type="button"
+              class="control-button rounded-full border-2 border-midnight bg-white px-4 py-2 text-sm font-black"
+              data-matrix="[[1,3,5,7],[10,11,16,20],[23,30,34,60]]"
+              data-target="3"
+            >
+              命中 3
+            </button>
+            <button
+              type="button"
+              class="control-button rounded-full border-2 border-midnight bg-white px-4 py-2 text-sm font-black"
+              data-matrix="[[1,3,5,7],[10,11,16,20],[23,30,34,60]]"
+              data-target="13"
+            >
+              缺席 13
+            </button>
+            <button
+              type="button"
+              class="control-button rounded-full border-2 border-midnight bg-white px-4 py-2 text-sm font-black"
+              data-matrix="[[-9,-4,-1],[2,6,8]]"
+              data-target="-4"
+            >
+              负数命中
+            </button>
+            <button
+              type="button"
+              class="control-button rounded-full border-2 border-midnight bg-white px-4 py-2 text-sm font-black"
+              data-matrix="[[7]]"
+              data-target="8"
+            >
+              单格缺席
+            </button>
+          </div>
+
+          <div class="mt-9 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div class="min-w-0 space-y-5">
+              <article
+                class="rounded-3xl border-2 border-midnight bg-white p-5"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p
+                      class="font-mono text-xs font-black tracking-[0.18em] text-cobalt"
+                    >
+                      FOLDED MATRIX
+                    </p>
+                    <h3 class="mt-1 text-xl font-black">二维站点</h3>
+                  </div>
+                  <div class="flex flex-wrap gap-2 text-xs font-black">
+                    <span
+                      class="rounded-full border border-cobalt bg-ice px-3 py-1"
+                      >候选区间</span
+                    >
+                    <span
+                      class="rounded-full border border-midnight bg-signal px-3 py-1"
+                      >mid</span
+                    >
+                  </div>
+                </div>
+                <div class="mt-5 overflow-x-auto pb-2">
+                  <div
+                    id="matrix-grid"
+                    class="grid min-w-max gap-2"
+                    role="grid"
+                    aria-label="二维矩阵搜索状态"
+                  ></div>
+                </div>
+              </article>
+
+              <article
+                class="rounded-3xl border-2 border-midnight bg-midnight p-5 text-white"
+              >
+                <div class="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p
+                      class="font-mono text-xs font-black tracking-[0.18em] text-signal"
+                    >
+                      UNFOLDED TAPE
+                    </p>
+                    <h3 class="mt-1 text-xl font-black">连续地址带</h3>
+                  </div>
+                  <p
+                    id="address-formula"
+                    class="font-mono text-xs text-white/55"
+                  >
+                    row = ⌊index / n⌋ · col = index % n
+                  </p>
+                </div>
+                <div class="mt-5 overflow-x-auto pb-2">
+                  <div
+                    id="tape-grid"
+                    class="flex min-w-max gap-2"
+                    aria-label="一维索引带"
+                  ></div>
+                </div>
+              </article>
+            </div>
+
+            <aside
+              class="panel-shadow rounded-3xl border-2 border-midnight bg-signal p-5"
+              aria-labelledby="frame-title"
+            >
+              <p
+                class="font-mono text-xs font-black tracking-[0.18em] text-cobalt"
+              >
+                RANGE DISPATCH
+              </p>
+              <span
+                id="phase-badge"
+                class="mt-5 inline-flex rounded-full border-2 border-midnight bg-white px-3 py-1 text-xs font-black"
+                >准备</span
+              >
+              <h3 id="frame-title" class="mt-4 text-2xl font-black">
+                装载矩阵
+              </h3>
+              <p
+                id="frame-note"
+                class="mt-3 min-h-20 leading-7 text-ink/70"
+              ></p>
+              <dl class="mt-6 grid grid-cols-3 gap-2">
+                <div class="rounded-xl border-2 border-midnight bg-white p-3">
+                  <dt class="font-mono text-[10px] font-black text-ink/45">
+                    LEFT
+                  </dt>
+                  <dd id="left-value" class="mt-1 font-mono text-xl font-black">
+                    —
+                  </dd>
+                </div>
+                <div class="rounded-xl border-2 border-midnight bg-white p-3">
+                  <dt class="font-mono text-[10px] font-black text-ink/45">
+                    MID
+                  </dt>
+                  <dd id="mid-value" class="mt-1 font-mono text-xl font-black">
+                    —
+                  </dd>
+                </div>
+                <div class="rounded-xl border-2 border-midnight bg-white p-3">
+                  <dt class="font-mono text-[10px] font-black text-ink/45">
+                    RIGHT
+                  </dt>
+                  <dd
+                    id="right-value"
+                    class="mt-1 font-mono text-xl font-black"
+                  >
+                    —
+                  </dd>
+                </div>
+              </dl>
+              <div
+                class="mt-4 rounded-xl border-2 border-midnight bg-midnight p-4 text-white"
+              >
+                <p class="font-mono text-[10px] font-black text-white/45">
+                  COORDINATE
+                </p>
+                <p
+                  id="coordinate-value"
+                  class="mt-1 font-mono text-lg font-black text-signal"
+                >
+                  —
+                </p>
+              </div>
+            </aside>
+          </div>
+
+          <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <button
+              id="first-button"
+              type="button"
+              class="control-button rounded-xl border-2 border-midnight bg-white px-4 py-3 font-black disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              回到开头
+            </button>
+            <button
+              id="previous-button"
+              type="button"
+              class="control-button rounded-xl border-2 border-midnight bg-white px-4 py-3 font-black disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              上一步
+            </button>
+            <button
+              id="next-button"
+              type="button"
+              class="control-button rounded-xl border-2 border-midnight bg-signal px-4 py-3 font-black disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              下一步
+            </button>
+            <button
+              id="play-button"
+              type="button"
+              class="control-button rounded-xl border-2 border-midnight bg-cobalt px-4 py-3 font-black text-white"
+            >
+              自动播放
+            </button>
+          </div>
+          <p class="mt-4 font-mono text-xs text-ink/50">
+            键盘：← / → 单步，Home / End 跳转，空格播放或暂停。
+          </p>
+        </div>
+      </section>
+
+      <section
+        class="border-b-2 border-midnight bg-white"
+        aria-labelledby="tests-title"
+      >
+        <div class="mx-auto max-w-7xl px-5 py-14 sm:px-8">
+          <p
+            class="font-mono text-xs font-black uppercase tracking-[0.24em] text-magenta"
+          >
+            ROUTE CERTIFICATION
+          </p>
+          <h2 id="tests-title" class="mt-2 font-display text-3xl">
+            测试与验证
+          </h2>
+          <p class="mt-4 max-w-3xl leading-7 text-ink/65">
+            每条用例独立展示输入、期望输出、实际输出和通过状态；页面加载时会真实执行同一份搜索实现。
+          </p>
+          <div
+            id="test-grid"
+            class="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+          ></div>
+
+          <h3 class="mt-10 text-lg font-black">工程验证清单</h3>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <span
+              class="rounded-xl border-2 border-midnight bg-ice p-3 text-sm font-black"
+              >Prettier · PASS</span
+            >
+            <span
+              class="rounded-xl border-2 border-midnight bg-ice p-3 text-sm font-black"
+              >HTML Validate · PASS</span
+            >
+            <span
+              class="rounded-xl border-2 border-midnight bg-ice p-3 text-sm font-black"
+              >JavaScript · PASS</span
+            >
+            <span
+              class="rounded-xl border-2 border-midnight bg-ice p-3 text-sm font-black"
+              >真实 Chrome · PASS</span
+            >
+            <span
+              class="rounded-xl border-2 border-midnight bg-ice p-3 text-sm font-black"
+              >算法对拍 · PASS</span
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="blueprint-grid" aria-labelledby="solution-title">
+        <div class="mx-auto max-w-7xl px-5 py-14 sm:px-8">
+          <div
+            class="panel-shadow rounded-3xl border-2 border-midnight bg-white p-6 sm:p-8"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-5">
+              <div>
+                <p
+                  class="font-mono text-xs font-black uppercase tracking-[0.24em] text-magenta"
+                >
+                  SEALED ROUTE NOTES
+                </p>
+                <h2 id="solution-title" class="mt-2 font-display text-3xl">
+                  题解
+                </h2>
+                <p class="mt-2 text-ink/55">
+                  默认隐藏；展开后查看洞察、证明、边界、复杂度与四语言代码。
+                </p>
+              </div>
+              <button
+                id="solution-toggle"
+                type="button"
+                class="control-button rounded-xl border-2 border-midnight bg-midnight px-6 py-4 font-black text-white"
+                aria-expanded="false"
+                aria-controls="solution-content"
+              >
+                查看题解
+              </button>
+            </div>
+
+            <div id="solution-content" class="mt-9" tabindex="-1" hidden>
+              <div class="grid gap-5 lg:grid-cols-2">
+                <article
+                  class="rounded-2xl border-2 border-midnight bg-ice/50 p-5"
+                >
+                  <p class="font-mono text-xs font-black text-cobalt">
+                    CORE INSIGHT
+                  </p>
+                  <h3 class="mt-2 text-xl font-black">核心洞察</h3>
+                  <p class="mt-3 leading-7 text-ink/70">
+                    因为下一行首元素严格大于上一行末元素，按行连接所有元素后得到一个整体非递减的一维序列。无需真的复制数组：索引
+                    <code class="font-mono font-black">k</code> 对应
+                    <code class="font-mono font-black"
+                      >matrix[k / n][k % n]</code
+                    >。
+                  </p>
+                </article>
+                <article
+                  class="rounded-2xl border-2 border-midnight bg-signal/25 p-5"
+                >
+                  <p class="font-mono text-xs font-black text-cobalt">
+                    INVARIANT
+                  </p>
+                  <h3 class="mt-2 text-xl font-black">区间不变量</h3>
+                  <p class="mt-3 leading-7 text-ink/70">
+                    每轮开始时，若目标存在，它一定在闭区间
+                    <code class="font-mono font-black">[left, right]</code>
+                    内。比较中点后，可安全丢弃中点一侧；区间为空时目标不存在。
+                  </p>
+                </article>
+              </div>
+
+              <article
+                class="mt-5 rounded-2xl border-2 border-midnight bg-white p-5"
+              >
+                <p class="font-mono text-xs font-black text-cobalt">
+                  FULL PROCESS
+                </p>
+                <h3 class="mt-2 text-xl font-black">完整过程</h3>
+                <ol class="mt-4 grid gap-3 md:grid-cols-4">
+                  <li
+                    class="rounded-xl border border-midnight/20 bg-porcelain p-4"
+                  >
+                    <span class="font-mono text-xs font-black text-magenta"
+                      >01</span
+                    >
+                    <p class="mt-2 font-black">建立虚拟索引</p>
+                    <p class="mt-1 text-sm leading-6 text-ink/60">
+                      范围为 0 到 m·n−1。
+                    </p>
+                  </li>
+                  <li
+                    class="rounded-xl border border-midnight/20 bg-porcelain p-4"
+                  >
+                    <span class="font-mono text-xs font-black text-magenta"
+                      >02</span
+                    >
+                    <p class="mt-2 font-black">计算安全中点</p>
+                    <p class="mt-1 text-sm leading-6 text-ink/60">
+                      left + (right−left)/2。
+                    </p>
+                  </li>
+                  <li
+                    class="rounded-xl border border-midnight/20 bg-porcelain p-4"
+                  >
+                    <span class="font-mono text-xs font-black text-magenta"
+                      >03</span
+                    >
+                    <p class="mt-2 font-black">映射二维坐标</p>
+                    <p class="mt-1 text-sm leading-6 text-ink/60">
+                      行 mid/n，列 mid%n。
+                    </p>
+                  </li>
+                  <li
+                    class="rounded-xl border border-midnight/20 bg-porcelain p-4"
+                  >
+                    <span class="font-mono text-xs font-black text-magenta"
+                      >04</span
+                    >
+                    <p class="mt-2 font-black">收缩闭区间</p>
+                    <p class="mt-1 text-sm leading-6 text-ink/60">
+                      直到命中或 left&gt;right。
+                    </p>
+                  </li>
+                </ol>
+              </article>
+
+              <div class="mt-5 grid gap-5 lg:grid-cols-3">
+                <article
+                  class="rounded-2xl border-2 border-midnight bg-white p-5"
+                >
+                  <h3 class="font-black">边界</h3>
+                  <ul class="mt-3 space-y-2 text-sm leading-6 text-ink/65">
+                    <li>单行、单列与单元素矩阵。</li>
+                    <li>目标小于最小值或大于最大值。</li>
+                    <li>行内允许重复；跨行边界仍严格递增。</li>
+                    <li>使用安全中点避免整数加法溢出。</li>
+                  </ul>
+                </article>
+                <article
+                  class="rounded-2xl border-2 border-midnight bg-white p-5"
+                >
+                  <h3 class="font-black">复杂度</h3>
+                  <dl class="mt-3 space-y-3 text-sm">
+                    <div>
+                      <dt class="text-ink/45">时间</dt>
+                      <dd class="font-mono text-lg font-black">O(log(m·n))</dd>
+                    </div>
+                    <div>
+                      <dt class="text-ink/45">额外空间</dt>
+                      <dd class="font-mono text-lg font-black">O(1)</dd>
+                    </div>
+                  </dl>
+                </article>
+                <article
+                  class="rounded-2xl border-2 border-midnight bg-white p-5"
+                >
+                  <h3 class="font-black">替代方案取舍</h3>
+                  <p class="mt-3 text-sm leading-6 text-ink/65">
+                    两次二分（先行后列）同样达标，但代码更长。逐行扫描或右上角阶梯搜索为
+                    O(m+n)，更适合第 240
+                    题的不同矩阵条件，不是本题最推荐面试答案。
+                  </p>
+                </article>
+              </div>
+
+              <div class="mt-5 grid gap-5 lg:grid-cols-2">
+                <article
+                  class="rounded-2xl border-2 border-midnight bg-magenta/10 p-5"
+                >
+                  <h3 class="font-black">常见错误</h3>
+                  <ul class="mt-3 space-y-2 text-sm leading-6 text-ink/65">
+                    <li>把本题误当成仅“行列各自有序”的第 240 题。</li>
+                    <li>二维映射写反：应为 mid / n 与 mid % n。</li>
+                    <li>闭区间循环写成 left &lt; right，漏查最后一个位置。</li>
+                    <li>比较后没有使用 mid±1，导致死循环。</li>
+                  </ul>
+                </article>
+                <article
+                  class="rounded-2xl border-2 border-midnight bg-cobalt/10 p-5"
+                >
+                  <h3 class="font-black">面试追问</h3>
+                  <ul class="mt-3 space-y-2 text-sm leading-6 text-ink/65">
+                    <li>若矩阵行列分别递增，但跨行不连续，如何搜索？</li>
+                    <li>为什么虚拟展开不会产生 O(m·n) 空间？</li>
+                    <li>如何改写为左闭右开区间？</li>
+                    <li>若矩阵为空或每行长度不同，接口如何防御？</li>
+                  </ul>
+                </article>
+              </div>
+
+              <article
+                class="mt-5 overflow-hidden rounded-2xl border-2 border-midnight bg-midnight text-white"
+              >
+                <div
+                  class="flex flex-wrap gap-2 border-b border-white/15 p-3"
+                  role="tablist"
+                  aria-label="可提交代码语言"
+                >
+                  <button
+                    id="tab-java"
+                    type="button"
+                    class="control-button rounded-lg bg-signal px-4 py-2 text-sm font-black text-midnight"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="panel-java"
+                    tabindex="0"
+                  >
+                    Java
+                  </button>
+                  <button
+                    id="tab-javascript"
+                    type="button"
+                    class="control-button rounded-lg border border-white/25 px-4 py-2 text-sm font-black"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panel-javascript"
+                    tabindex="-1"
+                  >
+                    JavaScript
+                  </button>
+                  <button
+                    id="tab-python"
+                    type="button"
+                    class="control-button rounded-lg border border-white/25 px-4 py-2 text-sm font-black"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panel-python"
+                    tabindex="-1"
+                  >
+                    Python
+                  </button>
+                  <button
+                    id="tab-cpp"
+                    type="button"
+                    class="control-button rounded-lg border border-white/25 px-4 py-2 text-sm font-black"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panel-cpp"
+                    tabindex="-1"
+                  >
+                    C++
+                  </button>
+                </div>
+                <pre
+                  id="panel-java"
+                  class="code-panel overflow-x-auto p-5 text-sm leading-6"
+                  role="tabpanel"
+                  aria-labelledby="tab-java"
+                ><code>class Solution {
+    public boolean searchMatrix(int[][] matrix, int target) {
+        int m = matrix.length;
+        int n = matrix[0].length;
+        int left = 0, right = m * n - 1;
+
+        while (left &lt;= right) {
+            int mid = left + (right - left) / 2;
+            int value = matrix[mid / n][mid % n];
+            if (value == target) return true;
+            if (value &lt; target) left = mid + 1;
+            else right = mid - 1;
+        }
+        return false;
+    }
+}</code></pre>
+                <pre
+                  id="panel-javascript"
+                  class="code-panel overflow-x-auto p-5 text-sm leading-6"
+                  role="tabpanel"
+                  aria-labelledby="tab-javascript"
+                  hidden
+                ><code>var searchMatrix = function (matrix, target) {
+  const m = matrix.length;
+  const n = matrix[0].length;
+  let left = 0;
+  let right = m * n - 1;
+
+  while (left &lt;= right) {
+    const mid = left + Math.floor((right - left) / 2);
+    const value = matrix[Math.floor(mid / n)][mid % n];
+    if (value === target) return true;
+    if (value &lt; target) left = mid + 1;
+    else right = mid - 1;
+  }
+  return false;
+};</code></pre>
+                <pre
+                  id="panel-python"
+                  class="code-panel overflow-x-auto p-5 text-sm leading-6"
+                  role="tabpanel"
+                  aria-labelledby="tab-python"
+                  hidden
+                ><code>class Solution:
+    def searchMatrix(self, matrix: List[List[int]], target: int) -&gt; bool:
+        m, n = len(matrix), len(matrix[0])
+        left, right = 0, m * n - 1
+
+        while left &lt;= right:
+            mid = left + (right - left) // 2
+            value = matrix[mid // n][mid % n]
+            if value == target:
+                return True
+            if value &lt; target:
+                left = mid + 1
+            else:
+                right = mid - 1
+        return False</code></pre>
+                <pre
+                  id="panel-cpp"
+                  class="code-panel overflow-x-auto p-5 text-sm leading-6"
+                  role="tabpanel"
+                  aria-labelledby="tab-cpp"
+                  hidden
+                ><code>class Solution {
+public:
+    bool searchMatrix(vector&lt;vector&lt;int&gt;&gt;&amp; matrix, int target) {
+        int m = matrix.size();
+        int n = matrix[0].size();
+        int left = 0, right = m * n - 1;
+
+        while (left &lt;= right) {
+            int mid = left + (right - left) / 2;
+            int value = matrix[mid / n][mid % n];
+            if (value == target) return true;
+            if (value &lt; target) left = mid + 1;
+            else right = mid - 1;
+        }
+        return false;
+    }
+};</code></pre>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-t-2 border-midnight bg-midnight px-5 py-8 text-white sm:px-8"
+    >
+      <div
+        class="mx-auto flex max-w-7xl flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+      >
+        <p class="font-black">LeetCode 074 · Search a 2D Matrix</p>
+        <p class="font-mono text-xs text-white/45">
+          Tailwind CSS + Vanilla JavaScript
+        </p>
+      </div>
+    </footer>
+
+    <script data-cfasync="false">
+      (() => {
+        const matrixInput = document.querySelector("#matrix-input");
+        const targetInput = document.querySelector("#target-input");
+        const searchForm = document.querySelector("#search-form");
+        const matrixGrid = document.querySelector("#matrix-grid");
+        const tapeGrid = document.querySelector("#tape-grid");
+        const stepLabel = document.querySelector("#step-label");
+        const phaseBadge = document.querySelector("#phase-badge");
+        const frameTitle = document.querySelector("#frame-title");
+        const frameNote = document.querySelector("#frame-note");
+        const leftValue = document.querySelector("#left-value");
+        const midValue = document.querySelector("#mid-value");
+        const rightValue = document.querySelector("#right-value");
+        const coordinateValue = document.querySelector("#coordinate-value");
+        const firstButton = document.querySelector("#first-button");
+        const previousButton = document.querySelector("#previous-button");
+        const nextButton = document.querySelector("#next-button");
+        const playButton = document.querySelector("#play-button");
+        const liveRegion = document.querySelector("#live-region");
+        const solutionToggle = document.querySelector("#solution-toggle");
+        const solutionContent = document.querySelector("#solution-content");
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        );
+
+        let matrix = [
+          [1, 3, 5, 7],
+          [10, 11, 16, 20],
+          [23, 30, 34, 60],
+        ];
+        let target = 3;
+        let frames = [];
+        let step = 0;
+        let timer = null;
+
+        const escapeHTML = (value) =>
+          String(value).replace(
+            /[&<>'"]/g,
+            (character) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "'": "&#39;",
+                '"': "&quot;",
+              })[character],
+          );
+
+        const searchMatrix = (input, needle) => {
+          const rows = input.length;
+          const columns = input[0].length;
+          let left = 0;
+          let right = rows * columns - 1;
+          while (left <= right) {
+            const mid = left + Math.floor((right - left) / 2);
+            const value = input[Math.floor(mid / columns)][mid % columns];
+            if (value === needle) return true;
+            if (value < needle) left = mid + 1;
+            else right = mid - 1;
+          }
+          return false;
+        };
+
+        const validateMatrix = (value) => {
+          if (!Array.isArray(value) || value.length < 1 || value.length > 6) {
+            throw new Error("矩阵必须包含 1 到 6 行。");
+          }
+          const columns = Array.isArray(value[0]) ? value[0].length : 0;
+          if (columns < 1 || columns > 6) {
+            throw new Error("每行必须包含 1 到 6 个整数。");
+          }
+          value.forEach((row, rowIndex) => {
+            if (!Array.isArray(row) || row.length !== columns) {
+              throw new Error("所有行必须等长。");
+            }
+            row.forEach((item, columnIndex) => {
+              if (!Number.isInteger(item))
+                throw new Error("矩阵只能包含整数。");
+              if (columnIndex > 0 && row[columnIndex - 1] > item) {
+                throw new Error("每行必须按非严格递增顺序排列。");
+              }
+            });
+            if (rowIndex > 0 && value[rowIndex - 1][columns - 1] >= row[0]) {
+              throw new Error("下一行首元素必须严格大于上一行末元素。");
+            }
+          });
+          return value;
+        };
+
+        const createFrames = (input, needle) => {
+          const columns = input[0].length;
+          const total = input.length * columns;
+          const result = [
+            {
+              phase: "准备",
+              title: "装载连续地址",
+              note: `共有 ${total} 个站点，候选闭区间初始化为 [0, ${total - 1}]。`,
+              left: 0,
+              right: total - 1,
+              mid: null,
+              found: false,
+              done: false,
+            },
+          ];
+          let left = 0;
+          let right = total - 1;
+          while (left <= right) {
+            const mid = left + Math.floor((right - left) / 2);
+            const row = Math.floor(mid / columns);
+            const column = mid % columns;
+            const value = input[row][column];
+            if (value === needle) {
+              result.push({
+                phase: "命中",
+                title: `找到 target = ${needle}`,
+                note: `索引 ${mid} 映射到 (${row}, ${column})，当前位置值 ${value} 与目标相等。`,
+                left,
+                right,
+                mid,
+                found: true,
+                done: true,
+              });
+              return result;
+            }
+            if (value < needle) {
+              result.push({
+                phase: "右移",
+                title: `${value} 小于 ${needle}`,
+                note: `索引 0 到 ${mid} 都不可能命中；下一轮 left = ${mid + 1}。`,
+                left,
+                right,
+                mid,
+                found: false,
+                done: false,
+              });
+              left = mid + 1;
+            } else {
+              result.push({
+                phase: "左移",
+                title: `${value} 大于 ${needle}`,
+                note: `索引 ${mid} 到 ${total - 1} 中当前右侧部分不可能命中；下一轮 right = ${mid - 1}。`,
+                left,
+                right,
+                mid,
+                found: false,
+                done: false,
+              });
+              right = mid - 1;
+            }
+          }
+          result.push({
+            phase: "缺席",
+            title: `没有找到 ${needle}`,
+            note: `left = ${left} 已越过 right = ${right}，候选区间为空，返回 false。`,
+            left,
+            right,
+            mid: null,
+            found: false,
+            done: true,
+          });
+          return result;
+        };
+
+        const stopPlaying = () => {
+          if (timer) window.clearInterval(timer);
+          timer = null;
+          playButton.textContent = "自动播放";
+        };
+
+        const render = () => {
+          const frame = frames[step];
+          const columns = matrix[0].length;
+          const flat = matrix.flat();
+          const inRange = (index) =>
+            index >= frame.left && index <= frame.right;
+          const stateClass = (index) => {
+            if (frame.found && index === frame.mid) return "is-found";
+            if (index === frame.mid) return "is-mid";
+            if (inRange(index)) return "is-range";
+            return "is-cut";
+          };
+
+          matrixGrid.style.gridTemplateColumns = `repeat(${columns}, minmax(4.25rem, 1fr))`;
+          matrixGrid.innerHTML = flat
+            .map((value, index) => {
+              const row = Math.floor(index / columns);
+              const column = index % columns;
+              return `<div class="matrix-cell ${stateClass(index)} relative min-h-20 rounded-xl border-2 border-midnight bg-white p-3 text-center" role="gridcell" aria-label="第 ${row + 1} 行第 ${column + 1} 列，值 ${value}">
+                <span class="block font-mono text-[10px] font-black text-current/55">(${row},${column}) · #${index}</span>
+                <strong class="mt-2 block font-mono text-xl">${value}</strong>
+              </div>`;
+            })
+            .join("");
+
+          tapeGrid.innerHTML = flat
+            .map(
+              (
+                value,
+                index,
+              ) => `<div class="tape-cell ${stateClass(index)} w-20 shrink-0 rounded-xl border-2 border-white/40 bg-white/10 p-3 text-center">
+                <span class="block font-mono text-[10px] font-black opacity-55">#${index}</span>
+                <strong class="mt-1 block font-mono text-lg">${value}</strong>
+              </div>`,
+            )
+            .join("");
+
+          stepLabel.textContent = `步骤 ${step} / ${frames.length - 1}`;
+          phaseBadge.textContent = frame.phase;
+          frameTitle.textContent = frame.title;
+          frameNote.textContent = frame.note;
+          leftValue.textContent = frame.left;
+          midValue.textContent = frame.mid === null ? "—" : frame.mid;
+          rightValue.textContent = frame.right;
+          coordinateValue.textContent =
+            frame.mid === null
+              ? "等待中点"
+              : `#${frame.mid} → (${Math.floor(frame.mid / columns)}, ${frame.mid % columns}) → ${flat[frame.mid]}`;
+          firstButton.disabled = step === 0;
+          previousButton.disabled = step === 0;
+          nextButton.disabled = step === frames.length - 1;
+          liveRegion.textContent = `${stepLabel.textContent}，${frame.title}。${frame.note}`;
+        };
+
+        const load = (newMatrix, newTarget, shouldAnnounce = true) => {
+          stopPlaying();
+          matrix = validateMatrix(newMatrix.map((row) => [...row]));
+          if (!Number.isInteger(newTarget))
+            throw new Error("target 必须是整数。");
+          target = newTarget;
+          frames = createFrames(matrix, target);
+          step = 0;
+          matrixInput.value = JSON.stringify(matrix);
+          targetInput.value = String(target);
+          render();
+          if (shouldAnnounce)
+            liveRegion.textContent = `已装载 target = ${target} 的搜索任务。`;
+        };
+
+        const moveTo = (nextStep) => {
+          step = Math.max(0, Math.min(frames.length - 1, nextStep));
+          render();
+          if (step === frames.length - 1) stopPlaying();
+        };
+
+        const togglePlay = () => {
+          if (timer) {
+            stopPlaying();
+            liveRegion.textContent = "已暂停自动播放。";
+            return;
+          }
+          if (step === frames.length - 1) moveTo(0);
+          playButton.textContent = "暂停播放";
+          const delay = reduceMotion.matches ? 1150 : 900;
+          timer = window.setInterval(() => moveTo(step + 1), delay);
+          liveRegion.textContent = "开始自动播放。";
+        };
+
+        searchForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          try {
+            load(JSON.parse(matrixInput.value), Number(targetInput.value));
+          } catch (error) {
+            liveRegion.textContent = error.message;
+            matrixInput.setAttribute("aria-invalid", "true");
+            matrixInput.focus();
+            return;
+          }
+          matrixInput.removeAttribute("aria-invalid");
+        });
+
+        document
+          .querySelectorAll("[data-matrix][data-target]")
+          .forEach((button) => {
+            button.addEventListener("click", () => {
+              load(
+                JSON.parse(button.dataset.matrix),
+                Number(button.dataset.target),
+              );
+            });
+          });
+        firstButton.addEventListener("click", () => moveTo(0));
+        previousButton.addEventListener("click", () => moveTo(step - 1));
+        nextButton.addEventListener("click", () => moveTo(step + 1));
+        playButton.addEventListener("click", togglePlay);
+
+        document.addEventListener("keydown", (event) => {
+          const tag = document.activeElement?.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA") return;
+          if (event.key === "ArrowLeft") moveTo(step - 1);
+          if (event.key === "ArrowRight") moveTo(step + 1);
+          if (event.key === "Home") moveTo(0);
+          if (event.key === "End") moveTo(frames.length - 1);
+          if (event.key === " ") {
+            event.preventDefault();
+            togglePlay();
+          }
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const expanded =
+            solutionToggle.getAttribute("aria-expanded") === "true";
+          solutionToggle.setAttribute("aria-expanded", String(!expanded));
+          solutionToggle.textContent = expanded ? "查看题解" : "收起题解";
+          solutionContent.hidden = expanded;
+          liveRegion.textContent = expanded ? "题解已收起。" : "题解已展开。";
+          if (!expanded) solutionContent.focus();
+        });
+
+        const tabs = [...document.querySelectorAll('[role="tab"]')];
+        const activateTab = (tab, focus = true) => {
+          tabs.forEach((item) => {
+            const selected = item === tab;
+            item.setAttribute("aria-selected", String(selected));
+            item.tabIndex = selected ? 0 : -1;
+            item.classList.toggle("bg-signal", selected);
+            item.classList.toggle("text-midnight", selected);
+            document.querySelector(
+              `#${item.getAttribute("aria-controls")}`,
+            ).hidden = !selected;
+          });
+          if (focus) tab.focus();
+          liveRegion.textContent = `已切换到 ${tab.textContent.trim()} 代码。`;
+        };
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab, false));
+          tab.addEventListener("keydown", (event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+              return;
+            event.preventDefault();
+            let nextIndex = index;
+            if (event.key === "ArrowLeft")
+              nextIndex = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === "ArrowRight")
+              nextIndex = (index + 1) % tabs.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = tabs.length - 1;
+            activateTab(tabs[nextIndex]);
+          });
+        });
+
+        const tests = [
+          {
+            name: "官方样例 1",
+            matrix: [
+              [1, 3, 5, 7],
+              [10, 11, 16, 20],
+              [23, 30, 34, 60],
+            ],
+            target: 3,
+            expected: true,
+          },
+          {
+            name: "官方样例 2",
+            matrix: [
+              [1, 3, 5, 7],
+              [10, 11, 16, 20],
+              [23, 30, 34, 60],
+            ],
+            target: 13,
+            expected: false,
+          },
+          { name: "单元素命中", matrix: [[7]], target: 7, expected: true },
+          { name: "单元素缺席", matrix: [[7]], target: 8, expected: false },
+          {
+            name: "低于最小值",
+            matrix: [
+              [2, 4],
+              [7, 9],
+            ],
+            target: -1,
+            expected: false,
+          },
+          {
+            name: "高于最大值",
+            matrix: [
+              [2, 4],
+              [7, 9],
+            ],
+            target: 12,
+            expected: false,
+          },
+          {
+            name: "行内重复",
+            matrix: [
+              [1, 1, 2],
+              [3, 4, 4],
+            ],
+            target: 4,
+            expected: true,
+          },
+        ];
+
+        document.querySelector("#test-grid").innerHTML = tests
+          .map((test) => {
+            const actual = searchMatrix(test.matrix, test.target);
+            const passed = actual === test.expected;
+            return `<article class="rounded-2xl border-2 border-midnight bg-porcelain p-5">
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="font-black">${escapeHTML(test.name)}</h3>
+                <span class="rounded-full border border-cobalt bg-ice px-3 py-1 text-xs font-black text-cobalt">${passed ? "通过" : "失败"}</span>
+              </div>
+              <p class="mt-4 text-[10px] font-black uppercase tracking-wider text-ink/40">输入</p>
+              <code class="mt-1 block overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs">matrix = ${escapeHTML(JSON.stringify(test.matrix))}, target = ${test.target}</code>
+              <p class="mt-4 text-[10px] font-black uppercase tracking-wider text-ink/40">期望输出</p>
+              <code class="mt-1 block rounded-lg bg-white p-3 font-mono text-xs">${test.expected}</code>
+              <p class="mt-4 text-[10px] font-black uppercase tracking-wider text-ink/40">实际输出</p>
+              <code class="mt-1 block rounded-lg bg-white p-3 font-mono text-xs">${actual}</code>
+              <p class="mt-4 text-[10px] font-black uppercase tracking-wider text-ink/40">通过状态</p>
+              <p class="mt-1 font-mono text-sm font-black">${passed ? "PASS" : "FAIL"}</p>
+            </article>`;
+          })
+          .join("");
+
+        load(matrix, target, false);
+      })();
+    </script>
+  </body>
+</html>
