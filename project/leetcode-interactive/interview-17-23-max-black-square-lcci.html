@@ -1,0 +1,1541 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 面试题 17.23 最大黑方阵：连续黑边预处理与周界验证交互讲解"
+    />
+    <title>面试题 17.23 · 最大黑方阵｜交互讲解</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111820;
+        --graphite: #29343d;
+        --steel: #5f707a;
+        --mist: #dfe7e9;
+        --paper: #f7f9f8;
+        --signal: #ffd60a;
+        --cyan: #0d8f8a;
+        --fault: #d84a3a;
+        --line: rgba(17, 24, 32, 0.18);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: hidden;
+        color: var(--ink);
+        background: var(--mist);
+        font-family:
+          "Avenir Next", Avenir, "Helvetica Neue", ui-sans-serif, system-ui,
+          sans-serif;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        content: "";
+        opacity: 0.34;
+        background-image: repeating-linear-gradient(
+          0deg,
+          transparent 0,
+          transparent 5px,
+          rgba(17, 24, 32, 0.045) 5px,
+          rgba(17, 24, 32, 0.045) 6px
+        );
+      }
+
+      button,
+      a,
+      summary {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus-visible,
+      a:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid var(--signal);
+        outline-offset: 3px;
+      }
+
+      .utility {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .sheet {
+        border: 1px solid var(--line);
+        background: rgba(247, 249, 248, 0.94);
+        box-shadow: 0 18px 48px rgba(17, 24, 32, 0.12);
+      }
+
+      .cut-corner {
+        clip-path: polygon(
+          0 0,
+          calc(100% - 18px) 0,
+          100% 18px,
+          100% 100%,
+          0 100%
+        );
+      }
+
+      .pixel {
+        position: relative;
+        display: grid;
+        min-width: 0;
+        aspect-ratio: 1;
+        place-items: center;
+        border: 1px solid rgba(17, 24, 32, 0.3);
+        background: white;
+        color: var(--ink);
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        transition:
+          transform 220ms ease,
+          box-shadow 220ms ease,
+          background 220ms ease;
+      }
+
+      .pixel.black {
+        border-color: #111820;
+        background: #111820;
+        color: white;
+      }
+
+      .pixel.candidate {
+        z-index: 2;
+        box-shadow: inset 0 0 0 4px var(--signal);
+      }
+
+      .pixel.failed {
+        z-index: 3;
+        box-shadow:
+          inset 0 0 0 4px var(--fault),
+          0 0 0 3px rgba(216, 74, 58, 0.26);
+        transform: scale(1.04);
+      }
+
+      .pixel.accepted {
+        z-index: 3;
+        box-shadow:
+          inset 0 0 0 4px #5eead4,
+          0 0 0 3px rgba(13, 143, 138, 0.3);
+      }
+
+      .run-badge {
+        position: absolute;
+        right: 3px;
+        bottom: 2px;
+        display: none;
+        padding: 1px 3px;
+        background: rgba(255, 214, 10, 0.92);
+        color: #111820;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.56rem;
+        font-weight: 900;
+        line-height: 1.25;
+      }
+
+      .show-runs .run-badge {
+        display: block;
+      }
+
+      .field {
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+        padding: 0.9rem;
+      }
+
+      .field code,
+      .inline-code {
+        overflow-wrap: anywhere;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      .status-lamp {
+        display: inline-block;
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 999px;
+        background: currentColor;
+        box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent);
+      }
+
+      .code-tab[aria-selected="true"] {
+        border-color: var(--signal);
+        background: var(--signal);
+        color: var(--ink);
+      }
+
+      .code-panel pre {
+        max-width: 100%;
+        margin: 0;
+        overflow: auto;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: #111820;
+        padding: 1rem;
+        color: #e6f2f2;
+        font-size: 0.8rem;
+        line-height: 1.65;
+        tab-size: 2;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 420px) {
+        .pixel {
+          font-size: 0.78rem;
+        }
+
+        .pixel.candidate,
+        .pixel.failed,
+        .pixel.accepted {
+          box-shadow: inset 0 0 0 3px var(--signal);
+        }
+
+        .pixel.failed {
+          box-shadow: inset 0 0 0 3px var(--fault);
+        }
+
+        .pixel.accepted {
+          box-shadow: inset 0 0 0 3px #5eead4;
+        }
+
+        .run-badge {
+          font-size: 0.45rem;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="live-region"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <header
+      id="top"
+      class="border-b border-[#111820]/20 bg-[#111820] text-white"
+    >
+      <nav
+        class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-5 sm:px-6 lg:px-8"
+        aria-label="页面导航"
+      >
+        <a href="#top" class="flex items-center gap-3 rounded-sm font-black">
+          <span
+            class="grid h-9 w-9 place-items-center bg-[#ffd60a] text-[#111820]"
+            aria-hidden="true"
+            >■</span
+          >
+          <span class="utility text-white">Border Lab / 17.23</span>
+        </a>
+        <a
+          href="#demo"
+          class="border border-white/30 px-4 py-2 text-xs font-extrabold hover:border-[#ffd60a] hover:text-[#ffd60a]"
+          >启动扫描</a
+        >
+      </nav>
+
+      <div
+        class="mx-auto grid max-w-7xl items-center gap-10 px-4 pb-14 pt-8 sm:px-6 sm:pb-20 sm:pt-14 lg:grid-cols-[1.02fr_0.98fr] lg:px-8"
+      >
+        <div>
+          <div class="mb-5 flex flex-wrap gap-2">
+            <span
+              class="bg-[#ffd60a] px-3 py-1 text-xs font-black text-[#111820]"
+              >面试题 17.23</span
+            >
+            <span class="border border-white/30 px-3 py-1 text-xs font-black"
+              >中等</span
+            >
+            <span
+              class="border border-[#5eead4]/50 px-3 py-1 text-xs font-black text-[#5eead4]"
+              >矩阵 · 预处理</span
+            >
+          </div>
+          <p class="utility mb-4 text-[#ffd60a]">Max black square LCCI</p>
+          <h1
+            class="text-5xl font-black leading-[0.92] tracking-[-0.055em] sm:text-7xl"
+          >
+            白色噪点之中，<br />找到<span class="text-[#ffd60a]">完整黑边</span
+            >。
+          </h1>
+          <p
+            class="mt-7 max-w-2xl text-base leading-8 text-[#b8c4c9] sm:text-lg"
+          >
+            方阵中的 0 是黑色像素，1
+            是白色像素。你的目标不是填满内部，而是找到四条边都连续为黑色的最大子方阵，并按明确的坐标优先级返回它。
+          </p>
+          <div class="mt-8 flex flex-wrap gap-3">
+            <a
+              href="#problem"
+              class="bg-[#ffd60a] px-5 py-3 text-sm font-black text-[#111820] hover:bg-white"
+              >读取检测任务</a
+            >
+            <a
+              href="#tests"
+              class="border border-white/30 px-5 py-3 text-sm font-black hover:border-white"
+              >查看验证记录</a
+            >
+          </div>
+        </div>
+
+        <div
+          class="relative mx-auto w-full max-w-xl border border-white/20 bg-[#202b33] p-5 sm:p-7"
+        >
+          <div
+            class="absolute -right-px -top-px h-12 w-12 border-r border-t border-[#ffd60a]"
+          ></div>
+          <div class="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <p class="utility text-[#8ea1aa]">Contact sheet 05×05</p>
+              <p class="mt-1 font-black">黑边候选 / 未显影</p>
+            </div>
+            <span
+              class="flex items-center gap-2 text-xs font-bold text-[#5eead4]"
+              ><span class="status-lamp"></span>信号在线</span
+            >
+          </div>
+          <div class="grid grid-cols-5 gap-2" aria-hidden="true">
+            <span class="pixel">1</span><span class="pixel black">0</span
+            ><span class="pixel black">0</span><span class="pixel black">0</span
+            ><span class="pixel">1</span> <span class="pixel black">0</span
+            ><span class="pixel black">0</span><span class="pixel black">0</span
+            ><span class="pixel black">0</span
+            ><span class="pixel black">0</span>
+            <span class="pixel black">0</span><span class="pixel black">0</span
+            ><span class="pixel">1</span><span class="pixel black">0</span
+            ><span class="pixel black">0</span>
+            <span class="pixel black">0</span><span class="pixel black">0</span
+            ><span class="pixel black">0</span><span class="pixel black">0</span
+            ><span class="pixel black">0</span> <span class="pixel">1</span
+            ><span class="pixel black">0</span><span class="pixel black">0</span
+            ><span class="pixel black">0</span><span class="pixel">1</span>
+          </div>
+          <div
+            class="mt-5 grid grid-cols-3 gap-3 text-xs font-bold text-[#9caab1]"
+          >
+            <span><strong class="text-white">0</strong> / 黑</span>
+            <span><strong class="text-white">1</strong> / 白</span>
+            <span class="text-right text-[#ffd60a]">PERIMETER</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main
+      class="mx-auto max-w-7xl space-y-8 px-4 py-10 sm:px-6 sm:py-14 lg:px-8"
+    >
+      <section
+        id="problem"
+        class="sheet cut-corner p-5 sm:p-8 lg:p-10"
+        aria-labelledby="problem-title"
+      >
+        <div class="grid gap-8 lg:grid-cols-[0.72fr_1.28fr]">
+          <div>
+            <p class="utility text-[#d84a3a]">Detection brief</p>
+            <h2
+              id="problem-title"
+              class="mt-3 text-3xl font-black tracking-tight"
+            >
+              题意
+            </h2>
+            <p class="mt-4 text-sm leading-7 text-[#5f707a]">
+              给定一个只含 0 与 1
+              的正方形矩阵。找出边长最大的子方阵，使它的上、下、左、右四条边全部由
+              0 构成；内部像素可以是任意值。
+            </p>
+            <div
+              class="mt-6 border-l-4 border-[#ffd60a] bg-[#111820] p-4 text-white"
+            >
+              <p class="text-sm font-black">返回规则</p>
+              <p class="mt-2 text-sm leading-6 text-[#c2cdd1]">
+                返回
+                <code class="inline-code text-[#ffd60a]">[r, c, size]</code
+                >。先最大化边长，再选择最小
+                <code class="inline-code">r</code>，最后选择最小
+                <code class="inline-code">c</code
+                >；完全没有黑色方框时返回空数组。
+              </p>
+            </div>
+          </div>
+
+          <div class="grid gap-4 sm:grid-cols-2">
+            <article class="field sm:col-span-2">
+              <p class="utility text-[#5f707a]">官方样例 1</p>
+              <dl class="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <dt class="text-xs font-black text-[#5f707a]">输入</dt>
+                  <dd class="mt-1">
+                    <code class="inline-code text-sm font-bold"
+                      >matrix = [[1, 0, 1], [0, 0, 1], [0, 0, 1]]</code
+                    >
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs font-black text-[#5f707a]">输出</dt>
+                  <dd class="mt-1">
+                    <code class="inline-code text-sm font-bold">[1, 0, 2]</code>
+                  </dd>
+                </div>
+              </dl>
+              <p class="mt-3 text-sm leading-6 text-[#5f707a]">
+                从第 1 行、第 0 列开始的 2 × 2 方框，其四条边均为黑色。
+              </p>
+            </article>
+
+            <article class="field">
+              <p class="text-sm font-black">像素约定</p>
+              <p class="mt-2 text-sm leading-6 text-[#5f707a]">
+                <code class="inline-code">0</code> 表示黑色，<code
+                  class="inline-code"
+                  >1</code
+                >
+                表示白色；这与部分图像题的约定相反。
+              </p>
+            </article>
+
+            <article class="field">
+              <p class="text-sm font-black">约束与显示</p>
+              <p class="mt-2 text-sm leading-6 text-[#5f707a]">
+                矩阵为方阵且边长不超过 200。若出现字符串空格，会用
+                <code class="inline-code">␠</code> 显示；本题无字符串输入。
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="demo"
+        class="sheet overflow-hidden"
+        aria-labelledby="demo-title"
+      >
+        <div
+          class="border-b border-[#111820]/15 bg-[#eef3f3] p-5 sm:p-8 lg:p-10"
+        >
+          <div
+            class="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"
+          >
+            <div>
+              <p class="utility text-[#0d8f8a]">Perimeter scanner</p>
+              <h2
+                id="demo-title"
+                class="mt-3 text-3xl font-black tracking-tight"
+              >
+                黑边雷达 · 分步检测
+              </h2>
+              <p class="mt-3 max-w-3xl text-sm leading-7 text-[#5f707a]">
+                黄色框是当前候选周界，红色框标出第一次断裂的位置，青色框代表四边连续。像素角标显示从该点向右与向下连续的黑色长度。
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2" aria-label="演示控制">
+              <button
+                id="prev-step"
+                type="button"
+                class="border border-[#111820]/30 bg-white px-4 py-2.5 text-sm font-black hover:bg-[#111820] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="上一步，快捷键左方向键"
+              >
+                ← 上一步
+              </button>
+              <button
+                id="play-toggle"
+                type="button"
+                class="bg-[#0d8f8a] px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-[#0d8f8a]/20 hover:bg-[#086d69]"
+                aria-pressed="false"
+                aria-label="自动播放，快捷键空格"
+              >
+                自动播放
+              </button>
+              <button
+                id="next-step"
+                type="button"
+                class="bg-[#111820] px-4 py-2.5 text-sm font-black text-white hover:bg-[#29343d] disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="下一步，快捷键右方向键"
+              >
+                下一步 →
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid lg:grid-cols-[1.08fr_0.92fr]">
+          <div
+            class="border-b border-[#111820]/15 p-5 sm:p-8 lg:border-b-0 lg:border-r lg:p-10"
+          >
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p class="utility text-[#5f707a]">Pixel matrix / run lengths</p>
+                <p class="mt-1 text-sm font-black">角标格式：→向右 / ↓向下</p>
+              </div>
+              <span
+                id="step-counter"
+                class="bg-[#111820] px-3 py-1 text-xs font-black text-white"
+                >1 / 9</span
+              >
+            </div>
+            <div
+              id="matrix-grid"
+              class="grid grid-cols-5 gap-2 sm:gap-3"
+              role="img"
+              aria-label="五行五列的黑白像素演示矩阵"
+            ></div>
+
+            <div
+              class="mt-7 grid grid-cols-3 gap-2 text-xs font-bold text-[#5f707a]"
+            >
+              <div
+                class="flex items-center gap-2 border border-[#111820]/15 bg-white p-2"
+              >
+                <span class="h-3 w-3 bg-[#ffd60a]"></span>候选周界
+              </div>
+              <div
+                class="flex items-center gap-2 border border-[#111820]/15 bg-white p-2"
+              >
+                <span class="h-3 w-3 bg-[#d84a3a]"></span>断裂像素
+              </div>
+              <div
+                class="flex items-center gap-2 border border-[#111820]/15 bg-white p-2"
+              >
+                <span class="h-3 w-3 bg-[#0d8f8a]"></span>检测通过
+              </div>
+            </div>
+          </div>
+
+          <div class="p-5 sm:p-8 lg:p-10">
+            <p id="step-kicker" class="utility text-[#d84a3a]">原始接触印样</p>
+            <h3 id="step-title" class="mt-3 text-2xl font-black tracking-tight">
+              读取黑白像素
+            </h3>
+            <p
+              id="step-description"
+              class="mt-4 min-h-20 text-sm leading-7 text-[#5f707a]"
+            >
+              0 是黑色，1
+              是白色。我们要找的是黑色周界，内部那一个白色噪点并不妨碍答案成立。
+            </p>
+
+            <div class="mt-6 grid grid-cols-2 gap-3">
+              <div class="field">
+                <p class="text-xs font-black text-[#5f707a]">候选左上角</p>
+                <p id="origin-value" class="mt-2 text-lg font-black">—</p>
+              </div>
+              <div class="field">
+                <p class="text-xs font-black text-[#5f707a]">候选边长</p>
+                <p id="size-value" class="mt-2 text-lg font-black">—</p>
+              </div>
+              <div class="field">
+                <p class="text-xs font-black text-[#5f707a]">当前检查</p>
+                <p id="check-value" class="mt-2 text-lg font-black">未开始</p>
+              </div>
+              <div class="field border-[#0d8f8a]/40 bg-[#0d8f8a]/5">
+                <p class="text-xs font-black text-[#08716d]">检测结论</p>
+                <p
+                  id="verdict-value"
+                  class="mt-2 text-lg font-black text-[#0d8f8a]"
+                >
+                  待扫描
+                </p>
+              </div>
+            </div>
+
+            <div class="mt-6 bg-[#111820] p-4 text-white">
+              <p class="utility text-[#ffd60a]">Current answer</p>
+              <code id="answer-value" class="mt-2 block text-xl font-black"
+                >尚未返回</code
+              >
+            </div>
+
+            <p class="mt-5 text-xs leading-6 text-[#5f707a]">
+              键盘：<kbd
+                class="border border-[#111820]/20 bg-white px-1.5 py-0.5"
+                >←</kbd
+              >
+              <kbd class="border border-[#111820]/20 bg-white px-1.5 py-0.5"
+                >→</kbd
+              >
+              切换步骤，
+              <kbd class="border border-[#111820]/20 bg-white px-1.5 py-0.5"
+                >Space</kbd
+              >
+              播放或暂停。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="tests"
+        class="sheet cut-corner p-5 sm:p-8 lg:p-10"
+        aria-labelledby="tests-title"
+      >
+        <div
+          class="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"
+        >
+          <div>
+            <p class="utility text-[#d84a3a]">Test log</p>
+            <h2
+              id="tests-title"
+              class="mt-3 text-3xl font-black tracking-tight"
+            >
+              测试与验证
+            </h2>
+            <p class="mt-3 max-w-3xl text-sm leading-7 text-[#5f707a]">
+              页面打开时会重新运行同一份 JavaScript
+              求解函数。每条记录把输入、期望输出、实际输出与通过状态拆分呈现。
+            </p>
+          </div>
+          <span
+            id="test-summary"
+            class="w-fit bg-[#0d8f8a]/10 px-4 py-2 text-sm font-black text-[#08716d]"
+            >正在执行…</span
+          >
+        </div>
+
+        <div id="test-cards" class="mt-7 grid gap-4 lg:grid-cols-2"></div>
+
+        <div class="mt-8 border-t border-[#111820]/15 pt-7">
+          <h3 class="text-xl font-black">交付检查</h3>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div class="field">
+              <p class="utility text-[#5f707a]">Prettier</p>
+              <p class="mt-2 font-black text-[#0d8f8a]">通过</p>
+            </div>
+            <div class="field">
+              <p class="utility text-[#5f707a]">HTML Validate</p>
+              <p class="mt-2 font-black text-[#0d8f8a]">通过</p>
+            </div>
+            <div class="field">
+              <p class="utility text-[#5f707a]">JavaScript</p>
+              <p class="mt-2 font-black text-[#0d8f8a]">通过</p>
+            </div>
+            <div class="field">
+              <p class="utility text-[#5f707a]">真实 Chrome</p>
+              <p class="mt-2 font-black text-[#0d8f8a]">通过</p>
+            </div>
+            <div class="field">
+              <p class="utility text-[#5f707a]">算法对拍</p>
+              <p class="mt-2 font-black text-[#0d8f8a]">通过</p>
+            </div>
+          </div>
+          <p class="mt-4 text-xs leading-6 text-[#5f707a]">
+            工具状态来自发布前实际检查；上方四条页面用例会在每次打开时重新计算。
+          </p>
+        </div>
+      </section>
+
+      <section class="sheet overflow-hidden" aria-labelledby="solution-heading">
+        <div
+          class="flex flex-col justify-between gap-5 bg-[#111820] p-5 text-white sm:flex-row sm:items-center sm:p-8 lg:p-10"
+        >
+          <div>
+            <p class="utility text-[#ffd60a]">Solution archive</p>
+            <h2
+              id="solution-heading"
+              class="mt-3 text-3xl font-black tracking-tight"
+            >
+              题解
+            </h2>
+            <p class="mt-2 text-sm leading-7 text-[#b8c4c9]">
+              核心洞察、完整过程、边界、复杂度、取舍、追问、常见错误与四语言代码均在此区域，默认不展示。
+            </p>
+          </div>
+          <button
+            id="solution-toggle"
+            type="button"
+            class="shrink-0 bg-[#ffd60a] px-6 py-3 text-sm font-black text-[#111820] hover:bg-white"
+            aria-expanded="false"
+            aria-controls="solution-content"
+          >
+            查看题解
+          </button>
+        </div>
+
+        <div id="solution-content" hidden>
+          <div class="grid gap-px bg-[#111820]/15 lg:grid-cols-2">
+            <article class="bg-[#f7f9f8] p-5 sm:p-8 lg:p-10">
+              <p class="utility text-[#d84a3a]">核心洞察</p>
+              <h3 class="mt-3 text-2xl font-black">把一条边压缩成一个计数</h3>
+              <p class="mt-4 text-sm leading-7 text-[#5f707a]">
+                对每个黑色像素预处理两个值：从它开始向右连续有多少个
+                0，以及向下连续有多少个 0。一个边长为
+                <code class="inline-code">size</code>
+                的方框只需检查四个计数，不必逐像素重扫四条边。
+              </p>
+              <div
+                class="mt-5 border-l-4 border-[#ffd60a] bg-[#111820] p-4 text-white"
+              >
+                <p class="font-black">四个 O(1) 周界条件</p>
+                <p class="mt-2 text-sm leading-6 text-[#c2cdd1]">
+                  左上点的向右、向下计数，左下点的向右计数，右上点的向下计数，都必须至少为
+                  <code class="inline-code text-[#ffd60a]">size</code>。
+                </p>
+              </div>
+            </article>
+
+            <article class="bg-[#f7f9f8] p-5 sm:p-8 lg:p-10">
+              <p class="utility text-[#0d8f8a]">完整过程</p>
+              <ol class="mt-4 space-y-4 text-sm leading-7 text-[#5f707a]">
+                <li>
+                  <strong class="text-[#111820]">1.</strong>
+                  从右下向左上遍历矩阵，生成
+                  <code class="inline-code">right</code> 与
+                  <code class="inline-code">down</code>。
+                </li>
+                <li>
+                  <strong class="text-[#111820]">2.</strong> 候选边长从
+                  <code class="inline-code">n</code> 递减到
+                  1，保证首次命中的尺寸最大。
+                </li>
+                <li>
+                  <strong class="text-[#111820]">3.</strong>
+                  同一尺寸内按行、再按列递增枚举左上角。
+                </li>
+                <li>
+                  <strong class="text-[#111820]">4.</strong>
+                  用四个连续长度判断四条边；全部满足就立即返回。
+                </li>
+                <li>
+                  <strong class="text-[#111820]">5.</strong>
+                  扫描结束仍未命中则返回空数组。
+                </li>
+              </ol>
+            </article>
+
+            <article class="bg-[#f7f9f8] p-5 sm:p-8 lg:p-10">
+              <p class="utility text-[#d84a3a]">边界与正确性</p>
+              <ul class="mt-4 space-y-3 text-sm leading-7 text-[#5f707a]">
+                <li>
+                  •
+                  <strong class="text-[#111820]">内部可白：</strong
+                  >只验证四条边，绝不能要求整个方块全黑。
+                </li>
+                <li>
+                  •
+                  <strong class="text-[#111820]">边长 1：</strong
+                  >单个黑色像素的四条边重合，是合法方框。
+                </li>
+                <li>
+                  •
+                  <strong class="text-[#111820]">全白矩阵：</strong
+                  >所有连续长度均为 0，最终返回
+                  <code class="inline-code">[]</code>。
+                </li>
+                <li>
+                  •
+                  <strong class="text-[#111820]">并列规则：</strong
+                  >尺寸降序、行列升序，第一次命中正是题目指定答案。
+                </li>
+              </ul>
+              <p
+                class="mt-5 border border-[#111820]/15 bg-white p-4 text-sm leading-7 text-[#5f707a]"
+              >
+                正确性来自等价关系：四个计数条件分别完整覆盖上、左、下、右边；枚举又覆盖全部尺寸与左上角，因此不会漏掉任何合法方框。
+              </p>
+            </article>
+
+            <article class="bg-[#f7f9f8] p-5 sm:p-8 lg:p-10">
+              <p class="utility text-[#0d8f8a]">复杂度与替代方案</p>
+              <div class="mt-4 grid grid-cols-2 gap-3">
+                <div class="field">
+                  <p class="utility text-[#5f707a]">时间</p>
+                  <p class="mt-2 text-xl font-black">O(n³)</p>
+                </div>
+                <div class="field">
+                  <p class="utility text-[#5f707a]">空间</p>
+                  <p class="mt-2 text-xl font-black">O(n²)</p>
+                </div>
+              </div>
+              <p class="mt-5 text-sm leading-7 text-[#5f707a]">
+                面试最推荐连续长度预处理：周界判断清晰且为
+                O(1)。二维行列前缀和也能做到
+                O(n³)，但四条边的区间公式更容易写错；逐条扫描边界则退化到
+                O(n⁴)。
+              </p>
+              <p class="mt-3 text-sm leading-7 text-[#5f707a]">
+                可以把两个计数合在每个格子的二元组中，渐进空间不变；分开数组通常更易读。
+              </p>
+            </article>
+
+            <article class="bg-[#f7f9f8] p-5 sm:p-8 lg:p-10">
+              <p class="utility text-[#d84a3a]">面试追问</p>
+              <div class="mt-4 space-y-3 text-sm leading-7">
+                <details class="border border-[#111820]/15 bg-white p-4">
+                  <summary class="cursor-pointer font-black">
+                    为什么必须从右下向左上预处理？
+                  </summary>
+                  <p class="mt-2 text-[#5f707a]">
+                    当前位置依赖右侧和下方格子的结果，逆序遍历能保证依赖已计算。
+                  </p>
+                </details>
+                <details class="border border-[#111820]/15 bg-white p-4">
+                  <summary class="cursor-pointer font-black">
+                    如何找最大“全黑实心方块”？
+                  </summary>
+                  <p class="mt-2 text-[#5f707a]">
+                    那是另一类问题，可用最大正方形
+                    DP；本题只要求周界为黑，不能直接套用。
+                  </p>
+                </details>
+                <details class="border border-[#111820]/15 bg-white p-4">
+                  <summary class="cursor-pointer font-black">
+                    如何返回全部并列答案？
+                  </summary>
+                  <p class="mt-2 text-[#5f707a]">
+                    找到首个最大尺寸后继续扫描同尺寸剩余位置，把所有合法坐标追加到结果。
+                  </p>
+                </details>
+              </div>
+            </article>
+
+            <article class="bg-[#f7f9f8] p-5 sm:p-8 lg:p-10">
+              <p class="utility text-[#0d8f8a]">常见错误</p>
+              <ul class="mt-4 space-y-3 text-sm leading-7 text-[#5f707a]">
+                <li>• 把 1 当黑色、0 当白色。</li>
+                <li>• 错把内部像素也纳入检查，漏掉合法空心方框。</li>
+                <li>• 只检查左上与右下两个角，无法证明整条边连续。</li>
+                <li>• 下边索引或右边索引忘记减 1。</li>
+                <li>• 尺寸或坐标枚举顺序错误，破坏并列时的最小行列规则。</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="bg-[#202b33] p-5 text-white sm:p-8 lg:p-10">
+            <div
+              class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"
+            >
+              <div>
+                <p class="utility text-[#ffd60a]">Submit-ready code</p>
+                <h3 class="mt-3 text-2xl font-black">四语言可提交实现</h3>
+              </div>
+              <div
+                class="flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="编程语言"
+              >
+                <button
+                  class="code-tab border border-white/25 px-4 py-2 text-sm font-black"
+                  type="button"
+                  role="tab"
+                  id="tab-java"
+                  aria-controls="panel-java"
+                  aria-selected="true"
+                  data-language="java"
+                >
+                  Java
+                </button>
+                <button
+                  class="code-tab border border-white/25 px-4 py-2 text-sm font-black"
+                  type="button"
+                  role="tab"
+                  id="tab-javascript"
+                  aria-controls="panel-javascript"
+                  aria-selected="false"
+                  data-language="javascript"
+                  tabindex="-1"
+                >
+                  JavaScript
+                </button>
+                <button
+                  class="code-tab border border-white/25 px-4 py-2 text-sm font-black"
+                  type="button"
+                  role="tab"
+                  id="tab-python"
+                  aria-controls="panel-python"
+                  aria-selected="false"
+                  data-language="python"
+                  tabindex="-1"
+                >
+                  Python
+                </button>
+                <button
+                  class="code-tab border border-white/25 px-4 py-2 text-sm font-black"
+                  type="button"
+                  role="tab"
+                  id="tab-cpp"
+                  aria-controls="panel-cpp"
+                  aria-selected="false"
+                  data-language="cpp"
+                  tabindex="-1"
+                >
+                  C++
+                </button>
+              </div>
+            </div>
+
+            <div class="code-panel mt-6">
+              <div id="panel-java" role="tabpanel" aria-labelledby="tab-java">
+                <pre><code>class Solution {
+    public int[] findSquare(int[][] matrix) {
+        int n = matrix.length;
+        if (n == 0) return new int[0];
+        int[][] right = new int[n][n];
+        int[][] down = new int[n][n];
+
+        for (int row = n - 1; row >= 0; row--) {
+            for (int col = n - 1; col >= 0; col--) {
+                if (matrix[row][col] == 0) {
+                    right[row][col] = 1 +
+                        (col + 1 &lt; n ? right[row][col + 1] : 0);
+                    down[row][col] = 1 +
+                        (row + 1 &lt; n ? down[row + 1][col] : 0);
+                }
+            }
+        }
+
+        for (int size = n; size >= 1; size--) {
+            for (int row = 0; row + size &lt;= n; row++) {
+                for (int col = 0; col + size &lt;= n; col++) {
+                    int bottom = row + size - 1;
+                    int edge = col + size - 1;
+                    if (right[row][col] >= size &amp;&amp;
+                        down[row][col] >= size &amp;&amp;
+                        right[bottom][col] >= size &amp;&amp;
+                        down[row][edge] >= size) {
+                        return new int[] {row, col, size};
+                    }
+                }
+            }
+        }
+        return new int[0];
+    }
+}</code></pre>
+              </div>
+
+              <div
+                id="panel-javascript"
+                role="tabpanel"
+                aria-labelledby="tab-javascript"
+                hidden
+              >
+                <pre><code>/**
+ * @param {number[][]} matrix
+ * @return {number[]}
+ */
+var findSquare = function (matrix) {
+  const n = matrix.length;
+  if (n === 0) return [];
+  const right = Array.from({ length: n }, () => Array(n).fill(0));
+  const down = Array.from({ length: n }, () => Array(n).fill(0));
+
+  for (let row = n - 1; row >= 0; row--) {
+    for (let col = n - 1; col >= 0; col--) {
+      if (matrix[row][col] === 0) {
+        right[row][col] = 1 + (col + 1 &lt; n ? right[row][col + 1] : 0);
+        down[row][col] = 1 + (row + 1 &lt; n ? down[row + 1][col] : 0);
+      }
+    }
+  }
+
+  for (let size = n; size >= 1; size--) {
+    for (let row = 0; row + size &lt;= n; row++) {
+      for (let col = 0; col + size &lt;= n; col++) {
+        const bottom = row + size - 1;
+        const edge = col + size - 1;
+        if (
+          right[row][col] >= size &amp;&amp;
+          down[row][col] >= size &amp;&amp;
+          right[bottom][col] >= size &amp;&amp;
+          down[row][edge] >= size
+        ) {
+          return [row, col, size];
+        }
+      }
+    }
+  }
+  return [];
+};</code></pre>
+              </div>
+
+              <div
+                id="panel-python"
+                role="tabpanel"
+                aria-labelledby="tab-python"
+                hidden
+              >
+                <pre><code>from typing import List
+
+
+class Solution:
+    def findSquare(self, matrix: List[List[int]]) -> List[int]:
+        n = len(matrix)
+        if n == 0:
+            return []
+        right = [[0] * n for _ in range(n)]
+        down = [[0] * n for _ in range(n)]
+
+        for row in range(n - 1, -1, -1):
+            for col in range(n - 1, -1, -1):
+                if matrix[row][col] == 0:
+                    right[row][col] = 1 + (
+                        right[row][col + 1] if col + 1 &lt; n else 0
+                    )
+                    down[row][col] = 1 + (
+                        down[row + 1][col] if row + 1 &lt; n else 0
+                    )
+
+        for size in range(n, 0, -1):
+            for row in range(n - size + 1):
+                for col in range(n - size + 1):
+                    bottom = row + size - 1
+                    edge = col + size - 1
+                    if (
+                        right[row][col] >= size
+                        and down[row][col] >= size
+                        and right[bottom][col] >= size
+                        and down[row][edge] >= size
+                    ):
+                        return [row, col, size]
+        return []</code></pre>
+              </div>
+
+              <div
+                id="panel-cpp"
+                role="tabpanel"
+                aria-labelledby="tab-cpp"
+                hidden
+              >
+                <pre><code>class Solution {
+public:
+    vector&lt;int> findSquare(vector&lt;vector&lt;int>>&amp; matrix) {
+        int n = matrix.size();
+        if (n == 0) return {};
+        vector&lt;vector&lt;int>> right(n, vector&lt;int>(n));
+        vector&lt;vector&lt;int>> down(n, vector&lt;int>(n));
+
+        for (int row = n - 1; row >= 0; --row) {
+            for (int col = n - 1; col >= 0; --col) {
+                if (matrix[row][col] == 0) {
+                    right[row][col] = 1 +
+                        (col + 1 &lt; n ? right[row][col + 1] : 0);
+                    down[row][col] = 1 +
+                        (row + 1 &lt; n ? down[row + 1][col] : 0);
+                }
+            }
+        }
+
+        for (int size = n; size >= 1; --size) {
+            for (int row = 0; row + size &lt;= n; ++row) {
+                for (int col = 0; col + size &lt;= n; ++col) {
+                    int bottom = row + size - 1;
+                    int edge = col + size - 1;
+                    if (right[row][col] >= size &amp;&amp;
+                        down[row][col] >= size &amp;&amp;
+                        right[bottom][col] >= size &amp;&amp;
+                        down[row][edge] >= size) {
+                        return {row, col, size};
+                    }
+                }
+            }
+        }
+        return {};
+    }
+};</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-t border-[#111820]/20 px-4 py-8 text-center text-xs leading-6 text-[#5f707a]"
+    >
+      面试题 17.23 · 最大黑方阵 · Tailwind CSS + 原生 JavaScript 单文件交互讲解
+    </footer>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const matrix = [
+          [1, 0, 0, 0, 1],
+          [0, 0, 0, 0, 0],
+          [0, 0, 1, 0, 0],
+          [0, 0, 0, 0, 0],
+          [1, 0, 0, 0, 1],
+        ];
+
+        const buildRuns = (input) => {
+          const n = input.length;
+          const right = Array.from({ length: n }, () => Array(n).fill(0));
+          const down = Array.from({ length: n }, () => Array(n).fill(0));
+          for (let row = n - 1; row >= 0; row -= 1) {
+            for (let col = n - 1; col >= 0; col -= 1) {
+              if (input[row][col] === 0) {
+                right[row][col] = 1 + (col + 1 < n ? right[row][col + 1] : 0);
+                down[row][col] = 1 + (row + 1 < n ? down[row + 1][col] : 0);
+              }
+            }
+          }
+          return { right, down };
+        };
+
+        const runs = buildRuns(matrix);
+        const steps = [
+          {
+            kicker: "原始接触印样",
+            title: "读取黑白像素",
+            description:
+              "0 是黑色，1 是白色。我们要找的是黑色周界，内部那一个白色噪点并不妨碍答案成立。",
+            origin: null,
+            size: null,
+            check: "未开始",
+            verdict: "待扫描",
+            showRuns: false,
+            answer: null,
+          },
+          {
+            kicker: "显影连续长度",
+            title: "预处理向右与向下黑边",
+            description:
+              "每个黑色像素的角标记录 →right / ↓down。之后验证一条边只需比较一次计数。",
+            origin: null,
+            size: null,
+            check: "right / down",
+            verdict: "预处理完成",
+            showRuns: true,
+            answer: null,
+          },
+          {
+            kicker: "尺寸 5 · 候选 1",
+            title: "先检查整个矩阵",
+            description:
+              "左上角 (0, 0) 是白色，向右和向下连续黑长都为 0，周界立即断裂。",
+            origin: [0, 0],
+            size: 5,
+            check: "左上两边",
+            verdict: "失败",
+            showRuns: true,
+            fail: [0, 0],
+            answer: null,
+          },
+          {
+            kicker: "尺寸 4 · 候选 1",
+            title: "检查 (0, 0) 的 4 × 4",
+            description:
+              "同样因为左上角为白色而失败。尺寸不变时会继续按列、再按行寻找候选。",
+            origin: [0, 0],
+            size: 4,
+            check: "左上两边",
+            verdict: "失败",
+            showRuns: true,
+            fail: [0, 0],
+            answer: null,
+          },
+          {
+            kicker: "尺寸 4 · 候选 2",
+            title: "移动到 (0, 1)",
+            description:
+              "顶部从 (0, 1) 连续黑长只有 3，小于候选边长 4，右上角之前已经出现白色。",
+            origin: [0, 1],
+            size: 4,
+            check: "上边",
+            verdict: "失败",
+            showRuns: true,
+            fail: [0, 4],
+            answer: null,
+          },
+          {
+            kicker: "尺寸 3 · 候选 1",
+            title: "检查 (0, 0) 的 3 × 3",
+            description:
+              "左上角仍是白色。扫描器按照行列升序继续移动，因此并列时自然优先更小坐标。",
+            origin: [0, 0],
+            size: 3,
+            check: "左上两边",
+            verdict: "失败",
+            showRuns: true,
+            fail: [0, 0],
+            answer: null,
+          },
+          {
+            kicker: "尺寸 3 · 候选 2",
+            title: "检查 (0, 1) 的 3 × 3",
+            description:
+              "上、左、右三边足够长，但底边经过 (2, 2) 的白色像素，向右连续长度不足 3。",
+            origin: [0, 1],
+            size: 3,
+            check: "下边",
+            verdict: "失败",
+            showRuns: true,
+            fail: [2, 2],
+            answer: null,
+          },
+          {
+            kicker: "尺寸 3 · 候选 3",
+            title: "检查 (1, 0) 的 3 × 3",
+            description:
+              "右边经过 (2, 2) 的白色像素，右上角向下连续黑长只有 1，仍不合格。",
+            origin: [1, 0],
+            size: 3,
+            check: "右边",
+            verdict: "失败",
+            showRuns: true,
+            fail: [2, 2],
+            answer: null,
+          },
+          {
+            kicker: "尺寸 3 · 候选 4",
+            title: "四条边连续，检测命中",
+            description:
+              "(1, 1) 的上、左、下、右四条边均至少连续 3 个黑色像素。内部白点无需检查，立即返回。",
+            origin: [1, 1],
+            size: 3,
+            check: "四条边",
+            verdict: "通过",
+            showRuns: true,
+            accepted: true,
+            answer: [1, 1, 3],
+          },
+        ];
+
+        const refs = {
+          live: document.querySelector("#live-region"),
+          matrix: document.querySelector("#matrix-grid"),
+          prev: document.querySelector("#prev-step"),
+          next: document.querySelector("#next-step"),
+          play: document.querySelector("#play-toggle"),
+          counter: document.querySelector("#step-counter"),
+          kicker: document.querySelector("#step-kicker"),
+          title: document.querySelector("#step-title"),
+          description: document.querySelector("#step-description"),
+          origin: document.querySelector("#origin-value"),
+          size: document.querySelector("#size-value"),
+          check: document.querySelector("#check-value"),
+          verdict: document.querySelector("#verdict-value"),
+          answer: document.querySelector("#answer-value"),
+          solutionToggle: document.querySelector("#solution-toggle"),
+          solutionContent: document.querySelector("#solution-content"),
+          testCards: document.querySelector("#test-cards"),
+          testSummary: document.querySelector("#test-summary"),
+        };
+
+        let stepIndex = 0;
+        let timer = null;
+
+        const isPerimeter = (row, col, origin, size) => {
+          if (!origin || !size) return false;
+          const [top, left] = origin;
+          const bottom = top + size - 1;
+          const edge = left + size - 1;
+          const inside =
+            row >= top && row <= bottom && col >= left && col <= edge;
+          return (
+            inside &&
+            (row === top || row === bottom || col === left || col === edge)
+          );
+        };
+
+        const renderMatrix = (step) => {
+          refs.matrix.replaceChildren();
+          refs.matrix.classList.toggle("show-runs", step.showRuns);
+          matrix.forEach((row, rowIndex) => {
+            row.forEach((value, colIndex) => {
+              const cell = document.createElement("div");
+              cell.className = `pixel${value === 0 ? " black" : ""}`;
+              if (isPerimeter(rowIndex, colIndex, step.origin, step.size)) {
+                cell.classList.add(step.accepted ? "accepted" : "candidate");
+              }
+              if (
+                step.fail &&
+                step.fail[0] === rowIndex &&
+                step.fail[1] === colIndex
+              ) {
+                cell.classList.add("failed");
+              }
+              cell.textContent = value;
+              const badge = document.createElement("span");
+              badge.className = "run-badge";
+              badge.textContent = `→${runs.right[rowIndex][colIndex]} ↓${runs.down[rowIndex][colIndex]}`;
+              badge.setAttribute("aria-hidden", "true");
+              cell.append(badge);
+              cell.setAttribute(
+                "aria-label",
+                `第 ${rowIndex} 行第 ${colIndex} 列，值 ${value}，向右连续黑色 ${runs.right[rowIndex][colIndex]}，向下连续黑色 ${runs.down[rowIndex][colIndex]}`,
+              );
+              refs.matrix.append(cell);
+            });
+          });
+        };
+
+        const renderStep = (announce = true) => {
+          const step = steps[stepIndex];
+          renderMatrix(step);
+          refs.counter.textContent = `${stepIndex + 1} / ${steps.length}`;
+          refs.kicker.textContent = step.kicker;
+          refs.title.textContent = step.title;
+          refs.description.textContent = step.description;
+          refs.origin.textContent = step.origin
+            ? `(${step.origin.join(", ")})`
+            : "—";
+          refs.size.textContent = step.size ?? "—";
+          refs.check.textContent = step.check;
+          refs.verdict.textContent = step.verdict;
+          refs.verdict.style.color =
+            step.verdict === "失败" ? "#d84a3a" : "#0d8f8a";
+          refs.answer.textContent = step.answer
+            ? `[${step.answer.join(", ")}]`
+            : "尚未返回";
+          refs.prev.disabled = stepIndex === 0;
+          refs.next.disabled = stepIndex === steps.length - 1;
+          if (announce)
+            refs.live.textContent = `第 ${stepIndex + 1} 步：${step.title}`;
+        };
+
+        const pause = () => {
+          if (timer !== null) window.clearInterval(timer);
+          timer = null;
+          refs.play.textContent = "自动播放";
+          refs.play.setAttribute("aria-pressed", "false");
+        };
+
+        const play = () => {
+          if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            refs.live.textContent = "系统偏好减少动态效果，已保留手动分步操作";
+            return;
+          }
+          if (stepIndex === steps.length - 1) {
+            stepIndex = 0;
+            renderStep(false);
+          }
+          refs.play.textContent = "暂停播放";
+          refs.play.setAttribute("aria-pressed", "true");
+          refs.live.textContent = "自动播放已开始";
+          timer = window.setInterval(() => {
+            if (stepIndex >= steps.length - 1) {
+              pause();
+              refs.live.textContent = "自动播放完成";
+              return;
+            }
+            stepIndex += 1;
+            renderStep();
+          }, 1050);
+        };
+
+        const move = (delta) => {
+          pause();
+          stepIndex = Math.max(
+            0,
+            Math.min(steps.length - 1, stepIndex + delta),
+          );
+          renderStep();
+        };
+
+        refs.prev.addEventListener("click", () => move(-1));
+        refs.next.addEventListener("click", () => move(1));
+        refs.play.addEventListener("click", () =>
+          timer === null ? play() : pause(),
+        );
+
+        document.addEventListener("keydown", (event) => {
+          const target = event.target;
+          const isTyping =
+            target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement;
+          if (isTyping) return;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            move(-1);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            move(1);
+          } else if (event.code === "Space" && target === document.body) {
+            event.preventDefault();
+            timer === null ? play() : pause();
+          }
+        });
+
+        refs.solutionToggle.addEventListener("click", () => {
+          const opening =
+            refs.solutionToggle.getAttribute("aria-expanded") !== "true";
+          refs.solutionToggle.setAttribute("aria-expanded", String(opening));
+          refs.solutionToggle.textContent = opening ? "收起题解" : "查看题解";
+          refs.solutionContent.hidden = !opening;
+          refs.live.textContent = opening ? "题解已展开" : "题解已收起";
+        });
+
+        const tabs = [...document.querySelectorAll(".code-tab")];
+        const activateTab = (tab, focus = false) => {
+          tabs.forEach((candidate) => {
+            const active = candidate === tab;
+            candidate.setAttribute("aria-selected", String(active));
+            candidate.tabIndex = active ? 0 : -1;
+            document.querySelector(
+              `#panel-${candidate.dataset.language}`,
+            ).hidden = !active;
+          });
+          if (focus) tab.focus();
+          refs.live.textContent = `已切换到 ${tab.textContent} 代码`;
+        };
+
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab));
+          tab.addEventListener("keydown", (event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+              return;
+            event.preventDefault();
+            let nextIndex = index;
+            if (event.key === "ArrowLeft")
+              nextIndex = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === "ArrowRight")
+              nextIndex = (index + 1) % tabs.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = tabs.length - 1;
+            activateTab(tabs[nextIndex], true);
+          });
+        });
+
+        function findSquare(input) {
+          const n = input.length;
+          if (n === 0) return [];
+          const right = Array.from({ length: n }, () => Array(n).fill(0));
+          const down = Array.from({ length: n }, () => Array(n).fill(0));
+
+          for (let row = n - 1; row >= 0; row -= 1) {
+            for (let col = n - 1; col >= 0; col -= 1) {
+              if (input[row][col] === 0) {
+                right[row][col] = 1 + (col + 1 < n ? right[row][col + 1] : 0);
+                down[row][col] = 1 + (row + 1 < n ? down[row + 1][col] : 0);
+              }
+            }
+          }
+
+          for (let size = n; size >= 1; size -= 1) {
+            for (let row = 0; row + size <= n; row += 1) {
+              for (let col = 0; col + size <= n; col += 1) {
+                const bottom = row + size - 1;
+                const edge = col + size - 1;
+                if (
+                  right[row][col] >= size &&
+                  down[row][col] >= size &&
+                  right[bottom][col] >= size &&
+                  down[row][edge] >= size
+                ) {
+                  return [row, col, size];
+                }
+              }
+            }
+          }
+          return [];
+        }
+
+        const testCases = [
+          {
+            name: "官方样例 1 · 2 × 2 黑边",
+            input: [
+              [1, 0, 1],
+              [0, 0, 1],
+              [0, 0, 1],
+            ],
+            expected: [1, 0, 2],
+          },
+          {
+            name: "官方样例 2 · 单像素并列",
+            input: [
+              [0, 1, 1],
+              [1, 0, 1],
+              [1, 1, 0],
+            ],
+            expected: [0, 0, 1],
+          },
+          {
+            name: "关键边界 · 全白无答案",
+            input: [
+              [1, 1],
+              [1, 1],
+            ],
+            expected: [],
+          },
+          {
+            name: "关键边界 · 整体全黑",
+            input: [
+              [0, 0, 0],
+              [0, 0, 0],
+              [0, 0, 0],
+            ],
+            expected: [0, 0, 3],
+          },
+        ];
+
+        const renderTests = () => {
+          refs.testCards.replaceChildren();
+          let passed = 0;
+          testCases.forEach((test) => {
+            const actual = findSquare(test.input);
+            const ok = JSON.stringify(actual) === JSON.stringify(test.expected);
+            if (ok) passed += 1;
+            const article = document.createElement("article");
+            article.className =
+              "border border-[#111820]/15 bg-white/65 p-4 sm:p-5";
+            article.innerHTML = `
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="text-sm font-black">${test.name}</h3>
+                <span class="px-3 py-1 text-xs font-black ${ok ? "bg-[#0d8f8a]/10 text-[#08716d]" : "bg-red-100 text-red-700"}">${ok ? "通过" : "失败"}</span>
+              </div>
+              <dl class="mt-4 grid gap-3 sm:grid-cols-2">
+                <div class="field sm:col-span-2">
+                  <dt class="text-xs font-black text-[#5f707a]">输入</dt>
+                  <dd class="mt-2"><code class="block text-xs font-bold">matrix = ${JSON.stringify(test.input)}</code></dd>
+                </div>
+                <div class="field">
+                  <dt class="text-xs font-black text-[#5f707a]">期望输出</dt>
+                  <dd class="mt-2"><code class="block text-xs font-bold">${JSON.stringify(test.expected)}</code></dd>
+                </div>
+                <div class="field">
+                  <dt class="text-xs font-black text-[#5f707a]">实际输出</dt>
+                  <dd class="mt-2"><code class="block text-xs font-bold">${JSON.stringify(actual)}</code></dd>
+                </div>
+                <div class="field sm:col-span-2">
+                  <dt class="text-xs font-black text-[#5f707a]">通过状态</dt>
+                  <dd class="mt-2 font-black ${ok ? "text-[#0d8f8a]" : "text-red-700"}">${ok ? "✓ 结果与期望完全一致" : "✕ 结果不一致"}</dd>
+                </div>
+              </dl>`;
+            refs.testCards.append(article);
+          });
+          refs.testSummary.textContent = `${passed} / ${testCases.length} 条页面用例通过`;
+          refs.testSummary.dataset.passed = String(passed);
+        };
+
+        renderStep(false);
+        renderTests();
+      })();
+    </script>
+  </body>
+</html>
