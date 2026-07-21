@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Carnival</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-rose-200">Mini Carnival</h1>
+        <p class="text-sm text-slate-300">A compact shooting-gallery challenge inspired by early arcade carnival games.</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-semibold text-amber-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Ammo</div>
+          <div id="ammo" class="font-semibold text-sky-200">30</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Targets</div>
+          <div id="targets" class="font-semibold text-lime-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Round</div>
+          <div id="round" class="font-semibold text-rose-200">1</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <div class="rounded bg-slate-900 p-3 ring-1 ring-slate-700">
+        <canvas id="game" width="800" height="520" class="aspect-[20/13] w-full rounded bg-slate-800"></canvas>
+      </div>
+      <aside class="rounded bg-slate-900 p-4 text-sm leading-6 text-slate-300 ring-1 ring-slate-700">
+        <h2 class="mb-2 font-semibold text-slate-100">Controls</h2>
+        <p>Move sight: Arrow keys or A/D</p>
+        <p>Fire: Space, J, or click</p>
+        <p>Restart: Enter</p>
+        <button id="restart" class="mt-4 w-full rounded bg-rose-300 px-3 py-2 font-semibold text-slate-950 hover:bg-rose-200">Restart</button>
+        <p id="message" class="mt-4 min-h-16 rounded bg-slate-950 p-3 text-rose-100 ring-1 ring-slate-700">Clear the gallery before the ammo runs dry.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const ammoEl = document.getElementById("ammo");
+    const targetsEl = document.getElementById("targets");
+    const roundEl = document.getElementById("round");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const keys = new Set();
+    let sightX;
+    let sightY;
+    let score;
+    let ammo;
+    let round;
+    let targets;
+    let shots;
+    let sparks;
+    let ducks;
+    let gameState;
+    let lastFire;
+
+    const lanes = [
+      { y: 126, speed: 1.5, dir: 1 },
+      { y: 218, speed: 1.9, dir: -1 },
+      { y: 310, speed: 2.25, dir: 1 }
+    ];
+
+    function setupGame() {
+      sightX = width / 2;
+      sightY = height - 74;
+      score = 0;
+      ammo = 32;
+      round = 1;
+      shots = [];
+      sparks = [];
+      ducks = [];
+      gameState = "playing";
+      lastFire = 0;
+      spawnTargets();
+      setMessage("Hit ducks and rabbits. Avoid the skull targets.");
+      updateHud();
+    }
+
+    function spawnTargets() {
+      targets = [];
+      ducks = [];
+      const count = 5 + Math.min(round, 5);
+      lanes.forEach((lane, laneIndex) => {
+        for (let i = 0; i < count; i++) {
+          const bad = (i + laneIndex + round) % 5 === 0;
+          targets.push({
+            x: lane.dir > 0 ? -70 - i * 115 : width + 70 + i * 115,
+            y: lane.y,
+            w: bad ? 34 : 42,
+            h: bad ? 42 : 30,
+            lane: laneIndex,
+            bad,
+            hit: false,
+            points: bad ? -80 : 50 + laneIndex * 15
+          });
+        }
+      });
+      updateHud();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      ammoEl.textContent = ammo;
+      targetsEl.textContent = targets.filter((target) => !target.bad && !target.hit).length;
+      roundEl.textContent = round;
+    }
+
+    function fireShot() {
+      const now = performance.now();
+      if (gameState !== "playing" || ammo <= 0 || now - lastFire < 140) {
+        return;
+      }
+      lastFire = now;
+      ammo -= 1;
+      shots.push({ x: sightX, y: sightY, life: 15 });
+      let hitAny = false;
+      for (const target of targets) {
+        if (target.hit) continue;
+        if (sightX >= target.x - target.w / 2 &&
+            sightX <= target.x + target.w / 2 &&
+            sightY >= target.y - target.h / 2 &&
+            sightY <= target.y + target.h / 2) {
+          target.hit = true;
+          hitAny = true;
+          score = Math.max(0, score + target.points);
+          burst(target.x, target.y, target.bad ? "#fb7185" : "#facc15");
+          setMessage(target.bad ? "Skull target hit. Penalty!" : "Good shot.");
+          break;
+        }
+      }
+      if (!hitAny) {
+        setMessage("Miss.");
+      }
+      checkRoundState();
+      updateHud();
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(i * 0.52) * (1.5 + Math.random() * 2),
+          vy: Math.sin(i * 0.52) * (1.5 + Math.random() * 2),
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updateSight() {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+      sightX = Math.max(34, Math.min(width - 34, sightX + dx * 5.5));
+      sightY = Math.max(76, Math.min(height - 38, sightY + dy * 4.2));
+    }
+
+    function updateTargets() {
+      targets.forEach((target) => {
+        if (target.hit) return;
+        const lane = lanes[target.lane];
+        target.x += lane.speed * lane.dir + round * 0.12 * lane.dir;
+        if (lane.dir > 0 && target.x > width + 80) {
+          target.x = -90;
+        }
+        if (lane.dir < 0 && target.x < -80) {
+          target.x = width + 90;
+        }
+      });
+    }
+
+    function updateEffects() {
+      shots = shots.filter((shot) => {
+        shot.life -= 1;
+        return shot.life > 0;
+      });
+      sparks = sparks.filter((spark) => {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.vy += 0.04;
+        spark.life -= 1;
+        return spark.life > 0;
+      });
+    }
+
+    function checkRoundState() {
+      const remaining = targets.some((target) => !target.bad && !target.hit);
+      if (!remaining) {
+        round += 1;
+        ammo += 18;
+        score += 150;
+        spawnTargets();
+        setMessage("Round cleared. Fresh targets roll in.");
+      } else if (ammo <= 0) {
+        gameState = "over";
+        setMessage("Out of ammo. Press Enter or Restart.");
+      }
+    }
+
+    function drawBackdrop() {
+      ctx.clearRect(0, 0, width, height);
+      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      gradient.addColorStop(0, "#111827");
+      gradient.addColorStop(1, "#1f2937");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = "#7f1d1d";
+      ctx.fillRect(0, 24, width, 52);
+      ctx.fillStyle = "#fef3c7";
+      ctx.font = "bold 28px sans-serif";
+      ctx.fillText("CARNIVAL GALLERY", 248, 58);
+
+      lanes.forEach((lane) => {
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, lane.y + 29, width, 16);
+        ctx.fillStyle = "#475569";
+        for (let x = 0; x < width; x += 36) {
+          ctx.fillRect(x, lane.y + 35, 18, 4);
+        }
+      });
+
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(0, height - 40, width, 40);
+      ctx.fillStyle = "#94a3b8";
+      ctx.fillText("AMMO", 28, height - 14);
+      for (let i = 0; i < Math.min(ammo, 36); i++) {
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(118 + i * 11, height - 26, 6, 18);
+      }
+    }
+
+    function drawDuck(target) {
+      ctx.save();
+      ctx.translate(target.x, target.y);
+      ctx.scale(lanes[target.lane].dir, 1);
+      ctx.fillStyle = "#facc15";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 22, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.arc(18, -8, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f97316";
+      ctx.beginPath();
+      ctx.moveTo(29, -8);
+      ctx.lineTo(42, -3);
+      ctx.lineTo(29, 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#020617";
+      ctx.beginPath();
+      ctx.arc(22, -11, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawRabbit(target) {
+      ctx.save();
+      ctx.translate(target.x, target.y);
+      ctx.fillStyle = "#e5e7eb";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 18, 13, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-11, -28, 7, 24);
+      ctx.fillRect(4, -28, 7, 24);
+      ctx.fillStyle = "#020617";
+      ctx.beginPath();
+      ctx.arc(-5, 0, 2, 0, Math.PI * 2);
+      ctx.arc(7, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawSkull(target) {
+      ctx.save();
+      ctx.translate(target.x, target.y);
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(0, -4, 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(-12, 8, 24, 12);
+      ctx.fillStyle = "#020617";
+      ctx.beginPath();
+      ctx.arc(-7, -5, 4, 0, Math.PI * 2);
+      ctx.arc(7, -5, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(-7, 12, 14, 3);
+      ctx.restore();
+    }
+
+    function drawTargets() {
+      targets.forEach((target) => {
+        if (target.hit) return;
+        if (target.bad) {
+          drawSkull(target);
+        } else if (target.lane % 2 === 0) {
+          drawDuck(target);
+        } else {
+          drawRabbit(target);
+        }
+      });
+    }
+
+    function drawSight() {
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sightX, sightY, 21, 0, Math.PI * 2);
+      ctx.moveTo(sightX - 30, sightY);
+      ctx.lineTo(sightX + 30, sightY);
+      ctx.moveTo(sightX, sightY - 30);
+      ctx.lineTo(sightX, sightY + 30);
+      ctx.stroke();
+      ctx.fillStyle = "#bae6fd";
+      ctx.fillRect(sightX - 2, sightY - 2, 4, 4);
+    }
+
+    function drawEffects() {
+      shots.forEach((shot) => {
+        ctx.strokeStyle = "rgba(248, 250, 252, 0.8)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, 16 - shot.life * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = Math.max(0, spark.life / 24);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 4, 4);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawOverlay() {
+      if (gameState !== "over") return;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.76)";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#fecdd3";
+      ctx.font = "bold 38px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Gallery Closed", width / 2, height / 2 - 8);
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Press Enter to restart", width / 2, height / 2 + 30);
+      ctx.textAlign = "start";
+    }
+
+    function loop() {
+      if (gameState === "playing") {
+        updateSight();
+        updateTargets();
+        updateEffects();
+        checkRoundState();
+      }
+      drawBackdrop();
+      drawTargets();
+      drawEffects();
+      drawSight();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === " " || event.key.toLowerCase() === "j") {
+        fireShot();
+      } else if (event.key === "Enter" && gameState === "over") {
+        setupGame();
+      } else {
+        keys.add(event.key);
+        keys.add(event.key.toLowerCase());
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    canvas.addEventListener("mousemove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      sightX = (event.clientX - rect.left) * (canvas.width / rect.width);
+      sightY = (event.clientY - rect.top) * (canvas.height / rect.height);
+    });
+
+    canvas.addEventListener("mousedown", fireShot);
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
