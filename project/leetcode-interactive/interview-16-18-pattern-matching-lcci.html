@@ -883,320 +883,179 @@
 
     <script data-cfasync="false">
       "use strict";
-      var samples = [
-        {
-          label: "样例 1",
-          pattern: "abba",
-          value: "dogcatcatdog",
-          expected: true,
-        },
-        {
-          label: "样例 2",
-          pattern: "abba",
-          value: "dogcatcatfish",
-          expected: false,
-        },
-        {
-          label: "样例 3",
-          pattern: "aaaa",
-          value: "dogcatcatdog",
-          expected: false,
-        },
-        {
-          label: "空字模",
-          pattern: "abba",
-          value: "dogdogdogdog",
-          expected: true,
-        },
-        { label: "空模式", pattern: "", value: "", expected: true },
-      ];
-      var tests = [
-        {
-          pattern: "abba",
-          value: "dogcatcatdog",
-          expected: true,
-          note: "官方样例 1",
-        },
-        {
-          pattern: "abba",
-          value: "dogcatcatfish",
-          expected: false,
-          note: "官方样例 2",
-        },
-        {
-          pattern: "aaaa",
-          value: "dogcatcatdog",
-          expected: false,
-          note: "官方样例 3",
-        },
-        {
-          pattern: "abba",
-          value: "dogdogdogdog",
-          expected: true,
-          note: "官方样例 4：b 为空",
-        },
-        { pattern: "", value: "", expected: true, note: "空模式匹配空文本" },
-        { pattern: "a", value: "", expected: true, note: "单字模允许为空" },
-      ];
-      var state = { caseIndex: 0, stepIndex: 0, steps: [], timer: null };
-      var el = {
-        cases: document.getElementById("cases"),
-        slots: document.getElementById("slots"),
-        tape: document.getElementById("tape"),
-        candidate: document.getElementById("candidate"),
-        counter: document.getElementById("counter"),
-        title: document.getElementById("stepTitle"),
-        story: document.getElementById("story"),
-        proof: document.getElementById("proof"),
-        mapA: document.getElementById("mapA"),
-        mapB: document.getElementById("mapB"),
-        cursor: document.getElementById("cursor"),
-        slotNo: document.getElementById("slotNo"),
-        prev: document.getElementById("prev"),
-        play: document.getElementById("play"),
-        next: document.getElementById("next"),
-        reset: document.getElementById("reset"),
-        live: document.getElementById("live"),
-        toggle: document.getElementById("solutionToggle"),
-        solution: document.getElementById("solution"),
-        grid: document.getElementById("testGrid"),
-        tabs: document.getElementById("tabs"),
-        code: document.querySelector("#codePanel code"),
-        bench: document.getElementById("workbench"),
-      };
-
-      function normalized(pattern) {
-        if (!pattern || pattern[0] === "a")
-          return { pattern: pattern, swapped: false };
-        return {
-          pattern: Array.from(pattern, function (ch) {
-            return ch === "a" ? "b" : "a";
-          }).join(""),
-          swapped: true,
+      (function () {
+        var samples = [
+          {
+            label: "样例 1",
+            pattern: "abba",
+            value: "dogcatcatdog",
+            expected: true,
+          },
+          {
+            label: "样例 2",
+            pattern: "abba",
+            value: "dogcatcatfish",
+            expected: false,
+          },
+          {
+            label: "样例 3",
+            pattern: "aaaa",
+            value: "dogcatcatdog",
+            expected: false,
+          },
+          {
+            label: "空字模",
+            pattern: "abba",
+            value: "dogdogdogdog",
+            expected: true,
+          },
+          { label: "空模式", pattern: "", value: "", expected: true },
+        ];
+        var tests = [
+          {
+            pattern: "abba",
+            value: "dogcatcatdog",
+            expected: true,
+            note: "官方样例 1",
+          },
+          {
+            pattern: "abba",
+            value: "dogcatcatfish",
+            expected: false,
+            note: "官方样例 2",
+          },
+          {
+            pattern: "aaaa",
+            value: "dogcatcatdog",
+            expected: false,
+            note: "官方样例 3",
+          },
+          {
+            pattern: "abba",
+            value: "dogdogdogdog",
+            expected: true,
+            note: "官方样例 4：b 为空",
+          },
+          { pattern: "", value: "", expected: true, note: "空模式匹配空文本" },
+          { pattern: "a", value: "", expected: true, note: "单字模允许为空" },
+        ];
+        var state = { caseIndex: 0, stepIndex: 0, steps: [], timer: null };
+        var el = {
+          cases: document.getElementById("cases"),
+          slots: document.getElementById("slots"),
+          tape: document.getElementById("tape"),
+          candidate: document.getElementById("candidate"),
+          counter: document.getElementById("counter"),
+          title: document.getElementById("stepTitle"),
+          story: document.getElementById("story"),
+          proof: document.getElementById("proof"),
+          mapA: document.getElementById("mapA"),
+          mapB: document.getElementById("mapB"),
+          cursor: document.getElementById("cursor"),
+          slotNo: document.getElementById("slotNo"),
+          prev: document.getElementById("prev"),
+          play: document.getElementById("play"),
+          next: document.getElementById("next"),
+          reset: document.getElementById("reset"),
+          live: document.getElementById("live"),
+          toggle: document.getElementById("solutionToggle"),
+          solution: document.getElementById("solution"),
+          grid: document.getElementById("testGrid"),
+          tabs: document.getElementById("tabs"),
+          code: document.querySelector("#codePanel code"),
+          bench: document.getElementById("workbench"),
         };
-      }
-      function match(pattern, value) {
-        if (pattern.length === 0) return value.length === 0;
-        var p = normalized(pattern).pattern,
-          countA = Array.from(p).filter(function (ch) {
-            return ch === "a";
-          }).length,
-          countB = p.length - countA;
-        for (var lenA = 0; lenA * countA <= value.length; lenA++) {
-          var rest = value.length - lenA * countA;
-          if (countB === 0 && rest !== 0) continue;
-          if (countB > 0 && rest % countB !== 0) continue;
-          var lenB = countB === 0 ? 0 : rest / countB,
-            mapA = null,
-            mapB = null,
-            cursor = 0,
-            ok = true;
-          for (var i = 0; i < p.length; i++) {
-            var ch = p[i],
-              len = ch === "a" ? lenA : lenB,
-              part = value.slice(cursor, cursor + len);
-            if (ch === "a") {
-              if (mapA === null) mapA = part;
-              else if (mapA !== part) ok = false;
-            } else {
-              if (mapB === null) mapB = part;
-              else if (mapB !== part) ok = false;
+
+        function normalized(pattern) {
+          if (!pattern || pattern[0] === "a")
+            return { pattern: pattern, swapped: false };
+          return {
+            pattern: Array.from(pattern, function (ch) {
+              return ch === "a" ? "b" : "a";
+            }).join(""),
+            swapped: true,
+          };
+        }
+        function match(pattern, value) {
+          if (pattern.length === 0) return value.length === 0;
+          var p = normalized(pattern).pattern,
+            countA = Array.from(p).filter(function (ch) {
+              return ch === "a";
+            }).length,
+            countB = p.length - countA;
+          for (var lenA = 0; lenA * countA <= value.length; lenA++) {
+            var rest = value.length - lenA * countA;
+            if (countB === 0 && rest !== 0) continue;
+            if (countB > 0 && rest % countB !== 0) continue;
+            var lenB = countB === 0 ? 0 : rest / countB,
+              mapA = null,
+              mapB = null,
+              cursor = 0,
+              ok = true;
+            for (var i = 0; i < p.length; i++) {
+              var ch = p[i],
+                len = ch === "a" ? lenA : lenB,
+                part = value.slice(cursor, cursor + len);
+              if (ch === "a") {
+                if (mapA === null) mapA = part;
+                else if (mapA !== part) ok = false;
+              } else {
+                if (mapB === null) mapB = part;
+                else if (mapB !== part) ok = false;
+              }
+              if (!ok) break;
+              cursor += len;
             }
-            if (!ok) break;
-            cursor += len;
+            if (
+              ok &&
+              cursor === value.length &&
+              (mapB === null || mapA !== mapB)
+            )
+              return true;
           }
-          if (ok && cursor === value.length && (mapB === null || mapA !== mapB))
-            return true;
+          return false;
         }
-        return false;
-      }
-      function quote(s) {
-        return '"' + s + '"';
-      }
-      function build(sample) {
-        var out = [];
-        if (sample.pattern.length === 0) {
-          out.push({
-            title: "检查空模式",
-            story:
-              sample.value.length === 0
-                ? "pattern 与 value 都为空，校样完成。"
-                : "pattern 为空但 value 非空。",
-            status: sample.value.length === 0 ? "pass" : "fail",
-            cursor: 0,
-            slot: -1,
-            mapA: null,
-            mapB: null,
-            lenA: 0,
-            lenB: 0,
-            pattern: "",
-          });
-          return out;
+        function quote(s) {
+          return '"' + s + '"';
         }
-        var info = normalized(sample.pattern),
-          p = info.pattern,
-          countA = Array.from(p).filter(function (ch) {
-            return ch === "a";
-          }).length,
-          countB = p.length - countA;
-        out.push({
-          title: info.swapped ? "交换字模角色" : "统计字模槽位",
-          story:
-            (info.swapped
-              ? "原模式以 b 开头，交换 a / b。"
-              : "首字符已是 a。") +
-            " countA = " +
-            countA +
-            "，countB = " +
-            countB +
-            "。",
-          status: "working",
-          cursor: 0,
-          slot: -1,
-          mapA: null,
-          mapB: null,
-          lenA: null,
-          lenB: null,
-          pattern: p,
-        });
-        var accepted = false;
-        for (var lenA = 0; lenA * countA <= sample.value.length; lenA++) {
-          var rest = sample.value.length - lenA * countA;
-          if (
-            (countB === 0 && rest !== 0) ||
-            (countB > 0 && rest % countB !== 0)
-          ) {
+        function build(sample) {
+          var out = [];
+          if (sample.pattern.length === 0) {
             out.push({
-              title: "淘汰 lenA = " + lenA,
+              title: "检查空模式",
               story:
-                countB === 0
-                  ? "模式没有 b，但仍剩 " + rest + " 个字符。"
-                  : "剩余长度 " +
-                    rest +
-                    " 不能被 countB = " +
-                    countB +
-                    " 整除。",
-              status: "fail",
+                sample.value.length === 0
+                  ? "pattern 与 value 都为空，校样完成。"
+                  : "pattern 为空但 value 非空。",
+              status: sample.value.length === 0 ? "pass" : "fail",
               cursor: 0,
               slot: -1,
               mapA: null,
               mapB: null,
-              lenA: lenA,
-              lenB: null,
-              pattern: p,
+              lenA: 0,
+              lenB: 0,
+              pattern: "",
             });
-            continue;
+            return out;
           }
-          var lenB = countB === 0 ? 0 : rest / countB,
-            mapA = null,
-            mapB = null,
-            cursor = 0,
-            ok = true;
+          var info = normalized(sample.pattern),
+            p = info.pattern,
+            countA = Array.from(p).filter(function (ch) {
+              return ch === "a";
+            }).length,
+            countB = p.length - countA;
           out.push({
-            title: "装载候选宽度 " + lenA + " / " + lenB,
+            title: info.swapped ? "交换字模角色" : "统计字模槽位",
             story:
-              "长度方程成立：" +
+              (info.swapped
+                ? "原模式以 b 开头，交换 a / b。"
+                : "首字符已是 a。") +
+              " countA = " +
               countA +
-              " × " +
-              lenA +
-              " + " +
+              "，countB = " +
               countB +
-              " × " +
-              lenB +
-              " = " +
-              sample.value.length +
               "。",
             status: "working",
-            cursor: 0,
-            slot: -1,
-            mapA: null,
-            mapB: null,
-            lenA: lenA,
-            lenB: lenB,
-            pattern: p,
-          });
-          for (var i = 0; i < p.length; i++) {
-            var ch = p[i],
-              len = ch === "a" ? lenA : lenB,
-              part = sample.value.slice(cursor, cursor + len),
-              same = true;
-            if (ch === "a") {
-              if (mapA === null) mapA = part;
-              else same = mapA === part;
-            } else {
-              if (mapB === null) mapB = part;
-              else same = mapB === part;
-            }
-            var end = cursor + len;
-            out.push({
-              title: (same ? "压印" : "串版") + "槽位 " + (i + 1) + " · " + ch,
-              story:
-                ch +
-                " 读取 " +
-                quote(part) +
-                "（长度 " +
-                len +
-                "）" +
-                (same ? "，与既定字模一致。" : "，与既定字模不一致。"),
-              status: same ? "working" : "fail",
-              cursor: end,
-              start: cursor,
-              end: end,
-              slot: i,
-              mapA: mapA,
-              mapB: mapB,
-              lenA: lenA,
-              lenB: lenB,
-              pattern: p,
-            });
-            cursor = end;
-            if (!same) {
-              ok = false;
-              break;
-            }
-          }
-          if (ok && mapB !== null && mapA === mapB) {
-            ok = false;
-            out.push({
-              title: "拒绝同字模",
-              story: "a 与 b 都被设为 " + quote(mapA) + "，违反规则。",
-              status: "fail",
-              cursor: cursor,
-              slot: -1,
-              mapA: mapA,
-              mapB: mapB,
-              lenA: lenA,
-              lenB: lenB,
-              pattern: p,
-            });
-          }
-          if (ok && cursor === sample.value.length) {
-            accepted = true;
-            out.push({
-              title: "校样通过",
-              story:
-                "纸带恰好用尽：a = " +
-                quote(mapA || "") +
-                "，b = " +
-                (mapB === null ? "未使用" : quote(mapB)) +
-                "。",
-              status: "pass",
-              cursor: cursor,
-              slot: -1,
-              mapA: mapA,
-              mapB: mapB,
-              lenA: lenA,
-              lenB: lenB,
-              pattern: p,
-            });
-            break;
-          }
-        }
-        if (!accepted)
-          out.push({
-            title: "所有候选均失败",
-            story: "没有合法长度对与固定字模能覆盖整条纸带。",
-            status: "fail",
             cursor: 0,
             slot: -1,
             mapA: null,
@@ -1205,254 +1064,402 @@
             lenB: null,
             pattern: p,
           });
-        return out;
-      }
-      function announce(s) {
-        el.live.textContent = "";
-        setTimeout(function () {
-          el.live.textContent = s;
-        }, 20);
-      }
-      function stop() {
-        if (state.timer !== null) clearInterval(state.timer);
-        state.timer = null;
-        el.play.textContent = "自动播放";
-      }
-      function renderCases() {
-        el.cases.innerHTML = samples
-          .map(function (s, i) {
-            return (
-              '<button type="button" class="case px-3 py-2 text-sm font-black" aria-pressed="' +
-              (i === state.caseIndex) +
-              '" data-case="' +
-              i +
-              '">' +
-              s.label +
-              " · pattern = " +
-              quote(s.pattern) +
-              ", value = " +
-              quote(s.value) +
-              "</button>"
-            );
-          })
-          .join("");
-      }
-      function render() {
-        var sample = samples[state.caseIndex],
-          s = state.steps[state.stepIndex],
-          p = s.pattern !== undefined ? s.pattern : sample.pattern;
-        el.counter.textContent =
-          "步骤 " + (state.stepIndex + 1) + " / " + state.steps.length;
-        el.title.textContent = s.title;
-        el.story.textContent = s.story;
-        el.mapA.textContent = s.mapA === null ? "未定" : quote(s.mapA);
-        el.mapB.textContent = s.mapB === null ? "未定" : quote(s.mapB);
-        el.cursor.textContent = s.cursor + " / " + sample.value.length;
-        el.slotNo.textContent =
-          s.slot < 0 ? "—" : s.slot + 1 + " · " + p[s.slot];
-        el.candidate.textContent =
-          "lenA = " +
-          (s.lenA === null ? "?" : s.lenA) +
-          " · lenB = " +
-          (s.lenB === null ? "?" : s.lenB);
-        var status =
-          s.status === "pass"
-            ? "通过"
-            : s.status === "fail"
-              ? "拒绝"
-              : "校样中";
-        el.proof.textContent = status;
-        el.proof.className =
-          (s.status === "pass"
-            ? "pass"
-            : s.status === "fail"
-              ? "fail"
-              : "working") + " px-3 py-1 text-xs font-black";
-        el.slots.innerHTML = p
-          ? Array.from(p)
-              .map(function (ch, i) {
-                return (
-                  '<div class="slot ' +
+          var accepted = false;
+          for (var lenA = 0; lenA * countA <= sample.value.length; lenA++) {
+            var rest = sample.value.length - lenA * countA;
+            if (
+              (countB === 0 && rest !== 0) ||
+              (countB > 0 && rest % countB !== 0)
+            ) {
+              out.push({
+                title: "淘汰 lenA = " + lenA,
+                story:
+                  countB === 0
+                    ? "模式没有 b，但仍剩 " + rest + " 个字符。"
+                    : "剩余长度 " +
+                      rest +
+                      " 不能被 countB = " +
+                      countB +
+                      " 整除。",
+                status: "fail",
+                cursor: 0,
+                slot: -1,
+                mapA: null,
+                mapB: null,
+                lenA: lenA,
+                lenB: null,
+                pattern: p,
+              });
+              continue;
+            }
+            var lenB = countB === 0 ? 0 : rest / countB,
+              mapA = null,
+              mapB = null,
+              cursor = 0,
+              ok = true;
+            out.push({
+              title: "装载候选宽度 " + lenA + " / " + lenB,
+              story:
+                "长度方程成立：" +
+                countA +
+                " × " +
+                lenA +
+                " + " +
+                countB +
+                " × " +
+                lenB +
+                " = " +
+                sample.value.length +
+                "。",
+              status: "working",
+              cursor: 0,
+              slot: -1,
+              mapA: null,
+              mapB: null,
+              lenA: lenA,
+              lenB: lenB,
+              pattern: p,
+            });
+            for (var i = 0; i < p.length; i++) {
+              var ch = p[i],
+                len = ch === "a" ? lenA : lenB,
+                part = sample.value.slice(cursor, cursor + len),
+                same = true;
+              if (ch === "a") {
+                if (mapA === null) mapA = part;
+                else same = mapA === part;
+              } else {
+                if (mapB === null) mapB = part;
+                else same = mapB === part;
+              }
+              var end = cursor + len;
+              out.push({
+                title:
+                  (same ? "压印" : "串版") + "槽位 " + (i + 1) + " · " + ch,
+                story:
                   ch +
-                  " " +
-                  (i === s.slot ? "on" : "") +
-                  '"><span class="sr">槽位 ' +
-                  (i + 1) +
-                  "</span>" +
-                  ch +
-                  '<small class="block text-[10px]">' +
-                  (ch === "a"
-                    ? s.lenA === null
-                      ? "?"
-                      : s.lenA
-                    : s.lenB === null
-                      ? "?"
-                      : s.lenB) +
-                  " 格</small></div>"
-                );
-              })
-              .join("")
-          : '<div class="border border-dashed border-slate-400 px-4 py-3 text-sm text-slate-500">空 pattern · 无槽位</div>';
-        el.tape.innerHTML = sample.value
-          ? Array.from(sample.value)
-              .map(function (ch, i) {
-                var inSeg =
-                    i >= (s.start === undefined ? -1 : s.start) &&
-                    i < (s.end === undefined ? -1 : s.end),
-                  cls =
-                    inSeg && s.slot >= 0
-                      ? p[s.slot] === "a"
-                        ? "ca"
-                        : "cb"
-                      : i < s.cursor
-                        ? "used"
-                        : "";
-                return (
-                  '<div class="cell ' +
-                  cls +
-                  '" aria-label="字符 ' +
-                  (i + 1) +
-                  ": " +
-                  ch +
-                  '">' +
-                  (ch === " " ? "␠" : ch) +
-                  "</div>"
-                );
-              })
-              .join("")
-          : '<div class="grid min-h-16 w-full place-items-center px-4 text-sm text-slate-500">空 value · 纸带长度 0</div>';
-        el.prev.disabled = state.stepIndex === 0;
-        el.next.disabled = state.stepIndex === state.steps.length - 1;
-      }
-      function choose(i) {
-        stop();
-        state.caseIndex = i;
-        state.steps = build(samples[i]);
-        state.stepIndex = 0;
-        renderCases();
-        render();
-        announce("已切换到" + samples[i].label);
-      }
-      function move(delta) {
-        var n = Math.max(
-          0,
-          Math.min(state.steps.length - 1, state.stepIndex + delta),
-        );
-        if (n === state.stepIndex) return;
-        state.stepIndex = n;
-        render();
-        announce(el.title.textContent);
-        if (n === state.steps.length - 1) stop();
-      }
-      function play() {
-        if (state.timer !== null) {
+                  " 读取 " +
+                  quote(part) +
+                  "（长度 " +
+                  len +
+                  "）" +
+                  (same ? "，与既定字模一致。" : "，与既定字模不一致。"),
+                status: same ? "working" : "fail",
+                cursor: end,
+                start: cursor,
+                end: end,
+                slot: i,
+                mapA: mapA,
+                mapB: mapB,
+                lenA: lenA,
+                lenB: lenB,
+                pattern: p,
+              });
+              cursor = end;
+              if (!same) {
+                ok = false;
+                break;
+              }
+            }
+            if (ok && mapB !== null && mapA === mapB) {
+              ok = false;
+              out.push({
+                title: "拒绝同字模",
+                story: "a 与 b 都被设为 " + quote(mapA) + "，违反规则。",
+                status: "fail",
+                cursor: cursor,
+                slot: -1,
+                mapA: mapA,
+                mapB: mapB,
+                lenA: lenA,
+                lenB: lenB,
+                pattern: p,
+              });
+            }
+            if (ok && cursor === sample.value.length) {
+              accepted = true;
+              out.push({
+                title: "校样通过",
+                story:
+                  "纸带恰好用尽：a = " +
+                  quote(mapA || "") +
+                  "，b = " +
+                  (mapB === null ? "未使用" : quote(mapB)) +
+                  "。",
+                status: "pass",
+                cursor: cursor,
+                slot: -1,
+                mapA: mapA,
+                mapB: mapB,
+                lenA: lenA,
+                lenB: lenB,
+                pattern: p,
+              });
+              break;
+            }
+          }
+          if (!accepted)
+            out.push({
+              title: "所有候选均失败",
+              story: "没有合法长度对与固定字模能覆盖整条纸带。",
+              status: "fail",
+              cursor: 0,
+              slot: -1,
+              mapA: null,
+              mapB: null,
+              lenA: null,
+              lenB: null,
+              pattern: p,
+            });
+          return out;
+        }
+        function announce(s) {
+          el.live.textContent = "";
+          setTimeout(function () {
+            el.live.textContent = s;
+          }, 20);
+        }
+        function stop() {
+          if (state.timer !== null) clearInterval(state.timer);
+          state.timer = null;
+          el.play.textContent = "自动播放";
+        }
+        function renderCases() {
+          el.cases.innerHTML = samples
+            .map(function (s, i) {
+              return (
+                '<button type="button" class="case px-3 py-2 text-sm font-black" aria-pressed="' +
+                (i === state.caseIndex) +
+                '" data-case="' +
+                i +
+                '">' +
+                s.label +
+                " · pattern = " +
+                quote(s.pattern) +
+                ", value = " +
+                quote(s.value) +
+                "</button>"
+              );
+            })
+            .join("");
+        }
+        function render() {
+          var sample = samples[state.caseIndex],
+            s = state.steps[state.stepIndex],
+            p = s.pattern !== undefined ? s.pattern : sample.pattern;
+          el.counter.textContent =
+            "步骤 " + (state.stepIndex + 1) + " / " + state.steps.length;
+          el.title.textContent = s.title;
+          el.story.textContent = s.story;
+          el.mapA.textContent = s.mapA === null ? "未定" : quote(s.mapA);
+          el.mapB.textContent = s.mapB === null ? "未定" : quote(s.mapB);
+          el.cursor.textContent = s.cursor + " / " + sample.value.length;
+          el.slotNo.textContent =
+            s.slot < 0 ? "—" : s.slot + 1 + " · " + p[s.slot];
+          el.candidate.textContent =
+            "lenA = " +
+            (s.lenA === null ? "?" : s.lenA) +
+            " · lenB = " +
+            (s.lenB === null ? "?" : s.lenB);
+          var status =
+            s.status === "pass"
+              ? "通过"
+              : s.status === "fail"
+                ? "拒绝"
+                : "校样中";
+          el.proof.textContent = status;
+          el.proof.className =
+            (s.status === "pass"
+              ? "pass"
+              : s.status === "fail"
+                ? "fail"
+                : "working") + " px-3 py-1 text-xs font-black";
+          el.slots.innerHTML = p
+            ? Array.from(p)
+                .map(function (ch, i) {
+                  return (
+                    '<div class="slot ' +
+                    ch +
+                    " " +
+                    (i === s.slot ? "on" : "") +
+                    '"><span class="sr">槽位 ' +
+                    (i + 1) +
+                    "</span>" +
+                    ch +
+                    '<small class="block text-[10px]">' +
+                    (ch === "a"
+                      ? s.lenA === null
+                        ? "?"
+                        : s.lenA
+                      : s.lenB === null
+                        ? "?"
+                        : s.lenB) +
+                    " 格</small></div>"
+                  );
+                })
+                .join("")
+            : '<div class="border border-dashed border-slate-400 px-4 py-3 text-sm text-slate-500">空 pattern · 无槽位</div>';
+          el.tape.innerHTML = sample.value
+            ? Array.from(sample.value)
+                .map(function (ch, i) {
+                  var inSeg =
+                      i >= (s.start === undefined ? -1 : s.start) &&
+                      i < (s.end === undefined ? -1 : s.end),
+                    cls =
+                      inSeg && s.slot >= 0
+                        ? p[s.slot] === "a"
+                          ? "ca"
+                          : "cb"
+                        : i < s.cursor
+                          ? "used"
+                          : "";
+                  return (
+                    '<div class="cell ' +
+                    cls +
+                    '" aria-label="字符 ' +
+                    (i + 1) +
+                    ": " +
+                    ch +
+                    '">' +
+                    (ch === " " ? "␠" : ch) +
+                    "</div>"
+                  );
+                })
+                .join("")
+            : '<div class="grid min-h-16 w-full place-items-center px-4 text-sm text-slate-500">空 value · 纸带长度 0</div>';
+          el.prev.disabled = state.stepIndex === 0;
+          el.next.disabled = state.stepIndex === state.steps.length - 1;
+        }
+        function choose(i) {
           stop();
-          announce("自动播放已暂停");
-          return;
-        }
-        if (state.stepIndex === state.steps.length - 1) state.stepIndex = 0;
-        el.play.textContent = "暂停播放";
-        state.timer = setInterval(function () {
-          move(1);
-        }, 900);
-        render();
-        announce("自动播放已开始");
-      }
-      function renderTests() {
-        el.grid.innerHTML = tests
-          .map(function (t) {
-            var actual = match(t.pattern, t.value),
-              ok = actual === t.expected;
-            return (
-              '<article class="test p-4"><div class="flex items-start justify-between gap-3"><strong>' +
-              t.note +
-              '</strong><span class="' +
-              (ok ? "pass" : "fail") +
-              ' px-2 py-1 text-xs font-black">' +
-              (ok ? "通过" : "失败") +
-              '</span></div><div class="mt-4 grid gap-3"><div><span class="label">输入</span><code class="block break-all bg-[#fffaf0] p-2 text-xs">pattern = ' +
-              quote(t.pattern) +
-              ", value = " +
-              quote(t.value) +
-              '</code></div><div><span class="label">期望输出</span><code>' +
-              String(t.expected) +
-              '</code></div><div><span class="label">实际输出</span><code>' +
-              String(actual) +
-              '</code></div><div><span class="label">通过状态</span><strong>' +
-              (ok ? "PASS" : "FAIL") +
-              "</strong></div></div></article>"
-            );
-          })
-          .join("");
-      }
-      function language(lang, focus) {
-        var tabs = Array.from(el.tabs.querySelectorAll("[role=tab]"));
-        tabs.forEach(function (t) {
-          var on = t.dataset.lang === lang;
-          t.setAttribute("aria-selected", String(on));
-          t.tabIndex = on ? 0 : -1;
-          if (on && focus) t.focus();
-        });
-        el.code.textContent = document
-          .getElementById("code-" + lang)
-          .textContent.trim();
-        announce("已切换到 " + lang + " 代码");
-      }
-      el.cases.addEventListener("click", function (e) {
-        var b = e.target.closest("[data-case]");
-        if (b) choose(Number(b.dataset.case));
-      });
-      el.prev.addEventListener("click", function () {
-        move(-1);
-      });
-      el.next.addEventListener("click", function () {
-        move(1);
-      });
-      el.play.addEventListener("click", play);
-      el.reset.addEventListener("click", function () {
-        choose(state.caseIndex);
-      });
-      el.toggle.addEventListener("click", function () {
-        var open = el.toggle.getAttribute("aria-expanded") === "true";
-        el.toggle.setAttribute("aria-expanded", String(!open));
-        el.solution.hidden = open;
-        el.toggle.textContent = open ? "查看题解" : "收起题解";
-        announce(open ? "题解已收起" : "题解已展开");
-      });
-      el.tabs.addEventListener("click", function (e) {
-        var t = e.target.closest("[role=tab]");
-        if (t) language(t.dataset.lang, false);
-      });
-      el.tabs.addEventListener("keydown", function (e) {
-        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-        e.preventDefault();
-        var tabs = Array.from(el.tabs.querySelectorAll("[role=tab]")),
-          current = tabs.findIndex(function (t) {
-            return t.getAttribute("aria-selected") === "true";
-          }),
-          next =
-            (current + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) %
-            tabs.length;
-        language(tabs[next].dataset.lang, true);
-      });
-      el.bench.addEventListener("keydown", function (e) {
-        if (e.target.matches("button")) return;
-        if (e.key === "ArrowLeft") move(-1);
-        else if (e.key === "ArrowRight") move(1);
-        else if (e.key === "Home") {
+          state.caseIndex = i;
+          state.steps = build(samples[i]);
           state.stepIndex = 0;
+          renderCases();
           render();
-        } else if (e.key === "End") {
-          state.stepIndex = state.steps.length - 1;
-          render();
-        } else if (e.key === " ") {
-          e.preventDefault();
-          play();
+          announce("已切换到" + samples[i].label);
         }
-      });
-      renderTests();
-      language("java", false);
-      choose(0);
+        function move(delta) {
+          var n = Math.max(
+            0,
+            Math.min(state.steps.length - 1, state.stepIndex + delta),
+          );
+          if (n === state.stepIndex) return;
+          state.stepIndex = n;
+          render();
+          announce(el.title.textContent);
+          if (n === state.steps.length - 1) stop();
+        }
+        function play() {
+          if (state.timer !== null) {
+            stop();
+            announce("自动播放已暂停");
+            return;
+          }
+          if (state.stepIndex === state.steps.length - 1) state.stepIndex = 0;
+          el.play.textContent = "暂停播放";
+          state.timer = setInterval(function () {
+            move(1);
+          }, 900);
+          render();
+          announce("自动播放已开始");
+        }
+        function renderTests() {
+          el.grid.innerHTML = tests
+            .map(function (t) {
+              var actual = match(t.pattern, t.value),
+                ok = actual === t.expected;
+              return (
+                '<article class="test p-4"><div class="flex items-start justify-between gap-3"><strong>' +
+                t.note +
+                '</strong><span class="' +
+                (ok ? "pass" : "fail") +
+                ' px-2 py-1 text-xs font-black">' +
+                (ok ? "通过" : "失败") +
+                '</span></div><div class="mt-4 grid gap-3"><div><span class="label">输入</span><code class="block break-all bg-[#fffaf0] p-2 text-xs">pattern = ' +
+                quote(t.pattern) +
+                ", value = " +
+                quote(t.value) +
+                '</code></div><div><span class="label">期望输出</span><code>' +
+                String(t.expected) +
+                '</code></div><div><span class="label">实际输出</span><code>' +
+                String(actual) +
+                '</code></div><div><span class="label">通过状态</span><strong>' +
+                (ok ? "PASS" : "FAIL") +
+                "</strong></div></div></article>"
+              );
+            })
+            .join("");
+        }
+        function language(lang, focus) {
+          var tabs = Array.from(el.tabs.querySelectorAll("[role=tab]"));
+          tabs.forEach(function (t) {
+            var on = t.dataset.lang === lang;
+            t.setAttribute("aria-selected", String(on));
+            t.tabIndex = on ? 0 : -1;
+            if (on && focus) t.focus();
+          });
+          el.code.textContent = document
+            .getElementById("code-" + lang)
+            .textContent.trim();
+          announce("已切换到 " + lang + " 代码");
+        }
+        el.cases.addEventListener("click", function (e) {
+          var b = e.target.closest("[data-case]");
+          if (b) choose(Number(b.dataset.case));
+        });
+        el.prev.addEventListener("click", function () {
+          move(-1);
+        });
+        el.next.addEventListener("click", function () {
+          move(1);
+        });
+        el.play.addEventListener("click", play);
+        el.reset.addEventListener("click", function () {
+          choose(state.caseIndex);
+        });
+        el.toggle.addEventListener("click", function () {
+          var open = el.toggle.getAttribute("aria-expanded") === "true";
+          el.toggle.setAttribute("aria-expanded", String(!open));
+          el.solution.hidden = open;
+          el.toggle.textContent = open ? "查看题解" : "收起题解";
+          announce(open ? "题解已收起" : "题解已展开");
+        });
+        el.tabs.addEventListener("click", function (e) {
+          var t = e.target.closest("[role=tab]");
+          if (t) language(t.dataset.lang, false);
+        });
+        el.tabs.addEventListener("keydown", function (e) {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          e.preventDefault();
+          var tabs = Array.from(el.tabs.querySelectorAll("[role=tab]")),
+            current = tabs.findIndex(function (t) {
+              return t.getAttribute("aria-selected") === "true";
+            }),
+            next =
+              (current + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) %
+              tabs.length;
+          language(tabs[next].dataset.lang, true);
+        });
+        el.bench.addEventListener("keydown", function (e) {
+          if (e.target.matches("button")) return;
+          if (e.key === "ArrowLeft") move(-1);
+          else if (e.key === "ArrowRight") move(1);
+          else if (e.key === "Home") {
+            state.stepIndex = 0;
+            render();
+          } else if (e.key === "End") {
+            state.stepIndex = state.steps.length - 1;
+            render();
+          } else if (e.key === " ") {
+            e.preventDefault();
+            play();
+          }
+        });
+        renderTests();
+        language("java", false);
+        choose(0);
+      })();
     </script>
   </body>
 </html>
