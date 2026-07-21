@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bank Panic</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-amber-400/40 bg-slate-900 p-4 shadow-2xl shadow-amber-950/30">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-amber-200">Mini Bank Panic</h1>
+          <p class="text-sm text-slate-300">Serve honest customers, shoot bandits before the clock runs out.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-700 px-3 py-2">
+            <div class="text-slate-400">Score</div>
+            <div id="score" class="text-lg font-bold text-emerald-300">0</div>
+          </div>
+          <div class="rounded border border-slate-700 px-3 py-2">
+            <div class="text-slate-400">Lives</div>
+            <div id="lives" class="text-lg font-bold text-rose-300">3</div>
+          </div>
+          <div class="rounded border border-slate-700 px-3 py-2">
+            <div class="text-slate-400">Round</div>
+            <div id="round" class="text-lg font-bold text-sky-300">1</div>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="game" width="900" height="520" class="h-auto w-full rounded border border-slate-700 bg-slate-950"></canvas>
+
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
+        <div>A/S/D or Arrow Keys aim. Space/J acts. Enter restarts.</div>
+        <button id="restart" class="rounded bg-amber-400 px-4 py-2 font-semibold text-slate-950 hover:bg-amber-300">Restart</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const roundEl = document.getElementById("round");
+    const restartBtn = document.getElementById("restart");
+
+    const lanes = [
+      { x: 95, y: 92, w: 205, h: 318, key: "A" },
+      { x: 348, y: 92, w: 205, h: 318, key: "S" },
+      { x: 601, y: 92, w: 205, h: 318, key: "D" }
+    ];
+
+    const game = {
+      score: 0,
+      lives: 3,
+      round: 1,
+      aim: 1,
+      visitors: [],
+      nextSpawn: 0,
+      lastTime: 0,
+      message: "Watch the windows",
+      messageTimer: 1600,
+      over: false
+    };
+
+    function setupGame() {
+      game.score = 0;
+      game.lives = 3;
+      game.round = 1;
+      game.aim = 1;
+      game.visitors = [];
+      game.nextSpawn = 300;
+      game.lastTime = performance.now();
+      game.message = "Serve customers, stop bandits";
+      game.messageTimer = 1800;
+      game.over = false;
+      updateHud();
+      requestAnimationFrame(tick);
+    }
+
+    function spawnVisitor() {
+      const empty = lanes
+        .map((_, index) => index)
+        .filter((index) => !game.visitors.some((visitor) => visitor.lane === index));
+      if (!empty.length) return;
+
+      const lane = empty[Math.floor(Math.random() * empty.length)];
+      const isBandit = Math.random() < Math.min(0.32 + game.round * 0.035, 0.62);
+      const patience = isBandit ? Math.max(1450, 2700 - game.round * 80) : Math.max(1700, 3300 - game.round * 60);
+
+      game.visitors.push({
+        lane,
+        type: isBandit ? "bandit" : "customer",
+        timer: patience,
+        maxTimer: patience,
+        reveal: 250,
+        state: "active"
+      });
+    }
+
+    function handleAction() {
+      if (game.over) {
+        setupGame();
+        return;
+      }
+
+      const visitor = game.visitors.find((item) => item.lane === game.aim && item.state === "active");
+      if (!visitor) {
+        miss("Empty window");
+        return;
+      }
+
+      if (visitor.type === "bandit") {
+        game.score += 120 + game.round * 10;
+        game.message = "Bandit stopped";
+      } else {
+        game.score += 60 + Math.ceil(visitor.timer / 50);
+        game.message = "Deposit served";
+      }
+
+      game.messageTimer = 900;
+      game.visitors = game.visitors.filter((item) => item !== visitor);
+      game.round = 1 + Math.floor(game.score / 900);
+      updateHud();
+    }
+
+    function miss(reason) {
+      game.lives -= 1;
+      game.message = reason;
+      game.messageTimer = 1100;
+      if (game.lives <= 0) {
+        game.over = true;
+        game.message = "Bank closed - press Enter";
+      }
+      updateHud();
+    }
+
+    function updateVisitors(delta) {
+      game.nextSpawn -= delta;
+      if (game.nextSpawn <= 0) {
+        spawnVisitor();
+        game.nextSpawn = Math.max(520, 1350 - game.round * 45) + Math.random() * 460;
+      }
+
+      for (const visitor of game.visitors) {
+        visitor.reveal -= delta;
+        visitor.timer -= delta;
+      }
+
+      const expired = game.visitors.filter((visitor) => visitor.timer <= 0);
+      if (expired.length) {
+        for (const visitor of expired) {
+          miss(visitor.type === "bandit" ? "Bandit fired first" : "Customer left");
+        }
+        game.visitors = game.visitors.filter((visitor) => visitor.timer > 0);
+      }
+
+      game.messageTimer = Math.max(0, game.messageTimer - delta);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = game.score;
+      livesEl.textContent = game.lives;
+      roundEl.textContent = game.round;
+    }
+
+    function drawWindows() {
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(36, 410, 828, 32);
+      ctx.fillStyle = "#451a03";
+      ctx.fillRect(48, 442, 804, 28);
+
+      lanes.forEach((lane, index) => {
+        const selected = index === game.aim;
+        ctx.fillStyle = selected ? "#f59e0b" : "#334155";
+        ctx.fillRect(lane.x - 10, lane.y - 10, lane.w + 20, lane.h + 20);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(lane.x, lane.y, lane.w, lane.h);
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(lane.x + 18, lane.y + 22, lane.w - 36, lane.h - 60);
+        ctx.fillStyle = "#92400e";
+        ctx.fillRect(lane.x + 6, lane.y + lane.h - 42, lane.w - 12, 36);
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "bold 24px ui-sans-serif, system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(lane.key, lane.x + lane.w / 2, lane.y + lane.h - 16);
+      });
+
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "bold 22px ui-sans-serif, system-ui";
+      ctx.fillText(game.messageTimer > 0 || game.over ? game.message : "Choose the right window", canvas.width / 2, 45);
+    }
+
+    function drawVisitor(visitor) {
+      const lane = lanes[visitor.lane];
+      const cx = lane.x + lane.w / 2;
+      const shown = Math.max(0, 1 - visitor.reveal / 250);
+      const baseY = lane.y + 250 - shown * 86;
+
+      ctx.fillStyle = visitor.type === "bandit" ? "#991b1b" : "#2563eb";
+      ctx.fillRect(cx - 44, baseY - 12, 88, 96);
+      ctx.fillStyle = "#f8d7aa";
+      ctx.beginPath();
+      ctx.arc(cx, baseY - 34, 34, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(cx - 18, baseY - 42, 8, 8);
+      ctx.fillRect(cx + 10, baseY - 42, 8, 8);
+
+      if (visitor.type === "bandit") {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(cx - 42, baseY - 70, 84, 20);
+        ctx.fillRect(cx - 30, baseY - 86, 60, 18);
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(cx + 35, baseY + 18, 58, 14);
+      } else {
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(cx - 30, baseY + 16, 60, 34);
+        ctx.fillStyle = "#22c55e";
+        ctx.fillRect(cx - 20, baseY + 24, 40, 6);
+      }
+
+      const meterWidth = lane.w - 34;
+      const pct = Math.max(0, visitor.timer / visitor.maxTimer);
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(lane.x + 17, lane.y + lane.h - 72, meterWidth, 10);
+      ctx.fillStyle = pct < 0.25 ? "#ef4444" : "#22c55e";
+      ctx.fillRect(lane.x + 17, lane.y + lane.h - 72, meterWidth * pct, 10);
+    }
+
+    function draw() {
+      drawWindows();
+      for (const visitor of game.visitors) drawVisitor(visitor);
+
+      const lane = lanes[game.aim];
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(canvas.width / 2, 500);
+      ctx.lineTo(lane.x + lane.w / 2, lane.y + lane.h - 58);
+      ctx.stroke();
+
+      if (game.over) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.82)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fde68a";
+        ctx.font = "bold 44px ui-sans-serif, system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("Bank Closed", canvas.width / 2, 235);
+        ctx.font = "22px ui-sans-serif, system-ui";
+        ctx.fillText("Press Enter or Restart", canvas.width / 2, 275);
+      }
+    }
+
+    function tick(now) {
+      const delta = Math.min(60, now - game.lastTime);
+      game.lastTime = now;
+      if (!game.over) updateVisitors(delta);
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") game.aim = 0;
+      if (event.key === "ArrowDown" || event.key.toLowerCase() === "s") game.aim = 1;
+      if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") game.aim = 2;
+      if (event.key === " " || event.key.toLowerCase() === "j") handleAction();
+      if (event.key === "Enter") setupGame();
+    });
+
+    canvas.addEventListener("click", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const x = (event.clientX - rect.left) * scaleX;
+      const laneIndex = lanes.findIndex((lane) => x >= lane.x && x <= lane.x + lane.w);
+      if (laneIndex >= 0) {
+        game.aim = laneIndex;
+        handleAction();
+      }
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
