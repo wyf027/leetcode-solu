@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Chopsticks</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-lime-300">classic hand game</p>
+        <h1 class="text-3xl font-bold text-white">Mini Chopsticks</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div class="grid gap-4">
+          <div class="rounded border border-fuchsia-700 bg-fuchsia-950/40 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="text-lg font-bold text-fuchsia-200">North</h2>
+              <span id="northState" class="text-sm text-zinc-300"></span>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <button id="n0" class="handButton"></button>
+              <button id="n1" class="handButton"></button>
+            </div>
+          </div>
+
+          <div class="rounded border border-zinc-800 bg-zinc-950 p-4">
+            <p id="status" class="min-h-14 text-center text-sm leading-6 text-zinc-300"></p>
+            <div class="mt-3 grid grid-cols-2 gap-3">
+              <button id="attackBtn" class="rounded bg-lime-300 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400">Attack</button>
+              <button id="splitBtn" class="rounded bg-sky-300 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-sky-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400">Split</button>
+            </div>
+          </div>
+
+          <div class="rounded border border-cyan-700 bg-cyan-950/40 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="text-lg font-bold text-cyan-200">South</h2>
+              <span id="southState" class="text-sm text-zinc-300"></span>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <button id="s0" class="handButton"></button>
+              <button id="s1" class="handButton"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="modeLabel" class="mt-2 text-sm text-zinc-300"></p>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-zinc-300">
+            <li>Attack: add one live hand to an opponent hand.</li>
+            <li>A hand reaching 5 or more folds to 0.</li>
+            <li>Split: redistribute your own live fingers between hands.</li>
+            <li>Knock out both opponent hands to win.</li>
+          </ul>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <style>
+    .handButton {
+      min-height: 8rem;
+      border-radius: 0.5rem;
+      border: 1px solid rgb(63 63 70);
+      background: rgb(39 39 42);
+      padding: 1rem;
+      font-size: 2.25rem;
+      font-weight: 900;
+      transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+    }
+    .handButton:hover {
+      border-color: rgb(190 242 100);
+      transform: translateY(-1px);
+    }
+  </style>
+
+  <script>
+    const handButtons = {
+      N: [document.getElementById("n0"), document.getElementById("n1")],
+      S: [document.getElementById("s0"), document.getElementById("s1")]
+    };
+    const turnLabel = document.getElementById("turnLabel");
+    const modeLabel = document.getElementById("modeLabel");
+    const statusEl = document.getElementById("status");
+    const northState = document.getElementById("northState");
+    const southState = document.getElementById("southState");
+    const attackBtn = document.getElementById("attackBtn");
+    const splitBtn = document.getElementById("splitBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let hands = { N: [1, 1], S: [1, 1] };
+    let turn = "S";
+    let mode = "attack";
+    let selected = null;
+    let gameOver = false;
+
+    function startGame() {
+      hands = { N: [1, 1], S: [1, 1] };
+      turn = "S";
+      mode = "attack";
+      selected = null;
+      gameOver = false;
+      render("South starts. Pick one of your live hands.");
+    }
+
+    function opponent(side) {
+      return side === "S" ? "N" : "S";
+    }
+
+    function liveHands(side) {
+      return hands[side].filter((value) => value > 0).length;
+    }
+
+    function isKnockedOut(side) {
+      return hands[side].every((value) => value === 0);
+    }
+
+    function canSplit(side) {
+      const total = hands[side][0] + hands[side][1];
+      if (total <= 1 || total >= 8) return false;
+      for (let left = 0; left <= 4; left += 1) {
+        const right = total - left;
+        if (right < 0 || right > 4) continue;
+        const next = [left, right].sort().join(",");
+        const current = [...hands[side]].sort().join(",");
+        if (next !== current && (left > 0 || right > 0)) return true;
+      }
+      return false;
+    }
+
+    function nextSplit(side) {
+      const total = hands[side][0] + hands[side][1];
+      const current = [...hands[side]].sort().join(",");
+      const options = [];
+      for (let left = 0; left <= 4; left += 1) {
+        const right = total - left;
+        if (right < 0 || right > 4 || (left === 0 && right === 0)) continue;
+        const sorted = [left, right].sort().join(",");
+        if (sorted !== current) options.push([left, right]);
+      }
+      return options[0] || hands[side];
+    }
+
+    function finishTurn(message) {
+      if (isKnockedOut(opponent(turn))) {
+        gameOver = true;
+        selected = null;
+        render(`${turn === "S" ? "South" : "North"} wins.`);
+        return;
+      }
+      turn = opponent(turn);
+      selected = null;
+      mode = "attack";
+      render(message || `${turn === "S" ? "South" : "North"} to move.`);
+    }
+
+    function handleHand(side, index) {
+      if (gameOver) return;
+      const value = hands[side][index];
+      if (mode === "attack") {
+        if (side === turn && value > 0) {
+          selected = { side, index };
+          render("Choose an opponent hand to attack.");
+          return;
+        }
+        if (!selected || side !== opponent(turn) || value === 0) return;
+        hands[side][index] = (value + hands[selected.side][selected.index]) % 5;
+        finishTurn(`${turn === "S" ? "South" : "North"} attacks for ${hands[selected.side][selected.index]}.`);
+        return;
+      }
+      if (side !== turn || !canSplit(turn)) return;
+      hands[turn] = nextSplit(turn);
+      finishTurn(`${turn === "S" ? "South" : "North"} splits fingers.`);
+    }
+
+    function setMode(nextMode) {
+      if (gameOver) return;
+      mode = nextMode;
+      selected = null;
+      render(mode === "attack" ? "Pick one of your live hands." : "Click either of your hands to apply the next legal split.");
+    }
+
+    function buttonClass(side, index) {
+      const value = hands[side][index];
+      const isSelected = selected && selected.side === side && selected.index === index;
+      const isTarget = selected && mode === "attack" && side === opponent(turn) && value > 0;
+      const tone = side === "S" ? "text-cyan-100" : "text-fuchsia-100";
+      const dead = value === 0 ? " opacity-45" : "";
+      const ring = isSelected ? " ring-4 ring-lime-300" : isTarget ? " ring-4 ring-amber-300" : "";
+      return `handButton ${tone}${dead}${ring}`;
+    }
+
+    function render(message) {
+      ["N", "S"].forEach((side) => {
+        handButtons[side].forEach((button, index) => {
+          const value = hands[side][index];
+          button.className = buttonClass(side, index);
+          button.textContent = value === 0 ? "0" : "I".repeat(value);
+          button.setAttribute("aria-label", `${side === "S" ? "South" : "North"} hand ${index + 1} with ${value}`);
+          button.onclick = () => handleHand(side, index);
+        });
+      });
+      turnLabel.textContent = gameOver ? "Game over" : turn === "S" ? "South" : "North";
+      modeLabel.textContent = `Mode: ${mode === "attack" ? "Attack" : "Split"}`;
+      statusEl.textContent = message;
+      northState.textContent = `${liveHands("N")} live hand${liveHands("N") === 1 ? "" : "s"}`;
+      southState.textContent = `${liveHands("S")} live hand${liveHands("S") === 1 ? "" : "s"}`;
+      attackBtn.disabled = gameOver;
+      splitBtn.disabled = gameOver || !canSplit(turn);
+    }
+
+    attackBtn.addEventListener("click", () => setMode("attack"));
+    splitBtn.addEventListener("click", () => setMode("split"));
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
