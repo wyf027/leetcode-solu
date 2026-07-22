@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Duodecim Scripta</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Duodecim Scripta</h1>
+        <p class="mt-1 max-w-2xl text-sm text-neutral-300">掷两枚骰子，选择一枚棋子前进。落到对手单棋位置可将其打回起点，三枚棋子全部走出十二线即胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-4 shadow">
+        <div id="board" class="grid gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-neutral-400">当前回合</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold"></div>
+          <p id="statusText" class="mt-3 min-h-20 text-sm leading-6 text-neutral-300"></p>
+          <button id="rollBtn" class="mt-3 w-full rounded bg-emerald-400 px-4 py-3 font-bold text-neutral-950 hover:bg-emerald-300">掷骰</button>
+        </div>
+
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-neutral-400">骰子</div>
+          <div id="dice" class="mt-3 grid grid-cols-2 gap-3"></div>
+          <div id="rollText" class="mt-3 text-center text-xl font-black text-amber-200">等待掷出</div>
+        </div>
+
+        <div class="rounded border border-neutral-700 bg-neutral-900 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-neutral-400">棋子</div>
+          <div id="pieces" class="mt-3 grid gap-2"></div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnText = document.getElementById('turnText');
+    const statusText = document.getElementById('statusText');
+    const rollBtn = document.getElementById('rollBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const diceEl = document.getElementById('dice');
+    const rollText = document.getElementById('rollText');
+    const piecesEl = document.getElementById('pieces');
+
+    const trackLength = 12;
+    const players = [
+      { name: '朱方', key: 'red', color: 'bg-red-500', text: 'text-red-300' },
+      { name: '墨方', key: 'black', color: 'bg-zinc-200', text: 'text-zinc-200' }
+    ];
+    let game;
+
+    function resetGame() {
+      game = {
+        turn: 0,
+        dice: [1, 1],
+        roll: 0,
+        mustMove: false,
+        winner: null,
+        pieces: [
+          [{ pos: -1, done: false }, { pos: -1, done: false }, { pos: -1, done: false }],
+          [{ pos: -1, done: false }, { pos: -1, done: false }, { pos: -1, done: false }]
+        ],
+        message: '朱方先手。掷骰后选择一枚棋子前进。'
+      };
+      render();
+    }
+
+    function rollDice() {
+      if (game.winner !== null || game.mustMove) return;
+      game.dice = [randomDie(), randomDie()];
+      game.roll = game.dice[0] + game.dice[1];
+      game.mustMove = true;
+      game.message = `${players[game.turn].name} 掷出 ${game.roll} 点，选择可移动棋子。`;
+      if (!movablePieces(game.turn).length) {
+        game.mustMove = false;
+        game.turn = 1 - game.turn;
+        game.message = `没有棋子可走，轮到${players[game.turn].name}。`;
+      }
+      render();
+    }
+
+    function randomDie() {
+      return Math.floor(Math.random() * 6) + 1;
+    }
+
+    function movablePieces(playerIndex) {
+      return game.pieces[playerIndex]
+        .map((piece, index) => ({ piece, index }))
+        .filter(({ piece }) => !piece.done && piece.pos + game.roll <= trackLength);
+    }
+
+    function movePiece(pieceIndex) {
+      if (!game.mustMove || game.winner !== null) return;
+      const current = game.turn;
+      const opponent = 1 - current;
+      const piece = game.pieces[current][pieceIndex];
+      if (!piece || piece.done || piece.pos + game.roll > trackLength) return;
+
+      piece.pos += game.roll;
+      if (piece.pos >= trackLength) {
+        piece.done = true;
+        game.message = `${players[current].name} 有一枚棋子走出棋盘。`;
+      } else {
+        const stack = piecesAt(opponent, piece.pos);
+        if (stack.length === 1) {
+          stack[0].piece.pos = -1;
+          game.message = `${players[current].name} 打回一枚对手棋。`;
+        } else {
+          game.message = `${players[current].name} 移动完成。`;
+        }
+      }
+      game.mustMove = false;
+      checkWinner();
+      if (game.winner === null) {
+        game.turn = opponent;
+        game.roll = 0;
+        game.message += ` 轮到${players[game.turn].name}。`;
+      }
+      render();
+    }
+
+    function piecesAt(playerIndex, pos) {
+      return game.pieces[playerIndex]
+        .map((piece, index) => ({ piece, index }))
+        .filter(({ piece }) => !piece.done && piece.pos === pos);
+    }
+
+    function checkWinner() {
+      if (game.pieces[game.turn].every((piece) => piece.done)) {
+        game.winner = game.turn;
+        game.message = `${players[game.turn].name} 三枚棋子全部走出十二线，获得胜利。`;
+      }
+    }
+
+    function badgesAt(pos) {
+      const badges = [];
+      game.pieces.forEach((side, playerIndex) => {
+        side.forEach((piece, pieceIndex) => {
+          if (!piece.done && piece.pos === pos) {
+            const textColor = playerIndex === 0 ? 'text-white' : 'text-neutral-950';
+            badges.push(`<span class="${players[playerIndex].color} ${textColor} flex h-7 w-7 items-center justify-center rounded-full text-xs font-black">${pieceIndex + 1}</span>`);
+          }
+        });
+      });
+      return badges.join('');
+    }
+
+    function render() {
+      turnText.textContent = game.winner === null ? players[game.turn].name : `${players[game.winner].name}胜利`;
+      turnText.className = `mt-1 text-2xl font-bold ${players[game.winner ?? game.turn].text}`;
+      statusText.textContent = game.message;
+      rollBtn.disabled = game.winner !== null || game.mustMove;
+      rollBtn.className = `mt-3 w-full rounded px-4 py-3 font-bold ${rollBtn.disabled ? 'bg-neutral-700 text-neutral-500' : 'bg-emerald-400 text-neutral-950 hover:bg-emerald-300'}`;
+      rollText.textContent = game.roll ? `本次点数：${game.roll}` : '等待掷出';
+      diceEl.innerHTML = game.dice.map((die) => `
+        <div class="flex h-20 items-center justify-center rounded bg-white text-4xl font-black text-neutral-950 shadow">${die}</div>
+      `).join('');
+      boardEl.innerHTML = Array.from({ length: trackLength }, (_, index) => `
+        <div class="grid grid-cols-[56px_1fr] items-center gap-2 rounded border border-neutral-700 bg-neutral-950/60 p-2">
+          <div class="text-center text-sm font-black text-amber-200">${index + 1}</div>
+          <div class="flex min-h-12 items-center gap-2 rounded bg-neutral-900 px-2">${badgesAt(index)}</div>
+        </div>
+      `).join('');
+      piecesEl.innerHTML = players.map((player, playerIndex) => `
+        <div class="rounded border border-neutral-700 p-3">
+          <div class="mb-2 font-semibold ${player.text}">${player.name}</div>
+          <div class="grid grid-cols-3 gap-2">
+            ${game.pieces[playerIndex].map((piece, pieceIndex) => {
+              const canMove = game.mustMove && game.turn === playerIndex && !piece.done && piece.pos + game.roll <= trackLength;
+              const label = piece.done ? '出局' : piece.pos < 0 ? '起点' : `第 ${piece.pos + 1} 线`;
+              return `<button class="rounded border px-2 py-2 text-sm font-semibold ${canMove ? 'border-amber-300 bg-neutral-950 hover:bg-neutral-800' : 'border-neutral-800 bg-neutral-900/50 text-neutral-500'}" ${canMove ? '' : 'disabled'} data-piece="${pieceIndex}">棋 ${pieceIndex + 1}<br><span class="text-xs font-normal">${label}</span></button>`;
+            }).join('')}
+          </div>
+        </div>
+      `).join('');
+      piecesEl.querySelectorAll('button[data-piece]').forEach((button) => {
+        button.addEventListener('click', () => movePiece(Number(button.dataset.piece)));
+      });
+    }
+
+    rollBtn.addEventListener('click', rollDice);
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
