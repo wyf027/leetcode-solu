@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Curling</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal">Mini Curling</h1>
+        <p class="text-sm text-slate-300">控制方向、力度和旋转，把 5 枚冰壶送进靶心。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div class="rounded border border-cyan-800 bg-slate-900 p-3">
+        <canvas id="sheet" width="640" height="760" class="mx-auto aspect-[16/19] w-full max-w-[640px] rounded bg-cyan-50"></canvas>
+      </div>
+
+      <aside class="flex flex-col gap-3 rounded border border-slate-700 bg-slate-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs text-slate-400">分数</div>
+            <div id="score" class="text-2xl font-bold text-cyan-300">0</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs text-slate-400">剩余</div>
+            <div id="stonesLeft" class="text-2xl font-bold text-amber-300">5</div>
+          </div>
+        </div>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-slate-300"><span>方向</span><span id="aimValue">0</span></span>
+          <input id="aim" type="range" min="-55" max="55" value="0" class="w-full accent-cyan-300">
+        </label>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-slate-300"><span>力度</span><span id="powerValue">72%</span></span>
+          <input id="power" type="range" min="45" max="100" value="72" class="w-full accent-amber-300">
+        </label>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-slate-300"><span>旋转</span><span id="curlValue">0</span></span>
+          <input id="curl" type="range" min="-35" max="35" value="0" class="w-full accent-rose-300">
+        </label>
+
+        <button id="throwBtn" class="rounded bg-cyan-300 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-cyan-200">推出冰壶</button>
+        <p id="message" class="min-h-16 rounded bg-slate-800 p-3 text-sm leading-6 text-slate-200">力度决定滑行距离，旋转会让冰壶在后半段弯向一侧。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("sheet");
+    const ctx = canvas.getContext("2d");
+    const aimInput = document.getElementById("aim");
+    const powerInput = document.getElementById("power");
+    const curlInput = document.getElementById("curl");
+    const aimValue = document.getElementById("aimValue");
+    const powerValue = document.getElementById("powerValue");
+    const curlValue = document.getElementById("curlValue");
+    const scoreEl = document.getElementById("score");
+    const stonesLeftEl = document.getElementById("stonesLeft");
+    const messageEl = document.getElementById("message");
+    const throwBtn = document.getElementById("throwBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const lane = { x: 90, y: 42, w: 460, h: 676 };
+    const button = { x: 320, y: 150 };
+    const start = { x: 320, y: 650 };
+    let stones = [];
+    let activeStone = null;
+    let score = 0;
+    let throwsLeft = 5;
+    let busy = false;
+
+    function resetGame() {
+      stones = [];
+      activeStone = null;
+      score = 0;
+      throwsLeft = 5;
+      busy = false;
+      messageEl.textContent = "力度决定滑行距离，旋转会让冰壶在后半段弯向一侧。";
+      updateHud();
+      drawSheet();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      stonesLeftEl.textContent = throwsLeft;
+      aimValue.textContent = aimInput.value;
+      powerValue.textContent = `${powerInput.value}%`;
+      curlValue.textContent = curlInput.value;
+      throwBtn.disabled = busy || throwsLeft <= 0;
+      throwBtn.className = throwBtn.disabled
+        ? "rounded bg-slate-700 px-4 py-3 text-sm font-bold text-slate-400"
+        : "rounded bg-cyan-300 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-cyan-200";
+    }
+
+    function drawSheet() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const ice = ctx.createLinearGradient(lane.x, lane.y, lane.x + lane.w, lane.y + lane.h);
+      ice.addColorStop(0, "#f8fafc");
+      ice.addColorStop(1, "#cffafe");
+      ctx.fillStyle = ice;
+      ctx.fillRect(lane.x, lane.y, lane.w, lane.h);
+      ctx.strokeStyle = "#0e7490";
+      ctx.lineWidth = 5;
+      ctx.strokeRect(lane.x, lane.y, lane.w, lane.h);
+
+      drawHouse();
+      drawGuides();
+      stones.forEach(drawStone);
+      if (activeStone) drawStone(activeStone);
+    }
+
+    function drawHouse() {
+      const rings = [
+        { r: 86, color: "#2563eb" },
+        { r: 58, color: "#f8fafc" },
+        { r: 35, color: "#ef4444" },
+        { r: 13, color: "#f8fafc" }
+      ];
+      rings.forEach((ring) => {
+        ctx.fillStyle = ring.color;
+        ctx.beginPath();
+        ctx.arc(button.x, button.y, ring.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.strokeStyle = "rgba(15,23,42,0.3)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(lane.x, button.y);
+      ctx.lineTo(lane.x + lane.w, button.y);
+      ctx.moveTo(button.x, button.y - 96);
+      ctx.lineTo(button.x, button.y + 96);
+      ctx.stroke();
+    }
+
+    function drawGuides() {
+      ctx.strokeStyle = "rgba(14,116,144,0.35)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 12]);
+      ctx.beginPath();
+      ctx.moveTo(lane.x + 34, start.y);
+      ctx.lineTo(lane.x + lane.w - 34, start.y);
+      ctx.stroke();
+
+      const aim = Number(aimInput.value);
+      const curl = Number(curlInput.value);
+      const end = predictedEnd(aim, Number(powerInput.value), curl);
+      ctx.strokeStyle = "rgba(244,63,94,0.7)";
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.quadraticCurveTo(start.x + aim * 1.7, 390, end.x, end.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawStone(stone) {
+      ctx.fillStyle = stone.color;
+      ctx.beginPath();
+      ctx.arc(stone.x, stone.y, 20, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(stone.x, stone.y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function predictedEnd(aim, power, curl) {
+      const distance = 350 + power * 3.05;
+      const drift = aim * 2.2 + curl * 1.45;
+      return {
+        x: clamp(start.x + drift, lane.x + 34, lane.x + lane.w - 34),
+        y: clamp(start.y - distance, lane.y + 34, lane.y + lane.h - 34)
+      };
+    }
+
+    function throwStone() {
+      if (busy || throwsLeft <= 0) return;
+      busy = true;
+      throwsLeft -= 1;
+      const aim = Number(aimInput.value);
+      const power = Number(powerInput.value);
+      const curl = Number(curlInput.value);
+      const target = predictedEnd(aim, power, curl);
+      const stone = {
+        x: start.x,
+        y: start.y,
+        color: throwsLeft % 2 === 0 ? "#dc2626" : "#f59e0b"
+      };
+      activeStone = stone;
+      let frame = 0;
+      const frames = 72;
+      const animate = () => {
+        frame += 1;
+        const t = frame / frames;
+        const ease = 1 - Math.pow(1 - t, 2.35);
+        const curlArc = Math.sin(t * Math.PI) * curl * 1.35;
+        stone.x = start.x + (target.x - start.x) * ease + curlArc;
+        stone.y = start.y + (target.y - start.y) * ease;
+        drawSheet();
+        if (frame < frames) {
+          requestAnimationFrame(animate);
+          return;
+        }
+        settleStone(stone);
+      };
+      updateHud();
+      requestAnimationFrame(animate);
+    }
+
+    function settleStone(stone) {
+      activeStone = null;
+      const bounced = resolveCollisions(stone);
+      stones.push(stone);
+      const gained = scoreStone(stone);
+      score += gained;
+      busy = false;
+      if (gained > 0) {
+        messageEl.textContent = `冰壶停在得分圈，获得 ${gained} 分。`;
+      } else {
+        messageEl.textContent = bounced ? "冰壶碰开了前方石头，但没有留在得分圈。" : "冰壶滑出得分圈，下一次调整力度。";
+      }
+      if (throwsLeft === 0) {
+        messageEl.textContent += ` 结束，总分 ${score}。`;
+      }
+      updateHud();
+      drawSheet();
+    }
+
+    function resolveCollisions(stone) {
+      let bumped = false;
+      stones.forEach((other) => {
+        const dx = other.x - stone.x;
+        const dy = other.y - stone.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > 0 && distance < 42) {
+          const push = (42 - distance) / 2;
+          other.x = clamp(other.x + dx / distance * push, lane.x + 24, lane.x + lane.w - 24);
+          other.y = clamp(other.y + dy / distance * push, lane.y + 24, lane.y + lane.h - 24);
+          stone.x = clamp(stone.x - dx / distance * push, lane.x + 24, lane.x + lane.w - 24);
+          stone.y = clamp(stone.y - dy / distance * push, lane.y + 24, lane.y + lane.h - 24);
+          bumped = true;
+        }
+      });
+      return bumped;
+    }
+
+    function scoreStone(stone) {
+      const distance = Math.hypot(stone.x - button.x, stone.y - button.y);
+      if (distance <= 18) return 10;
+      if (distance <= 38) return 6;
+      if (distance <= 60) return 3;
+      if (distance <= 86) return 1;
+      return 0;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    aimInput.addEventListener("input", () => { updateHud(); drawSheet(); });
+    powerInput.addEventListener("input", () => { updateHud(); drawSheet(); });
+    curlInput.addEventListener("input", () => { updateHud(); drawSheet(); });
+    throwBtn.addEventListener("click", throwStone);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
