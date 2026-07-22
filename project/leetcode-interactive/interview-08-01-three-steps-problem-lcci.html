@@ -1,0 +1,1390 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="面试题 08.01 三步问题：用三轨踏板计数器交互理解滚动动态规划。"
+    />
+    <link rel="icon" href="data:," />
+    <title>面试题 08.01 · 三步问题｜交互讲解</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --ink: #2b2231;
+        --paper: #fff8e7;
+        --paper-deep: #f4e8c9;
+        --cherry: #e84a5f;
+        --amber: #f6b73c;
+        --teal: #2a9d8f;
+        --blue: #4d7cfe;
+        --muted: #6f6673;
+        --line: rgba(43, 34, 49, 0.18);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        overflow-x: hidden;
+        background:
+          radial-gradient(
+            circle at 12% 8%,
+            rgba(246, 183, 60, 0.2),
+            transparent 30%
+          ),
+          radial-gradient(
+            circle at 90% 22%,
+            rgba(77, 124, 254, 0.12),
+            transparent 32%
+          ),
+          var(--paper);
+        color: var(--ink);
+        font-family:
+          "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background-image:
+          linear-gradient(rgba(43, 34, 49, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(43, 34, 49, 0.035) 1px, transparent 1px);
+        background-size: 24px 24px;
+        content: "";
+        pointer-events: none;
+      }
+
+      h1,
+      h2,
+      h3,
+      .display {
+        font-family: "Arial Rounded MT Bold", "PingFang SC", sans-serif;
+        letter-spacing: -0.025em;
+      }
+
+      .mono,
+      code,
+      pre {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      .paper-card {
+        border: 2px solid var(--ink);
+        border-radius: 22px;
+        background: rgba(255, 253, 244, 0.94);
+      }
+
+      .ticket {
+        position: relative;
+        border: 2px solid var(--ink);
+        border-radius: 18px;
+        background: #fffdf5;
+      }
+
+      .ticket::before,
+      .ticket::after {
+        position: absolute;
+        top: 50%;
+        width: 14px;
+        height: 14px;
+        border: 2px solid var(--ink);
+        border-radius: 50%;
+        background: var(--paper);
+        content: "";
+        transform: translateY(-50%);
+      }
+
+      .ticket::before {
+        left: -9px;
+      }
+
+      .ticket::after {
+        right: -9px;
+      }
+
+      .eyebrow {
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+      }
+
+      .buttonish {
+        border: 2px solid var(--ink);
+        border-radius: 999px;
+        box-shadow: none;
+        font-weight: 900;
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .buttonish:hover:not(:disabled) {
+        box-shadow: 4px 4px 0 var(--ink);
+        transform: translate(-2px, -2px);
+      }
+
+      .buttonish:active:not(:disabled) {
+        box-shadow: 1px 1px 0 var(--ink);
+        transform: translate(0, 0);
+      }
+
+      .buttonish:focus-visible {
+        outline: 4px solid var(--blue);
+        outline-offset: 3px;
+        box-shadow: none;
+      }
+
+      .buttonish:disabled {
+        cursor: not-allowed;
+        box-shadow: none;
+        opacity: 0.45;
+        transform: none;
+      }
+
+      .step-strip {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+        gap: 12px;
+      }
+
+      .step-card {
+        min-height: 106px;
+        border: 2px solid var(--ink);
+        border-radius: 16px 16px 6px 6px;
+        background: #fffdf5;
+        transition:
+          transform 180ms ease,
+          background-color 180ms ease;
+      }
+
+      .step-card[data-state="past"] {
+        background: #ecf8f5;
+      }
+
+      .step-card[data-state="active"] {
+        background: var(--amber);
+        transform: translateY(-7px);
+      }
+
+      .step-card[data-state="future"] {
+        opacity: 0.38;
+      }
+
+      .source-card {
+        border: 2px solid var(--ink);
+        border-radius: 18px;
+        background: #fffdf5;
+      }
+
+      .source-card:nth-child(1) {
+        border-top: 10px solid var(--cherry);
+      }
+
+      .source-card:nth-child(2) {
+        border-top: 10px solid var(--teal);
+      }
+
+      .source-card:nth-child(3) {
+        border-top: 10px solid var(--blue);
+      }
+
+      .merge-line {
+        height: 12px;
+        border: 2px solid var(--ink);
+        border-radius: 999px;
+        background: linear-gradient(
+          90deg,
+          var(--cherry) 0 33.33%,
+          var(--teal) 33.33% 66.66%,
+          var(--blue) 66.66%
+        );
+      }
+
+      .progress-track {
+        height: 12px;
+        overflow: hidden;
+        border: 2px solid var(--ink);
+        border-radius: 999px;
+        background: #fffdf5;
+      }
+
+      .progress-fill {
+        height: 100%;
+        width: 0;
+        background: var(--cherry);
+        transition: width 220ms ease;
+      }
+
+      .code-tab[aria-selected="true"] {
+        background: var(--ink);
+        color: #fffdf5;
+      }
+
+      .code-panel {
+        max-height: 520px;
+        overflow: auto;
+        border: 2px solid var(--ink);
+        border-radius: 18px;
+        background: #201a24;
+        color: #fff8e7;
+      }
+
+      .code-panel pre {
+        min-width: max-content;
+        margin: 0;
+        padding: 22px;
+        font-size: 0.82rem;
+        line-height: 1.75;
+      }
+
+      .test-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .test-field {
+        min-width: 0;
+        border: 1px dashed rgba(43, 34, 49, 0.36);
+        border-radius: 12px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.6);
+      }
+
+      .test-field code {
+        display: block;
+        margin-top: 4px;
+        overflow-x: auto;
+        font-size: 0.76rem;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 760px) {
+        .test-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .ticket::before,
+        .ticket::after {
+          display: none;
+        }
+
+        .step-strip {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="live-region"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <header class="border-b-2 border-[#2b2231] bg-[#fffdf5]/90 backdrop-blur">
+      <div
+        class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8"
+      >
+        <a
+          href="#main-content"
+          class="display text-sm font-black text-[#2b2231] focus-visible:outline focus-visible:outline-4 focus-visible:outline-[#4d7cfe]"
+        >
+          LEETCODE · INTERACTIVE
+        </a>
+        <div
+          class="flex flex-wrap items-center justify-end gap-2 text-xs font-black"
+        >
+          <span
+            class="rounded-full border-2 border-[#2b2231] bg-[#f6b73c] px-3 py-1"
+            >面试题 08.01</span
+          >
+          <span
+            class="rounded-full border-2 border-[#2b2231] bg-[#ecf8f5] px-3 py-1"
+            >简单</span
+          >
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+        <div class="grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <p class="eyebrow text-[#e84a5f]">Cracking the Coding Interview</p>
+            <h1 class="mt-4 text-5xl font-black leading-[0.98] sm:text-7xl">
+              三步问题
+            </h1>
+            <p
+              class="mt-6 max-w-2xl text-lg font-semibold leading-8 text-[#6f6673]"
+            >
+              小孩每次可以跨 1、2 或 3 阶。给定共有
+              <code class="rounded bg-[#f4e8c9] px-2 py-1">n</code>
+              阶的楼梯，计算到达顶端的走法数，并对
+              <code class="rounded bg-[#f4e8c9] px-2 py-1">1000000007</code>
+              取模。
+            </p>
+            <div class="mt-8 flex flex-wrap gap-3">
+              <a
+                href="#playground"
+                class="buttonish inline-flex items-center bg-[#e84a5f] px-6 py-3 text-sm text-white"
+              >
+                开始踏步实验
+              </a>
+              <a
+                href="#verification"
+                class="buttonish inline-flex items-center bg-[#fffdf5] px-6 py-3 text-sm"
+              >
+                查看测试结果
+              </a>
+            </div>
+            <p class="mt-5 text-sm font-bold text-[#6f6673]">
+              键盘：← / → 单步，空格自动播放；所有操作也提供原生按钮。
+            </p>
+          </div>
+
+          <div class="ticket p-6 sm:p-8" role="group" aria-label="题意车票">
+            <p class="eyebrow text-[#2a9d8f]">STAIR TICKET · 08.01</p>
+            <div class="mt-6 grid grid-cols-3 gap-3" aria-hidden="true">
+              <div
+                class="rounded-2xl border-2 border-[#2b2231] bg-[#e84a5f] p-4 text-white"
+              >
+                <p class="text-xs font-black">跨</p>
+                <p class="display mt-2 text-4xl font-black">1</p>
+              </div>
+              <div
+                class="rounded-2xl border-2 border-[#2b2231] bg-[#2a9d8f] p-4 text-white"
+              >
+                <p class="text-xs font-black">跨</p>
+                <p class="display mt-2 text-4xl font-black">2</p>
+              </div>
+              <div
+                class="rounded-2xl border-2 border-[#2b2231] bg-[#4d7cfe] p-4 text-white"
+              >
+                <p class="text-xs font-black">跨</p>
+                <p class="display mt-2 text-4xl font-black">3</p>
+              </div>
+            </div>
+            <div class="mt-6 border-t-2 border-dashed border-[#2b2231] pt-5">
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-sm font-black">目的地</span>
+                <span class="display text-3xl font-black">第 n 阶</span>
+              </div>
+              <p class="mt-4 text-sm font-semibold leading-6 text-[#6f6673]">
+                首屏只呈现题意与实验入口；核心洞察、完整推导和代码默认收在底部“题解”中。
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-y-2 border-[#2b2231] bg-[#f4e8c9]/65 py-14">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div class="grid gap-5 lg:grid-cols-2">
+            <article class="paper-card p-6">
+              <p class="eyebrow text-[#e84a5f]">题意</p>
+              <h2 class="mt-2 text-3xl font-black">可选步长只有 1、2、3</h2>
+              <p class="mt-4 font-semibold leading-7 text-[#6f6673]">
+                每一种完整的跨法序列都算一种不同走法。答案可能很大，所以返回取模后的结果。
+              </p>
+              <p class="mt-4 text-sm font-bold text-[#6f6673]">
+                约束：<code>1 ≤ n ≤ 1,000,000</code>
+              </p>
+            </article>
+            <article class="paper-card p-6">
+              <p class="eyebrow text-[#2a9d8f]">官方示例</p>
+              <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <div
+                  class="rounded-2xl border-2 border-[#2b2231] bg-[#fffdf5] p-4"
+                >
+                  <p class="text-xs font-black text-[#6f6673]">示例 1</p>
+                  <code class="mt-2 block overflow-x-auto font-black"
+                    >n = 3</code
+                  >
+                  <p class="mt-2 text-sm font-black">输出：<code>4</code></p>
+                </div>
+                <div
+                  class="rounded-2xl border-2 border-[#2b2231] bg-[#fffdf5] p-4"
+                >
+                  <p class="text-xs font-black text-[#6f6673]">示例 2</p>
+                  <code class="mt-2 block overflow-x-auto font-black"
+                    >n = 5</code
+                  >
+                  <p class="mt-2 text-sm font-black">输出：<code>13</code></p>
+                </div>
+              </div>
+              <p class="mt-4 text-xs font-bold text-[#6f6673]">
+                本题输入只有整数参数，不含字符串或空格；若出现字符串，页面约定用成对直引号并以
+                ␠ 标示空格。
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="playground"
+        class="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8"
+      >
+        <div
+          class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+        >
+          <div>
+            <p class="eyebrow text-[#4d7cfe]">交互分步可视化</p>
+            <h2 class="mt-2 text-4xl font-black">三轨踏板计数器</h2>
+            <p class="mt-3 max-w-3xl font-semibold leading-7 text-[#6f6673]">
+              选择一个小规模目标，逐级查看计数票如何抵达当前踏板。大输入用于测试，不会在此渲染百万级节点。
+            </p>
+          </div>
+          <label class="text-sm font-black">
+            目标台阶（1–12）
+            <input
+              id="target-input"
+              class="ml-2 w-24 rounded-full border-2 border-[#2b2231] bg-[#fffdf5] px-4 py-2 font-black outline-none focus-visible:outline focus-visible:outline-4 focus-visible:outline-[#4d7cfe]"
+              type="number"
+              min="1"
+              max="12"
+              value="5"
+              inputmode="numeric"
+            />
+          </label>
+        </div>
+
+        <div class="paper-card mt-8 p-5 sm:p-7">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p class="eyebrow text-[#6f6673]">当前检票口</p>
+              <p id="step-title" class="display mt-1 text-3xl font-black">
+                地面 · f(0) = 1
+              </p>
+            </div>
+            <p
+              id="step-badge"
+              class="rounded-full border-2 border-[#2b2231] bg-[#f6b73c] px-4 py-2 text-sm font-black"
+            >
+              0 / 5
+            </p>
+          </div>
+
+          <div class="mt-5 progress-track" aria-hidden="true">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+
+          <div
+            id="step-strip"
+            class="step-strip mt-7"
+            role="group"
+            aria-label="从地面到目标台阶的走法数量"
+          ></div>
+
+          <div
+            class="mt-8 grid gap-4 md:grid-cols-3"
+            role="group"
+            aria-label="三条来源轨道"
+          >
+            <article class="source-card p-4">
+              <p class="eyebrow text-[#e84a5f]">最后跨 1 阶</p>
+              <p id="source-one" class="display mt-3 text-3xl font-black">
+                尚未启用
+              </p>
+              <p
+                id="source-one-note"
+                class="mt-2 text-sm font-bold text-[#6f6673]"
+              >
+                需要先到第 1 阶
+              </p>
+            </article>
+            <article class="source-card p-4">
+              <p class="eyebrow text-[#2a9d8f]">最后跨 2 阶</p>
+              <p id="source-two" class="display mt-3 text-3xl font-black">
+                尚未启用
+              </p>
+              <p
+                id="source-two-note"
+                class="mt-2 text-sm font-bold text-[#6f6673]"
+              >
+                需要先到第 2 阶
+              </p>
+            </article>
+            <article class="source-card p-4">
+              <p class="eyebrow text-[#4d7cfe]">最后跨 3 阶</p>
+              <p id="source-three" class="display mt-3 text-3xl font-black">
+                尚未启用
+              </p>
+              <p
+                id="source-three-note"
+                class="mt-2 text-sm font-bold text-[#6f6673]"
+              >
+                需要先到第 3 阶
+              </p>
+            </article>
+          </div>
+
+          <div class="mx-auto mt-5 max-w-3xl">
+            <div class="merge-line" aria-hidden="true"></div>
+            <div class="ticket mx-auto mt-4 max-w-md p-5 text-center">
+              <p class="eyebrow text-[#6f6673]">当前累计票数</p>
+              <p id="current-total" class="display mt-2 text-5xl font-black">
+                1
+              </p>
+              <p
+                id="current-formula"
+                class="mono mt-3 text-xs font-black text-[#6f6673]"
+              >
+                f(0) = 1（空走法）
+              </p>
+            </div>
+          </div>
+
+          <div
+            class="mt-7 flex flex-wrap justify-center gap-3"
+            role="group"
+            aria-label="可视化控制器"
+          >
+            <button
+              id="prev-button"
+              class="buttonish bg-[#fffdf5] px-5 py-3 text-sm"
+              type="button"
+              disabled
+            >
+              ← 上一步
+            </button>
+            <button
+              id="next-button"
+              class="buttonish bg-[#f6b73c] px-5 py-3 text-sm"
+              type="button"
+            >
+              下一步 →
+            </button>
+            <button
+              id="auto-button"
+              class="buttonish bg-[#2a9d8f] px-5 py-3 text-sm text-white"
+              type="button"
+              aria-pressed="false"
+            >
+              自动播放
+            </button>
+            <button
+              id="reset-button"
+              class="buttonish bg-[#fffdf5] px-5 py-3 text-sm"
+              type="button"
+            >
+              重置
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="verification"
+        class="border-y-2 border-[#2b2231] bg-[#ecf8f5] py-14"
+      >
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <p class="eyebrow text-[#2a9d8f]">测试与验证</p>
+          <div
+            class="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+          >
+            <div>
+              <h2 class="text-4xl font-black">
+                输入、期望、实际、状态逐项分离
+              </h2>
+              <p class="mt-3 font-semibold text-[#6f6673]">
+                页面加载后由同一实现重新计算实际输出；构建检查与浏览器回归结果独立列示。
+              </p>
+            </div>
+            <span
+              id="test-summary"
+              class="rounded-full border-2 border-[#2b2231] bg-[#fffdf5] px-4 py-2 text-sm font-black"
+            >
+              正在运行…
+            </span>
+          </div>
+
+          <div id="test-cases" class="mt-7 grid gap-4"></div>
+
+          <div
+            class="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+            role="group"
+            aria-label="工程验证清单"
+          >
+            <div class="paper-card p-4">
+              <p class="eyebrow text-[#6f6673]">Prettier</p>
+              <p class="mt-2 font-black">✓ 格式化通过</p>
+            </div>
+            <div class="paper-card p-4">
+              <p class="eyebrow text-[#6f6673]">HTML Validate</p>
+              <p class="mt-2 font-black">✓ 结构通过</p>
+            </div>
+            <div class="paper-card p-4">
+              <p class="eyebrow text-[#6f6673]">JavaScript</p>
+              <p class="mt-2 font-black">✓ 语法通过</p>
+            </div>
+            <div class="paper-card p-4">
+              <p class="eyebrow text-[#6f6673]">真实 Chrome</p>
+              <p class="mt-2 font-black">✓ 桌面 / 390px</p>
+            </div>
+            <div class="paper-card p-4">
+              <p class="eyebrow text-[#6f6673]">算法对拍</p>
+              <p id="duel-result" class="mt-2 font-black">正在对拍…</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
+        <div class="paper-card overflow-hidden">
+          <div
+            class="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8"
+          >
+            <div>
+              <p class="eyebrow text-[#e84a5f]">题解 · 默认隐藏</p>
+              <h2 class="mt-2 text-4xl font-black">准备好再翻到票根背面</h2>
+              <p class="mt-3 max-w-3xl font-semibold leading-7 text-[#6f6673]">
+                展开后包含核心洞察、完整过程、边界、复杂度、替代方案、面试追问、常见错误与四语言提交代码。
+              </p>
+            </div>
+            <button
+              id="solution-toggle"
+              class="buttonish shrink-0 bg-[#e84a5f] px-6 py-3 text-white"
+              type="button"
+              aria-expanded="false"
+              aria-controls="solution-content"
+            >
+              查看题解
+            </button>
+          </div>
+
+          <div
+            id="solution-content"
+            class="border-t-2 border-[#2b2231] p-6 sm:p-8"
+            hidden
+          >
+            <section aria-labelledby="insight-heading">
+              <p class="eyebrow text-[#4d7cfe]">核心洞察</p>
+              <h3
+                id="insight-heading"
+                class="mt-2 text-3xl font-black"
+                tabindex="-1"
+              >
+                按“最后一跨”划分，三类走法互不重叠
+              </h3>
+              <div class="mt-5 grid gap-4 lg:grid-cols-3">
+                <article class="source-card p-5">
+                  <p class="font-black">最后跨 1 阶</p>
+                  <p
+                    class="mt-2 text-sm font-semibold leading-6 text-[#6f6673]"
+                  >
+                    此前必须站在第 <code>i - 1</code> 阶，贡献
+                    <code>f(i - 1)</code>。
+                  </p>
+                </article>
+                <article class="source-card p-5">
+                  <p class="font-black">最后跨 2 阶</p>
+                  <p
+                    class="mt-2 text-sm font-semibold leading-6 text-[#6f6673]"
+                  >
+                    此前必须站在第 <code>i - 2</code> 阶，贡献
+                    <code>f(i - 2)</code>。
+                  </p>
+                </article>
+                <article class="source-card p-5">
+                  <p class="font-black">最后跨 3 阶</p>
+                  <p
+                    class="mt-2 text-sm font-semibold leading-6 text-[#6f6673]"
+                  >
+                    此前必须站在第 <code>i - 3</code> 阶，贡献
+                    <code>f(i - 3)</code>。
+                  </p>
+                </article>
+              </div>
+              <div class="ticket mt-6 p-6 text-center">
+                <code class="text-base font-black sm:text-xl">
+                  f(i) = (f(i - 1) + f(i - 2) + f(i - 3)) mod 1,000,000,007
+                </code>
+              </div>
+            </section>
+
+            <section
+              class="mt-10 border-t-2 border-dashed border-[#2b2231] pt-10"
+            >
+              <p class="eyebrow text-[#2a9d8f]">完整过程</p>
+              <h3 class="mt-2 text-3xl font-black">只保留最近三张票</h3>
+              <ol class="mt-5 grid gap-4 lg:grid-cols-4">
+                <li class="paper-card p-5">
+                  <span class="display text-3xl font-black text-[#e84a5f]"
+                    >01</span
+                  >
+                  <p class="mt-3 font-black">定义地面</p>
+                  <p
+                    class="mt-2 text-sm font-semibold leading-6 text-[#6f6673]"
+                  >
+                    设 <code>f(0) = 1</code>，表示“不走也是一种到达地面的方案”。
+                  </p>
+                </li>
+                <li class="paper-card p-5">
+                  <span class="display text-3xl font-black text-[#e84a5f]"
+                    >02</span
+                  >
+                  <p class="mt-3 font-black">准备初值</p>
+                  <p
+                    class="mt-2 text-sm font-semibold leading-6 text-[#6f6673]"
+                  >
+                    <code>f(1) = 1</code>、<code>f(2) = 2</code>。
+                  </p>
+                </li>
+                <li class="paper-card p-5">
+                  <span class="display text-3xl font-black text-[#e84a5f]"
+                    >03</span
+                  >
+                  <p class="mt-3 font-black">循环汇总</p>
+                  <p
+                    class="mt-2 text-sm font-semibold leading-6 text-[#6f6673]"
+                  >
+                    从第 3 阶开始，把最近三项相加并立即取模。
+                  </p>
+                </li>
+                <li class="paper-card p-5">
+                  <span class="display text-3xl font-black text-[#e84a5f]"
+                    >04</span
+                  >
+                  <p class="mt-3 font-black">滚动前进</p>
+                  <p
+                    class="mt-2 text-sm font-semibold leading-6 text-[#6f6673]"
+                  >
+                    三个变量依次右移，循环结束时最新值就是答案。
+                  </p>
+                </li>
+              </ol>
+            </section>
+
+            <section class="mt-10 grid gap-5 lg:grid-cols-2">
+              <article class="paper-card p-6">
+                <p class="eyebrow text-[#e84a5f]">边界</p>
+                <h3 class="mt-2 text-2xl font-black">最小输入与取模</h3>
+                <ul
+                  class="mt-4 list-disc space-y-2 pl-5 text-sm font-semibold leading-6 text-[#6f6673]"
+                >
+                  <li>
+                    <code>n = 1</code> 返回 1，<code>n = 2</code> 返回 2。
+                  </li>
+                  <li>
+                    <code>f(0) = 1</code> 是递推哨兵，不是题目允许的输入。
+                  </li>
+                  <li>
+                    每轮三项相加后取模；Java/C++ 使用 <code>long</code>/<code
+                      >long long</code
+                    >。
+                  </li>
+                  <li>
+                    <code>n = 1,000,000</code> 不能用递归栈或存满无必要的表。
+                  </li>
+                </ul>
+              </article>
+              <article class="paper-card p-6">
+                <p class="eyebrow text-[#2a9d8f]">复杂度</p>
+                <h3 class="mt-2 text-2xl font-black">一次线性扫描</h3>
+                <div class="mt-5 grid grid-cols-2 gap-4">
+                  <div
+                    class="rounded-2xl border-2 border-[#2b2231] bg-[#f6b73c] p-5 text-center"
+                  >
+                    <p class="text-xs font-black">时间</p>
+                    <p class="display mt-2 text-3xl font-black">O(n)</p>
+                  </div>
+                  <div
+                    class="rounded-2xl border-2 border-[#2b2231] bg-[#ecf8f5] p-5 text-center"
+                  >
+                    <p class="text-xs font-black">空间</p>
+                    <p class="display mt-2 text-3xl font-black">O(1)</p>
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <section class="mt-10 grid gap-5 lg:grid-cols-3">
+              <article class="paper-card p-6">
+                <p class="eyebrow text-[#4d7cfe]">替代方案</p>
+                <h3 class="mt-2 text-xl font-black">数组 DP</h3>
+                <p class="mt-3 text-sm font-semibold leading-6 text-[#6f6673]">
+                  同样是 <code>O(n)</code> 时间，但占
+                  <code>O(n)</code> 空间；若需要查询所有中间状态才值得保留。
+                </p>
+              </article>
+              <article class="paper-card p-6">
+                <p class="eyebrow text-[#4d7cfe]">替代方案</p>
+                <h3 class="mt-2 text-xl font-black">记忆化递归</h3>
+                <p class="mt-3 text-sm font-semibold leading-6 text-[#6f6673]">
+                  递推关系清晰，但百万规模会遇到调用栈问题，不适合作为本题提交主线。
+                </p>
+              </article>
+              <article class="paper-card p-6">
+                <p class="eyebrow text-[#4d7cfe]">替代方案</p>
+                <h3 class="mt-2 text-xl font-black">矩阵快速幂</h3>
+                <p class="mt-3 text-sm font-semibold leading-6 text-[#6f6673]">
+                  可降到
+                  <code>O(log n)</code
+                  >，但常数与实现复杂度更高；当前约束下线性滚动更适合面试。
+                </p>
+              </article>
+            </section>
+
+            <section class="mt-10 grid gap-5 lg:grid-cols-2">
+              <article class="paper-card p-6">
+                <p class="eyebrow text-[#e84a5f]">面试追问</p>
+                <ul
+                  class="mt-4 space-y-3 text-sm font-semibold leading-6 text-[#6f6673]"
+                >
+                  <li>
+                    <strong>如果步长集合变成任意数组？</strong>
+                    对所有允许步长求和，空间可压到最大步长。
+                  </li>
+                  <li>
+                    <strong>如果 n 远大于一百万？</strong>
+                    使用矩阵快速幂或线性递推加速。
+                  </li>
+                  <li>
+                    <strong>为何是相加而不是相乘？</strong>
+                    三类按最后一步划分，是互斥的“或”关系。
+                  </li>
+                </ul>
+              </article>
+              <article class="paper-card p-6">
+                <p class="eyebrow text-[#e84a5f]">常见错误</p>
+                <ul
+                  class="mt-4 space-y-3 text-sm font-semibold leading-6 text-[#6f6673]"
+                >
+                  <li>
+                    把 <code>f(0)</code> 写成 0，导致第 1、2、3 阶初值错位。
+                  </li>
+                  <li>最后才取模，Java/C++ 中间和可能溢出。</li>
+                  <li>原地更新三个变量的顺序错误，覆盖了仍需使用的旧值。</li>
+                  <li>用指数级暴力递归，无法通过最大输入。</li>
+                </ul>
+              </article>
+            </section>
+
+            <section class="mt-10" aria-labelledby="code-heading">
+              <p class="eyebrow text-[#2a9d8f]">四语言可提交代码</p>
+              <div
+                class="mt-2 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+              >
+                <h3 id="code-heading" class="text-3xl font-black">
+                  同一滚动状态，四种语法
+                </h3>
+                <button
+                  id="copy-button"
+                  class="buttonish bg-[#fffdf5] px-4 py-2 text-sm"
+                  type="button"
+                >
+                  复制当前代码
+                </button>
+              </div>
+              <div
+                class="mt-5 flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="选择代码语言"
+              >
+                <button
+                  id="tab-java"
+                  class="buttonish code-tab bg-[#fffdf5] px-4 py-2 text-sm"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="code-java"
+                  data-language="java"
+                >
+                  Java
+                </button>
+                <button
+                  id="tab-javascript"
+                  class="buttonish code-tab bg-[#fffdf5] px-4 py-2 text-sm"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="code-javascript"
+                  tabindex="-1"
+                  data-language="javascript"
+                >
+                  JavaScript
+                </button>
+                <button
+                  id="tab-python"
+                  class="buttonish code-tab bg-[#fffdf5] px-4 py-2 text-sm"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="code-python"
+                  tabindex="-1"
+                  data-language="python"
+                >
+                  Python
+                </button>
+                <button
+                  id="tab-cpp"
+                  class="buttonish code-tab bg-[#fffdf5] px-4 py-2 text-sm"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="code-cpp"
+                  tabindex="-1"
+                  data-language="cpp"
+                >
+                  C++
+                </button>
+              </div>
+
+              <div
+                id="code-java"
+                class="code-panel mt-4"
+                role="tabpanel"
+                aria-labelledby="tab-java"
+              >
+                <pre><code>class Solution {
+    public int waysToStep(int n) {
+        final int MOD = 1_000_000_007;
+        if (n == 1) return 1;
+        if (n == 2) return 2;
+
+        long a = 1; // f(0)
+        long b = 1; // f(1)
+        long c = 2; // f(2)
+        for (int i = 3; i &lt;= n; i++) {
+            long next = (a + b + c) % MOD;
+            a = b;
+            b = c;
+            c = next;
+        }
+        return (int) c;
+    }
+}</code></pre>
+              </div>
+
+              <div
+                id="code-javascript"
+                class="code-panel mt-4"
+                role="tabpanel"
+                aria-labelledby="tab-javascript"
+                hidden
+              >
+                <pre><code>/**
+ * @param {number} n
+ * @return {number}
+ */
+var waysToStep = function (n) {
+    const MOD = 1_000_000_007;
+    if (n === 1) return 1;
+    if (n === 2) return 2;
+
+    let a = 1; // f(0)
+    let b = 1; // f(1)
+    let c = 2; // f(2)
+    for (let i = 3; i &lt;= n; i++) {
+        const next = (a + b + c) % MOD;
+        a = b;
+        b = c;
+        c = next;
+    }
+    return c;
+};</code></pre>
+              </div>
+
+              <div
+                id="code-python"
+                class="code-panel mt-4"
+                role="tabpanel"
+                aria-labelledby="tab-python"
+                hidden
+              >
+                <pre><code>class Solution:
+    def waysToStep(self, n: int) -&gt; int:
+        MOD = 1_000_000_007
+        if n == 1:
+            return 1
+        if n == 2:
+            return 2
+
+        a, b, c = 1, 1, 2  # f(0), f(1), f(2)
+        for _ in range(3, n + 1):
+            a, b, c = b, c, (a + b + c) % MOD
+        return c</code></pre>
+              </div>
+
+              <div
+                id="code-cpp"
+                class="code-panel mt-4"
+                role="tabpanel"
+                aria-labelledby="tab-cpp"
+                hidden
+              >
+                <pre><code>class Solution {
+public:
+    int waysToStep(int n) {
+        constexpr int MOD = 1'000'000'007;
+        if (n == 1) return 1;
+        if (n == 2) return 2;
+
+        long long a = 1; // f(0)
+        long long b = 1; // f(1)
+        long long c = 2; // f(2)
+        for (int i = 3; i &lt;= n; ++i) {
+            long long next = (a + b + c) % MOD;
+            a = b;
+            b = c;
+            c = next;
+        }
+        return static_cast&lt;int&gt;(c);
+    }
+};</code></pre>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t-2 border-[#2b2231] bg-[#2b2231] text-[#fff8e7]">
+      <div
+        class="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-7 text-sm font-bold sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8"
+      >
+        <p>面试题 08.01 · 三步问题</p>
+        <p>Tailwind CSS + 原生 JavaScript · 单文件交互讲解</p>
+      </div>
+    </footer>
+
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+
+        const MOD = 1_000_000_007;
+        const targetInput = document.getElementById("target-input");
+        const stepStrip = document.getElementById("step-strip");
+        const stepTitle = document.getElementById("step-title");
+        const stepBadge = document.getElementById("step-badge");
+        const progressFill = document.getElementById("progress-fill");
+        const currentTotal = document.getElementById("current-total");
+        const currentFormula = document.getElementById("current-formula");
+        const prevButton = document.getElementById("prev-button");
+        const nextButton = document.getElementById("next-button");
+        const autoButton = document.getElementById("auto-button");
+        const resetButton = document.getElementById("reset-button");
+        const liveRegion = document.getElementById("live-region");
+        const solutionToggle = document.getElementById("solution-toggle");
+        const solutionContent = document.getElementById("solution-content");
+        const insightHeading = document.getElementById("insight-heading");
+        const copyButton = document.getElementById("copy-button");
+        const codeTabs = Array.from(document.querySelectorAll('[role="tab"]'));
+        const codePanels = Array.from(
+          document.querySelectorAll('[role="tabpanel"]'),
+        );
+
+        let target = 5;
+        let currentStep = 0;
+        let autoTimer = null;
+
+        function waysToStep(n) {
+          if (n === 0 || n === 1) return 1;
+          if (n === 2) return 2;
+          let a = 1;
+          let b = 1;
+          let c = 2;
+          for (let i = 3; i <= n; i += 1) {
+            const next = (a + b + c) % MOD;
+            a = b;
+            b = c;
+            c = next;
+          }
+          return c;
+        }
+
+        function buildValues(limit) {
+          return Array.from({ length: limit + 1 }, (_, index) =>
+            waysToStep(index),
+          );
+        }
+
+        function announce(message) {
+          liveRegion.textContent = "";
+          window.setTimeout(() => {
+            liveRegion.textContent = message;
+          }, 20);
+        }
+
+        function sourceText(offset, elementId, noteId) {
+          const valueElement = document.getElementById(elementId);
+          const noteElement = document.getElementById(noteId);
+          const sourceStep = currentStep - offset;
+          if (sourceStep < 0) {
+            valueElement.textContent = "尚未启用";
+            noteElement.textContent = `需要先到第 ${offset} 阶`;
+            return 0;
+          }
+          const value = waysToStep(sourceStep);
+          valueElement.textContent = value.toLocaleString("zh-CN");
+          noteElement.textContent = `来自 f(${sourceStep})`;
+          return value;
+        }
+
+        function render() {
+          const values = buildValues(target);
+          stepStrip.innerHTML = values
+            .map((value, index) => {
+              const state =
+                index < currentStep
+                  ? "past"
+                  : index === currentStep
+                    ? "active"
+                    : "future";
+              const label = index === 0 ? "地面" : `第 ${index} 阶`;
+              return `<article class="step-card p-3 text-center" data-state="${state}" aria-current="${index === currentStep ? "step" : "false"}"><p class="text-xs font-black text-[#6f6673]">${label}</p><p class="display mt-3 text-2xl font-black">${value.toLocaleString("zh-CN")}</p><p class="mono mt-1 text-[10px] font-bold text-[#6f6673]">f(${index})</p></article>`;
+            })
+            .join("");
+
+          const value = values[currentStep];
+          stepTitle.textContent =
+            currentStep === 0
+              ? "地面 · f(0) = 1"
+              : `第 ${currentStep} 阶 · ${value} 种走法`;
+          stepBadge.textContent = `${currentStep} / ${target}`;
+          progressFill.style.width = `${(currentStep / target) * 100}%`;
+          currentTotal.textContent = value.toLocaleString("zh-CN");
+
+          const one = sourceText(1, "source-one", "source-one-note");
+          const two = sourceText(2, "source-two", "source-two-note");
+          const three = sourceText(3, "source-three", "source-three-note");
+          currentFormula.textContent =
+            currentStep === 0
+              ? "f(0) = 1（空走法）"
+              : `f(${currentStep}) = ${one} + ${two} + ${three} = ${value}`;
+
+          prevButton.disabled = currentStep === 0;
+          nextButton.disabled = currentStep === target;
+          if (currentStep === target && autoTimer) stopAuto(false);
+        }
+
+        function setStep(next, shouldAnnounce = true) {
+          currentStep = Math.max(0, Math.min(target, next));
+          render();
+          if (shouldAnnounce) {
+            announce(
+              currentStep === 0
+                ? "已回到地面，空走法计为一。"
+                : `到达第 ${currentStep} 阶，共 ${waysToStep(currentStep)} 种走法。`,
+            );
+          }
+        }
+
+        function stopAuto(shouldAnnounce = true) {
+          if (autoTimer) window.clearInterval(autoTimer);
+          autoTimer = null;
+          autoButton.textContent = "自动播放";
+          autoButton.setAttribute("aria-pressed", "false");
+          if (shouldAnnounce) announce("自动播放已暂停。");
+        }
+
+        function toggleAuto() {
+          if (autoTimer) {
+            stopAuto();
+            return;
+          }
+          if (currentStep === target) setStep(0, false);
+          autoButton.textContent = "暂停播放";
+          autoButton.setAttribute("aria-pressed", "true");
+          announce("自动播放已开始。");
+          autoTimer = window.setInterval(() => {
+            if (currentStep >= target) {
+              stopAuto(false);
+              announce(
+                `自动播放完成，目标第 ${target} 阶共有 ${waysToStep(target)} 种走法。`,
+              );
+              return;
+            }
+            setStep(currentStep + 1, false);
+          }, 900);
+        }
+
+        function updateTarget() {
+          const parsed = Number.parseInt(targetInput.value, 10);
+          target = Number.isFinite(parsed)
+            ? Math.max(1, Math.min(12, parsed))
+            : 5;
+          targetInput.value = String(target);
+          stopAuto(false);
+          currentStep = 0;
+          render();
+          announce(`目标已更新为第 ${target} 阶。`);
+        }
+
+        prevButton.addEventListener("click", () => setStep(currentStep - 1));
+        nextButton.addEventListener("click", () => setStep(currentStep + 1));
+        autoButton.addEventListener("click", toggleAuto);
+        resetButton.addEventListener("click", () => {
+          stopAuto(false);
+          setStep(0);
+        });
+        targetInput.addEventListener("change", updateTarget);
+        targetInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") updateTarget();
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.defaultPrevented) return;
+          const tag = document.activeElement?.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            setStep(currentStep - 1);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            setStep(currentStep + 1);
+          } else if (event.code === "Space") {
+            event.preventDefault();
+            toggleAuto();
+          }
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const opening =
+            solutionToggle.getAttribute("aria-expanded") === "false";
+          solutionToggle.setAttribute("aria-expanded", String(opening));
+          solutionToggle.textContent = opening ? "收起题解" : "查看题解";
+          solutionContent.hidden = !opening;
+          announce(opening ? "题解已展开。" : "题解已收起。");
+          if (opening) insightHeading.focus();
+        });
+
+        function activateTab(tab, shouldFocus = false) {
+          const panelId = tab.getAttribute("aria-controls");
+          codeTabs.forEach((item) => {
+            const active = item === tab;
+            item.setAttribute("aria-selected", String(active));
+            item.tabIndex = active ? 0 : -1;
+          });
+          codePanels.forEach((panel) => {
+            panel.hidden = panel.id !== panelId;
+          });
+          if (shouldFocus) tab.focus();
+          announce(`已切换到 ${tab.textContent.trim()} 代码。`);
+        }
+
+        codeTabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab));
+          tab.addEventListener("keydown", (event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const direction = event.key === "ArrowRight" ? 1 : -1;
+            const nextIndex =
+              (index + direction + codeTabs.length) % codeTabs.length;
+            activateTab(codeTabs[nextIndex], true);
+          });
+        });
+
+        copyButton.addEventListener("click", async () => {
+          const activePanel = codePanels.find((panel) => !panel.hidden);
+          const code = activePanel?.querySelector("code")?.textContent ?? "";
+          try {
+            await navigator.clipboard.writeText(code);
+            copyButton.textContent = "已复制";
+            announce("当前语言代码已复制。");
+            window.setTimeout(() => {
+              copyButton.textContent = "复制当前代码";
+            }, 1200);
+          } catch {
+            announce("浏览器未授予剪贴板权限，请手动选择代码复制。 ");
+          }
+        });
+
+        const testCases = [
+          { input: 1, expected: 1 },
+          { input: 2, expected: 2 },
+          { input: 3, expected: 4 },
+          { input: 5, expected: 13 },
+          { input: 10, expected: 274 },
+          { input: 100, expected: 347873931 },
+          { input: 1000000, expected: 746580045 },
+        ];
+
+        function renderTests() {
+          let passed = 0;
+          const container = document.getElementById("test-cases");
+          container.innerHTML = testCases
+            .map((test, index) => {
+              const actual = waysToStep(test.input);
+              const ok = actual === test.expected;
+              if (ok) passed += 1;
+              return `<article class="paper-card p-4"><p class="mb-3 text-sm font-black">用例 ${index + 1}</p><div class="test-grid"><div class="test-field"><p class="eyebrow text-[#6f6673]">输入</p><code>n = ${test.input}</code></div><div class="test-field"><p class="eyebrow text-[#6f6673]">期望输出</p><code>${test.expected}</code></div><div class="test-field"><p class="eyebrow text-[#6f6673]">实际输出</p><code>${actual}</code></div><div class="test-field"><p class="eyebrow text-[#6f6673]">通过状态</p><code class="${ok ? "text-[#187466]" : "text-[#c52c44]"}">${ok ? "通过 ✓" : "失败 ✕"}</code></div></div></article>`;
+            })
+            .join("");
+          const summary = document.getElementById("test-summary");
+          summary.textContent = `${passed} / ${testCases.length} 通过`;
+          summary.style.background =
+            passed === testCases.length ? "#f6b73c" : "#f7b8c1";
+        }
+
+        function referenceWays(n) {
+          const dp = [1, 1, 2];
+          for (let i = 3; i <= n; i += 1) {
+            dp[i] = (dp[i - 1] + dp[i - 2] + dp[i - 3]) % MOD;
+          }
+          return dp[n];
+        }
+
+        function runDuel() {
+          let ok = true;
+          for (let n = 1; n <= 200; n += 1) {
+            if (waysToStep(n) !== referenceWays(n)) {
+              ok = false;
+              break;
+            }
+          }
+          document.getElementById("duel-result").textContent = ok
+            ? "✓ n = 1…200 全通过"
+            : "✕ 发现差异";
+        }
+
+        render();
+        renderTests();
+        runDuel();
+      })();
+    </script>
+  </body>
+</html>
