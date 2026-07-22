@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Dameo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-800 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Dameo</h1>
+        <p class="mt-1 text-sm text-zinc-400">斜前移动、八向跳吃，到达底线升王；吃光或困住对手获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_280px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 gap-2"></div>
+      </div>
+
+      <aside class="space-y-3 rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div>
+          <p class="text-xs uppercase text-zinc-500">当前回合</p>
+          <p id="turnText" class="text-xl font-bold"></p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="rounded bg-zinc-800 p-3">
+            <p class="text-zinc-400">白方</p>
+            <p id="whiteCount" class="text-2xl font-bold"></p>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <p class="text-zinc-400">黑方</p>
+            <p id="blackCount" class="text-2xl font-bold"></p>
+          </div>
+        </div>
+        <div class="rounded bg-zinc-950 p-3 text-sm text-zinc-300">
+          <p class="font-semibold text-zinc-100">规则</p>
+          <p class="mt-1">普通棋只能向前斜移；王棋可八向移动。跳过相邻敌子即可吃子。</p>
+        </div>
+        <p id="message" class="min-h-16 rounded bg-zinc-950 p-3 text-sm text-zinc-300"></p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const whiteCount = document.getElementById("whiteCount");
+    const blackCount = document.getElementById("blackCount");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const players = {
+      W: { name: "白方", forward: -1, kingRow: 0, stone: "bg-zinc-100 text-zinc-950" },
+      B: { name: "黑方", forward: 1, kingRow: size - 1, stone: "bg-zinc-800 text-zinc-100" }
+    };
+    const allDirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    let board;
+    let turn;
+    let selected;
+    let legalTargets;
+    let gameOver;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      for (let r = 0; r < 2; r += 1) {
+        for (let c = 0; c < size; c += 1) board[r][c] = { owner: "B", king: false };
+      }
+      for (let r = size - 2; r < size; r += 1) {
+        for (let c = 0; c < size; c += 1) board[r][c] = { owner: "W", king: false };
+      }
+      turn = "W";
+      selected = null;
+      legalTargets = [];
+      gameOver = false;
+      message.textContent = "白方先手：选择一枚棋子移动或跳吃。";
+      render();
+    }
+
+    function inBounds(r, c) {
+      return r >= 0 && r < size && c >= 0 && c < size;
+    }
+
+    function pieceCounts() {
+      return board.flat().reduce((acc, cell) => {
+        if (cell) acc[cell.owner] += 1;
+        return acc;
+      }, { W: 0, B: 0 });
+    }
+
+    function moveDirs(piece) {
+      if (piece.king) return allDirs;
+      return [[players[piece.owner].forward, -1], [players[piece.owner].forward, 1]];
+    }
+
+    function captureDirs(piece) {
+      return piece.king ? allDirs : allDirs;
+    }
+
+    function legalMoves(r, c) {
+      const piece = board[r][c];
+      if (!piece || piece.owner !== turn) return [];
+      const moves = [];
+      moveDirs(piece).forEach(([dr, dc]) => {
+        const nr = r + dr;
+        const nc = c + dc;
+        if (inBounds(nr, nc) && !board[nr][nc]) moves.push({ r: nr, c: nc, type: "move" });
+      });
+      captureDirs(piece).forEach(([dr, dc]) => {
+        const mr = r + dr;
+        const mc = c + dc;
+        const nr = r + dr * 2;
+        const nc = c + dc * 2;
+        if (!inBounds(nr, nc)) return;
+        const middle = board[mr][mc];
+        if (middle && middle.owner !== piece.owner && !board[nr][nc]) {
+          moves.push({ r: nr, c: nc, type: "capture", captured: [mr, mc] });
+        }
+      });
+      return moves;
+    }
+
+    function allMovesFor(player) {
+      const current = turn;
+      turn = player;
+      const moves = [];
+      board.forEach((row, r) => row.forEach((cell, c) => {
+        if (cell?.owner === player) legalMoves(r, c).forEach(target => moves.push({ from: [r, c], target }));
+      }));
+      turn = current;
+      return moves;
+    }
+
+    function applyMove(from, target) {
+      const piece = board[from[0]][from[1]];
+      board[target.r][target.c] = piece;
+      board[from[0]][from[1]] = null;
+      if (target.type === "capture") board[target.captured[0]][target.captured[1]] = null;
+      if (target.r === players[piece.owner].kingRow) piece.king = true;
+      selected = null;
+      legalTargets = [];
+      checkGame(piece.owner);
+      if (!gameOver) {
+        turn = turn === "W" ? "B" : "W";
+        const opponentMoves = allMovesFor(turn);
+        if (opponentMoves.length === 0) {
+          gameOver = true;
+          message.textContent = `${players[turn].name} 无法行动，${players[turn === "W" ? "B" : "W"].name} 获胜。`;
+        } else {
+          message.textContent = `${players[turn].name} 行动。`;
+        }
+      }
+      render();
+    }
+
+    function checkGame(lastPlayer) {
+      const counts = pieceCounts();
+      if (counts.W === 0 || counts.B === 0) {
+        gameOver = true;
+        message.textContent = `${players[lastPlayer].name} 吃光对手并获胜。`;
+      }
+    }
+
+    function targetAt(r, c) {
+      return legalTargets.find(target => target.r === r && target.c === c);
+    }
+
+    function handleCell(r, c) {
+      if (gameOver) return;
+      const target = targetAt(r, c);
+      if (selected && target) {
+        applyMove(selected, target);
+        return;
+      }
+      const piece = board[r][c];
+      if (!piece || piece.owner !== turn) {
+        message.textContent = "请选择当前回合自己的棋子。";
+        return;
+      }
+      selected = [r, c];
+      legalTargets = legalMoves(r, c);
+      message.textContent = legalTargets.length ? "绿色为移动，黄色为跳吃。" : "这枚棋子没有合法行动。";
+      render();
+    }
+
+    function render() {
+      const counts = pieceCounts();
+      boardEl.innerHTML = "";
+      board.forEach((row, r) => row.forEach((cell, c) => {
+        const button = document.createElement("button");
+        const dark = (r + c) % 2 === 0;
+        const chosen = selected && selected[0] === r && selected[1] === c;
+        const target = targetAt(r, c);
+        const targetClass = target?.type === "capture" ? "ring-4 ring-amber-300" : target ? "ring-4 ring-emerald-300" : "";
+        button.className = `relative flex aspect-square items-center justify-center rounded border transition ${dark ? "border-zinc-700 bg-zinc-800" : "border-zinc-800 bg-zinc-700"} ${chosen ? "ring-4 ring-white" : targetClass || "hover:border-emerald-300"}`;
+        button.setAttribute("aria-label", `row ${r + 1} column ${c + 1}`);
+        if (cell) {
+          const stone = document.createElement("span");
+          stone.className = `flex h-12 w-12 items-center justify-center rounded-full text-lg font-black shadow ${players[cell.owner].stone}`;
+          stone.textContent = cell.king ? `${cell.owner}K` : cell.owner;
+          button.appendChild(stone);
+        }
+        button.addEventListener("click", () => handleCell(r, c));
+        boardEl.appendChild(button);
+      }));
+      turnText.textContent = players[turn].name;
+      whiteCount.textContent = counts.W;
+      blackCount.textContent = counts.B;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
