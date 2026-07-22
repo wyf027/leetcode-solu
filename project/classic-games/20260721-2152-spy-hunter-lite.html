@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Spy Hunter</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      touch-action: manipulation;
+    }
+    canvas {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3 border-b border-sky-400/30 pb-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-sky-200">Mini Spy Hunter</h1>
+        <p class="text-sm text-stone-400">Thread traffic, fire forward, and keep the pursuit car alive through the highway run.</p>
+      </div>
+      <button id="restartBtn" class="rounded bg-sky-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-sky-200 focus:outline-none focus:ring-2 focus:ring-sky-100">
+        Restart
+      </button>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-3 shadow-2xl shadow-sky-950/30">
+        <canvas id="gameCanvas" width="720" height="540" class="aspect-[4/3] w-full rounded bg-stone-950"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 text-sm">
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-stone-500">Score</div>
+              <div id="score" class="text-xl font-bold text-sky-200">0</div>
+            </div>
+            <div>
+              <div class="text-stone-500">Sector</div>
+              <div id="sector" class="text-xl font-bold text-amber-200">1</div>
+            </div>
+            <div>
+              <div class="text-stone-500">Armor</div>
+              <div id="armor" class="text-xl font-bold text-rose-200">3</div>
+            </div>
+            <div>
+              <div class="text-stone-500">Heat</div>
+              <div id="heat" class="text-xl font-bold text-emerald-200">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-stone-700 bg-stone-900 p-4 leading-6 text-stone-300">
+          <p><span class="font-semibold text-stone-100">Steer:</span> Arrow keys or WASD</p>
+          <p><span class="font-semibold text-stone-100">Fire:</span> Space or J</p>
+          <p><span class="font-semibold text-stone-100">Brake:</span> Down or S</p>
+          <p><span class="font-semibold text-stone-100">Restart:</span> Enter</p>
+        </div>
+
+        <div id="status" class="rounded border border-sky-500/40 bg-sky-950/20 p-4 text-sky-100">
+          Hold the road and clear the lane.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const sectorEl = document.getElementById("sector");
+    const armorEl = document.getElementById("armor");
+    const heatEl = document.getElementById("heat");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const keys = new Set();
+    const traffic = [];
+    const shots = [];
+    const hazards = [];
+    const sparks = [];
+    const laneXs = [230, 310, 390, 470];
+    let player;
+    let score;
+    let armor;
+    let sector;
+    let heat;
+    let roadOffset;
+    let trafficTimer;
+    let hazardTimer;
+    let fireCooldown;
+    let state;
+    let lastTime;
+
+    function setupGame() {
+      player = {
+        x: laneXs[1],
+        y: 438,
+        vx: 0,
+        width: 38,
+        height: 68,
+        invincible: 0
+      };
+      score = 0;
+      armor = 3;
+      sector = 1;
+      heat = 0;
+      roadOffset = 0;
+      trafficTimer = 0.5;
+      hazardTimer = 1.7;
+      fireCooldown = 0;
+      state = "playing";
+      lastTime = performance.now();
+      traffic.length = 0;
+      shots.length = 0;
+      hazards.length = 0;
+      sparks.length = 0;
+      statusEl.textContent = "Hold the road and clear the lane.";
+      updateHud();
+    }
+
+    function spawnTraffic() {
+      const lane = Math.floor(Math.random() * laneXs.length);
+      const hostile = Math.random() < 0.62;
+      traffic.push({
+        x: laneXs[lane],
+        y: -78,
+        lane,
+        width: 38,
+        height: 66,
+        speed: 75 + Math.random() * 80 + sector * 8,
+        hostile,
+        color: hostile ? "#ef4444" : "#94a3b8",
+        drift: Math.random() < 0.25 ? (Math.random() > 0.5 ? 1 : -1) : 0
+      });
+    }
+
+    function spawnHazard() {
+      const lane = Math.floor(Math.random() * laneXs.length);
+      hazards.push({
+        x: laneXs[lane],
+        y: -42,
+        width: 48,
+        height: 30,
+        type: Math.random() < 0.5 ? "oil" : "barrier"
+      });
+    }
+
+    function fireShot() {
+      if (fireCooldown > 0 || state !== "playing") {
+        return;
+      }
+      shots.push({ x: player.x, y: player.y - 40, vy: -520, life: 1.1 });
+      fireCooldown = 0.22;
+      heat = Math.min(100, heat + 8);
+    }
+
+    function updatePlayer(dt) {
+      const accel = keys.has("ArrowDown") || keys.has("s") ? 220 : 310;
+      if (keys.has("ArrowLeft") || keys.has("a")) {
+        player.vx -= accel * dt;
+      }
+      if (keys.has("ArrowRight") || keys.has("d")) {
+        player.vx += accel * dt;
+      }
+      player.vx *= 1 - Math.min(0.18, dt * 5.5);
+      player.x += player.vx * dt;
+      player.x = clamp(player.x, 178, 542);
+      player.invincible = Math.max(0, player.invincible - dt);
+      fireCooldown = Math.max(0, fireCooldown - dt);
+      heat = Math.max(0, heat - dt * 16);
+      if (keys.has(" ") || keys.has("j")) {
+        fireShot();
+      }
+    }
+
+    function updateRoad(dt) {
+      const speed = keys.has("ArrowDown") || keys.has("s") ? 170 : 245 + sector * 18;
+      roadOffset = (roadOffset + speed * dt) % 78;
+      score += Math.floor(dt * (30 + sector * 9));
+      sector = Math.min(7, Math.floor(score / 1200) + 1);
+    }
+
+    function updateTraffic(dt) {
+      trafficTimer -= dt;
+      if (trafficTimer <= 0) {
+        spawnTraffic();
+        trafficTimer = Math.max(0.42, 1.15 - sector * 0.08);
+      }
+
+      for (let i = traffic.length - 1; i >= 0; i -= 1) {
+        const car = traffic[i];
+        car.y += (190 + sector * 18 - car.speed) * dt;
+        if (car.hostile && car.drift !== 0 && car.y > 80 && car.y < 350) {
+          car.x += car.drift * dt * 55;
+          if (car.x < 200 || car.x > 520) {
+            car.drift *= -1;
+          }
+        }
+        if (car.y > canvas.height + 90) {
+          traffic.splice(i, 1);
+          score += car.hostile ? 25 : 10;
+          continue;
+        }
+        if (overlap(playerBox(), boxFor(car))) {
+          crash(car.hostile ? "Hostile contact." : "Civil traffic hit.");
+          traffic.splice(i, 1);
+        }
+      }
+    }
+
+    function updateShots(dt) {
+      for (let i = shots.length - 1; i >= 0; i -= 1) {
+        const shot = shots[i];
+        shot.y += shot.vy * dt;
+        shot.life -= dt;
+        if (shot.life <= 0 || shot.y < -20) {
+          shots.splice(i, 1);
+          continue;
+        }
+        for (let j = traffic.length - 1; j >= 0; j -= 1) {
+          const car = traffic[j];
+          if (car.hostile && overlap({ x: shot.x - 3, y: shot.y - 12, width: 6, height: 18 }, boxFor(car))) {
+            burst(car.x, car.y, "#facc15", 12);
+            traffic.splice(j, 1);
+            shots.splice(i, 1);
+            score += 160;
+            statusEl.textContent = "Threat neutralized.";
+            break;
+          }
+        }
+      }
+    }
+
+    function updateHazards(dt) {
+      hazardTimer -= dt;
+      if (hazardTimer <= 0) {
+        spawnHazard();
+        hazardTimer = Math.max(1.1, 2.35 - sector * 0.12);
+      }
+      for (let i = hazards.length - 1; i >= 0; i -= 1) {
+        const hazard = hazards[i];
+        hazard.y += (230 + sector * 18) * dt;
+        if (hazard.y > canvas.height + 60) {
+          hazards.splice(i, 1);
+          continue;
+        }
+        if (overlap(playerBox(), boxFor(hazard))) {
+          if (hazard.type === "oil") {
+            player.vx += player.x < canvas.width / 2 ? -180 : 180;
+            statusEl.textContent = "Oil slick slide.";
+          } else {
+            crash("Road block hit.");
+          }
+          hazards.splice(i, 1);
+        }
+      }
+    }
+
+    function crash(reason) {
+      if (player.invincible > 0 || state !== "playing") {
+        return;
+      }
+      armor -= 1;
+      player.invincible = 1.5;
+      player.vx = 0;
+      burst(player.x, player.y, "#fb7185", 18);
+      statusEl.textContent = reason + " Armor down.";
+      if (armor <= 0) {
+        state = "over";
+        statusEl.textContent = "Pursuit ended. Press Enter to restart.";
+      }
+    }
+
+    function updateSparks(dt) {
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+        if (spark.life <= 0) {
+          sparks.splice(i, 1);
+        }
+      }
+    }
+
+    function drawRoad() {
+      ctx.fillStyle = "#1c1917";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#292524";
+      ctx.fillRect(160, 0, 400, canvas.height);
+      ctx.fillStyle = "#57534e";
+      ctx.fillRect(154, 0, 6, canvas.height);
+      ctx.fillRect(560, 0, 6, canvas.height);
+      ctx.fillStyle = "#f5f5f4";
+      for (const x of [270, 350, 430]) {
+        for (let y = -78 + roadOffset; y < canvas.height; y += 78) {
+          ctx.fillRect(x - 3, y, 6, 38);
+        }
+      }
+      ctx.fillStyle = "#0c4a6e";
+      for (let y = -90 + roadOffset * 0.65; y < canvas.height; y += 90) {
+        ctx.fillRect(80, y, 42, 46);
+        ctx.fillRect(606, y + 28, 34, 34);
+      }
+    }
+
+    function drawPlayer() {
+      const blink = player.invincible > 0 && Math.floor(player.invincible * 14) % 2 === 0;
+      if (blink) {
+        return;
+      }
+      drawCar(player.x, player.y, "#38bdf8", true);
+    }
+
+    function drawTraffic() {
+      for (const car of traffic) {
+        drawCar(car.x, car.y, car.color, false);
+      }
+    }
+
+    function drawHazards() {
+      for (const hazard of hazards) {
+        ctx.save();
+        ctx.translate(hazard.x, hazard.y);
+        if (hazard.type === "oil") {
+          ctx.fillStyle = "#020617";
+          ctx.beginPath();
+          ctx.ellipse(0, 0, 25, 13, -0.2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "#f97316";
+          ctx.fillRect(-24, -14, 48, 28);
+          ctx.fillStyle = "#111827";
+          ctx.fillRect(-16, -4, 32, 8);
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawShots() {
+      ctx.fillStyle = "#e0f2fe";
+      for (const shot of shots) {
+        ctx.fillRect(shot.x - 2, shot.y - 14, 4, 18);
+      }
+    }
+
+    function drawCar(x, y, color, armed) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = color;
+      ctx.fillRect(-18, -32, 36, 64);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(-11, -22, 22, 17);
+      ctx.fillRect(-12, 9, 24, 12);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-22, -22, 5, 17);
+      ctx.fillRect(17, -22, 5, 17);
+      ctx.fillRect(-22, 12, 5, 17);
+      ctx.fillRect(17, 12, 5, 17);
+      if (armed) {
+        ctx.fillStyle = "#e0f2fe";
+        ctx.fillRect(-4, -40, 8, 12);
+      }
+      ctx.restore();
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 2.2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state === "playing") {
+        return;
+      }
+      ctx.fillStyle = "rgba(28,25,23,0.76)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#e0f2fe";
+      ctx.font = "700 36px system-ui";
+      ctx.fillText("Run Ended", canvas.width / 2, canvas.height / 2 - 16);
+      ctx.font = "500 18px system-ui";
+      ctx.fillText("Press Enter to restart", canvas.width / 2, canvas.height / 2 + 22);
+      ctx.textAlign = "left";
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 55 + Math.random() * 145;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.22 + Math.random() * 0.45,
+          color
+        });
+      }
+    }
+
+    function playerBox() {
+      return {
+        x: player.x - player.width / 2,
+        y: player.y - player.height / 2,
+        width: player.width,
+        height: player.height
+      };
+    }
+
+    function boxFor(item) {
+      return {
+        x: item.x - item.width / 2,
+        y: item.y - item.height / 2,
+        width: item.width,
+        height: item.height
+      };
+    }
+
+    function overlap(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      sectorEl.textContent = sector;
+      armorEl.textContent = armor;
+      heatEl.textContent = Math.floor(heat);
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+      drawRoad();
+      if (state === "playing") {
+        updateRoad(dt);
+        updatePlayer(dt);
+        updateTraffic(dt);
+        updateShots(dt);
+        updateHazards(dt);
+      }
+      updateSparks(dt);
+      drawHazards();
+      drawShots();
+      drawTraffic();
+      drawPlayer();
+      drawSparks();
+      drawOverlay();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowDown", " ", "Enter"].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === " " || key === "j") {
+        fireShot();
+      }
+      if (key === "Enter") {
+        setupGame();
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+
+    setupGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
