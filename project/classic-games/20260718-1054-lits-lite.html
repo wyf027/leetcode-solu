@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini LITS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-cyan-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini LITS</h1>
+        <p class="mt-2 max-w-2xl text-sm text-slate-300">点击格子涂黑。每个区域恰好 4 格且连通，所有黑格连成一片，不能出现 2x2 全黑。</p>
+      </div>
+      <div class="flex gap-2">
+        <button id="hintBtn" class="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200">提示</button>
+        <button id="resetBtn" class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-800">重开</button>
+      </div>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square max-w-[520px] grid-cols-5 gap-1 rounded-md bg-slate-700 p-1"></div>
+      </div>
+
+      <aside class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-md bg-slate-800 p-3">
+            <p class="text-xs text-slate-400">黑格</p>
+            <p id="shadeCount" class="text-2xl font-bold text-cyan-300">0/20</p>
+          </div>
+          <div class="rounded-md bg-slate-800 p-3">
+            <p class="text-xs text-slate-400">状态</p>
+            <p id="stateBadge" class="text-2xl font-bold text-amber-300">进行中</p>
+          </div>
+        </div>
+        <div class="mt-4">
+          <h2 class="text-sm font-semibold">规则检查</h2>
+          <ul id="checks" class="mt-3 space-y-2 text-sm text-slate-300"></ul>
+        </div>
+        <div class="mt-5 rounded-md border border-slate-700 p-3 text-xs leading-5 text-slate-400">
+          粗边框分隔区域。LITS Lite 保留核心约束：区域 4 格、区域连通、黑格整体连通、无 2x2 黑块。
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const regions = [
+      ["A", "B", "B", "B", "C"],
+      ["A", "A", "B", "C", "C"],
+      ["A", "A", "B", "C", "C"],
+      ["D", "D", "D", "E", "E"],
+      ["D", "D", "E", "E", "E"],
+    ];
+    const solution = new Set([
+      "0,0", "1,0", "2,0", "2,1",
+      "0,1", "0,2", "0,3", "1,2",
+      "0,4", "1,4", "2,4", "2,3",
+      "3,0", "3,1", "3,2", "4,0",
+      "3,4", "4,4", "4,3", "4,2",
+    ]);
+    const colors = {
+      A: "bg-emerald-100",
+      B: "bg-sky-100",
+      C: "bg-amber-100",
+      D: "bg-violet-100",
+      E: "bg-rose-100",
+    };
+    let shaded = new Set();
+    let hinted = false;
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function parseKey(cellKey) {
+      return cellKey.split(",").map(Number);
+    }
+
+    function resetGame() {
+      shaded = new Set();
+      hinted = false;
+      render();
+    }
+
+    function neighbors(row, col) {
+      return [
+        [row - 1, col],
+        [row + 1, col],
+        [row, col - 1],
+        [row, col + 1],
+      ].filter(([nextRow, nextCol]) => nextRow >= 0 && nextRow < size && nextCol >= 0 && nextCol < size);
+    }
+
+    function regionCells(regionId) {
+      const cells = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (regions[row][col] === regionId) cells.push(key(row, col));
+        }
+      }
+      return cells;
+    }
+
+    function connected(cellKeys) {
+      if (!cellKeys.length) return false;
+      const target = new Set(cellKeys);
+      const seen = new Set([cellKeys[0]]);
+      const queue = [cellKeys[0]];
+      while (queue.length) {
+        const current = queue.shift();
+        const [row, col] = parseKey(current);
+        for (const [nextRow, nextCol] of neighbors(row, col)) {
+          const next = key(nextRow, nextCol);
+          if (target.has(next) && !seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      return seen.size === target.size;
+    }
+
+    function toggleCell(row, col) {
+      const cellKey = key(row, col);
+      if (shaded.has(cellKey)) shaded.delete(cellKey);
+      else shaded.add(cellKey);
+      render();
+    }
+
+    function useHint() {
+      for (const cellKey of solution) {
+        if (!shaded.has(cellKey)) {
+          shaded.add(cellKey);
+          hinted = true;
+          render();
+          return;
+        }
+      }
+    }
+
+    function regionReport() {
+      const ids = [...new Set(regions.flat())];
+      const bad = new Set();
+      let allOk = true;
+      for (const id of ids) {
+        const cells = regionCells(id);
+        const picked = cells.filter((cellKey) => shaded.has(cellKey));
+        const ok = picked.length === 4 && connected(picked);
+        if (!ok) {
+          allOk = false;
+          cells.forEach((cellKey) => bad.add(cellKey));
+        }
+      }
+      return { ok: allOk, bad };
+    }
+
+    function twoByTwoBlocks() {
+      const bad = new Set();
+      for (let row = 0; row < size - 1; row += 1) {
+        for (let col = 0; col < size - 1; col += 1) {
+          const square = [key(row, col), key(row + 1, col), key(row, col + 1), key(row + 1, col + 1)];
+          if (square.every((cellKey) => shaded.has(cellKey))) square.forEach((cellKey) => bad.add(cellKey));
+        }
+      }
+      return bad;
+    }
+
+    function puzzleStats() {
+      const region = regionReport();
+      const blocks = twoByTwoBlocks();
+      const allShaded = [...shaded];
+      const shadedConnected = allShaded.length > 0 && connected(allShaded);
+      const solved = shaded.size === 20 && region.ok && blocks.size === 0 && shadedConnected;
+      return { region, blocks, shadedConnected, solved };
+    }
+
+    function borderClasses(row, col) {
+      const id = regions[row][col];
+      return [
+        row === 0 || regions[row - 1][col] !== id ? "border-t-4 border-slate-950" : "border-t border-slate-300",
+        col === size - 1 || regions[row][col + 1] !== id ? "border-r-4 border-slate-950" : "border-r border-slate-300",
+        row === size - 1 || regions[row + 1][col] !== id ? "border-b-4 border-slate-950" : "border-b border-slate-300",
+        col === 0 || regions[row][col - 1] !== id ? "border-l-4 border-slate-950" : "border-l border-slate-300",
+      ].join(" ");
+    }
+
+    function renderBoard(stats) {
+      const boardEl = document.getElementById("board");
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cellKey = key(row, col);
+          const button = document.createElement("button");
+          const isShaded = shaded.has(cellKey);
+          const bad = stats.region.bad.has(cellKey) || stats.blocks.has(cellKey);
+          button.type = "button";
+          button.className = [
+            "flex aspect-square items-center justify-center rounded-sm text-sm font-bold transition",
+            isShaded ? "bg-slate-950 text-cyan-200" : `${colors[regions[row][col]]} text-slate-700 hover:brightness-110`,
+            borderClasses(row, col),
+            bad ? "ring-4 ring-orange-500" : "",
+          ].join(" ");
+          button.textContent = isShaded ? "■" : regions[row][col];
+          button.addEventListener("click", () => toggleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function renderChecks(stats) {
+      const checks = [
+        ["每个区域恰好 4 个相连黑格", stats.region.ok],
+        ["所有黑格整体连通", stats.shadedConnected],
+        ["没有 2x2 全黑方块", stats.blocks.size === 0],
+      ];
+      document.getElementById("checks").innerHTML = checks
+        .map(([label, ok]) => `<li class="${ok ? "text-cyan-300" : "text-orange-300"}">${ok ? "OK" : "!"} ${label}</li>`)
+        .join("");
+    }
+
+    function render() {
+      const stats = puzzleStats();
+      renderBoard(stats);
+      renderChecks(stats);
+      document.getElementById("shadeCount").textContent = `${shaded.size}/20`;
+      const badge = document.getElementById("stateBadge");
+      badge.textContent = stats.solved ? (hinted ? "完成" : "完美") : "进行中";
+      badge.className = `text-2xl font-bold ${stats.solved ? "text-cyan-300" : "text-amber-300"}`;
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    document.getElementById("hintBtn").addEventListener("click", useHint);
+    resetGame();
+  </script>
+</body>
+</html>
