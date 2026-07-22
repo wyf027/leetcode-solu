@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Agon</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Agon</h1>
+        <p class="mt-1 text-sm text-stone-300">在六边形棋盘上向中心推进，先占住中心并控制相邻格的一方获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-lime-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-lime-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-stone-700 bg-stone-900 p-3 shadow-xl">
+        <div id="board" class="mx-auto grid max-w-[620px] grid-cols-7 gap-1"></div>
+      </div>
+
+      <aside class="rounded-lg border border-stone-700 bg-stone-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-stone-400">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">白方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-md bg-stone-800 p-3">
+              <p class="text-stone-400">白方</p>
+              <p id="whiteScore" class="text-xl font-semibold text-white">0</p>
+            </div>
+            <div class="rounded-md bg-stone-800 p-3">
+              <p class="text-stone-400">黑方</p>
+              <p id="blackScore" class="text-xl font-semibold text-white">0</p>
+            </div>
+          </div>
+          <p id="statusText" class="rounded-md bg-stone-800 p-3 text-sm leading-6 text-stone-200">
+            白方先手。选择棋子后可移动到相邻空格，越接近中心分值越高。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const whiteScore = document.getElementById("whiteScore");
+    const blackScore = document.getElementById("blackScore");
+    const resetBtn = document.getElementById("resetBtn");
+    const radius = 3;
+    const cells = [];
+    for (let q = -radius; q <= radius; q++) {
+      for (let r = -radius; r <= radius; r++) {
+        const s = -q - r;
+        if (Math.max(Math.abs(q), Math.abs(r), Math.abs(s)) <= radius) {
+          cells.push({ q, r, s, row: r + radius, col: q + radius });
+        }
+      }
+    }
+    const directions = [
+      [1, 0], [1, -1], [0, -1],
+      [-1, 0], [-1, 1], [0, 1]
+    ];
+
+    let pieces = [];
+    let turn = "W";
+    let selected = null;
+    let winner = null;
+
+    function resetGame() {
+      pieces = [
+        { side: "W", q: -3, r: 0 },
+        { side: "W", q: -2, r: -1 },
+        { side: "W", q: -2, r: 1 },
+        { side: "W", q: -1, r: 2 },
+        { side: "B", q: 3, r: 0 },
+        { side: "B", q: 2, r: 1 },
+        { side: "B", q: 2, r: -1 },
+        { side: "B", q: 1, r: -2 }
+      ];
+      turn = "W";
+      selected = null;
+      winner = null;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "W" ? "白方" : "黑方";
+    }
+
+    function key(q, r) {
+      return `${q},${r}`;
+    }
+
+    function cellAt(q, r) {
+      return cells.find((cell) => cell.q === q && cell.r === r);
+    }
+
+    function pieceAt(q, r) {
+      return pieces.find((piece) => piece.q === q && piece.r === r);
+    }
+
+    function distanceToCenter(q, r) {
+      const s = -q - r;
+      return Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+    }
+
+    function legalMoves(piece) {
+      if (!piece || winner) return [];
+      return directions
+        .map(([dq, dr]) => ({ q: piece.q + dq, r: piece.r + dr }))
+        .filter((target) => cellAt(target.q, target.r))
+        .filter((target) => !pieceAt(target.q, target.r));
+    }
+
+    function score(side) {
+      return pieces
+        .filter((piece) => piece.side === side)
+        .reduce((sum, piece) => sum + (radius - distanceToCenter(piece.q, piece.r)), 0);
+    }
+
+    function controlsRing(side) {
+      const center = pieceAt(0, 0);
+      if (!center || center.side !== side) return false;
+      const adjacentOwned = directions.filter(([dq, dr]) => {
+        const piece = pieceAt(dq, dr);
+        return piece && piece.side === side;
+      }).length;
+      return adjacentOwned >= 2;
+    }
+
+    function checkWinner() {
+      if (controlsRing("W")) return "W";
+      if (controlsRing("B")) return "B";
+      return null;
+    }
+
+    function handleCell(q, r) {
+      if (winner) return;
+      const piece = pieceAt(q, r);
+      if (piece && piece.side === turn) {
+        selected = piece;
+        render();
+        return;
+      }
+      if (!selected) return;
+      const moves = legalMoves(selected);
+      if (!moves.some((move) => move.q === q && move.r === r)) return;
+      selected.q = q;
+      selected.r = r;
+      winner = checkWinner();
+      turn = turn === "W" ? "B" : "W";
+      selected = null;
+      render();
+    }
+
+    function render() {
+      const moves = selected ? legalMoves(selected).map((move) => key(move.q, move.r)) : [];
+      boardEl.innerHTML = "";
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 7; col++) {
+          const cell = cells.find((item) => item.row === row && item.col === col);
+          const slot = document.createElement("div");
+          slot.className = "aspect-square";
+          if (!cell) {
+            boardEl.appendChild(slot);
+            continue;
+          }
+          const piece = pieceAt(cell.q, cell.r);
+          const dist = distanceToCenter(cell.q, cell.r);
+          const isMove = moves.includes(key(cell.q, cell.r));
+          const isSelected = selected && selected.q === cell.q && selected.r === cell.r;
+          const button = document.createElement("button");
+          button.className = [
+            "flex h-full w-full items-center justify-center rounded-full border text-sm font-black transition",
+            dist === 0 ? "border-lime-200 bg-lime-600" : dist === 1 ? "border-stone-500 bg-stone-600" : "border-stone-700 bg-stone-800",
+            isMove ? "ring-4 ring-lime-300 ring-inset" : "hover:brightness-125",
+            isSelected ? "outline outline-4 outline-white" : ""
+          ].join(" ");
+          button.setAttribute("aria-label", `${cell.q},${cell.r}`);
+          button.addEventListener("click", () => handleCell(cell.q, cell.r));
+          if (piece) {
+            const disk = document.createElement("span");
+            disk.className = [
+              "flex h-3/5 w-3/5 items-center justify-center rounded-full border-2 shadow-lg",
+              piece.side === "W" ? "border-white bg-stone-100 text-stone-950" : "border-stone-300 bg-stone-950 text-white"
+            ].join(" ");
+            disk.textContent = piece.side;
+            button.appendChild(disk);
+          }
+          slot.appendChild(button);
+          boardEl.appendChild(slot);
+        }
+      }
+      whiteScore.textContent = score("W");
+      blackScore.textContent = score("B");
+      turnText.textContent = winner ? `${sideName(winner)}获胜` : sideName(turn);
+      statusText.textContent = winner
+        ? `${sideName(winner)}占据中心并控制相邻格。点击重新开始再来一局。`
+        : selected
+          ? `${sideName(turn)}已选中棋子，可移动到 ${moves.length} 个相邻空格。`
+          : `${sideName(turn)}行动。目标是占住中心，并让至少两枚己方棋子相邻支援。`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
