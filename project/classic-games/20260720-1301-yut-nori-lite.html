@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Yut Nori</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wider text-cyan-300">Korean Race Game</p>
+        <h1 class="text-3xl font-bold">Mini Yut Nori</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-cyan-400">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="grid grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-xs text-zinc-400">청队回家</div>
+            <div id="blueHome" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-zinc-700 p-3">
+            <div class="text-xs text-zinc-400">홍队回家</div>
+            <div id="redHome" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+
+        <div class="mt-4 rounded border border-zinc-700 p-3">
+          <div class="text-xs text-zinc-400">当前回合</div>
+          <div id="turnLabel" class="mt-1 text-lg font-semibold">청队</div>
+        </div>
+
+        <button id="throwBtn" class="mt-4 w-full rounded bg-zinc-100 px-4 py-3 font-semibold text-zinc-950 hover:bg-white">
+          掷四根木棒
+        </button>
+        <div class="mt-3 rounded border border-zinc-700 p-3">
+          <div class="text-xs text-zinc-400">结果</div>
+          <div id="throwLabel" class="mt-1 text-2xl font-bold">-</div>
+        </div>
+
+        <p id="message" class="mt-4 min-h-16 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200"></p>
+
+        <div class="mt-4 space-y-2 text-sm text-zinc-300">
+          <p>掷出 Do/Gae/Geol/Yut/Mo 后，选择一枚己方棋子前进对应步数。</p>
+          <p>落到对方棋子所在格会把对方送回起点；Yut 与 Mo 可连续再掷一次。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const TRACK = 20;
+    const PIECES = 2;
+    const BLUE = "blue";
+    const RED = "red";
+    const boardEl = document.getElementById("board");
+    const throwBtn = document.getElementById("throwBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const throwLabel = document.getElementById("throwLabel");
+    const turnLabel = document.getElementById("turnLabel");
+    const messageEl = document.getElementById("message");
+    const blueHome = document.getElementById("blueHome");
+    const redHome = document.getElementById("redHome");
+
+    const pathToGrid = [
+      20, 15, 10, 5, 0,
+      1, 2, 3, 4,
+      9, 14, 19, 24,
+      23, 22, 21
+    ];
+    const extraPath = [16, 17, 18, 13];
+
+    let pieces = [];
+    let turn = BLUE;
+    let pending = null;
+    let gameOver = false;
+
+    function resetGame() {
+      pieces = [
+        ...Array.from({ length: PIECES }, (_, i) => ({ id: `B${i + 1}`, side: BLUE, pos: -1, done: false })),
+        ...Array.from({ length: PIECES }, (_, i) => ({ id: `R${i + 1}`, side: RED, pos: -1, done: false }))
+      ];
+      turn = BLUE;
+      pending = null;
+      gameOver = false;
+      render("청队先手。掷木棒开始。");
+    }
+
+    function throwYut() {
+      const flats = Array.from({ length: 4 }, () => Math.random() < 0.5 ? 1 : 0).reduce((a, b) => a + b, 0);
+      const names = { 1: "Do", 2: "Gae", 3: "Geol", 4: "Yut", 0: "Mo" };
+      const steps = flats === 0 ? 5 : flats;
+      return { name: names[flats], steps, extra: steps >= 4 };
+    }
+
+    function roll() {
+      if (gameOver || pending) return;
+      pending = throwYut();
+      if (!hasMove(turn)) {
+        const note = `${teamName(turn)}掷出 ${pending.name}，但没有可移动棋子。`;
+        pending = null;
+        changeTurn(note);
+        return;
+      }
+      render(`${teamName(turn)}掷出 ${pending.name}，前进 ${pending.steps} 格。`);
+    }
+
+    function activePieces() {
+      return pieces.filter((piece) => piece.side === turn && !piece.done);
+    }
+
+    function occupantAt(pos) {
+      return pieces.find((piece) => !piece.done && piece.pos === pos);
+    }
+
+    function targetFor(piece) {
+      return piece.pos + pending.steps;
+    }
+
+    function canMove(piece) {
+      if (!pending || piece.side !== turn || piece.done) return false;
+      const target = targetFor(piece);
+      const occupant = occupantAt(target);
+      return target >= TRACK || !occupant || occupant.side !== turn;
+    }
+
+    function hasMove(side) {
+      return pieces.some((piece) => piece.side === side && !piece.done && (!pending || canMove(piece)));
+    }
+
+    function movePiece(id) {
+      if (gameOver || !pending) return;
+      const piece = pieces.find((item) => item.id === id);
+      if (!piece || !canMove(piece)) {
+        render("这枚棋子不能走到当前点数对应的位置。");
+        return;
+      }
+
+      const target = targetFor(piece);
+      let note = `${piece.id} 前进 ${pending.steps} 格。`;
+      if (target >= TRACK) {
+        piece.done = true;
+        piece.pos = TRACK;
+        note = `${piece.id} 回家。`;
+      } else {
+        const rival = occupantAt(target);
+        if (rival && rival.side !== piece.side) {
+          rival.pos = -1;
+          note += ` ${rival.id} 被送回起点。`;
+        }
+        piece.pos = target;
+      }
+
+      if (pieces.filter((item) => item.side === piece.side && item.done).length === PIECES) {
+        gameOver = true;
+        pending = null;
+        render(`${teamName(piece.side)}两枚棋子全部回家，获胜。`);
+        return;
+      }
+
+      const extra = pending.extra;
+      pending = null;
+      if (extra) {
+        render(`${note} 掷出 Yut/Mo，可继续掷一次。`);
+      } else {
+        changeTurn(note);
+      }
+    }
+
+    function changeTurn(note) {
+      turn = turn === BLUE ? RED : BLUE;
+      render(note);
+    }
+
+    function teamName(side) {
+      return side === BLUE ? "청队" : "홍队";
+    }
+
+    function pieceClass(side) {
+      return side === BLUE ? "bg-cyan-400 text-zinc-950" : "bg-rose-500 text-white";
+    }
+
+    function renderPiece(piece) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `h-8 w-8 rounded-full text-xs font-bold ${pieceClass(piece.side)} ${canMove(piece) ? "ring-2 ring-white" : ""}`;
+      button.textContent = piece.id;
+      button.addEventListener("click", () => movePiece(piece.id));
+      return button;
+    }
+
+    function renderCell(gridIndex) {
+      const outerIndex = pathToGrid.indexOf(gridIndex);
+      const bonusIndex = extraPath.indexOf(gridIndex);
+      const pathIndex = outerIndex >= 0 ? outerIndex : bonusIndex >= 0 ? pathToGrid.length + bonusIndex : -1;
+      const cell = document.createElement("div");
+      const isPath = pathIndex !== -1 || bonusIndex !== -1;
+      cell.className = isPath
+        ? "min-h-20 rounded border border-zinc-700 bg-zinc-800 p-2"
+        : "min-h-20 rounded border border-zinc-800 bg-zinc-950";
+      if (!isPath) return cell;
+
+      const label = document.createElement("div");
+      label.className = "mb-1 flex items-center justify-between text-xs text-zinc-400";
+      label.innerHTML = `<span>${pathIndex >= 0 ? pathIndex + 1 : "샛길"}</span><span>${pathIndex === 0 ? "출발" : ""}</span>`;
+      cell.appendChild(label);
+
+      const holder = document.createElement("div");
+      holder.className = "flex flex-wrap gap-1";
+      pieces.filter((piece) => !piece.done && piece.pos === pathIndex).forEach((piece) => holder.appendChild(renderPiece(piece)));
+      cell.appendChild(holder);
+      return cell;
+    }
+
+    function renderStart(side) {
+      const wrap = document.createElement("div");
+      wrap.className = "mt-2 flex flex-wrap gap-1";
+      pieces
+        .filter((piece) => piece.side === side && !piece.done && piece.pos === -1)
+        .forEach((piece) => wrap.appendChild(renderPiece(piece)));
+      return wrap;
+    }
+
+    function render(message) {
+      boardEl.innerHTML = "";
+      for (let grid = 0; grid < 25; grid += 1) {
+        boardEl.appendChild(renderCell(grid));
+      }
+      const startPanel = document.createElement("div");
+      startPanel.className = "col-span-5 grid gap-3 rounded border border-zinc-700 bg-zinc-800 p-3 sm:grid-cols-2";
+      startPanel.innerHTML = "<div><div class='text-xs text-zinc-400'>청队起点</div></div><div><div class='text-xs text-zinc-400'>홍队起点</div></div>";
+      startPanel.children[0].appendChild(renderStart(BLUE));
+      startPanel.children[1].appendChild(renderStart(RED));
+      boardEl.appendChild(startPanel);
+
+      turnLabel.textContent = gameOver ? "结束" : teamName(turn);
+      throwLabel.textContent = pending ? `${pending.name} (${pending.steps})` : "-";
+      blueHome.textContent = pieces.filter((piece) => piece.side === BLUE && piece.done).length;
+      redHome.textContent = pieces.filter((piece) => piece.side === RED && piece.done).length;
+      throwBtn.disabled = gameOver || Boolean(pending);
+      throwBtn.className = throwBtn.disabled
+        ? "mt-4 w-full rounded bg-zinc-700 px-4 py-3 font-semibold text-zinc-400"
+        : "mt-4 w-full rounded bg-zinc-100 px-4 py-3 font-semibold text-zinc-950 hover:bg-white";
+      messageEl.textContent = message;
+    }
+
+    throwBtn.addEventListener("click", roll);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
