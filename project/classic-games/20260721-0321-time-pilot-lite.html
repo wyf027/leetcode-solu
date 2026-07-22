@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Time Pilot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-cyan-200">Mini Time Pilot</h1>
+        <p class="mt-1 text-sm text-slate-400">转向飞行，击落敌机，撑过时空巡逻。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-xs md:w-[28rem]">
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">护盾</div>
+          <div id="shieldLabel" class="text-lg font-semibold text-cyan-200">3</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">击落</div>
+          <div id="killLabel" class="text-lg font-semibold text-rose-200">0</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">时段</div>
+          <div id="eraLabel" class="text-lg font-semibold text-violet-200">1940</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">分数</div>
+          <div id="scoreLabel" class="text-lg font-semibold text-amber-200">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-2">
+        <canvas id="game" width="760" height="520" class="block aspect-[19/13] w-full bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
+        <div id="status" class="mb-4 rounded bg-slate-950 px-3 py-2 text-cyan-100">击落 12 架敌机完成本时段。</div>
+        <dl class="space-y-3">
+          <div>
+            <dt class="text-slate-500">转向</dt>
+            <dd>A/D 或 左右键</dd>
+          </div>
+          <div>
+            <dt class="text-slate-500">加速</dt>
+            <dd>W / 上键</dd>
+          </div>
+          <div>
+            <dt class="text-slate-500">射击</dt>
+            <dd>Space</dd>
+          </div>
+          <div>
+            <dt class="text-slate-500">重开</dt>
+            <dd>R</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const shieldLabel = document.getElementById('shieldLabel');
+    const killLabel = document.getElementById('killLabel');
+    const eraLabel = document.getElementById('eraLabel');
+    const scoreLabel = document.getElementById('scoreLabel');
+    const statusLabel = document.getElementById('status');
+    const keys = new Set();
+
+    let pilot;
+    let shots;
+    let enemies;
+    let clouds;
+    let sparks;
+    let score;
+    let kills;
+    let state;
+    let spawnTimer;
+    let lastTime;
+
+    function setupGame() {
+      pilot = { x: 380, y: 260, r: 14, angle: -Math.PI / 2, speed: 120, shields: 3, cooldown: 0, invuln: 0 };
+      shots = [];
+      enemies = [];
+      clouds = Array.from({ length: 18 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: 12 + Math.random() * 24
+      }));
+      sparks = [];
+      score = 0;
+      kills = 0;
+      state = 'playing';
+      spawnTimer = 0.4;
+      lastTime = performance.now();
+      statusLabel.textContent = '击落 12 架敌机完成本时段。';
+      updateLabels();
+    }
+
+    function updateLabels() {
+      shieldLabel.textContent = pilot.shields;
+      killLabel.textContent = kills;
+      eraLabel.textContent = kills < 6 ? '1940' : '1970';
+      scoreLabel.textContent = score;
+    }
+
+    function wrapActor(actor) {
+      if (actor.x < -20) actor.x = canvas.width + 20;
+      if (actor.x > canvas.width + 20) actor.x = -20;
+      if (actor.y < -20) actor.y = canvas.height + 20;
+      if (actor.y > canvas.height + 20) actor.y = -20;
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function movePilot(dt) {
+      if (keys.has('ArrowLeft') || keys.has('a')) pilot.angle -= 3.4 * dt;
+      if (keys.has('ArrowRight') || keys.has('d')) pilot.angle += 3.4 * dt;
+      const thrust = keys.has('ArrowUp') || keys.has('w') ? 190 : 120;
+      pilot.speed += (thrust - pilot.speed) * 4 * dt;
+      pilot.x += Math.cos(pilot.angle) * pilot.speed * dt;
+      pilot.y += Math.sin(pilot.angle) * pilot.speed * dt;
+      pilot.cooldown = Math.max(0, pilot.cooldown - dt);
+      pilot.invuln = Math.max(0, pilot.invuln - dt);
+      wrapActor(pilot);
+    }
+
+    function fireShot() {
+      if (state !== 'playing' || pilot.cooldown > 0) return;
+      shots.push({
+        x: pilot.x + Math.cos(pilot.angle) * 18,
+        y: pilot.y + Math.sin(pilot.angle) * 18,
+        r: 4,
+        vx: Math.cos(pilot.angle) * 420,
+        vy: Math.sin(pilot.angle) * 420,
+        life: 0.9
+      });
+      pilot.cooldown = 0.16;
+    }
+
+    function spawnEnemy() {
+      const side = Math.floor(Math.random() * 4);
+      const enemy = { x: 0, y: 0, r: 12, speed: 92 + kills * 5, turn: Math.random() > 0.5 ? 1 : -1 };
+      if (side === 0) {
+        enemy.x = Math.random() * canvas.width;
+        enemy.y = -20;
+      } else if (side === 1) {
+        enemy.x = canvas.width + 20;
+        enemy.y = Math.random() * canvas.height;
+      } else if (side === 2) {
+        enemy.x = Math.random() * canvas.width;
+        enemy.y = canvas.height + 20;
+      } else {
+        enemy.x = -20;
+        enemy.y = Math.random() * canvas.height;
+      }
+      enemies.push(enemy);
+    }
+
+    function updateEnemies(dt) {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0 && enemies.length < 7 && kills < 12) {
+        spawnEnemy();
+        spawnTimer = Math.max(0.55, 1.2 - kills * 0.04);
+      }
+
+      enemies.forEach((enemy) => {
+        const dx = pilot.x - enemy.x;
+        const dy = pilot.y - enemy.y;
+        const angle = Math.atan2(dy, dx) + Math.sin(performance.now() / 600 + enemy.x) * 0.35 * enemy.turn;
+        enemy.x += Math.cos(angle) * enemy.speed * dt;
+        enemy.y += Math.sin(angle) * enemy.speed * dt;
+        wrapActor(enemy);
+        if (distance(enemy, pilot) < enemy.r + pilot.r) {
+          enemy.x = -80;
+          damagePilot('敌机擦撞护盾。');
+        }
+      });
+      enemies = enemies.filter((enemy) => enemy.x > -70 && enemy.x < canvas.width + 70 && enemy.y > -70 && enemy.y < canvas.height + 70);
+    }
+
+    function updateShots(dt) {
+      shots.forEach((shot) => {
+        shot.x += shot.vx * dt;
+        shot.y += shot.vy * dt;
+        shot.life -= dt;
+      });
+      shots = shots.filter((shot) => {
+        if (shot.life <= 0) return false;
+        const hitIndex = enemies.findIndex((enemy) => distance(shot, enemy) < shot.r + enemy.r);
+        if (hitIndex >= 0) {
+          const enemy = enemies[hitIndex];
+          enemies.splice(hitIndex, 1);
+          kills += 1;
+          score += 120 + kills * 10;
+          burst(enemy.x, enemy.y, '#facc15');
+          if (kills === 6) statusLabel.textContent = '进入喷气机时段，敌机速度提升。';
+          if (kills >= 12) {
+            state = 'won';
+            score += pilot.shields * 200;
+            statusLabel.textContent = '时段完成，胜利！按 R 再玩。';
+          }
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function damagePilot(message) {
+      if (pilot.invuln > 0 || state !== 'playing') return;
+      pilot.shields -= 1;
+      pilot.invuln = 1;
+      statusLabel.textContent = message;
+      burst(pilot.x, pilot.y, '#fb7185');
+      if (pilot.shields <= 0) {
+        state = 'lost';
+        statusLabel.textContent = '护盾耗尽。按 R 重开。';
+      }
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 16; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 50 + Math.random() * 130;
+        sparks.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0.45, color });
+      }
+    }
+
+    function updateSparks(dt) {
+      sparks.forEach((spark) => {
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+      });
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function drawSky() {
+      ctx.fillStyle = kills < 6 ? '#082f49' : '#111827';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = kills < 6 ? 'rgba(186, 230, 253, 0.22)' : 'rgba(167, 139, 250, 0.18)';
+      clouds.forEach((cloud) => {
+        cloud.x -= Math.cos(pilot.angle) * 0.2;
+        cloud.y -= Math.sin(pilot.angle) * 0.2;
+        wrapActor(cloud);
+        ctx.beginPath();
+        ctx.arc(cloud.x, cloud.y, cloud.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawPlane(actor, color, noseColor) {
+      ctx.save();
+      ctx.translate(actor.x, actor.y);
+      ctx.rotate(actor.angle || Math.atan2(pilot.y - actor.y, pilot.x - actor.x));
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(17, 0);
+      ctx.lineTo(-12, -9);
+      ctx.lineTo(-5, 0);
+      ctx.lineTo(-12, 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = noseColor;
+      ctx.fillRect(5, -3, 7, 6);
+      ctx.restore();
+    }
+
+    function drawActors() {
+      enemies.forEach((enemy) => drawPlane(enemy, kills < 6 ? '#f97316' : '#c084fc', '#fff7ed'));
+      ctx.globalAlpha = pilot.invuln > 0 && Math.floor(performance.now() / 90) % 2 === 0 ? 0.45 : 1;
+      drawPlane(pilot, '#67e8f9', '#ecfeff');
+      ctx.globalAlpha = 1;
+    }
+
+    function drawShotsAndSparks() {
+      ctx.fillStyle = '#fef08a';
+      shots.forEach((shot) => {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = Math.max(0, spark.life * 2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawBanner() {
+      if (state === 'playing') return;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      ctx.fillRect(0, 210, canvas.width, 96);
+      ctx.fillStyle = state === 'won' ? '#bae6fd' : '#fecaca';
+      ctx.font = 'bold 32px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(state === 'won' ? 'TIME SECTOR CLEAR' : 'PATROL LOST', canvas.width / 2, 267);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawSky();
+      drawShotsAndSparks();
+      drawActors();
+      drawBanner();
+    }
+
+    function tick(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      if (state === 'playing') {
+        movePilot(dt);
+        updateEnemies(dt);
+        updateShots(dt);
+      }
+      updateSparks(dt);
+      updateLabels();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowUp', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.preventDefault();
+      if (event.key === ' ') fireShot();
+      if (event.key.toLowerCase() === 'r') setupGame();
+      keys.add(event.key);
+      keys.add(event.key.toLowerCase());
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    setupGame();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
