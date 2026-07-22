@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Seega Capture</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-cyan-300">Classic capture game</p>
+        <h1 class="text-3xl font-bold">Mini Seega Capture</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-cyan-200">
+        New game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4 shadow-lg">
+        <div id="board" class="mx-auto grid aspect-square max-w-[560px] grid-cols-5 gap-2 rounded bg-zinc-950 p-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 shadow-lg">
+          <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Phase</p>
+          <p id="phaseText" class="mt-1 text-2xl font-bold">Placement</p>
+          <p id="statusText" class="mt-3 min-h-16 text-sm leading-6 text-zinc-300"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Copper</p>
+            <p id="copperCount" class="mt-1 text-2xl font-bold text-amber-300">12</p>
+          </div>
+          <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Ivory</p>
+            <p id="ivoryCount" class="mt-1 text-2xl font-bold text-zinc-100">12</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300 shadow-lg">
+          Players first place 12 stones each; the center is blocked during placement. In movement, slide one square orthogonally. Trap enemy stones between the moved stone and another friendly stone to capture them.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const center = 12;
+    const totalPieces = 12;
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const phaseText = document.getElementById("phaseText");
+    const statusText = document.getElementById("statusText");
+    const copperCount = document.getElementById("copperCount");
+    const ivoryCount = document.getElementById("ivoryCount");
+
+    let board = [];
+    let turn = "C";
+    let placed = { C: 0, I: 0 };
+    let phase = "place";
+    let selected = null;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array(25).fill("");
+      turn = "C";
+      placed = { C: 0, I: 0 };
+      phase = "place";
+      selected = null;
+      gameOver = false;
+      statusText.textContent = "Copper places first. The center square opens after all stones are placed.";
+      render();
+    }
+
+    function playerName(piece) {
+      return piece === "C" ? "Copper" : "Ivory";
+    }
+
+    function opponent(piece) {
+      return piece === "C" ? "I" : "C";
+    }
+
+    function toIndex(row, col) {
+      return row * size + col;
+    }
+
+    function toPoint(index) {
+      return { row: Math.floor(index / size), col: index % size };
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function countPieces(piece) {
+      return board.filter((cell) => cell === piece).length;
+    }
+
+    function legalMoves(index) {
+      if (board[index] !== turn || phase !== "move") return [];
+      const from = toPoint(index);
+      return dirs
+        .map(([dr, dc]) => ({ row: from.row + dr, col: from.col + dc }))
+        .filter((pos) => inBounds(pos.row, pos.col))
+        .map((pos) => toIndex(pos.row, pos.col))
+        .filter((target) => !board[target]);
+    }
+
+    function allMoves(piece) {
+      const current = turn;
+      turn = piece;
+      const moves = [];
+      board.forEach((cell, index) => {
+        if (cell === piece) legalMoves(index).forEach((target) => moves.push({ index, target }));
+      });
+      turn = current;
+      return moves;
+    }
+
+    function captureFrom(index) {
+      const moved = board[index];
+      const enemy = opponent(moved);
+      const point = toPoint(index);
+      const captured = [];
+
+      dirs.forEach(([dr, dc]) => {
+        const middle = { row: point.row + dr, col: point.col + dc };
+        const far = { row: point.row + dr * 2, col: point.col + dc * 2 };
+        if (!inBounds(middle.row, middle.col) || !inBounds(far.row, far.col)) return;
+        const midIndex = toIndex(middle.row, middle.col);
+        const farIndex = toIndex(far.row, far.col);
+        if (board[midIndex] === enemy && board[farIndex] === moved) captured.push(midIndex);
+      });
+
+      captured.forEach((capturedIndex) => {
+        board[capturedIndex] = "";
+      });
+      return captured.length;
+    }
+
+    function resolveAfterMove(captures) {
+      const enemy = opponent(turn);
+      const enemyPieces = countPieces(enemy);
+      if (enemyPieces < 2) {
+        gameOver = true;
+        statusText.textContent = `${playerName(turn)} wins by reducing ${playerName(enemy)} below two stones.`;
+        render();
+        return;
+      }
+
+      if (allMoves(enemy).length === 0) {
+        gameOver = true;
+        statusText.textContent = `${playerName(turn)} wins by blocking every ${playerName(enemy)} move.`;
+        render();
+        return;
+      }
+
+      turn = enemy;
+      statusText.textContent = captures
+        ? `${captures} stone${captures > 1 ? "s" : ""} captured. ${playerName(turn)} to move.`
+        : `${playerName(turn)} to move.`;
+      render();
+    }
+
+    function handlePlacement(index) {
+      if (board[index] || index === center) return;
+      board[index] = turn;
+      placed[turn] += 1;
+      turn = opponent(turn);
+
+      if (placed.C === totalPieces && placed.I === totalPieces) {
+        phase = "move";
+        turn = "C";
+        statusText.textContent = "Movement begins. Copper slides one stone orthogonally.";
+      } else {
+        statusText.textContent = `${playerName(turn)} places a stone.`;
+      }
+      render();
+    }
+
+    function handleMove(index) {
+      if (board[index] === turn) {
+        selected = selected === index ? null : index;
+        statusText.textContent = selected === null
+          ? `${playerName(turn)} selection cleared.`
+          : `${playerName(turn)} selected a stone. Choose an adjacent empty square.`;
+        render();
+        return;
+      }
+
+      if (selected !== null && !board[index] && legalMoves(selected).includes(index)) {
+        board[index] = turn;
+        board[selected] = "";
+        selected = null;
+        const captures = captureFrom(index);
+        resolveAfterMove(captures);
+      }
+    }
+
+    function handleCell(index) {
+      if (gameOver) return;
+      if (phase === "place") {
+        handlePlacement(index);
+      } else {
+        handleMove(index);
+      }
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      const moves = selected === null ? [] : legalMoves(selected);
+
+      board.forEach((piece, index) => {
+        const blocked = phase === "place" && index === center;
+        const activeMove = moves.includes(index);
+        const selectedCell = selected === index;
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = [
+          "aspect-square rounded border text-sm font-bold transition",
+          blocked ? "border-zinc-700 bg-zinc-800 text-zinc-500" : "border-zinc-700 bg-zinc-100",
+          activeMove ? "outline outline-4 outline-cyan-300" : "",
+          selectedCell ? "ring-4 ring-amber-300" : "",
+          gameOver ? "cursor-default" : "hover:scale-[1.02]"
+        ].join(" ");
+        cell.setAttribute("aria-label", `Seega cell ${index + 1}`);
+        cell.addEventListener("click", () => handleCell(index));
+
+        if (blocked) {
+          cell.textContent = "X";
+        } else if (piece) {
+          const stone = document.createElement("span");
+          stone.className = [
+            "mx-auto block h-10 w-10 rounded-full border-4 shadow sm:h-14 sm:w-14",
+            piece === "C" ? "border-amber-100 bg-amber-500" : "border-zinc-300 bg-white"
+          ].join(" ");
+          cell.appendChild(stone);
+        } else if (activeMove) {
+          const dot = document.createElement("span");
+          dot.className = "mx-auto block h-4 w-4 rounded-full bg-cyan-300";
+          cell.appendChild(dot);
+        }
+
+        boardEl.appendChild(cell);
+      });
+
+      phaseText.textContent = gameOver ? "Game over" : phase === "place" ? "Placement" : `${playerName(turn)} moves`;
+      copperCount.textContent = phase === "place" ? `${totalPieces - placed.C} left` : countPieces("C");
+      ivoryCount.textContent = phase === "place" ? `${totalPieces - placed.I} left` : countPieces("I");
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
