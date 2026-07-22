@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Morpion</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-pink-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Morpion</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-pink-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-pink-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-slate-400">当前玩家</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="statusText" class="min-h-20 text-sm leading-6 text-slate-200"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-pink-500/40 bg-pink-500/10 p-3">
+            <p class="text-xs text-pink-200">X 连线</p>
+            <p id="xScore" class="text-2xl font-bold text-pink-300">0</p>
+          </div>
+          <div class="rounded border border-sky-500/40 bg-sky-500/10 p-3">
+            <p class="text-xs text-sky-200">O 连线</p>
+            <p id="oScore" class="text-2xl font-bold text-sky-300">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <p>轮流在 4x4 棋盘落子。任何横、竖或斜向连续 3 枚都会得 1 分。</p>
+          <p class="mt-2">棋盘填满后分数高者获胜；若立即形成两条以上连线，会直接获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnBadge = document.getElementById("turnBadge");
+    const statusText = document.getElementById("statusText");
+    const xScore = document.getElementById("xScore");
+    const oScore = document.getElementById("oScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 4;
+    const players = {
+      X: { label: "X", badge: "bg-pink-300 text-slate-950", color: "text-pink-300" },
+      O: { label: "O", badge: "bg-sky-300 text-slate-950", color: "text-sky-300" }
+    };
+
+    let board;
+    let current;
+    let claimed;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      current = "X";
+      claimed = { X: new Set(), O: new Set() };
+      winner = "";
+      render();
+    }
+
+    function lineKey(line) {
+      return line.map(([row, col]) => `${row},${col}`).join("|");
+    }
+
+    function allLines() {
+      const lines = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col <= size - 3; col += 1) lines.push([[row, col], [row, col + 1], [row, col + 2]]);
+      }
+      for (let col = 0; col < size; col += 1) {
+        for (let row = 0; row <= size - 3; row += 1) lines.push([[row, col], [row + 1, col], [row + 2, col]]);
+      }
+      for (let row = 0; row <= size - 3; row += 1) {
+        for (let col = 0; col <= size - 3; col += 1) lines.push([[row, col], [row + 1, col + 1], [row + 2, col + 2]]);
+      }
+      for (let row = 0; row <= size - 3; row += 1) {
+        for (let col = 2; col < size; col += 1) lines.push([[row, col], [row + 1, col - 1], [row + 2, col - 2]]);
+      }
+      return lines;
+    }
+
+    function scoreLines(player) {
+      return allLines().filter((line) => line.every(([row, col]) => board[row][col] === player));
+    }
+
+    function score(player) {
+      return claimed[player].size;
+    }
+
+    function boardFull() {
+      return board.flat().every(Boolean);
+    }
+
+    function claimNewLines(player) {
+      let gained = 0;
+      scoreLines(player).forEach((line) => {
+        const key = lineKey(line);
+        if (!claimed[player].has(key)) {
+          claimed[player].add(key);
+          gained += 1;
+        }
+      });
+      return gained;
+    }
+
+    function place(row, col) {
+      if (winner || board[row][col]) return;
+      board[row][col] = current;
+      const gained = claimNewLines(current);
+      if (gained >= 2) {
+        winner = current;
+      } else if (boardFull()) {
+        const x = score("X");
+        const o = score("O");
+        winner = x === o ? "draw" : x > o ? "X" : "O";
+      } else {
+        current = current === "X" ? "O" : "X";
+      }
+      render();
+    }
+
+    function statusMessage() {
+      if (winner === "draw") return "棋盘填满，双方平局。";
+      if (winner) return `${players[winner].label} 获胜。`;
+      return `${players[current].label} 落子，争取连续三枚。`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnBadge.textContent = winner && winner !== "draw" ? players[winner].label : players[current].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${players[winner && winner !== "draw" ? winner : current].badge}`;
+      statusText.textContent = statusMessage();
+      xScore.textContent = score("X");
+      oScore.textContent = score("O");
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const value = board[row][col];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          cell.className = [
+            "flex aspect-square items-center justify-center rounded border text-4xl font-bold transition",
+            value ? "border-slate-700 bg-slate-800" : "border-slate-700 bg-slate-900",
+            !winner && !value ? "hover:border-pink-200 hover:bg-slate-800" : "opacity-90",
+            value ? players[value].color : "text-slate-500"
+          ].join(" ");
+          cell.disabled = Boolean(winner) || Boolean(value);
+          cell.textContent = value || "";
+          cell.addEventListener("click", () => place(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
