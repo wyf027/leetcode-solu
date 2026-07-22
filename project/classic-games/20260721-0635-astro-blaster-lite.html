@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Astro Blaster</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-cyan-200">Mini Astro Blaster</h1>
+        <p class="text-sm text-slate-400">方向键或 A/D 移动，空格发射；控制热量，清完一波进入下一波。</p>
+      </div>
+      <button id="restartButton" class="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+        重新开始
+      </button>
+    </section>
+
+    <section class="grid gap-3 text-sm sm:grid-cols-4">
+      <div class="rounded border border-slate-800 bg-slate-900/80 p-3">
+        <div class="text-slate-400">分数</div>
+        <div id="score" class="text-xl font-bold text-cyan-200">0</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900/80 p-3">
+        <div class="text-slate-400">护盾</div>
+        <div id="shield" class="text-xl font-bold text-emerald-300">3</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900/80 p-3">
+        <div class="text-slate-400">波次</div>
+        <div id="wave" class="text-xl font-bold text-violet-300">1</div>
+      </div>
+      <div class="rounded border border-slate-800 bg-slate-900/80 p-3">
+        <div class="mb-2 text-slate-400">热量</div>
+        <div class="h-3 overflow-hidden rounded bg-slate-800">
+          <div id="heatBar" class="h-full w-0 bg-orange-400 transition-all"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="relative">
+      <canvas id="gameCanvas" width="720" height="520" class="h-auto w-full rounded border border-cyan-900 bg-slate-950 shadow-2xl shadow-cyan-950/40"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-4 top-4 hidden rounded border border-cyan-700 bg-slate-950/90 px-4 py-3 text-center text-sm font-semibold text-cyan-100"></div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const shieldEl = document.getElementById("shield");
+    const waveEl = document.getElementById("wave");
+    const heatBar = document.getElementById("heatBar");
+    const messageEl = document.getElementById("message");
+    const restartButton = document.getElementById("restartButton");
+
+    const keys = new Set();
+    let player;
+    let lasers;
+    let enemyShots;
+    let enemies;
+    let particles;
+    let score;
+    let shield;
+    let wave;
+    let heat;
+    let overheated;
+    let gameOver;
+    let waveDelay;
+    let lastShotTime;
+    let animationId;
+
+    function setupGame() {
+      player = { x: canvas.width / 2, y: canvas.height - 44, width: 42, height: 28, speed: 6 };
+      lasers = [];
+      enemyShots = [];
+      particles = [];
+      score = 0;
+      shield = 3;
+      wave = 1;
+      heat = 0;
+      overheated = false;
+      gameOver = false;
+      waveDelay = 0;
+      lastShotTime = 0;
+      spawnEnemy();
+      hideMessage();
+      updateHud();
+      cancelAnimationFrame(animationId);
+      gameLoop();
+    }
+
+    function spawnEnemy() {
+      enemies = [];
+      const rows = Math.min(3 + Math.floor(wave / 2), 6);
+      const cols = 7;
+      const gapX = 78;
+      const gapY = 42;
+      const startX = 86;
+      const startY = 58;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          enemies.push({
+            x: startX + col * gapX,
+            y: startY + row * gapY,
+            width: 34,
+            height: 24,
+            dir: col % 2 === 0 ? 1 : -1,
+            phase: Math.random() * Math.PI * 2,
+            fireClock: 60 + Math.random() * 140
+          });
+        }
+      }
+    }
+
+    function fireLaser(now) {
+      if (gameOver || overheated || now - lastShotTime < 135) return;
+      lasers.push({ x: player.x, y: player.y - 18, width: 4, height: 18, speed: 8 });
+      heat = Math.min(100, heat + 12);
+      overheated = heat >= 100;
+      lastShotTime = now;
+    }
+
+    function updatePlayer(now) {
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) player.x -= player.speed;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) player.x += player.speed;
+      player.x = Math.max(24, Math.min(canvas.width - 24, player.x));
+      if (keys.has("Space")) fireLaser(now);
+    }
+
+    function updateLasers() {
+      lasers.forEach((laser) => {
+        laser.y -= laser.speed;
+      });
+      lasers = lasers.filter((laser) => laser.y + laser.height > 0);
+    }
+
+    function updateEnemies() {
+      enemies.forEach((enemy) => {
+        enemy.phase += 0.04;
+        enemy.x += Math.sin(enemy.phase) * 0.65 + enemy.dir * (0.18 + wave * 0.015);
+        enemy.y += 0.035 + wave * 0.005;
+        enemy.fireClock -= 1;
+        if (enemy.fireClock <= 0) {
+          enemyShots.push({ x: enemy.x, y: enemy.y + 16, radius: 4, speed: 2.2 + wave * 0.12 });
+          enemy.fireClock = 90 + Math.random() * 150;
+        }
+      });
+    }
+
+    function updateEnemyShots() {
+      enemyShots.forEach((shot) => {
+        shot.y += shot.speed;
+      });
+      enemyShots = enemyShots.filter((shot) => shot.y - shot.radius < canvas.height);
+    }
+
+    function updateHeat() {
+      heat = Math.max(0, heat - (overheated ? 0.42 : 0.26));
+      if (overheated && heat < 48) overheated = false;
+    }
+
+    function addBurst(x, y, color) {
+      for (let i = 0; i < 10; i += 1) {
+        particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 4,
+          vy: (Math.random() - 0.5) * 4,
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updateParticles() {
+      particles.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 1;
+      });
+      particles = particles.filter((p) => p.life > 0);
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function checkCollisions() {
+      lasers.forEach((laser) => {
+        enemies.forEach((enemy) => {
+          if (!enemy.hit && rectsOverlap(laser, enemy)) {
+            enemy.hit = true;
+            laser.hit = true;
+            score += 50 + wave * 10;
+            addBurst(enemy.x, enemy.y, "#67e8f9");
+          }
+        });
+      });
+
+      enemies = enemies.filter((enemy) => !enemy.hit);
+      lasers = lasers.filter((laser) => !laser.hit);
+
+      enemyShots.forEach((shot) => {
+        const hitBox = { x: shot.x - shot.radius, y: shot.y - shot.radius, width: shot.radius * 2, height: shot.radius * 2 };
+        const playerBox = { x: player.x - player.width / 2, y: player.y - player.height / 2, width: player.width, height: player.height };
+        if (!shot.hit && rectsOverlap(hitBox, playerBox)) {
+          shot.hit = true;
+          shield -= 1;
+          addBurst(player.x, player.y, "#fb7185");
+          if (shield <= 0) endGame("护盾耗尽，任务失败。按重新开始再试一次。");
+        }
+      });
+      enemyShots = enemyShots.filter((shot) => !shot.hit);
+
+      if (enemies.some((enemy) => enemy.y > player.y - 34)) {
+        endGame("敌机突破防线。按重新开始再次拦截。");
+      }
+
+      if (enemies.length === 0 && !gameOver) {
+        waveDelay += 1;
+        if (waveDelay > 70) {
+          wave += 1;
+          heat = Math.max(0, heat - 25);
+          waveDelay = 0;
+          spawnEnemy();
+        }
+      }
+    }
+
+    function endGame(text) {
+      gameOver = true;
+      showMessage(text);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      shieldEl.textContent = shield;
+      waveEl.textContent = wave;
+      heatBar.style.width = `${heat}%`;
+      heatBar.className = `h-full transition-all ${overheated ? "bg-red-500" : "bg-orange-400"}`;
+      if (overheated && !gameOver) showMessage("武器过热，稍等冷却。");
+      if (!overheated && !gameOver) hideMessage();
+    }
+
+    function showMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.remove("hidden");
+    }
+
+    function hideMessage() {
+      messageEl.classList.add("hidden");
+    }
+
+    function drawStars() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#164e63";
+      for (let i = 0; i < 80; i += 1) {
+        const x = (i * 91 + wave * 17) % canvas.width;
+        const y = (i * 53 + score * 0.02) % canvas.height;
+        ctx.fillRect(x, y, i % 3 === 0 ? 2 : 1, i % 3 === 0 ? 2 : 1);
+      }
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = "#22d3ee";
+      ctx.beginPath();
+      ctx.moveTo(0, -22);
+      ctx.lineTo(22, 16);
+      ctx.lineTo(7, 9);
+      ctx.lineTo(-7, 9);
+      ctx.lineTo(-22, 16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-5, -8, 10, 12);
+      ctx.restore();
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy) => {
+        ctx.fillStyle = "#a78bfa";
+        ctx.fillRect(enemy.x - enemy.width / 2, enemy.y - enemy.height / 2, enemy.width, enemy.height);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(enemy.x - 7, enemy.y - 5, 14, 10);
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(enemy.x - 17, enemy.y + 10, 7, 5);
+        ctx.fillRect(enemy.x + 10, enemy.y + 10, 7, 5);
+      });
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = "#67e8f9";
+      lasers.forEach((laser) => ctx.fillRect(laser.x - laser.width / 2, laser.y, laser.width, laser.height));
+      ctx.fillStyle = "#fb7185";
+      enemyShots.forEach((shot) => {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawParticles() {
+      particles.forEach((p) => {
+        ctx.globalAlpha = p.life / 24;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 3, 3);
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawStars();
+      drawShip();
+      drawEnemies();
+      drawProjectiles();
+      drawParticles();
+    }
+
+    function gameLoop(now = 0) {
+      if (!gameOver) {
+        updatePlayer(now);
+        updateLasers();
+        updateEnemies();
+        updateEnemyShots();
+        updateHeat();
+        updateParticles();
+        checkCollisions();
+        updateHud();
+      }
+      draw();
+      animationId = requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "Space", "KeyA", "KeyD"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    restartButton.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
