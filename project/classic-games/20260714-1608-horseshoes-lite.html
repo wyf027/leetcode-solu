@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Horseshoes</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-orange-300">Classic mini game</p>
+        <h1 class="mt-1 text-3xl font-bold">Mini Horseshoes</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-orange-200">New Inning</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <canvas id="pit" width="660" height="760" class="h-[72vh] min-h-[560px] w-full rounded bg-zinc-950"></canvas>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p class="text-xs text-zinc-400">Score</p>
+              <p id="score" class="text-3xl font-bold text-orange-300">0</p>
+            </div>
+            <div>
+              <p class="text-xs text-zinc-400">Shoe</p>
+              <p id="shoeCount" class="text-3xl font-bold">1/4</p>
+            </div>
+            <div>
+              <p class="text-xs text-zinc-400">Best</p>
+              <p id="best" class="text-3xl font-bold">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <label for="angle" class="block text-sm font-medium text-zinc-200">Angle</label>
+          <input id="angle" type="range" min="-38" max="38" value="0" class="mt-2 w-full accent-orange-300">
+          <div class="mt-1 flex justify-between text-xs text-zinc-500">
+            <span>Left</span>
+            <span id="angleText">0</span>
+            <span>Right</span>
+          </div>
+
+          <label for="power" class="mt-4 block text-sm font-medium text-zinc-200">Power</label>
+          <input id="power" type="range" min="48" max="100" value="75" class="mt-2 w-full accent-orange-300">
+          <div class="mt-1 flex justify-between text-xs text-zinc-500">
+            <span>Short</span>
+            <span id="powerText">75</span>
+            <span>Long</span>
+          </div>
+
+          <button id="throwBtn" class="mt-4 w-full rounded bg-orange-300 px-4 py-3 font-bold text-zinc-950 hover:bg-orange-200">Throw Shoe</button>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p id="message" class="min-h-12 text-sm leading-6 text-zinc-300">Throw four shoes. A ringer scores 3, close shoes score 1.</p>
+          <ol id="history" class="mt-3 max-h-52 space-y-2 overflow-auto text-sm text-zinc-400"></ol>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("pit");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const shoeCountEl = document.getElementById("shoeCount");
+    const bestEl = document.getElementById("best");
+    const angleEl = document.getElementById("angle");
+    const powerEl = document.getElementById("power");
+    const angleText = document.getElementById("angleText");
+    const powerText = document.getElementById("powerText");
+    const throwBtn = document.getElementById("throwBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const messageEl = document.getElementById("message");
+    const historyEl = document.getElementById("history");
+
+    const start = { x: 330, y: 690 };
+    const stake = { x: 330, y: 165 };
+    const pit = { x: 120, y: 75, w: 420, h: 330 };
+    let shoes = [];
+    let score = 0;
+    let shoeNumber = 1;
+    let best = Number(localStorage.getItem("mini-horseshoes-best") || 0);
+    let animating = false;
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawPit();
+      drawAim();
+      drawStake();
+      shoes.forEach(drawShoe);
+      updatePanel();
+    }
+
+    function drawPit() {
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(pit.x, pit.y, pit.w, pit.h);
+      ctx.strokeStyle = "#fed7aa";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(pit.x, pit.y, pit.w, pit.h);
+      ctx.fillStyle = "#27272a";
+      ctx.fillRect(100, 540, 460, 120);
+      ctx.strokeStyle = "#fb923c";
+      ctx.setLineDash([12, 10]);
+      ctx.beginPath();
+      ctx.moveTo(100, 540);
+      ctx.lineTo(560, 540);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#fed7aa";
+      ctx.font = "14px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("Throw line", start.x, 522);
+
+      [32, 72, 118].forEach((radius, index) => {
+        ctx.beginPath();
+        ctx.arc(stake.x, stake.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = ["#f97316", "#fdba74", "#fed7aa"][index];
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    function drawAim() {
+      if (animating || shoeNumber > 4) return;
+      const angle = (Number(angleEl.value) - 90) * Math.PI / 180;
+      const length = Number(powerEl.value) * 3.2;
+      ctx.strokeStyle = "#fde68a";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(start.x + Math.cos(angle) * length, start.y + Math.sin(angle) * length);
+      ctx.stroke();
+    }
+
+    function drawStake() {
+      ctx.beginPath();
+      ctx.arc(stake.x, stake.y, 9, 0, Math.PI * 2);
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fill();
+      ctx.strokeStyle = "#52525b";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    function drawShoe(shoe) {
+      ctx.save();
+      ctx.translate(shoe.x, shoe.y);
+      ctx.rotate(shoe.rotation);
+      ctx.strokeStyle = shoe.active ? "#fde68a" : "#d4d4d8";
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.arc(0, 0, 24, Math.PI * 0.2, Math.PI * 1.8);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function throwShoe() {
+      if (animating || shoeNumber > 4) return;
+      const angle = (Number(angleEl.value) - 90 + random(-5, 5)) * Math.PI / 180;
+      const power = Number(powerEl.value);
+      const shoe = {
+        x: start.x,
+        y: start.y,
+        targetX: start.x + Math.cos(angle) * power * 3.9 + random(-22, 22),
+        targetY: start.y + Math.sin(angle) * power * 6.1 + random(-28, 28),
+        rotation: random(-0.8, 0.8),
+        active: true
+      };
+      shoe.targetX = clamp(shoe.targetX, pit.x + 24, pit.x + pit.w - 24);
+      shoe.targetY = clamp(shoe.targetY, pit.y + 24, 660);
+      shoes.push(shoe);
+      animating = true;
+      animate(shoe);
+    }
+
+    function animate(shoe) {
+      const dx = (shoe.targetX - shoe.x) * 0.11;
+      const dy = (shoe.targetY - shoe.y) * 0.11;
+      shoe.x += dx;
+      shoe.y += dy;
+      shoe.rotation += 0.18;
+      draw();
+
+      if (Math.abs(dx) > 0.7 || Math.abs(dy) > 0.7) {
+        requestAnimationFrame(() => animate(shoe));
+        return;
+      }
+
+      shoe.x = shoe.targetX;
+      shoe.y = shoe.targetY;
+      shoe.active = false;
+      const result = scoreShoe(shoe);
+      score += result.points;
+      log(`Shoe ${shoeNumber}: ${result.label}.`);
+      shoeNumber += 1;
+      animating = false;
+      if (shoeNumber > 4) finishInning();
+      else messageEl.textContent = `Shoe ${shoeNumber} is ready.`;
+      draw();
+    }
+
+    function scoreShoe(shoe) {
+      const distance = Math.hypot(shoe.x - stake.x, shoe.y - stake.y);
+      if (distance <= 32) return { points: 3, label: "ringer for 3" };
+      if (distance <= 72) return { points: 1, label: "close shoe for 1" };
+      return { points: 0, label: "miss" };
+    }
+
+    function finishInning() {
+      if (score > best) {
+        best = score;
+        localStorage.setItem("mini-horseshoes-best", String(best));
+      }
+      messageEl.textContent = `Inning complete with ${score} points.`;
+    }
+
+    function log(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      historyEl.prepend(item);
+    }
+
+    function updatePanel() {
+      scoreEl.textContent = score;
+      shoeCountEl.textContent = `${Math.min(shoeNumber, 4)}/4`;
+      bestEl.textContent = best;
+      angleText.textContent = angleEl.value;
+      powerText.textContent = powerEl.value;
+      throwBtn.disabled = animating || shoeNumber > 4;
+      throwBtn.classList.toggle("opacity-50", throwBtn.disabled);
+    }
+
+    function resetGame() {
+      shoes = [];
+      score = 0;
+      shoeNumber = 1;
+      animating = false;
+      historyEl.innerHTML = "";
+      messageEl.textContent = "Throw four shoes. A ringer scores 3, close shoes score 1.";
+      draw();
+    }
+
+    function random(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    throwBtn.addEventListener("click", throwShoe);
+    resetBtn.addEventListener("click", resetGame);
+    angleEl.addEventListener("input", draw);
+    powerEl.addEventListener("input", draw);
+    draw();
+  </script>
+</body>
+</html>
