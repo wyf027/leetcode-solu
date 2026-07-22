@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Yavalath</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl shadow-black/30">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Yavalath</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-stone-300">
+            两名玩家轮流落子。先连成四子获胜；但如果没有同时四连却先形成三连，就会输掉本局。
+          </p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 text-sm font-bold text-stone-950 transition hover:bg-lime-200">
+          重新开始
+        </button>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-stone-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-white">玩家 A</p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-stone-400">已落子</p>
+            <p id="moveLabel" class="mt-1 text-2xl font-bold text-white">0 / 25</p>
+          </div>
+          <div class="rounded-md bg-stone-800 p-3">
+            <p id="status" class="text-sm leading-6 text-stone-200">选择任意空格落子。四连赢，单独三连输。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded-md border border-lime-500/40 bg-lime-500/10 p-2 text-lime-100">玩家 A：绿子</div>
+            <div class="rounded-md border border-orange-500/40 bg-orange-500/10 p-2 text-orange-100">玩家 B：橙子</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnLabel = document.getElementById('turnLabel');
+    const moveLabel = document.getElementById('moveLabel');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const size = 5;
+    const players = [
+      { mark: 'A', name: '玩家 A', text: 'text-lime-100', bg: 'bg-lime-500/25', border: 'border-lime-300' },
+      { mark: 'B', name: '玩家 B', text: 'text-orange-100', bg: 'bg-orange-500/25', border: 'border-orange-300' }
+    ];
+    const directions = [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+      [1, -1]
+    ];
+
+    let board = Array(size * size).fill('');
+    let player = 0;
+    let ended = false;
+    let highlight = [];
+
+    function startGame() {
+      board = Array(size * size).fill('');
+      player = 0;
+      ended = false;
+      highlight = [];
+      statusEl.textContent = '选择任意空格落子。四连赢，单独三连输。';
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      board.forEach((cell, index) => {
+        const button = document.createElement('button');
+        const owner = players.find(item => item.mark === cell);
+        const active = highlight.includes(index);
+        button.className = [
+          'flex aspect-square items-center justify-center rounded-md border text-2xl font-black transition sm:text-4xl',
+          owner ? `${owner.bg} ${owner.text} ${owner.border}` : 'border-stone-700 bg-stone-800 text-stone-300',
+          active ? 'ring-4 ring-yellow-300' : '',
+          !cell && !ended ? 'hover:border-lime-300 hover:bg-stone-700' : 'cursor-default'
+        ].join(' ');
+        button.textContent = cell;
+        button.disabled = ended || Boolean(cell);
+        button.setAttribute('aria-label', cell ? `${cell} at ${index + 1}` : `空格 ${index + 1}`);
+        button.addEventListener('click', () => handleCell(index));
+        boardEl.appendChild(button);
+      });
+
+      turnLabel.textContent = ended ? '本局结束' : players[player].name;
+      moveLabel.textContent = `${board.filter(Boolean).length} / ${board.length}`;
+    }
+
+    function handleCell(index) {
+      if (ended || board[index]) {
+        return;
+      }
+
+      const mark = players[player].mark;
+      board[index] = mark;
+      const four = findLine(mark, 4);
+      const three = findLine(mark, 3);
+
+      if (four) {
+        ended = true;
+        highlight = four;
+        statusEl.textContent = `${players[player].name} 连成四子，赢得本局。`;
+      } else if (three) {
+        ended = true;
+        highlight = three;
+        const winner = players[1 - player].name;
+        statusEl.textContent = `${players[player].name} 形成三连，${winner} 获胜。`;
+      } else if (board.every(Boolean)) {
+        ended = true;
+        statusEl.textContent = '棋盘已满且无人胜出，本局平局。';
+      } else {
+        player = 1 - player;
+        statusEl.textContent = `轮到 ${players[player].name}。`;
+      }
+
+      render();
+    }
+
+    function findLine(mark, length) {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          for (const [dr, dc] of directions) {
+            const cells = [];
+            for (let step = 0; step < length; step += 1) {
+              const nextRow = row + dr * step;
+              const nextCol = col + dc * step;
+              if (!inBounds(nextRow, nextCol)) {
+                cells.length = 0;
+                break;
+              }
+              cells.push(idx(nextRow, nextCol));
+            }
+            if (cells.length === length && cells.every(cell => board[cell] === mark)) {
+              return cells;
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function idx(row, col) {
+      return row * size + col;
+    }
+
+    resetBtn.addEventListener('click', startGame);
+    startGame();
+  </script>
+</body>
+</html>
