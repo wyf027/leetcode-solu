@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Abalone</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-sky-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Abalone</h1>
+      </div>
+      <button id="resetButton" class="rounded bg-sky-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-sky-200">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <div id="board" class="mx-auto grid max-w-lg grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <h2 class="text-lg font-semibold">Status</h2>
+          <p id="status" class="mt-2 min-h-14 text-sm leading-6 text-slate-300"></p>
+        </div>
+
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <h2 class="text-lg font-semibold">Pushed Out</h2>
+          <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-slate-800 p-3">
+              <p class="text-slate-400">Blue</p>
+              <p id="blueScore" class="text-2xl font-bold text-sky-300">0</p>
+            </div>
+            <div class="rounded bg-slate-800 p-3">
+              <p class="text-slate-400">Amber</p>
+              <p id="amberScore" class="text-2xl font-bold text-amber-300">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-700 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <h2 class="text-lg font-semibold text-slate-100">Rules</h2>
+          <p class="mt-2">Select one marble. Move into an adjacent empty space, or push one opposing marble if the space beyond is empty or off the board. First to push out 3 wins.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const radius = 2;
+    const dirs = [
+      [1, 0], [1, -1], [0, -1],
+      [-1, 0], [-1, 1], [0, 1],
+    ];
+    const cells = [];
+
+    for (let q = -radius; q <= radius; q++) {
+      for (let r = -radius; r <= radius; r++) {
+        if (Math.abs(q + r) <= radius) cells.push({ q, r, key: `${q},${r}` });
+      }
+    }
+
+    const boardElement = document.getElementById("board");
+    const statusElement = document.getElementById("status");
+    const blueScoreElement = document.getElementById("blueScore");
+    const amberScoreElement = document.getElementById("amberScore");
+    const resetButton = document.getElementById("resetButton");
+
+    let board = {};
+    let turn = "B";
+    let selected = null;
+    let legalMoves = [];
+    let pushed = { B: 0, A: 0 };
+    let gameOver = false;
+
+    function resetGame() {
+      board = {};
+      cells.forEach(({ key }) => {
+        board[key] = "";
+      });
+
+      ["-2,0", "-2,1", "-2,2", "-1,1", "-1,2"].forEach((key) => {
+        board[key] = "A";
+      });
+      ["2,0", "2,-1", "2,-2", "1,-1", "1,-2"].forEach((key) => {
+        board[key] = "B";
+      });
+
+      turn = "B";
+      selected = null;
+      legalMoves = [];
+      pushed = { B: 0, A: 0 };
+      gameOver = false;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "B" ? "Blue" : "Amber";
+    }
+
+    function opponent(side) {
+      return side === "B" ? "A" : "B";
+    }
+
+    function keyOf(q, r) {
+      return `${q},${r}`;
+    }
+
+    function parseKey(key) {
+      const [q, r] = key.split(",").map(Number);
+      return { q, r };
+    }
+
+    function exists(q, r) {
+      return Object.prototype.hasOwnProperty.call(board, keyOf(q, r));
+    }
+
+    function moveOptions(key) {
+      if (board[key] !== turn) return [];
+      const { q, r } = parseKey(key);
+      const moves = [];
+
+      dirs.forEach(([dq, dr]) => {
+        const nextQ = q + dq;
+        const nextR = r + dr;
+        const nextKey = keyOf(nextQ, nextR);
+
+        if (!exists(nextQ, nextR)) return;
+        if (board[nextKey] === "") {
+          moves.push({ to: nextKey, push: null });
+          return;
+        }
+
+        if (board[nextKey] !== opponent(turn)) return;
+        const beyondQ = nextQ + dq;
+        const beyondR = nextR + dr;
+        const beyondKey = keyOf(beyondQ, beyondR);
+
+        if (!exists(beyondQ, beyondR) || board[beyondKey] === "") {
+          moves.push({ to: nextKey, push: exists(beyondQ, beyondR) ? beyondKey : "off" });
+        }
+      });
+
+      return moves;
+    }
+
+    function hasAnyMove(side) {
+      const oldTurn = turn;
+      turn = side;
+      const result = cells.some(({ key }) => board[key] === side && moveOptions(key).length > 0);
+      turn = oldTurn;
+      return result;
+    }
+
+    function clearSelection() {
+      selected = null;
+      legalMoves = [];
+    }
+
+    function finishGame(message) {
+      gameOver = true;
+      clearSelection();
+      statusElement.textContent = message;
+      renderBoard();
+      renderScores();
+    }
+
+    function selectCell(key) {
+      if (board[key] !== turn || gameOver) return;
+      selected = key;
+      legalMoves = moveOptions(key);
+      statusElement.textContent = `${sideName(turn)} selected. Choose a highlighted adjacent move or push.`;
+      renderBoard();
+    }
+
+    function applyMove(targetKey) {
+      const move = legalMoves.find((item) => item.to === targetKey);
+      if (!move || selected === null) return;
+
+      if (move.push === "off") {
+        pushed[turn] += 1;
+      } else if (move.push) {
+        board[move.push] = opponent(turn);
+      }
+
+      board[targetKey] = turn;
+      board[selected] = "";
+      clearSelection();
+
+      if (pushed[turn] >= 3) {
+        finishGame(`${sideName(turn)} wins by pushing out 3 marbles.`);
+        return;
+      }
+
+      turn = opponent(turn);
+      if (!hasAnyMove(turn)) {
+        finishGame(`${sideName(opponent(turn))} wins because ${sideName(turn)} has no legal move.`);
+        return;
+      }
+
+      render();
+    }
+
+    function handleCell(key) {
+      if (gameOver) return;
+      if (selected && legalMoves.some((move) => move.to === key)) {
+        applyMove(key);
+        return;
+      }
+      selectCell(key);
+    }
+
+    function cellClasses(key) {
+      const cell = board[key];
+      const highlighted = legalMoves.some((move) => move.to === key);
+      const base = "flex aspect-square items-center justify-center rounded-full text-lg font-black transition focus:outline-none focus:ring-2 focus:ring-sky-200";
+
+      if (cell === "B") return `${base} bg-sky-300 text-slate-950 ${selected === key ? "ring-4 ring-white" : ""}`;
+      if (cell === "A") return `${base} bg-amber-300 text-slate-950 ${selected === key ? "ring-4 ring-white" : ""}`;
+      if (highlighted) return `${base} bg-emerald-400 text-slate-950 hover:bg-emerald-300`;
+      return `${base} bg-slate-800 hover:bg-slate-700`;
+    }
+
+    function renderBoard() {
+      boardElement.innerHTML = "";
+
+      for (let r = -radius; r <= radius; r++) {
+        for (let q = -radius; q <= radius; q++) {
+          const key = keyOf(q, r);
+          if (!exists(q, r)) {
+            const spacer = document.createElement("div");
+            spacer.className = "aspect-square";
+            boardElement.appendChild(spacer);
+            continue;
+          }
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(key);
+          button.textContent = board[key];
+          button.setAttribute("aria-label", `Hex ${q}, ${r}`);
+          button.addEventListener("click", () => handleCell(key));
+          boardElement.appendChild(button);
+        }
+      }
+    }
+
+    function renderScores() {
+      blueScoreElement.textContent = pushed.B;
+      amberScoreElement.textContent = pushed.A;
+    }
+
+    function renderStatus() {
+      if (gameOver) return;
+      statusElement.textContent = `${sideName(turn)} to move. Select one marble.`;
+    }
+
+    function render() {
+      renderBoard();
+      renderScores();
+      renderStatus();
+    }
+
+    resetButton.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
