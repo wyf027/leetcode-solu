@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Blokus</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-fuchsia-200">Mini Blokus</h1>
+        <p class="mt-1 text-sm text-slate-400">轮流放置拼块；同色必须角碰角，不能边贴边。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">当前</div>
+          <div id="turn" class="text-lg font-bold text-fuchsia-200">Pink</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">Pink</div>
+          <div id="pinkScore" class="text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">Blue</div>
+          <div id="blueScore" class="text-lg font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_300px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[640px] grid-cols-8 gap-1 rounded bg-slate-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">拼块</h2>
+          <div id="pieces" class="mt-3 grid grid-cols-2 gap-2"></div>
+          <button id="rotate" class="mt-3 w-full rounded bg-slate-800 px-4 py-2 font-semibold hover:bg-slate-700">旋转选中拼块</button>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">状态</h2>
+          <p id="message" class="mt-3 min-h-20 text-sm leading-6 text-slate-300">选择拼块，再点击棋盘作为左上角锚点。</p>
+          <button id="pass" class="mt-4 w-full rounded bg-slate-800 px-4 py-2 font-semibold hover:bg-slate-700">跳过</button>
+          <button id="reset" class="mt-2 w-full rounded bg-fuchsia-300 px-4 py-2 font-semibold text-slate-950 hover:bg-fuchsia-200">重新开局</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 8;
+    const boardEl = document.getElementById('board');
+    const piecesEl = document.getElementById('pieces');
+    const turnEl = document.getElementById('turn');
+    const pinkScoreEl = document.getElementById('pinkScore');
+    const blueScoreEl = document.getElementById('blueScore');
+    const msgEl = document.getElementById('message');
+    const rotateBtn = document.getElementById('rotate');
+    const passBtn = document.getElementById('pass');
+    const resetBtn = document.getElementById('reset');
+
+    const pieces = [
+      { id: 'mono', name: '单格', cells: [[0, 0]] },
+      { id: 'domino', name: '二连', cells: [[0, 0], [0, 1]] },
+      { id: 'tri', name: '三连', cells: [[0, 0], [0, 1], [0, 2]] },
+      { id: 'elbow', name: '折角', cells: [[0, 0], [1, 0], [1, 1]] },
+      { id: 'square', name: '方块', cells: [[0, 0], [0, 1], [1, 0], [1, 1]] },
+      { id: 'tee', name: 'T 形', cells: [[0, 0], [0, 1], [0, 2], [1, 1]] }
+    ];
+
+    let board;
+    let current;
+    let selectedId;
+    let rotation;
+    let stock;
+    let firstMove;
+    let gameOver;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(''));
+      current = 'P';
+      selectedId = 'mono';
+      rotation = 0;
+      stock = { P: pieces.map((piece) => piece.id), B: pieces.map((piece) => piece.id) };
+      firstMove = { P: true, B: true };
+      gameOver = false;
+      msgEl.textContent = '选择拼块，再点击棋盘作为左上角锚点。';
+      render();
+    }
+
+    function playerName(mark) {
+      return mark === 'P' ? 'Pink' : 'Blue';
+    }
+
+    function activePiece() {
+      return pieces.find((piece) => piece.id === selectedId);
+    }
+
+    function normalize(cells) {
+      const minRow = Math.min(...cells.map((cell) => cell[0]));
+      const minCol = Math.min(...cells.map((cell) => cell[1]));
+      return cells.map(([row, col]) => [row - minRow, col - minCol]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    }
+
+    function rotateCells(cells, turns) {
+      let output = cells.map((cell) => [...cell]);
+      for (let i = 0; i < turns; i += 1) {
+        output = normalize(output.map(([row, col]) => [col, -row]));
+      }
+      return normalize(output);
+    }
+
+    function score(mark) {
+      return board.flat().filter((cell) => cell === mark).length;
+    }
+
+    function hasSideTouch(row, col, mark) {
+      return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dr, dc]) => board[row + dr]?.[col + dc] === mark);
+    }
+
+    function hasCornerTouch(row, col, mark) {
+      return [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dr, dc]) => board[row + dr]?.[col + dc] === mark);
+    }
+
+    function coversStart(cells, row, col, mark) {
+      const target = mark === 'P' ? [0, 0] : [size - 1, size - 1];
+      return cells.some(([dr, dc]) => row + dr === target[0] && col + dc === target[1]);
+    }
+
+    function canPlace(row, col, cells, mark) {
+      let cornerTouch = false;
+      for (const [dr, dc] of cells) {
+        const r = row + dr;
+        const c = col + dc;
+        if (r < 0 || r >= size || c < 0 || c >= size || board[r][c]) return false;
+        if (hasSideTouch(r, c, mark)) return false;
+        if (hasCornerTouch(r, c, mark)) cornerTouch = true;
+      }
+      return firstMove[mark] ? coversStart(cells, row, col, mark) : cornerTouch;
+    }
+
+    function hasMove(mark) {
+      return stock[mark].some((id) => {
+        const piece = pieces.find((item) => item.id === id);
+        for (let turn = 0; turn < 4; turn += 1) {
+          const cells = rotateCells(piece.cells, turn);
+          for (let row = 0; row < size; row += 1) {
+            for (let col = 0; col < size; col += 1) {
+              if (canPlace(row, col, cells, mark)) return true;
+            }
+          }
+        }
+        return false;
+      });
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = board[row][col];
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = cell ? '■' : '';
+          btn.className = [
+            'aspect-square rounded border text-2xl font-black transition',
+            (row + col) % 2 === 0 ? 'bg-slate-800' : 'bg-slate-700',
+            cell === 'P' ? 'border-fuchsia-200 text-fuchsia-200' : '',
+            cell === 'B' ? 'border-sky-200 text-sky-200' : '',
+            !cell ? 'border-slate-600 hover:border-fuchsia-200' : '',
+            (row === 0 && col === 0) || (row === size - 1 && col === size - 1) ? 'ring-2 ring-amber-200/50' : ''
+          ].join(' ');
+          btn.addEventListener('click', () => placeAt(row, col));
+          boardEl.appendChild(btn);
+        }
+      }
+    }
+
+    function renderPieces() {
+      piecesEl.innerHTML = '';
+      pieces.forEach((piece) => {
+        const available = stock[current].includes(piece.id);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = `${piece.name} (${piece.cells.length})`;
+        btn.disabled = !available || gameOver;
+        btn.className = [
+          'rounded border px-3 py-2 text-sm font-semibold',
+          selectedId === piece.id ? 'border-fuchsia-200 bg-fuchsia-200 text-slate-950' : 'border-slate-700 bg-slate-800 hover:border-fuchsia-200',
+          !available ? 'cursor-not-allowed opacity-35' : ''
+        ].join(' ');
+        btn.addEventListener('click', () => {
+          selectedId = piece.id;
+          rotation = 0;
+          msgEl.textContent = `已选择${piece.name}。`;
+          render();
+        });
+        piecesEl.appendChild(btn);
+      });
+    }
+
+    function render() {
+      turnEl.textContent = playerName(current);
+      turnEl.className = current === 'P' ? 'text-lg font-bold text-fuchsia-200' : 'text-lg font-bold text-sky-200';
+      pinkScoreEl.textContent = score('P');
+      blueScoreEl.textContent = score('B');
+      renderBoard();
+      renderPieces();
+    }
+
+    function placeAt(row, col) {
+      if (gameOver || !selectedId) return;
+      const piece = activePiece();
+      const cells = rotateCells(piece.cells, rotation);
+      if (!stock[current].includes(piece.id)) return;
+      if (!canPlace(row, col, cells, current)) {
+        msgEl.textContent = firstMove[current] ? '首步必须覆盖自己的发光角落。' : '同色必须角碰角，且不能边贴边。';
+        return;
+      }
+      cells.forEach(([dr, dc]) => {
+        board[row + dr][col + dc] = current;
+      });
+      stock[current] = stock[current].filter((id) => id !== piece.id);
+      firstMove[current] = false;
+      advanceTurn(`${playerName(current)} 放置了${piece.name}。`);
+    }
+
+    function advanceTurn(prefix) {
+      const next = current === 'P' ? 'B' : 'P';
+      if (!hasMove(next) && !hasMove(current)) {
+        finishGame();
+        return;
+      }
+      current = hasMove(next) ? next : current;
+      selectedId = stock[current][0] || '';
+      rotation = 0;
+      msgEl.textContent = `${prefix} 轮到 ${playerName(current)}。`;
+      render();
+    }
+
+    function finishGame() {
+      gameOver = true;
+      const pink = score('P');
+      const blue = score('B');
+      msgEl.textContent = pink === blue ? `平局：双方各 ${pink} 格。` : `${pink > blue ? 'Pink' : 'Blue'} 获胜：${pink} - ${blue}。`;
+      render();
+    }
+
+    rotateBtn.addEventListener('click', () => {
+      if (gameOver || !selectedId) return;
+      rotation = (rotation + 1) % 4;
+      msgEl.textContent = `已旋转${activePiece().name}。`;
+      render();
+    });
+
+    passBtn.addEventListener('click', () => {
+      if (gameOver) return;
+      advanceTurn(`${playerName(current)} 跳过。`);
+    });
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
