@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kensington</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-300">classic games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Kensington</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-amber-200">New game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-stone-800 bg-stone-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[34rem] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-stone-800 bg-stone-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs uppercase text-stone-400">Turn</div>
+            <div id="turnLabel" class="mt-1 text-lg font-bold text-white">Gold</div>
+          </div>
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs uppercase text-stone-400">Phase</div>
+            <div id="phaseLabel" class="mt-1 text-lg font-bold text-white">Place</div>
+          </div>
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs uppercase text-stone-400">Gold left</div>
+            <div id="goldLeft" class="mt-1 text-lg font-bold text-amber-300">4</div>
+          </div>
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs uppercase text-stone-400">Teal left</div>
+            <div id="tealLeft" class="mt-1 text-lg font-bold text-teal-300">4</div>
+          </div>
+        </div>
+
+        <div class="mt-4 rounded bg-stone-950 p-3 text-sm leading-6 text-stone-300">
+          Place four counters each. Then slide one counter to an adjacent empty point. The first player to occupy all four corners of any small square wins.
+        </div>
+        <div id="message" class="mt-4 rounded border border-stone-700 bg-stone-800 p-3 text-sm font-semibold text-stone-100"></div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const phaseLabel = document.getElementById("phaseLabel");
+    const goldLeft = document.getElementById("goldLeft");
+    const tealLeft = document.getElementById("tealLeft");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const players = {
+      G: { name: "Gold", token: "G", color: "bg-amber-300 text-stone-950", ring: "ring-amber-200" },
+      T: { name: "Teal", token: "T", color: "bg-teal-300 text-stone-950", ring: "ring-teal-200" }
+    };
+
+    let board;
+    let turn;
+    let selected;
+    let winner;
+    let stock;
+
+    function startGame() {
+      board = Array(25).fill(null);
+      turn = "G";
+      selected = null;
+      winner = null;
+      stock = { G: 4, T: 4 };
+      render();
+      setMessage("Gold places the first counter.");
+    }
+
+    function currentPhase() {
+      return stock.G + stock.T > 0 ? "Place" : "Slide";
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / 5);
+    }
+
+    function colOf(index) {
+      return index % 5;
+    }
+
+    function areAdjacent(a, b) {
+      const dr = Math.abs(rowOf(a) - rowOf(b));
+      const dc = Math.abs(colOf(a) - colOf(b));
+      return dr <= 1 && dc <= 1 && dr + dc > 0;
+    }
+
+    function getWinningSquare(player) {
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 4; col++) {
+          const square = [row * 5 + col, row * 5 + col + 1, (row + 1) * 5 + col, (row + 1) * 5 + col + 1];
+          if (square.every((index) => board[index] === player)) return square;
+        }
+      }
+      return [];
+    }
+
+    function checkWin() {
+      for (const player of ["G", "T"]) {
+        const square = getWinningSquare(player);
+        if (square.length) {
+          winner = player;
+          selected = null;
+          setMessage(`${players[player].name} wins by completing a Kensington square.`);
+          return;
+        }
+      }
+    }
+
+    function switchTurn() {
+      turn = turn === "G" ? "T" : "G";
+      setMessage(`${players[turn].name} to ${currentPhase().toLowerCase()}.`);
+    }
+
+    function handlePlace(index) {
+      if (board[index] || stock[turn] === 0) return;
+      board[index] = turn;
+      stock[turn] -= 1;
+      checkWin();
+      if (!winner) switchTurn();
+    }
+
+    function handleSlide(index) {
+      if (selected === null) {
+        if (board[index] !== turn) return;
+        selected = index;
+        setMessage(`Select an adjacent empty point for ${players[turn].name}.`);
+        render();
+        return;
+      }
+
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+
+      if (!board[index] && areAdjacent(selected, index)) {
+        board[index] = turn;
+        board[selected] = null;
+        selected = null;
+        checkWin();
+        if (!winner) switchTurn();
+        render();
+        return;
+      }
+
+      setMessage("That counter can only slide to an adjacent empty point.");
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      if (currentPhase() === "Place") handlePlace(index);
+      else handleSlide(index);
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function renderCell(index) {
+      const value = board[index];
+      const button = document.createElement("button");
+      const row = rowOf(index);
+      const col = colOf(index);
+      const isWin = winner && getWinningSquare(winner).includes(index);
+      button.className = [
+        "relative flex aspect-square items-center justify-center rounded border border-stone-700 bg-stone-800 text-lg font-black transition hover:border-amber-300",
+        selected === index ? `ring-4 ${players[turn].ring}` : "",
+        isWin ? "border-emerald-300 bg-emerald-950" : ""
+      ].join(" ");
+      button.setAttribute("aria-label", `Point ${row + 1}, ${col + 1}`);
+      button.addEventListener("click", () => handleCell(index));
+
+      const dot = document.createElement("span");
+      dot.className = "absolute h-2 w-2 rounded-full bg-stone-500";
+      button.appendChild(dot);
+
+      if (value) {
+        const token = document.createElement("span");
+        token.className = `z-10 flex h-10 w-10 items-center justify-center rounded-full ${players[value].color}`;
+        token.textContent = players[value].token;
+        button.appendChild(token);
+      }
+      return button;
+    }
+
+    function render() {
+      boardEl.replaceChildren(...board.map((_, index) => renderCell(index)));
+      turnLabel.textContent = winner ? `${players[winner].name} wins` : players[turn].name;
+      phaseLabel.textContent = winner ? "Game over" : currentPhase();
+      goldLeft.textContent = stock.G;
+      tealLeft.textContent = stock.T;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
