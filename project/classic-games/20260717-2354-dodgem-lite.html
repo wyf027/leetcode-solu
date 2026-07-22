@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Dodgem</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:py-8">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-sky-300">Classic Abstract Race</p>
+        <h1 class="text-3xl font-bold text-white sm:text-4xl">Mini Dodgem</h1>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-sky-400 px-4 py-2 text-sm font-bold text-stone-950 transition hover:bg-sky-300">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-2xl shadow-sky-950/20">
+        <div class="mb-3 flex items-center justify-between text-sm text-stone-400">
+          <span>Blue exits right</span>
+          <span>Red exits top</span>
+        </div>
+        <div id="board" class="grid aspect-square w-full grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <h2 class="text-lg font-semibold text-white">Turn</h2>
+          <p id="message" class="mt-2 min-h-14 text-sm leading-6 text-stone-300"></p>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center lg:grid-cols-1">
+          <div class="rounded-lg border border-stone-800 bg-stone-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-stone-500">Blue Out</p>
+            <p id="blueScore" class="mt-1 text-2xl font-bold text-sky-300">0</p>
+          </div>
+          <div class="rounded-lg border border-stone-800 bg-stone-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-stone-500">Red Out</p>
+            <p id="redScore" class="mt-1 text-2xl font-bold text-rose-300">0</p>
+          </div>
+          <div class="rounded-lg border border-stone-800 bg-stone-900 p-3">
+            <p class="text-xs uppercase tracking-wide text-stone-500">Moves</p>
+            <p id="moveCount" class="mt-1 text-2xl font-bold text-emerald-300">0</p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <p>Select a blue car, then move right, up, or down into an empty square. A blue car leaving the right edge scores. Red cars move up, left, or right and score by leaving the top edge.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const blueScoreEl = document.getElementById("blueScore");
+    const redScoreEl = document.getElementById("redScore");
+    const moveCountEl = document.getElementById("moveCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board = [];
+    let selected = null;
+    let locked = false;
+    let gameOver = false;
+    let scores = { B: 0, R: 0 };
+    let moves = 0;
+
+    function startGame() {
+      board = Array.from({ length: size * size }, () => "");
+      [1, 2, 3].forEach((row) => board[row * size] = "B");
+      [1, 2, 3].forEach((col) => board[(size - 1) * size + col] = "R");
+      selected = null;
+      locked = false;
+      gameOver = false;
+      scores = { B: 0, R: 0 };
+      moves = 0;
+      setMessage("Blue to move. Drive all blue cars off the right edge before red escapes upward.");
+      render();
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function indexOf(row, col) {
+      return row * size + col;
+    }
+
+    function piecesFor(player) {
+      return board
+        .map((cell, index) => cell === player ? index : -1)
+        .filter((index) => index >= 0);
+    }
+
+    function legalMoves(index, player) {
+      const row = rowOf(index);
+      const col = colOf(index);
+      const deltas = player === "B" ? [[0, 1], [-1, 0], [1, 0]] : [[-1, 0], [0, -1], [0, 1]];
+      return deltas.flatMap(([dr, dc]) => {
+        const nextRow = row + dr;
+        const nextCol = col + dc;
+        if (player === "B" && nextCol === size) return [{ from: index, to: "exit" }];
+        if (player === "R" && nextRow === -1) return [{ from: index, to: "exit" }];
+        if (nextRow < 0 || nextRow >= size || nextCol < 0 || nextCol >= size) return [];
+        const nextIndex = indexOf(nextRow, nextCol);
+        return board[nextIndex] === "" ? [{ from: index, to: nextIndex }] : [];
+      });
+    }
+
+    function allMoves(player) {
+      return piecesFor(player).flatMap((index) => legalMoves(index, player));
+    }
+
+    function applyMove(move, player) {
+      board[move.from] = "";
+      if (move.to === "exit") {
+        scores[player] += 1;
+      } else {
+        board[move.to] = player;
+      }
+      moves += 1;
+    }
+
+    function chooseCell(index) {
+      if (locked || gameOver) return;
+      if (board[index] === "B") {
+        selected = selected === index ? null : index;
+        setMessage("Choose a highlighted destination for that blue car.");
+        render();
+        return;
+      }
+      if (selected === null) return;
+      const move = legalMoves(selected, "B").find((candidate) => candidate.to === index);
+      if (!move) return;
+      applyMove(move, "B");
+      selected = null;
+      if (checkGame()) return;
+      locked = true;
+      setMessage("Red is looking for a way out...");
+      render();
+      window.setTimeout(runAiTurn, 300);
+    }
+
+    function runAiTurn() {
+      const move = chooseAiMove();
+      if (move) applyMove(move, "R");
+      locked = false;
+      if (!checkGame()) setMessage("Blue to move. Select a car and keep the lane open.");
+      render();
+    }
+
+    function chooseAiMove() {
+      return allMoves("R")
+        .map((move) => ({ move, score: scoreRedMove(move) }))
+        .sort((a, b) => b.score - a.score)[0]?.move;
+    }
+
+    function scoreRedMove(move) {
+      if (move.to === "exit") return 100;
+      const row = rowOf(move.to);
+      const sideFlex = legalMoves(move.to, "R").length;
+      return (size - row) * 8 + sideFlex - allMoves("B").length;
+    }
+
+    function checkGame() {
+      if (scores.B === 3 || piecesFor("B").length === 0) {
+        finish("Blue wins. All blue cars escaped to the right.");
+        return true;
+      }
+      if (scores.R === 3 || piecesFor("R").length === 0) {
+        finish("Red wins. All red cars escaped upward.");
+        return true;
+      }
+      if (allMoves("B").length === 0) {
+        finish("Red wins. Blue has no legal move.");
+        return true;
+      }
+      if (allMoves("R").length === 0) {
+        finish("Blue wins. Red has no legal move.");
+        return true;
+      }
+      return false;
+    }
+
+    function finish(text) {
+      gameOver = true;
+      locked = true;
+      selected = null;
+      setMessage(text);
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function render() {
+      const selectedMoves = selected === null ? [] : legalMoves(selected, "B").map((move) => move.to);
+      boardEl.innerHTML = "";
+      board.forEach((cell, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        const isSelected = selected === index;
+        const isTarget = selectedMoves.includes(index);
+        button.className = [
+          "aspect-square rounded-md border text-lg font-black transition sm:text-2xl",
+          cell === "B" ? "border-sky-300 bg-sky-400 text-stone-950 shadow-lg shadow-sky-500/25" : "",
+          cell === "R" ? "border-rose-300 bg-rose-400 text-stone-950 shadow-lg shadow-rose-500/25" : "",
+          cell === "" ? "border-stone-700 bg-stone-950 text-stone-500 hover:border-sky-300" : "",
+          isSelected ? "ring-4 ring-sky-200" : "",
+          isTarget ? "border-emerald-300 bg-emerald-400/20" : "",
+        ].join(" ");
+        button.textContent = cell === "B" ? "B" : cell === "R" ? "R" : isTarget ? "→" : "";
+        button.disabled = locked || gameOver || (cell === "R");
+        button.addEventListener("click", () => chooseCell(index));
+        boardEl.appendChild(button);
+      });
+      blueScoreEl.textContent = scores.B;
+      redScoreEl.textContent = scores.R;
+      moveCountEl.textContent = moves;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
