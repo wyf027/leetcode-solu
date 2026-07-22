@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Space Panic</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-lime-300">Mini Space Panic</h1>
+        <p class="text-sm text-stone-400">Dig holes, lure drones in, and seal them before oxygen runs out.</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-stone-800 bg-stone-900 px-3 py-2"><div class="text-xs uppercase text-stone-500">Score</div><div id="score" class="font-mono text-lg text-lime-200">0</div></div>
+        <div class="rounded border border-stone-800 bg-stone-900 px-3 py-2"><div class="text-xs uppercase text-stone-500">Level</div><div id="level" class="font-mono text-lg text-cyan-200">1</div></div>
+        <div class="rounded border border-stone-800 bg-stone-900 px-3 py-2"><div class="text-xs uppercase text-stone-500">Oxygen</div><div id="oxygen" class="font-mono text-lg text-sky-200">100</div></div>
+        <div class="rounded border border-stone-800 bg-stone-900 px-3 py-2"><div class="text-xs uppercase text-stone-500">Lives</div><div id="lives" class="font-mono text-lg text-rose-200">3</div></div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <div class="rounded border border-stone-800 bg-black p-3 shadow-2xl">
+        <canvas id="game" width="720" height="520" class="block h-auto w-full rounded bg-stone-950"></canvas>
+      </div>
+      <aside class="space-y-3 rounded border border-stone-800 bg-stone-900 p-4">
+        <div>
+          <h2 class="text-sm font-semibold uppercase text-stone-400">Controls</h2>
+          <dl class="mt-2 space-y-2 text-sm text-stone-300">
+            <div class="flex justify-between gap-3"><dt>Move</dt><dd class="font-mono text-lime-200">Arrows</dd></div>
+            <div class="flex justify-between gap-3"><dt>Dig / fill</dt><dd class="font-mono text-lime-200">Space</dd></div>
+            <div class="flex justify-between gap-3"><dt>Restart</dt><dd class="font-mono text-lime-200">R</dd></div>
+          </dl>
+        </div>
+        <button id="restart" class="w-full rounded bg-lime-400 px-4 py-2 font-semibold text-stone-950 hover:bg-lime-300">Restart</button>
+        <p id="message" class="min-h-20 rounded border border-stone-800 bg-stone-950 p-3 text-sm leading-6 text-stone-300">Trap every drone in a pit, then fill it before they climb out.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const levelEl = document.getElementById('level');
+    const oxygenEl = document.getElementById('oxygen');
+    const livesEl = document.getElementById('lives');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+
+    const cols = 15;
+    const rows = 10;
+    const cell = 44;
+    const offsetX = 30;
+    const offsetY = 42;
+    const keys = new Set();
+    let score;
+    let level;
+    let oxygen;
+    let lives;
+    let player;
+    let drones;
+    let holes;
+    let state;
+    let lastTime;
+    let stepTimer;
+
+    function reset() {
+      score = 0;
+      level = 1;
+      lives = 3;
+      startLevel();
+    }
+
+    function startLevel() {
+      oxygen = 100;
+      holes = new Map();
+      player = { x: 1, y: rows - 2, facing: 1, action: 0 };
+      drones = [];
+      for (let i = 0; i < Math.min(3 + level, 7); i++) {
+        drones.push({ x: cols - 2 - (i % 3), y: 1 + Math.floor(i / 3) * 2, dx: -1, trapped: 0 });
+      }
+      state = 'playing';
+      stepTimer = 0;
+      messageEl.textContent = 'Trap every drone in a pit, then fill it before they climb out.';
+      updateHud();
+    }
+
+    function key(x, y) {
+      return `${x},${y}`;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = String(score);
+      levelEl.textContent = String(level);
+      oxygenEl.textContent = String(Math.max(0, Math.ceil(oxygen)));
+      livesEl.textContent = String(lives);
+    }
+
+    function passable(x, y) {
+      return x >= 0 && x < cols && y >= 0 && y < rows;
+    }
+
+    function movePlayer(dx, dy) {
+      if (state !== 'playing' || player.action > 0) return;
+      const nx = player.x + dx;
+      const ny = player.y + dy;
+      if (!passable(nx, ny)) return;
+      player.x = nx;
+      player.y = ny;
+      if (dx !== 0) player.facing = dx;
+    }
+
+    function toggleHole() {
+      if (state !== 'playing' || player.action > 0) return;
+      const tx = player.x + player.facing;
+      const ty = player.y;
+      if (!passable(tx, ty)) return;
+      const id = key(tx, ty);
+      const hole = holes.get(id);
+      player.action = 0.22;
+      if (hole) {
+        if (hole.trapped) {
+          score += 150;
+          drones = drones.filter((drone) => !(drone.x === tx && drone.y === ty && drone.trapped > 0));
+        }
+        holes.delete(id);
+      } else {
+        holes.set(id, { age: 0, trapped: false });
+      }
+      updateHud();
+    }
+
+    function updatePlayer(dt) {
+      if (keys.has('ArrowLeft')) movePlayer(-1, 0);
+      else if (keys.has('ArrowRight')) movePlayer(1, 0);
+      else if (keys.has('ArrowUp')) movePlayer(0, -1);
+      else if (keys.has('ArrowDown')) movePlayer(0, 1);
+      player.action = Math.max(0, player.action - dt);
+    }
+
+    function updateHoles(dt) {
+      for (const [id, hole] of holes) {
+        hole.age += dt;
+        if (hole.age > 7 && !hole.trapped) holes.delete(id);
+      }
+    }
+
+    function updateDrones(dt) {
+      stepTimer += dt;
+      if (stepTimer < Math.max(0.16, 0.42 - level * 0.03)) return;
+      stepTimer = 0;
+      for (const drone of drones) {
+        if (drone.trapped > 0) {
+          drone.trapped -= 1;
+          if (drone.trapped <= 0) {
+            holes.delete(key(drone.x, drone.y));
+            drone.y = Math.max(0, drone.y - 1);
+          }
+          continue;
+        }
+        const toward = Math.sign(player.x - drone.x) || drone.dx;
+        if (Math.random() < 0.7) drone.dx = toward;
+        let nx = drone.x + drone.dx;
+        let ny = drone.y;
+        if (!passable(nx, ny) || Math.random() < 0.18) {
+          nx = drone.x;
+          ny = drone.y + (player.y > drone.y ? 1 : -1);
+        }
+        if (passable(nx, ny)) {
+          drone.x = nx;
+          drone.y = ny;
+        }
+        const hole = holes.get(key(drone.x, drone.y));
+        if (hole && !hole.trapped) {
+          hole.trapped = true;
+          drone.trapped = 5;
+          score += 40;
+        }
+      }
+    }
+
+    function checkRound() {
+      if (drones.some((drone) => drone.x === player.x && drone.y === player.y && drone.trapped <= 0)) {
+        lives -= 1;
+        if (lives <= 0) {
+          state = 'over';
+          messageEl.textContent = 'No lives left. Press R or Restart to try again.';
+        } else {
+          messageEl.textContent = 'Caught by a drone. One life spent.';
+          startLevel();
+        }
+      }
+      if (drones.length === 0 && state === 'playing') {
+        level += 1;
+        score += Math.ceil(oxygen) * 5;
+        messageEl.textContent = `Level ${level}. Oxygen bonus banked.`;
+        startLevel();
+      }
+      if (oxygen <= 0 && state === 'playing') {
+        state = 'over';
+        messageEl.textContent = 'Oxygen depleted. Press R or Restart to try again.';
+      }
+    }
+
+    function update(dt) {
+      if (state !== 'playing') return;
+      oxygen -= dt * (4 + level * 0.35);
+      updatePlayer(dt);
+      updateHoles(dt);
+      updateDrones(dt);
+      checkRound();
+      updateHud();
+    }
+
+    function drawGrid() {
+      ctx.fillStyle = '#0c0a09';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          ctx.fillStyle = y % 2 === 0 ? '#1c1917' : '#15110f';
+          ctx.fillRect(offsetX + x * cell, offsetY + y * cell, cell - 2, cell - 2);
+          if (y % 2 === 1) {
+            ctx.fillStyle = '#292524';
+            ctx.fillRect(offsetX + x * cell, offsetY + y * cell + cell - 7, cell - 2, 5);
+          }
+        }
+      }
+    }
+
+    function drawHoles() {
+      for (const [id, hole] of holes) {
+        const [x, y] = id.split(',').map(Number);
+        const cx = offsetX + x * cell + cell / 2;
+        const cy = offsetY + y * cell + cell / 2;
+        ctx.fillStyle = hole.trapped ? '#854d0e' : '#020617';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + 8, 16, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawPlayer() {
+      const px = offsetX + player.x * cell + cell / 2;
+      const py = offsetY + player.y * cell + cell / 2;
+      ctx.fillStyle = '#bef264';
+      ctx.fillRect(px - 10, py - 14, 20, 28);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(px + player.facing * 2, py - 8, 8 * player.facing, 5);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(px - 12, py + 13, 24, 5);
+    }
+
+    function drawDrones() {
+      for (const drone of drones) {
+        const px = offsetX + drone.x * cell + cell / 2;
+        const py = offsetY + drone.y * cell + cell / 2;
+        ctx.fillStyle = drone.trapped > 0 ? '#fb923c' : '#f43f5e';
+        ctx.beginPath();
+        ctx.arc(px, py, drone.trapped > 0 ? 11 : 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(px - 8, py - 3, 16, 5);
+      }
+    }
+
+    function drawOverlay() {
+      if (state !== 'over') return;
+      ctx.fillStyle = 'rgba(12, 10, 9, 0.78)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#bef264';
+      ctx.font = 'bold 34px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('PANIC OVER', canvas.width / 2, canvas.height / 2 - 8);
+      ctx.fillStyle = '#e7e5e4';
+      ctx.font = '16px system-ui';
+      ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 28);
+    }
+
+    function draw() {
+      drawGrid();
+      drawHoles();
+      drawDrones();
+      drawPlayer();
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.05, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(event.code)) event.preventDefault();
+      keys.add(event.code);
+      if (event.code === 'Space') toggleHole();
+      if (event.code === 'KeyR') reset();
+    });
+    window.addEventListener('keyup', (event) => keys.delete(event.code));
+    restartBtn.addEventListener('click', reset);
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
