@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Armor Attack</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-orange-300/20 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-orange-200">Mini Armor Attack</h1>
+        <p class="text-sm text-stone-400">在城市街区中驾驶装甲车，摧毁来袭坦克并守住补给站。</p>
+      </div>
+      <button id="restartBtn" class="rounded border border-orange-300/50 px-4 py-2 text-sm font-semibold text-orange-100 transition hover:bg-orange-300/10">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 md:grid-cols-[1fr_220px]">
+      <div class="rounded-lg border border-stone-700 bg-stone-900/80 p-3 shadow-2xl shadow-orange-950/20">
+        <canvas id="gameCanvas" width="720" height="480" class="h-auto w-full rounded bg-stone-950"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 rounded-lg border border-stone-800 bg-stone-900/75 p-4 text-sm">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded border border-stone-700 p-3">
+            <div class="text-stone-400">分数</div>
+            <div id="score" class="text-xl font-bold text-orange-200">0</div>
+          </div>
+          <div class="rounded border border-stone-700 p-3">
+            <div class="text-stone-400">生命</div>
+            <div id="lives" class="text-xl font-bold text-rose-200">3</div>
+          </div>
+          <div class="rounded border border-stone-700 p-3">
+            <div class="text-stone-400">补给</div>
+            <div id="supply" class="text-xl font-bold text-lime-200">100</div>
+          </div>
+          <div class="rounded border border-stone-700 p-3">
+            <div class="text-stone-400">波次</div>
+            <div id="wave" class="text-xl font-bold text-cyan-200">1</div>
+          </div>
+        </div>
+        <div class="rounded border border-orange-300/20 bg-orange-300/5 p-3 text-stone-300">
+          <p>方向键 / WASD 移动。</p>
+          <p>鼠标移动或 J/L 转向炮塔。</p>
+          <p>Space 发射，R 重新开始。</p>
+        </div>
+        <div id="status" class="rounded border border-stone-700 p-3 text-stone-300">利用街区掩护，别让敌方坦克攻击中央补给站。</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const supplyEl = document.getElementById("supply");
+    const waveEl = document.getElementById("wave");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const input = new Set();
+    const player = { x: 360, y: 390, a: -Math.PI / 2, r: 15, speed: 2.8, cooldown: 0, invulnerable: 0 };
+    const base = { x: 360, y: 240, w: 70, h: 52 };
+    let walls = [];
+    let enemies = [];
+    let shots = [];
+    let sparks = [];
+    let score = 0;
+    let lives = 3;
+    let supply = 100;
+    let wave = 1;
+    let frame = 0;
+    let spawnTimer = 0;
+    let gameOver = false;
+    let won = false;
+    let mouse = { x: 360, y: 240, active: false };
+
+    function reset() {
+      walls = [
+        { x: 82, y: 72, w: 142, h: 34 },
+        { x: 300, y: 70, w: 122, h: 34 },
+        { x: 514, y: 72, w: 124, h: 34 },
+        { x: 92, y: 172, w: 40, h: 146 },
+        { x: 210, y: 158, w: 116, h: 36 },
+        { x: 456, y: 158, w: 124, h: 36 },
+        { x: 596, y: 172, w: 40, h: 146 },
+        { x: 174, y: 346, w: 126, h: 34 },
+        { x: 420, y: 346, w: 126, h: 34 }
+      ];
+      player.x = 360;
+      player.y = 410;
+      player.a = -Math.PI / 2;
+      player.cooldown = 0;
+      player.invulnerable = 90;
+      enemies = [];
+      shots = [];
+      sparks = [];
+      score = 0;
+      lives = 3;
+      supply = 100;
+      wave = 1;
+      frame = 0;
+      spawnTimer = 50;
+      gameOver = false;
+      won = false;
+      updateHud("利用街区掩护，别让敌方坦克攻击中央补给站。");
+    }
+
+    function updateHud(message) {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      supplyEl.textContent = Math.max(0, supply);
+      waveEl.textContent = wave;
+      if (message) statusEl.textContent = message;
+    }
+
+    function rectHitCircle(rect, circle) {
+      const cx = Math.max(rect.x, Math.min(circle.x, rect.x + rect.w));
+      const cy = Math.max(rect.y, Math.min(circle.y, rect.y + rect.h));
+      return Math.hypot(circle.x - cx, circle.y - cy) < circle.r;
+    }
+
+    function blocked(x, y, r) {
+      const circle = { x, y, r };
+      if (x < r || x > canvas.width - r || y < r || y > canvas.height - r) return true;
+      if (rectHitCircle(base, circle)) return true;
+      return walls.some((wall) => rectHitCircle(wall, circle));
+    }
+
+    function movePlayer() {
+      let dx = 0;
+      let dy = 0;
+      if (input.has("ArrowLeft") || input.has("a")) dx -= 1;
+      if (input.has("ArrowRight") || input.has("d")) dx += 1;
+      if (input.has("ArrowUp") || input.has("w")) dy -= 1;
+      if (input.has("ArrowDown") || input.has("s")) dy += 1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = player.x + (dx / len) * player.speed;
+      const ny = player.y + (dy / len) * player.speed;
+      if (!blocked(nx, player.y, player.r)) player.x = nx;
+      if (!blocked(player.x, ny, player.r)) player.y = ny;
+
+      if (mouse.active) {
+        player.a = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+      } else {
+        if (input.has("j")) player.a -= 0.07;
+        if (input.has("l")) player.a += 0.07;
+      }
+      player.cooldown = Math.max(0, player.cooldown - 1);
+      player.invulnerable = Math.max(0, player.invulnerable - 1);
+    }
+
+    function fire(owner, x, y, angle, speed, color) {
+      shots.push({
+        owner,
+        x: x + Math.cos(angle) * 18,
+        y: y + Math.sin(angle) * 18,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 82,
+        r: 4,
+        color
+      });
+    }
+
+    function playerFire() {
+      if (player.cooldown > 0 || gameOver) return;
+      fire("player", player.x, player.y, player.a, 6.4, "#fed7aa");
+      player.cooldown = 18;
+    }
+
+    function spawnEnemy() {
+      if (spawnTimer > 0) {
+        spawnTimer -= 1;
+        return;
+      }
+      const edge = Math.floor(Math.random() * 4);
+      const x = edge === 0 ? 28 : edge === 1 ? canvas.width - 28 : 40 + Math.random() * (canvas.width - 80);
+      const y = edge === 2 ? 28 : edge === 3 ? canvas.height - 28 : 36 + Math.random() * (canvas.height - 72);
+      enemies.push({
+        x,
+        y,
+        a: Math.atan2(base.y - y, base.x - x),
+        r: 16,
+        hp: 2 + Math.floor(wave / 3),
+        cooldown: 60 + Math.random() * 70,
+        turn: Math.random() < 0.5 ? -1 : 1
+      });
+      spawnTimer = Math.max(30, 86 - wave * 5);
+    }
+
+    function updateEnemies() {
+      for (const enemy of enemies) {
+        const target = Math.hypot(player.x - enemy.x, player.y - enemy.y) < 180 ? player : base;
+        const desired = Math.atan2(target.y + (target.h || 0) / 2 - enemy.y, target.x + (target.w || 0) / 2 - enemy.x);
+        let diff = Math.atan2(Math.sin(desired - enemy.a), Math.cos(desired - enemy.a));
+        enemy.a += Math.max(-0.035, Math.min(0.035, diff));
+
+        const speed = 0.75 + wave * 0.06;
+        const nx = enemy.x + Math.cos(enemy.a) * speed;
+        const ny = enemy.y + Math.sin(enemy.a) * speed;
+        if (!blocked(nx, enemy.y, enemy.r)) enemy.x = nx; else enemy.a += enemy.turn * 0.8;
+        if (!blocked(enemy.x, ny, enemy.r)) enemy.y = ny; else enemy.a += enemy.turn * 0.8;
+
+        enemy.cooldown -= 1;
+        if (enemy.cooldown <= 0) {
+          fire("enemy", enemy.x, enemy.y, enemy.a, 4.4, "#f87171");
+          enemy.cooldown = Math.max(42, 100 - wave * 4);
+        }
+      }
+    }
+
+    function updateShots() {
+      for (const shot of shots) {
+        shot.x += shot.vx;
+        shot.y += shot.vy;
+        shot.life -= 1;
+        if (shot.x < 0 || shot.x > canvas.width || shot.y < 0 || shot.y > canvas.height) shot.life = 0;
+        if (walls.some((wall) => rectHitCircle(wall, shot))) {
+          shot.life = 0;
+          burst(shot.x, shot.y, "#78716c", 5);
+        }
+      }
+      shots = shots.filter((shot) => shot.life > 0);
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        sparks.push({ x, y, vx: Math.cos(angle) * (0.7 + Math.random() * 2.3), vy: Math.sin(angle) * (0.7 + Math.random() * 2.3), life: 18 + Math.random() * 16, color });
+      }
+    }
+
+    function checkHits() {
+      for (const shot of shots) {
+        if (shot.owner === "player") {
+          for (const enemy of enemies) {
+            if (!enemy.dead && Math.hypot(shot.x - enemy.x, shot.y - enemy.y) < enemy.r + shot.r) {
+              shot.life = 0;
+              enemy.hp -= 1;
+              burst(shot.x, shot.y, "#fdba74", 8);
+              if (enemy.hp <= 0) {
+                enemy.dead = true;
+                score += 120;
+                burst(enemy.x, enemy.y, "#fb923c", 18);
+              }
+            }
+          }
+        } else {
+          if (player.invulnerable <= 0 && Math.hypot(shot.x - player.x, shot.y - player.y) < player.r + shot.r) {
+            shot.life = 0;
+            lives -= 1;
+            player.x = 360;
+            player.y = 410;
+            player.invulnerable = 105;
+            burst(player.x, player.y, "#fca5a5", 18);
+            updateHud("装甲受损，重新部署。");
+            if (lives <= 0) {
+              gameOver = true;
+              updateHud("装甲车被击毁，按 R 重新开始。");
+            }
+          }
+          if (rectHitCircle(base, shot)) {
+            shot.life = 0;
+            supply -= 8;
+            burst(shot.x, shot.y, "#bef264", 10);
+            updateHud("补给站遭到炮击。");
+          }
+        }
+      }
+      enemies = enemies.filter((enemy) => !enemy.dead);
+      shots = shots.filter((shot) => shot.life > 0);
+    }
+
+    function updateWave() {
+      if (supply <= 0 && !gameOver) {
+        gameOver = true;
+        updateHud("补给站失守，按 R 重新开始。");
+      }
+      if (!gameOver && frame > 240 && enemies.length === 0 && spawnTimer <= 0) {
+        wave += 1;
+        spawnTimer = 100;
+        supply = Math.min(100, supply + 8);
+        score += 200;
+        updateHud("街区暂时安全，补给站完成一次修复。");
+      }
+      if (wave > 6 && supply > 0 && !gameOver) {
+        won = true;
+        gameOver = true;
+        score += supply * 10;
+        updateHud("成功守住 6 波攻击。");
+      }
+    }
+
+    function updateSparks() {
+      for (const spark of sparks) {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.life -= 1;
+      }
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function drawMap() {
+      ctx.fillStyle = "#1c1917";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(251, 146, 60, 0.12)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#44403c";
+      ctx.strokeStyle = "#78716c";
+      for (const wall of walls) {
+        ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+        ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
+      }
+      ctx.fillStyle = supply > 30 ? "#365314" : "#7f1d1d";
+      ctx.strokeStyle = "#bef264";
+      ctx.fillRect(base.x, base.y, base.w, base.h);
+      ctx.strokeRect(base.x, base.y, base.w, base.h);
+      ctx.fillStyle = "#ecfccb";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("SUPPLY", base.x + base.w / 2, base.y + 31);
+    }
+
+    function drawTank(obj, body, turret, isPlayer) {
+      ctx.save();
+      ctx.translate(obj.x, obj.y);
+      ctx.rotate(obj.a);
+      ctx.fillStyle = body;
+      ctx.strokeStyle = turret;
+      ctx.lineWidth = 2;
+      ctx.fillRect(-14, -10, 28, 20);
+      ctx.strokeRect(-14, -10, 28, 20);
+      ctx.fillStyle = turret;
+      ctx.fillRect(0, -3, 23, 6);
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+      if (isPlayer && input.has("ArrowUp")) {
+        ctx.fillStyle = "#fdba74";
+        ctx.fillRect(-20, -4, 7, 8);
+      }
+      ctx.restore();
+    }
+
+    function drawObjects() {
+      for (const shot of shots) {
+        ctx.fillStyle = shot.color;
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (const enemy of enemies) drawTank(enemy, "#7f1d1d", "#fecaca", false);
+      if (!(player.invulnerable > 0 && Math.floor(frame / 6) % 2 === 0)) {
+        drawTank(player, "#0f766e", "#ccfbf1", true);
+      }
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life / 28);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (spawnTimer > 0 && !gameOver) {
+        ctx.fillStyle = "rgba(28, 25, 23, 0.62)";
+        ctx.fillRect(256, 28, 208, 40);
+        ctx.strokeStyle = "#fdba74";
+        ctx.strokeRect(256, 28, 208, 40);
+        ctx.fillStyle = "#fed7aa";
+        ctx.font = "bold 17px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("WAVE " + wave, 360, 54);
+      }
+      if (gameOver) {
+        ctx.fillStyle = "rgba(28, 25, 23, 0.82)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = won ? "#bbf7d0" : "#fecaca";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(won ? "防守成功" : "任务失败", 360, 220);
+        ctx.fillStyle = "#e7e5e4";
+        ctx.font = "18px sans-serif";
+        ctx.fillText("按 R 或点击重新开始", 360, 258);
+      }
+    }
+
+    function loop() {
+      frame += 1;
+      if (!gameOver) {
+        spawnEnemy();
+        movePlayer();
+        updateEnemies();
+        updateShots();
+        checkHits();
+        updateWave();
+        updateSparks();
+        updateHud();
+      }
+      drawMap();
+      drawObjects();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener("mousemove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * canvas.width;
+      mouse.y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+      mouse.active = true;
+    });
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "a", "d", "w", "s", "j", "l", "r"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === " ") {
+        playerFire();
+        return;
+      }
+      if (key === "r") {
+        reset();
+        return;
+      }
+      if (key === "j" || key === "l") mouse.active = false;
+      input.add(key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      input.delete(key);
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
