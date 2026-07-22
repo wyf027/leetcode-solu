@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Focus</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-orange-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Focus</h1>
+        <p class="mt-2 max-w-2xl text-sm text-stone-300">选中自己颜色在顶端的棋堆，按堆高横竖移动并合并。棋堆超过 5 枚时从底部移除，顶端颜色控制棋堆。</p>
+      </div>
+      <button id="resetBtn" class="w-fit rounded-md border border-stone-600 px-4 py-2 text-sm font-semibold hover:bg-stone-800">重开</button>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div class="rounded-lg border border-stone-700 bg-stone-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square max-w-[520px] grid-cols-5 gap-2 rounded-md bg-stone-800 p-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-stone-700 bg-stone-900 p-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs text-stone-400">当前</p>
+            <p id="turnBadge" class="text-2xl font-bold text-orange-300">橙方</p>
+          </div>
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs text-stone-400">棋堆</p>
+            <p id="stackCount" class="text-2xl font-bold text-amber-300">25</p>
+          </div>
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs text-stone-400">橙控堆</p>
+            <p id="oScore" class="text-2xl font-bold text-orange-300">0</p>
+          </div>
+          <div class="rounded-md bg-stone-800 p-3">
+            <p class="text-xs text-stone-400">蓝控堆</p>
+            <p id="bScore" class="text-2xl font-bold text-sky-300">0</p>
+          </div>
+        </div>
+        <p id="message" class="mt-4 rounded-md border border-stone-700 p-3 text-sm leading-6 text-stone-300">选择橙方顶子的棋堆。</p>
+        <div class="mt-5 rounded-md border border-stone-700 p-3 text-xs leading-5 text-stone-400">
+          Lite 规则：移动整堆，距离等于堆高。无法移动或没有己方顶子时落败。
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const maxHeight = 5;
+    let board = [];
+    let player = "O";
+    let selected = null;
+    let gameOver = false;
+
+    function resetGame() {
+      board = Array.from({ length: size }, (_, row) =>
+        Array.from({ length: size }, (_, col) => [(row + col) % 2 === 0 ? "O" : "B"])
+      );
+      player = "O";
+      selected = null;
+      gameOver = false;
+      render("选择橙方顶子的棋堆。");
+    }
+
+    function topOf(stack) {
+      return stack.length ? stack[stack.length - 1] : "";
+    }
+
+    function controlledStacks(owner) {
+      return board.flat().filter((stack) => topOf(stack) === owner).length;
+    }
+
+    function legalMoves(row, col) {
+      const stack = board[row][col];
+      if (!stack.length || topOf(stack) !== player) return [];
+      const distance = stack.length;
+      return [
+        [row - distance, col],
+        [row + distance, col],
+        [row, col - distance],
+        [row, col + distance],
+      ].filter(([nextRow, nextCol]) => nextRow >= 0 && nextRow < size && nextCol >= 0 && nextCol < size);
+    }
+
+    function hasAnyMove(owner) {
+      const saved = player;
+      player = owner;
+      const ok = board.some((row, rowIndex) => row.some((_, colIndex) => legalMoves(rowIndex, colIndex).length));
+      player = saved;
+      return ok;
+    }
+
+    function trimStack(stack) {
+      while (stack.length > maxHeight) stack.shift();
+      return stack;
+    }
+
+    function moveStack(toRow, toCol) {
+      if (!selected) return false;
+      const moves = legalMoves(selected.row, selected.col).map(([row, col]) => `${row},${col}`);
+      if (!moves.includes(`${toRow},${toCol}`)) return false;
+      const moving = board[selected.row][selected.col];
+      board[selected.row][selected.col] = [];
+      board[toRow][toCol] = trimStack([...board[toRow][toCol], ...moving]);
+      selected = null;
+      player = player === "O" ? "B" : "O";
+      if (!hasAnyMove(player)) {
+        gameOver = true;
+        render(`${player === "O" ? "橙方" : "蓝方"}无合法移动，${player === "O" ? "蓝方" : "橙方"}获胜。`);
+      } else {
+        render(`轮到${player === "O" ? "橙方" : "蓝方"}。`);
+      }
+      return true;
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (selected && moveStack(row, col)) return;
+      if (topOf(board[row][col]) === player) {
+        selected = { row, col };
+        render(`已选择 ${board[row][col].length} 枚高的棋堆。`);
+      }
+    }
+
+    function stackLabel(stack) {
+      return stack.map((piece) => piece === "O" ? "●" : "●").join("");
+    }
+
+    function renderBoard() {
+      const boardEl = document.getElementById("board");
+      boardEl.innerHTML = "";
+      const targets = selected ? new Set(legalMoves(selected.row, selected.col).map(([row, col]) => `${row},${col}`)) : new Set();
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const stack = board[row][col];
+          const owner = topOf(stack);
+          const key = `${row},${col}`;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = [
+            "flex aspect-square flex-col items-center justify-center rounded-md border text-xs font-bold transition",
+            owner === "O" ? "border-orange-400 bg-orange-950/70 text-orange-200" : "",
+            owner === "B" ? "border-sky-400 bg-sky-950/70 text-sky-200" : "",
+            !owner ? "border-stone-700 bg-stone-950 text-stone-500" : "",
+            selected && selected.row === row && selected.col === col ? "ring-4 ring-amber-300" : "",
+            targets.has(key) ? "outline outline-2 outline-lime-300" : "hover:brightness-125",
+          ].join(" ");
+          button.innerHTML = `<span class="text-lg">${stack.length || ""}</span><span>${stackLabel(stack)}</span>`;
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render(message) {
+      renderBoard();
+      document.getElementById("turnBadge").textContent = gameOver ? "结束" : player === "O" ? "橙方" : "蓝方";
+      document.getElementById("turnBadge").className = `text-2xl font-bold ${player === "O" ? "text-orange-300" : "text-sky-300"}`;
+      document.getElementById("stackCount").textContent = board.flat().filter((stack) => stack.length).length;
+      document.getElementById("oScore").textContent = controlledStacks("O");
+      document.getElementById("bScore").textContent = controlledStacks("B");
+      document.getElementById("message").textContent = message;
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
