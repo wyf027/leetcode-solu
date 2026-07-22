@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Chowka Bara</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center">
+    <section class="flex-1">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Chowka Bara</h1>
+          <p id="status" class="mt-1 text-sm text-indigo-200">Roll the shells, race around the cross, and return home.</p>
+        </div>
+        <button id="reset" class="rounded-md bg-lime-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-lime-200">Reset</button>
+      </div>
+
+      <div class="rounded-lg border border-indigo-700 bg-indigo-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+    </section>
+
+    <aside class="w-full rounded-lg border border-indigo-700 bg-indigo-900 p-4 md:w-72">
+      <button id="roll" class="w-full rounded-md bg-lime-300 px-4 py-3 text-sm font-semibold text-indigo-950 hover:bg-lime-200">Roll shells</button>
+      <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-md bg-indigo-800 p-3">
+          <div class="text-indigo-200">Last roll</div>
+          <div id="rollValue" class="mt-1 text-2xl font-semibold">-</div>
+        </div>
+        <div class="rounded-md bg-indigo-800 p-3">
+          <div class="text-indigo-200">Shells up</div>
+          <div id="shells" class="mt-1 text-2xl font-semibold">-</div>
+        </div>
+      </div>
+      <div class="mt-4 space-y-2 text-sm text-indigo-200">
+        <p>Each side has one racer on a 16-step loop.</p>
+        <p>Four shells up count as 8; no shells up count as 4.</p>
+        <p>Land on the rival to send them back to start.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const rollBtn = document.getElementById("roll");
+    const resetBtn = document.getElementById("reset");
+    const rollValueEl = document.getElementById("rollValue");
+    const shellsEl = document.getElementById("shells");
+
+    const pathCells = [22, 21, 20, 15, 10, 5, 0, 1, 2, 3, 4, 9, 14, 19, 24, 23];
+    const starts = { blue: 0, red: 8 };
+    const colors = { blue: "bg-sky-300 text-indigo-950", red: "bg-rose-300 text-indigo-950" };
+    let positions;
+    let finished;
+    let turn;
+    let pendingRoll;
+    let gameOver;
+
+    function startGame() {
+      positions = { blue: starts.blue, red: starts.red };
+      finished = { blue: false, red: false };
+      turn = "blue";
+      pendingRoll = 0;
+      gameOver = false;
+      rollValueEl.textContent = "-";
+      shellsEl.textContent = "-";
+      setStatus("Blue turn: roll the shells.");
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let cell = 0; cell < 25; cell++) {
+        const tile = document.createElement("button");
+        const pathIndex = pathCells.indexOf(cell);
+        tile.className = "relative rounded-md border border-indigo-700 bg-indigo-800 text-xs text-indigo-300";
+        tile.style.aspectRatio = "1";
+        if (pathIndex >= 0) {
+          tile.className = "relative rounded-md border border-lime-300 bg-indigo-700 text-xs text-lime-100";
+          tile.textContent = pathIndex + 1;
+        }
+        if (pathIndex === starts.blue || pathIndex === starts.red) {
+          tile.classList.add("ring-2", "ring-lime-300");
+        }
+        addPiece(tile, "blue", pathIndex);
+        addPiece(tile, "red", pathIndex);
+        boardEl.appendChild(tile);
+      }
+    }
+
+    function addPiece(tile, side, pathIndex) {
+      if (finished[side] || positions[side] !== pathIndex) return;
+      const piece = document.createElement("div");
+      piece.className = `absolute ${side === "blue" ? "left-1 top-1" : "bottom-1 right-1"} flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold shadow ${colors[side]}`;
+      piece.textContent = side === "blue" ? "B" : "R";
+      tile.appendChild(piece);
+    }
+
+    function rollShells() {
+      if (gameOver || pendingRoll) return;
+      const shells = Array.from({ length: 4 }, () => Math.random() < 0.5 ? 1 : 0);
+      const up = shells.reduce((sum, shell) => sum + shell, 0);
+      pendingRoll = up === 0 ? 4 : up === 4 ? 8 : up;
+      shellsEl.textContent = shells.map((shell) => shell ? "up" : "down").join(" ");
+      rollValueEl.textContent = pendingRoll;
+      movePiece();
+    }
+
+    function movePiece() {
+      const current = positions[turn];
+      const next = current + pendingRoll;
+      if (next >= pathCells.length) {
+        finished[turn] = true;
+        gameOver = true;
+        setStatus(`${label(turn)} wins by reaching home.`);
+        pendingRoll = 0;
+        render();
+        return;
+      }
+
+      positions[turn] = next;
+      const rival = turn === "blue" ? "red" : "blue";
+      if (!finished[rival] && positions[rival] === next) {
+        positions[rival] = starts[rival];
+        setStatus(`${label(turn)} captured ${label(rival)} and gets another roll.`);
+      } else if (pendingRoll === 4 || pendingRoll === 8) {
+        setStatus(`${label(turn)} rolled ${pendingRoll} and rolls again.`);
+      } else {
+        turn = rival;
+        setStatus(`${label(turn)} turn: roll the shells.`);
+      }
+      pendingRoll = 0;
+      render();
+    }
+
+    function label(side) {
+      return side === "blue" ? "Blue" : "Red";
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    rollBtn.addEventListener("click", rollShells);
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
