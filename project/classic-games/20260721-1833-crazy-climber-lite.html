@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Crazy Climber</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-sky-200">Mini Crazy Climber</h1>
+        <p class="text-sm text-slate-300">Climb the tower, dodge falling pots, and avoid slamming windows.</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-semibold text-amber-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Lives</div>
+          <div id="lives" class="font-semibold text-rose-200">3</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Floor</div>
+          <div id="floor" class="font-semibold text-lime-200">1</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Round</div>
+          <div id="round" class="font-semibold text-sky-200">1</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <div class="rounded bg-slate-900 p-3 ring-1 ring-slate-700">
+        <canvas id="game" width="800" height="520" class="aspect-[20/13] w-full rounded bg-slate-800"></canvas>
+      </div>
+      <aside class="rounded bg-slate-900 p-4 text-sm leading-6 text-slate-300 ring-1 ring-slate-700">
+        <h2 class="mb-2 font-semibold text-slate-100">Controls</h2>
+        <p>Climb: Arrow keys or WASD</p>
+        <p>Quick step: Space</p>
+        <p>Restart: Enter</p>
+        <button id="restart" class="mt-4 w-full rounded bg-sky-300 px-3 py-2 font-semibold text-slate-950 hover:bg-sky-200">Restart</button>
+        <p id="message" class="mt-4 min-h-16 rounded bg-slate-950 p-3 text-sky-100 ring-1 ring-slate-700">Reach the roof while the city keeps throwing trouble.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const floorEl = document.getElementById("floor");
+    const roundEl = document.getElementById("round");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const keys = new Set();
+    const building = { x: 190, y: 34, w: 420, h: 456 };
+    const cols = 5;
+    const rows = 9;
+    const windowW = 54;
+    const windowH = 38;
+    const rowGap = 47;
+    const colGap = 72;
+
+    let player;
+    let windows;
+    let hazards;
+    let puffs;
+    let score;
+    let lives;
+    let round;
+    let floorReached;
+    let gameState;
+    let tick;
+    let quickStep;
+
+    function setupGame() {
+      score = 0;
+      lives = 3;
+      round = 1;
+      floorReached = 1;
+      gameState = "playing";
+      quickStep = 0;
+      tick = 0;
+      resetClimber();
+      buildWindows();
+      hazards = [];
+      puffs = [];
+      setMessage("Climb from window to window. Closed shutters knock you loose.");
+      updateHud();
+    }
+
+    function resetClimber() {
+      player = {
+        col: 2,
+        row: rows - 1,
+        x: 0,
+        y: 0,
+        targetX: 0,
+        targetY: 0,
+        hurt: 0
+      };
+      snapPlayer();
+    }
+
+    function buildWindows() {
+      windows = [];
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          windows.push({
+            row,
+            col,
+            shut: false,
+            timer: 80 + Math.floor(Math.random() * 180),
+            phase: Math.random() * 8
+          });
+        }
+      }
+    }
+
+    function windowAt(row, col) {
+      return windows.find((item) => item.row === row && item.col === col);
+    }
+
+    function windowPosition(row, col) {
+      return {
+        x: building.x + 48 + col * colGap,
+        y: building.y + 54 + row * rowGap
+      };
+    }
+
+    function snapPlayer() {
+      const pos = windowPosition(player.row, player.col);
+      player.targetX = pos.x;
+      player.targetY = pos.y;
+      player.x = pos.x;
+      player.y = pos.y;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      floorEl.textContent = floorReached;
+      roundEl.textContent = round;
+    }
+
+    function movePlayer(dx, dy) {
+      if (gameState !== "playing" || player.hurt > 0) return;
+      const nextCol = Math.max(0, Math.min(cols - 1, player.col + dx));
+      const nextRow = Math.max(0, Math.min(rows - 1, player.row + dy));
+      if (nextCol === player.col && nextRow === player.row) return;
+
+      const nextWindow = windowAt(nextRow, nextCol);
+      if (nextWindow && nextWindow.shut) {
+        loseGrip("That window slammed shut.");
+        return;
+      }
+      player.col = nextCol;
+      player.row = nextRow;
+      const pos = windowPosition(player.row, player.col);
+      player.targetX = pos.x;
+      player.targetY = pos.y;
+      if (dy < 0) {
+        score += 20;
+        floorReached = Math.max(floorReached, rows - player.row);
+        updateHud();
+      }
+      if (player.row === 0) {
+        completeRound();
+      }
+    }
+
+    function completeRound() {
+      score += 250;
+      round += 1;
+      floorReached = 1;
+      resetClimber();
+      buildWindows();
+      hazards = [];
+      setMessage("Roof reached. The next tower is nastier.");
+      updateHud();
+    }
+
+    function loseGrip(reason) {
+      if (player.hurt > 0 || gameState !== "playing") return;
+      lives -= 1;
+      player.hurt = 70;
+      burst(player.x, player.y, "#fda4af");
+      setMessage(reason);
+      if (lives <= 0) {
+        gameState = "over";
+        setMessage("You lost your grip. Press Enter or Restart.");
+      } else {
+        resetClimber();
+      }
+      updateHud();
+    }
+
+    function spawnHazard() {
+      const col = Math.floor(Math.random() * cols);
+      const pos = windowPosition(0, col);
+      hazards.push({
+        x: pos.x + (Math.random() - 0.5) * 24,
+        y: building.y + 14,
+        vy: 2.3 + round * 0.24,
+        sway: Math.random() * 6,
+        kind: Math.random() < 0.65 ? "pot" : "sign"
+      });
+    }
+
+    function updateWindows() {
+      windows.forEach((item) => {
+        item.phase += 0.06;
+        item.timer -= 1;
+        if (item.timer <= 0) {
+          item.shut = !item.shut;
+          item.timer = item.shut
+            ? 42 + Math.floor(Math.random() * 42)
+            : 105 + Math.floor(Math.random() * 150) - round * 5;
+          item.timer = Math.max(34, item.timer);
+        }
+      });
+
+      const current = windowAt(player.row, player.col);
+      if (current && current.shut && player.hurt === 0) {
+        loseGrip("A shutter caught your hands.");
+      }
+    }
+
+    function updateHazards() {
+      if (tick % Math.max(36, 82 - round * 6) === 0) {
+        spawnHazard();
+      }
+      hazards = hazards.filter((hazard) => {
+        hazard.sway += 0.05;
+        hazard.y += hazard.vy;
+        hazard.x += Math.sin(hazard.sway) * 0.7;
+        const hit = Math.abs(hazard.x - player.x) < 24 && Math.abs(hazard.y - player.y) < 30;
+        if (hit && player.hurt === 0) {
+          loseGrip(hazard.kind === "pot" ? "A flower pot clipped you." : "A falling sign hit you.");
+          return false;
+        }
+        return hazard.y < height + 40;
+      });
+    }
+
+    function updatePlayer() {
+      player.x += (player.targetX - player.x) * 0.22;
+      player.y += (player.targetY - player.y) * 0.22;
+      player.hurt = Math.max(0, player.hurt - 1);
+      quickStep = Math.max(0, quickStep - 1);
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        puffs.push({
+          x,
+          y,
+          vx: Math.cos(i * 0.52) * (1.5 + Math.random() * 2),
+          vy: Math.sin(i * 0.52) * (1.5 + Math.random() * 2),
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updatePuffs() {
+      puffs = puffs.filter((puff) => {
+        puff.x += puff.vx;
+        puff.y += puff.vy;
+        puff.vy += 0.04;
+        puff.life -= 1;
+        return puff.life > 0;
+      });
+    }
+
+    function drawBuilding() {
+      ctx.clearRect(0, 0, width, height);
+      const sky = ctx.createLinearGradient(0, 0, 0, height);
+      sky.addColorStop(0, "#0f172a");
+      sky.addColorStop(1, "#1e1b4b");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(building.x - 14, building.y, building.w + 28, building.h + 36);
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(building.x, building.y, building.w, building.h);
+      ctx.fillStyle = "#475569";
+      ctx.fillRect(building.x - 18, building.y + building.h, building.w + 36, 22);
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(building.x + 34, building.y - 16, building.w - 68, 16);
+
+      windows.forEach((item) => {
+        const pos = windowPosition(item.row, item.col);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(pos.x - windowW / 2 - 5, pos.y - windowH / 2 - 5, windowW + 10, windowH + 10);
+        ctx.fillStyle = item.shut ? "#7f1d1d" : "#fef3c7";
+        ctx.fillRect(pos.x - windowW / 2, pos.y - windowH / 2, windowW, windowH);
+        if (!item.shut) {
+          ctx.fillStyle = "#60a5fa";
+          ctx.fillRect(pos.x - 2, pos.y - windowH / 2, 4, windowH);
+          ctx.fillRect(pos.x - windowW / 2, pos.y - 2, windowW, 4);
+        } else {
+          ctx.fillStyle = "#fecdd3";
+          ctx.fillRect(pos.x - windowW / 2, pos.y - 3, windowW, 6);
+        }
+      });
+    }
+
+    function drawClimber() {
+      ctx.save();
+      ctx.globalAlpha = player.hurt > 0 && Math.floor(player.hurt / 7) % 2 === 0 ? 0.45 : 1;
+      ctx.strokeStyle = "#bae6fd";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(player.x - 14, player.y - 18);
+      ctx.lineTo(player.x - 28, player.y - 4);
+      ctx.moveTo(player.x + 14, player.y - 18);
+      ctx.lineTo(player.x + 28, player.y - 4);
+      ctx.moveTo(player.x - 10, player.y + 12);
+      ctx.lineTo(player.x - 20, player.y + 28);
+      ctx.moveTo(player.x + 10, player.y + 12);
+      ctx.lineTo(player.x + 20, player.y + 28);
+      ctx.stroke();
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.arc(player.x, player.y - 20, 11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0ea5e9";
+      ctx.fillRect(player.x - 12, player.y - 8, 24, 26);
+      ctx.restore();
+    }
+
+    function drawHazards() {
+      hazards.forEach((hazard) => {
+        if (hazard.kind === "pot") {
+          ctx.fillStyle = "#b45309";
+          ctx.fillRect(hazard.x - 13, hazard.y - 10, 26, 18);
+          ctx.fillStyle = "#84cc16";
+          ctx.beginPath();
+          ctx.arc(hazard.x, hazard.y - 16, 12, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "#f97316";
+          ctx.fillRect(hazard.x - 18, hazard.y - 8, 36, 16);
+          ctx.fillStyle = "#fed7aa";
+          ctx.fillRect(hazard.x - 13, hazard.y - 3, 26, 5);
+        }
+      });
+    }
+
+    function drawPuffs() {
+      puffs.forEach((puff) => {
+        ctx.globalAlpha = Math.max(0, puff.life / 24);
+        ctx.fillStyle = puff.color;
+        ctx.fillRect(puff.x, puff.y, 4, 4);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawOverlay() {
+      if (gameState !== "over") return;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.76)";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#bae6fd";
+      ctx.font = "bold 38px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Climb Over", width / 2, height / 2 - 8);
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Press Enter to restart", width / 2, height / 2 + 30);
+      ctx.textAlign = "start";
+    }
+
+    function loop() {
+      tick += 1;
+      if (gameState === "playing") {
+        if (tick % (quickStep > 0 ? 5 : 9) === 0) {
+          if (keys.has("ArrowLeft") || keys.has("a")) movePlayer(-1, 0);
+          if (keys.has("ArrowRight") || keys.has("d")) movePlayer(1, 0);
+          if (keys.has("ArrowUp") || keys.has("w")) movePlayer(0, -1);
+          if (keys.has("ArrowDown") || keys.has("s")) movePlayer(0, 1);
+        }
+        updateWindows();
+        updateHazards();
+        updatePlayer();
+        updatePuffs();
+      }
+      drawBuilding();
+      drawHazards();
+      drawPuffs();
+      drawClimber();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === " ") {
+        quickStep = 35;
+      } else if (event.key === "Enter" && gameState === "over") {
+        setupGame();
+      } else {
+        keys.add(event.key);
+        keys.add(event.key.toLowerCase());
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
