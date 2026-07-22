@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Quoridor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-white">Mini Quoridor</h1>
+        <p class="mt-1 text-sm text-slate-300">移动到对面底线，或放墙拖慢对手；每次放墙后双方必须仍有通路。</p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-indigo-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-indigo-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[620px] grid-cols-[repeat(9,minmax(0,1fr))] grid-rows-[repeat(9,minmax(0,1fr))] gap-1"></div>
+      </div>
+
+      <aside class="rounded-lg border border-slate-700 bg-slate-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase text-slate-400">当前回合</p>
+            <p id="turnText" class="mt-1 text-2xl font-bold text-white">白方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-md bg-slate-800 p-3">
+              <p class="text-slate-400">白墙</p>
+              <p id="whiteWalls" class="text-xl font-semibold text-white">5</p>
+            </div>
+            <div class="rounded-md bg-slate-800 p-3">
+              <p class="text-slate-400">黑墙</p>
+              <p id="blackWalls" class="text-xl font-semibold text-white">5</p>
+            </div>
+          </div>
+          <p id="statusText" class="rounded-md bg-slate-800 p-3 text-sm leading-6 text-slate-200">
+            白方先手。点击相邻空格移动，或点击细长墙位放墙。
+          </p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const whiteWalls = document.getElementById("whiteWalls");
+    const blackWalls = document.getElementById("blackWalls");
+    const resetBtn = document.getElementById("resetBtn");
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    let pawns = {};
+    let walls = {};
+    let wallStock = {};
+    let turn = "W";
+    let winner = null;
+
+    function resetGame() {
+      pawns = {
+        W: { row: size - 1, col: Math.floor(size / 2) },
+        B: { row: 0, col: Math.floor(size / 2) }
+      };
+      walls = {};
+      wallStock = { W: 5, B: 5 };
+      turn = "W";
+      winner = null;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "W" ? "白方" : "黑方";
+    }
+
+    function wallKey(type, row, col) {
+      return `${type}-${row}-${col}`;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function isBlocked(row, col, nextRow, nextCol) {
+      if (row === nextRow) {
+        const wallCol = Math.min(col, nextCol);
+        return Boolean(walls[wallKey("V", row, wallCol)]);
+      }
+      const wallRow = Math.min(row, nextRow);
+      return Boolean(walls[wallKey("H", wallRow, col)]);
+    }
+
+    function occupied(row, col) {
+      return Object.values(pawns).some((pawn) => pawn.row === row && pawn.col === col);
+    }
+
+    function legalMoves(side) {
+      const pawn = pawns[side];
+      return directions
+        .map(([rowStep, colStep]) => [pawn.row + rowStep, pawn.col + colStep])
+        .filter(([row, col]) => inBounds(row, col))
+        .filter(([row, col]) => !occupied(row, col))
+        .filter(([row, col]) => !isBlocked(pawn.row, pawn.col, row, col));
+    }
+
+    function hasPath(side) {
+      const targetRow = side === "W" ? 0 : size - 1;
+      const start = pawns[side];
+      const queue = [[start.row, start.col]];
+      const seen = new Set([`${start.row},${start.col}`]);
+      while (queue.length) {
+        const [row, col] = queue.shift();
+        if (row === targetRow) return true;
+        for (const [rowStep, colStep] of directions) {
+          const nextRow = row + rowStep;
+          const nextCol = col + colStep;
+          const key = `${nextRow},${nextCol}`;
+          if (!inBounds(nextRow, nextCol) || seen.has(key) || isBlocked(row, col, nextRow, nextCol)) continue;
+          seen.add(key);
+          queue.push([nextRow, nextCol]);
+        }
+      }
+      return false;
+    }
+
+    function canPlaceWall(type, row, col) {
+      if (winner || wallStock[turn] <= 0 || walls[wallKey(type, row, col)]) return false;
+      walls[wallKey(type, row, col)] = turn;
+      const valid = hasPath("W") && hasPath("B");
+      delete walls[wallKey(type, row, col)];
+      return valid;
+    }
+
+    function placeWall(type, row, col) {
+      if (!canPlaceWall(type, row, col)) return;
+      walls[wallKey(type, row, col)] = turn;
+      wallStock[turn]--;
+      turn = turn === "W" ? "B" : "W";
+      render();
+    }
+
+    function movePawn(row, col) {
+      if (winner) return;
+      if (!legalMoves(turn).some(([moveRow, moveCol]) => moveRow === row && moveCol === col)) return;
+      pawns[turn] = { row, col };
+      if ((turn === "W" && row === 0) || (turn === "B" && row === size - 1)) {
+        winner = turn;
+      } else {
+        turn = turn === "W" ? "B" : "W";
+      }
+      render();
+    }
+
+    function render() {
+      const moves = new Set(legalMoves(turn).map(([row, col]) => `${row},${col}`));
+      boardEl.innerHTML = "";
+      for (let gridRow = 0; gridRow < size * 2 - 1; gridRow++) {
+        for (let gridCol = 0; gridCol < size * 2 - 1; gridCol++) {
+          const slot = document.createElement("button");
+          const isCell = gridRow % 2 === 0 && gridCol % 2 === 0;
+          const isVWall = gridRow % 2 === 0 && gridCol % 2 === 1;
+          const isHWall = gridRow % 2 === 1 && gridCol % 2 === 0;
+          slot.className = "rounded-sm transition";
+
+          if (isCell) {
+            const row = gridRow / 2;
+            const col = gridCol / 2;
+            const piece = Object.entries(pawns).find(([, pawn]) => pawn.row === row && pawn.col === col)?.[0];
+            const isMove = moves.has(`${row},${col}`);
+            slot.className += ` flex items-center justify-center border border-slate-700 ${(row + col) % 2 ? "bg-slate-700" : "bg-slate-600"} ${isMove ? "ring-4 ring-indigo-300 ring-inset" : "hover:brightness-110"}`;
+            slot.setAttribute("aria-label", `${row + 1}-${col + 1}`);
+            slot.addEventListener("click", () => movePawn(row, col));
+            if (piece) {
+              const disk = document.createElement("span");
+              disk.className = [
+                "flex h-3/5 w-3/5 items-center justify-center rounded-full border-2 text-xl font-black shadow-lg",
+                piece === "W" ? "border-white bg-slate-100 text-slate-950" : "border-slate-300 bg-slate-950 text-white"
+              ].join(" ");
+              disk.textContent = piece;
+              slot.appendChild(disk);
+            }
+          } else if (isVWall || isHWall) {
+            const type = isVWall ? "V" : "H";
+            const row = Math.floor(gridRow / 2);
+            const col = Math.floor(gridCol / 2);
+            const key = wallKey(type, row, col);
+            const placed = walls[key];
+            const allowed = canPlaceWall(type, row, col);
+            slot.className += ` ${isVWall ? "mx-auto h-full w-2" : "my-auto h-2 w-full"} ${placed ? (placed === "W" ? "bg-slate-100" : "bg-slate-950 border border-slate-400") : allowed ? "bg-indigo-400 hover:bg-indigo-300" : "bg-slate-800"}`;
+            slot.setAttribute("aria-label", `${type}-${row + 1}-${col + 1}`);
+            slot.addEventListener("click", () => placeWall(type, row, col));
+          } else {
+            slot.className += " bg-slate-800";
+            slot.disabled = true;
+          }
+          boardEl.appendChild(slot);
+        }
+      }
+
+      whiteWalls.textContent = wallStock.W;
+      blackWalls.textContent = wallStock.B;
+      turnText.textContent = winner ? `${sideName(winner)}获胜` : sideName(turn);
+      statusText.textContent = winner
+        ? `${sideName(winner)}抵达对面底线。点击重新开始再来一局。`
+        : `${sideName(turn)}行动。可移动到 ${moves.size} 个相邻空格，或放置剩余墙段。`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
