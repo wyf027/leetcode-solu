@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Nine Holes</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-medium uppercase tracking-widest text-yellow-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Nine Holes</h1>
+      </div>
+      <button id="reset" class="w-fit rounded-md bg-yellow-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-yellow-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-stone-800 bg-stone-900/80 p-4 shadow-2xl shadow-black/30">
+        <div id="board" class="grid aspect-square w-full grid-cols-3 gap-3"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <div class="text-sm text-stone-400">当前回合</div>
+          <div id="turn" class="mt-1 text-2xl font-bold"></div>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-stone-300"></p>
+        </div>
+
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <div class="mb-3 text-sm font-semibold text-stone-200">剩余待放</div>
+          <div id="stock" class="grid grid-cols-2 gap-2"></div>
+        </div>
+
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <p>双方先轮流放置三枚棋子。放完后只能沿相邻线移动到空洞。</p>
+          <p class="mt-2">任意横、竖或斜线率先形成三连即获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 3;
+    const players = [
+      { name: "黑方", bg: "bg-stone-950", ring: "ring-stone-300", text: "text-stone-100" },
+      { name: "白方", bg: "bg-amber-100", ring: "ring-amber-500", text: "text-amber-200" }
+    ];
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const statusEl = document.getElementById("status");
+    const stockEl = document.getElementById("stock");
+    const resetEl = document.getElementById("reset");
+    let board;
+    let current;
+    let stock;
+    let selected;
+    let winner;
+
+    function startGame() {
+      board = Array(9).fill(null);
+      current = 0;
+      stock = [3, 3];
+      selected = null;
+      winner = null;
+      statusEl.textContent = "放置阶段：点击空洞落子。";
+      render();
+    }
+
+    function phase() {
+      return stock[0] + stock[1] > 0 ? "place" : "move";
+    }
+
+    function rowCol(index) {
+      return { row: Math.floor(index / size), col: index % size };
+    }
+
+    function adjacent(a, b) {
+      const from = rowCol(a);
+      const to = rowCol(b);
+      return Math.max(Math.abs(from.row - to.row), Math.abs(from.col - to.col)) === 1;
+    }
+
+    function findWin() {
+      return lines.find(line => line.every(cell => board[cell] === current));
+    }
+
+    function hasMoves(player) {
+      return board.some((owner, index) => owner === player && board.some((target, to) => target === null && adjacent(index, to)));
+    }
+
+    function finishTurn() {
+      if (findWin()) {
+        winner = current;
+        statusEl.textContent = players[current].name + "形成三连。";
+        return;
+      }
+      current = 1 - current;
+      selected = null;
+      if (phase() === "move" && !hasMoves(current)) {
+        winner = 1 - current;
+        statusEl.textContent = players[current].name + "没有可移动棋子。";
+      } else {
+        statusEl.textContent = phase() === "place" ? "放置阶段：点击空洞落子。" : "移动阶段：选择己方棋子再选相邻空洞。";
+      }
+    }
+
+    function handleCell(index) {
+      if (winner !== null) return;
+      if (phase() === "place") {
+        if (board[index] !== null) {
+          statusEl.textContent = "这个洞已经有棋子。";
+          return;
+        }
+        board[index] = current;
+        stock[current]--;
+        finishTurn();
+      } else if (selected === null) {
+        if (board[index] === current) {
+          selected = index;
+          statusEl.textContent = "选择相邻空洞完成移动。";
+        } else {
+          statusEl.textContent = "请选择当前玩家自己的棋子。";
+        }
+      } else if (selected === index) {
+        selected = null;
+        statusEl.textContent = "已取消选择。";
+      } else if (board[index] === null && adjacent(selected, index)) {
+        board[index] = current;
+        board[selected] = null;
+        finishTurn();
+      } else if (board[index] === current) {
+        selected = index;
+        statusEl.textContent = "已改选棋子。";
+      } else {
+        statusEl.textContent = "只能移动到相邻空洞。";
+      }
+      render();
+    }
+
+    function renderStock() {
+      stockEl.innerHTML = "";
+      players.forEach((player, index) => {
+        const card = document.createElement("div");
+        card.className = "rounded-md border border-stone-700 bg-stone-950 p-3";
+        card.innerHTML = '<div class="text-xs text-stone-400">' + player.name + '</div><div class="mt-1 text-xl font-bold ' + player.text + '">' + stock[index] + '</div>';
+        stockEl.appendChild(card);
+      });
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let index = 0; index < 9; index++) {
+        const owner = board[index];
+        const isSelected = selected === index;
+        const canMoveHere = phase() === "move" && selected !== null && owner === null && adjacent(selected, index);
+        const button = document.createElement("button");
+        button.className = [
+          "flex aspect-square items-center justify-center rounded-full border bg-stone-800 transition",
+          isSelected ? "border-yellow-300 ring-2 ring-yellow-300" : "border-stone-600",
+          canMoveHere || (phase() === "place" && owner === null) ? "hover:border-yellow-200" : ""
+        ].join(" ");
+        if (owner !== null) {
+          const stone = document.createElement("span");
+          stone.className = "h-4/5 w-4/5 rounded-full shadow-lg ring-2 " + players[owner].bg + " " + players[owner].ring;
+          button.appendChild(stone);
+        }
+        button.addEventListener("click", () => handleCell(index));
+        boardEl.appendChild(button);
+      }
+    }
+
+    function render() {
+      const active = winner === null ? current : winner;
+      turnEl.textContent = winner === null ? players[current].name : players[winner].name + "获胜";
+      turnEl.className = "mt-1 text-2xl font-bold " + players[active].text;
+      renderStock();
+      renderBoard();
+    }
+
+    resetEl.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
