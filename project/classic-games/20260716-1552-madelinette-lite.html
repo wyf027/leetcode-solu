@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Madelinette</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-rose-950 text-rose-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center">
+    <section class="flex-1">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Madelinette</h1>
+          <p id="status" class="mt-1 text-sm text-rose-200">Sun places first. Make three in a row.</p>
+        </div>
+        <button id="reset" class="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-rose-950 hover:bg-cyan-200">Reset</button>
+      </div>
+      <div class="rounded-lg border border-rose-700 bg-rose-900 p-3">
+        <svg id="board" viewBox="0 0 420 420" class="aspect-square w-full" role="img" aria-label="Madelinette board"></svg>
+      </div>
+    </section>
+
+    <aside class="w-full rounded-lg border border-rose-700 bg-rose-900 p-4 md:w-72">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-md bg-rose-800 p-3">
+          <div class="text-rose-200">Sun placed</div>
+          <div id="sunCount" class="mt-1 text-2xl font-semibold">0 / 3</div>
+        </div>
+        <div class="rounded-md bg-rose-800 p-3">
+          <div class="text-rose-200">Moon placed</div>
+          <div id="moonCount" class="mt-1 text-2xl font-semibold">0 / 3</div>
+        </div>
+      </div>
+      <div class="mt-4 space-y-2 text-sm text-rose-200">
+        <p>Each side drops three pieces onto empty points.</p>
+        <p>After placement, slide one piece along a connected line.</p>
+        <p>The first straight line of three wins.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const svg = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const resetBtn = document.getElementById("reset");
+    const sunCountEl = document.getElementById("sunCount");
+    const moonCountEl = document.getElementById("moonCount");
+
+    const points = [
+      [70, 70], [210, 70], [350, 70],
+      [70, 210], [210, 210], [350, 210],
+      [70, 350], [210, 350], [350, 350]
+    ];
+    const lines = [
+      [0, 1], [1, 2], [3, 4], [4, 5], [6, 7], [7, 8],
+      [0, 3], [3, 6], [1, 4], [4, 7], [2, 5], [5, 8],
+      [0, 4], [4, 8], [2, 4], [4, 6]
+    ];
+    const wins = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+    const neighbors = points.map(() => new Set());
+    lines.forEach(([a, b]) => {
+      neighbors[a].add(b);
+      neighbors[b].add(a);
+    });
+
+    let board;
+    let turn;
+    let selected;
+    let placed;
+    let gameOver;
+
+    function startGame() {
+      board = Array(points.length).fill(null);
+      turn = "sun";
+      selected = null;
+      placed = { sun: 0, moon: 0 };
+      gameOver = false;
+      setStatus("Sun turn: place a piece.");
+      render();
+    }
+
+    function render() {
+      svg.innerHTML = "";
+      lines.forEach(([a, b]) => drawLine(points[a], points[b]));
+      points.forEach(([x, y], index) => {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        node.setAttribute("cx", x);
+        node.setAttribute("cy", y);
+        node.setAttribute("r", selected === index ? 18 : 13);
+        node.setAttribute("fill", selected === index ? "#67e8f9" : "#be123c");
+        node.setAttribute("stroke", "#fecdd3");
+        node.setAttribute("stroke-width", "2");
+        node.classList.add("cursor-pointer");
+        node.addEventListener("click", () => handlePoint(index));
+        svg.appendChild(node);
+        if (board[index]) drawPiece(x, y, board[index]);
+      });
+      sunCountEl.textContent = `${placed.sun} / 3`;
+      moonCountEl.textContent = `${placed.moon} / 3`;
+    }
+
+    function drawLine(from, to) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", from[0]);
+      line.setAttribute("y1", from[1]);
+      line.setAttribute("x2", to[0]);
+      line.setAttribute("y2", to[1]);
+      line.setAttribute("stroke", "#fb7185");
+      line.setAttribute("stroke-width", "5");
+      line.setAttribute("stroke-linecap", "round");
+      svg.appendChild(line);
+    }
+
+    function drawPiece(x, y, side) {
+      const piece = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      piece.setAttribute("cx", x);
+      piece.setAttribute("cy", y);
+      piece.setAttribute("r", "21");
+      piece.setAttribute("fill", side === "sun" ? "#fde047" : "#c4b5fd");
+      piece.setAttribute("stroke", side === "sun" ? "#fef9c3" : "#ede9fe");
+      piece.setAttribute("stroke-width", "4");
+      piece.classList.add("pointer-events-none");
+      svg.appendChild(piece);
+    }
+
+    function handlePoint(index) {
+      if (gameOver) return;
+      if (placed[turn] < 3) {
+        if (board[index]) return;
+        board[index] = turn;
+        placed[turn]++;
+        endMove();
+        return;
+      }
+      if (selected === null) {
+        if (board[index] === turn) selected = index;
+        render();
+        return;
+      }
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (board[index] || !neighbors[selected].has(index)) return;
+      board[selected] = null;
+      board[index] = turn;
+      selected = null;
+      endMove();
+    }
+
+    function endMove() {
+      if (checkWinner(turn)) {
+        gameOver = true;
+        setStatus(`${label(turn)} wins with three in a row.`);
+        render();
+        return;
+      }
+      turn = turn === "sun" ? "moon" : "sun";
+      setStatus(placed[turn] < 3 ? `${label(turn)} turn: place a piece.` : `${label(turn)} turn: slide a piece.`);
+      render();
+    }
+
+    function checkWinner(side) {
+      return wins.some((line) => line.every((index) => board[index] === side));
+    }
+
+    function label(side) {
+      return side === "sun" ? "Sun" : "Moon";
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
