@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Rolling Thunder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      touch-action: manipulation;
+    }
+    canvas {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3 border-b border-rose-400/30 pb-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-rose-200">Mini Rolling Thunder</h1>
+        <p class="text-sm text-slate-400">Advance through the corridor, duck under shots, and clear the agents before time runs out.</p>
+      </div>
+      <button id="restartBtn" class="rounded bg-rose-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-100">
+        Restart
+      </button>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3 shadow-2xl shadow-rose-950/30">
+        <canvas id="gameCanvas" width="720" height="540" class="aspect-[4/3] w-full rounded bg-slate-950"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-slate-500">Score</div>
+              <div id="score" class="text-xl font-bold text-rose-200">0</div>
+            </div>
+            <div>
+              <div class="text-slate-500">Stage</div>
+              <div id="stage" class="text-xl font-bold text-cyan-200">1</div>
+            </div>
+            <div>
+              <div class="text-slate-500">Lives</div>
+              <div id="lives" class="text-xl font-bold text-amber-200">3</div>
+            </div>
+            <div>
+              <div class="text-slate-500">Ammo</div>
+              <div id="ammo" class="text-xl font-bold text-emerald-200">24</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-700 bg-slate-900 p-4 leading-6 text-slate-300">
+          <p><span class="font-semibold text-slate-100">Move:</span> Arrow keys or WASD</p>
+          <p><span class="font-semibold text-slate-100">Duck:</span> Down or S</p>
+          <p><span class="font-semibold text-slate-100">Jump:</span> Up or W</p>
+          <p><span class="font-semibold text-slate-100">Fire:</span> Space or J</p>
+        </div>
+
+        <div id="status" class="rounded border border-rose-500/40 bg-rose-950/20 p-4 text-rose-100">
+          Reach the right exit.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const stageEl = document.getElementById("stage");
+    const livesEl = document.getElementById("lives");
+    const ammoEl = document.getElementById("ammo");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const keys = new Set();
+    const bullets = [];
+    const enemyBullets = [];
+    const enemies = [];
+    const pickups = [];
+    const sparks = [];
+    let player;
+    let score;
+    let lives;
+    let stage;
+    let ammo;
+    let scrollX;
+    let spawnTimer;
+    let pickupTimer;
+    let fireCooldown;
+    let state;
+    let lastTime;
+
+    function setupGame() {
+      player = {
+        x: 90,
+        y: 398,
+        vx: 0,
+        vy: 0,
+        width: 28,
+        height: 58,
+        onGround: true,
+        ducking: false,
+        invincible: 0
+      };
+      score = 0;
+      lives = 3;
+      stage = 1;
+      ammo = 24;
+      scrollX = 0;
+      spawnTimer = 0.5;
+      pickupTimer = 4.2;
+      fireCooldown = 0;
+      state = "playing";
+      lastTime = performance.now();
+      bullets.length = 0;
+      enemyBullets.length = 0;
+      enemies.length = 0;
+      pickups.length = 0;
+      sparks.length = 0;
+      statusEl.textContent = "Reach the right exit.";
+      updateHud();
+    }
+
+    function spawnEnemy() {
+      enemies.push({
+        x: scrollX + canvas.width + 50,
+        y: 400,
+        width: 30,
+        height: 56,
+        shotTimer: 0.9 + Math.random() * 1.2,
+        speed: 30 + stage * 5,
+        alive: true
+      });
+    }
+
+    function spawnPickup() {
+      pickups.push({
+        x: scrollX + canvas.width + 80,
+        y: 386,
+        width: 26,
+        height: 24,
+        type: Math.random() < 0.65 ? "ammo" : "briefcase"
+      });
+    }
+
+    function fireBullet() {
+      if (fireCooldown > 0 || ammo <= 0 || state !== "playing") {
+        return;
+      }
+      const muzzleY = player.ducking ? player.y - 22 : player.y - 40;
+      bullets.push({ x: player.x + scrollX + 18, y: muzzleY, vx: 460, life: 1.1 });
+      ammo -= 1;
+      fireCooldown = 0.2;
+    }
+
+    function updatePlayer(dt) {
+      const movingLeft = keys.has("ArrowLeft") || keys.has("a");
+      const movingRight = keys.has("ArrowRight") || keys.has("d");
+      player.ducking = player.onGround && (keys.has("ArrowDown") || keys.has("s"));
+      if (movingLeft) {
+        player.vx -= 520 * dt;
+      }
+      if (movingRight) {
+        player.vx += 520 * dt;
+      }
+      if ((keys.has("ArrowUp") || keys.has("w")) && player.onGround && !player.ducking) {
+        player.vy = -390;
+        player.onGround = false;
+      }
+      player.vx *= 1 - Math.min(0.2, dt * 7);
+      player.vx = clamp(player.vx, -160, 210);
+      player.vy += 920 * dt;
+      player.x += player.vx * dt;
+      player.y += player.vy * dt;
+      if (player.y >= 398) {
+        player.y = 398;
+        player.vy = 0;
+        player.onGround = true;
+      }
+      if (player.x > 430) {
+        scrollX += (player.x - 430);
+        player.x = 430;
+      }
+      player.x = clamp(player.x, 50, 520);
+      fireCooldown = Math.max(0, fireCooldown - dt);
+      player.invincible = Math.max(0, player.invincible - dt);
+      if (keys.has(" ") || keys.has("j")) {
+        fireBullet();
+      }
+    }
+
+    function updateWorld(dt) {
+      spawnTimer -= dt;
+      pickupTimer -= dt;
+      stage = Math.min(6, Math.floor(scrollX / 850) + 1);
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = Math.max(0.9, 1.8 - stage * 0.12);
+      }
+      if (pickupTimer <= 0) {
+        spawnPickup();
+        pickupTimer = 5 + Math.random() * 3;
+      }
+      if (scrollX > 3400 && state === "playing") {
+        state = "won";
+        statusEl.textContent = "Exit reached. Press Enter for another run.";
+      }
+    }
+
+    function updateBullets(dt) {
+      for (let i = bullets.length - 1; i >= 0; i -= 1) {
+        const bullet = bullets[i];
+        bullet.x += bullet.vx * dt;
+        bullet.life -= dt;
+        if (bullet.life <= 0) {
+          bullets.splice(i, 1);
+          continue;
+        }
+        for (let j = enemies.length - 1; j >= 0; j -= 1) {
+          if (overlap(bulletBox(bullet), worldBox(enemies[j]))) {
+            burst(enemies[j].x - scrollX, enemies[j].y - 24, "#facc15", 12);
+            enemies.splice(j, 1);
+            bullets.splice(i, 1);
+            score += 180;
+            break;
+          }
+        }
+      }
+
+      for (let i = enemyBullets.length - 1; i >= 0; i -= 1) {
+        const bullet = enemyBullets[i];
+        bullet.x += bullet.vx * dt;
+        bullet.life -= dt;
+        if (bullet.life <= 0) {
+          enemyBullets.splice(i, 1);
+          continue;
+        }
+        if (overlap(bulletBox(bullet), playerBox())) {
+          enemyBullets.splice(i, 1);
+          hitPlayer("Enemy shot.");
+        }
+      }
+    }
+
+    function updateEnemies(dt) {
+      for (let i = enemies.length - 1; i >= 0; i -= 1) {
+        const enemy = enemies[i];
+        enemy.x -= enemy.speed * dt;
+        enemy.shotTimer -= dt;
+        if (enemy.shotTimer <= 0) {
+          enemyBullets.push({ x: enemy.x - 18, y: enemy.y - 34, vx: -260 - stage * 22, life: 2.2 });
+          enemy.shotTimer = 1.2 + Math.random() * 1.4;
+        }
+        if (enemy.x < scrollX - 80) {
+          enemies.splice(i, 1);
+          continue;
+        }
+        if (overlap(worldBox(enemy), playerBox())) {
+          enemies.splice(i, 1);
+          hitPlayer("Agent contact.");
+        }
+      }
+    }
+
+    function updatePickups(dt) {
+      for (let i = pickups.length - 1; i >= 0; i -= 1) {
+        const pickup = pickups[i];
+        pickup.x -= 16 * dt;
+        if (pickup.x < scrollX - 60) {
+          pickups.splice(i, 1);
+          continue;
+        }
+        if (overlap(worldBox(pickup), playerBox())) {
+          if (pickup.type === "ammo") {
+            ammo += 10;
+            statusEl.textContent = "Ammo restocked.";
+          } else {
+            score += 300;
+            statusEl.textContent = "Secret papers recovered.";
+          }
+          burst(pickup.x - scrollX, pickup.y, "#34d399", 10);
+          pickups.splice(i, 1);
+        }
+      }
+    }
+
+    function hitPlayer(reason) {
+      if (player.invincible > 0 || state !== "playing") {
+        return;
+      }
+      lives -= 1;
+      player.invincible = 1.5;
+      player.vx = 0;
+      burst(player.x, player.y - 26, "#fb7185", 16);
+      statusEl.textContent = reason + " Stay low and move.";
+      if (lives <= 0) {
+        state = "over";
+        statusEl.textContent = "Mission failed. Press Enter to restart.";
+      }
+    }
+
+    function updateSparks(dt) {
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+        if (spark.life <= 0) {
+          sparks.splice(i, 1);
+        }
+      }
+    }
+
+    function drawStage() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(0, 0, canvas.width, 116);
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, 116, canvas.width, 52);
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(0, 450, canvas.width, 90);
+
+      const offset = -scrollX % 96;
+      for (let x = offset - 96; x < canvas.width + 96; x += 96) {
+        ctx.fillStyle = "#475569";
+        ctx.fillRect(x, 122, 56, 36);
+        ctx.fillStyle = "#fda4af";
+        ctx.fillRect(x + 11, 130, 14, 18);
+        ctx.fillRect(x + 32, 130, 14, 18);
+        ctx.fillStyle = "#64748b";
+        ctx.fillRect(x, 450, 60, 16);
+      }
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 168, canvas.width, 282);
+    }
+
+    function drawPlayer() {
+      const blink = player.invincible > 0 && Math.floor(player.invincible * 14) % 2 === 0;
+      if (blink) {
+        return;
+      }
+      const height = player.ducking ? 34 : 58;
+      const top = player.y - height;
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(player.x - 13, top, 26, height);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(player.x - 8, top + 7, 16, 12);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(player.x + 12, top + 20, 16, 5);
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        const sx = enemy.x - scrollX;
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(sx - 15, enemy.y - enemy.height, enemy.width, enemy.height);
+        ctx.fillStyle = "#fee2e2";
+        ctx.fillRect(sx - 8, enemy.y - enemy.height + 8, 16, 11);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(sx - 28, enemy.y - 35, 16, 5);
+      }
+    }
+
+    function drawPickups() {
+      for (const pickup of pickups) {
+        const sx = pickup.x - scrollX;
+        ctx.fillStyle = pickup.type === "ammo" ? "#34d399" : "#facc15";
+        ctx.fillRect(sx - 13, pickup.y - 12, 26, 24);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(sx - 7, pickup.y - 5, 14, 10);
+      }
+    }
+
+    function drawBullets() {
+      ctx.fillStyle = "#e0f2fe";
+      for (const bullet of bullets) {
+        ctx.fillRect(bullet.x - scrollX - 2, bullet.y - 2, 12, 4);
+      }
+      ctx.fillStyle = "#fda4af";
+      for (const bullet of enemyBullets) {
+        ctx.fillRect(bullet.x - scrollX - 10, bullet.y - 2, 12, 4);
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 2.2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state === "playing") {
+        return;
+      }
+      ctx.fillStyle = "rgba(2,6,23,0.76)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffe4e6";
+      ctx.font = "700 36px system-ui";
+      ctx.fillText(state === "won" ? "Mission Clear" : "Mission Failed", canvas.width / 2, canvas.height / 2 - 16);
+      ctx.font = "500 18px system-ui";
+      ctx.fillText("Press Enter to restart", canvas.width / 2, canvas.height / 2 + 22);
+      ctx.textAlign = "left";
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 45 + Math.random() * 130;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.22 + Math.random() * 0.42,
+          color
+        });
+      }
+    }
+
+    function playerBox() {
+      const height = player.ducking ? 34 : player.height;
+      return {
+        x: player.x - player.width / 2,
+        y: player.y - height,
+        width: player.width,
+        height
+      };
+    }
+
+    function worldBox(item) {
+      return {
+        x: item.x - item.width / 2 - scrollX,
+        y: item.y - item.height,
+        width: item.width,
+        height: item.height
+      };
+    }
+
+    function bulletBox(bullet) {
+      return { x: bullet.x - scrollX, y: bullet.y - 3, width: 12, height: 6 };
+    }
+
+    function overlap(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      stageEl.textContent = stage;
+      livesEl.textContent = lives;
+      ammoEl.textContent = ammo;
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+      drawStage();
+      if (state === "playing") {
+        updateWorld(dt);
+        updatePlayer(dt);
+        updateBullets(dt);
+        updateEnemies(dt);
+        updatePickups(dt);
+      }
+      updateSparks(dt);
+      drawPickups();
+      drawEnemies();
+      drawBullets();
+      drawPlayer();
+      drawSparks();
+      drawOverlay();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "Enter"].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === " " || key === "j") {
+        fireBullet();
+      }
+      if (key === "Enter") {
+        setupGame();
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+
+    setupGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
