@@ -1,0 +1,1574 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 64 Minimum Path Sum 高山勘测图交互讲解：逐格理解原地动态规划。"
+    />
+    <title>64. 最小路径和｜高山勘测交互讲解</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              fog: "#e8f0f2",
+              glacier: "#c7e7ea",
+              pine: "#173f38",
+              ridge: "#0e2d29",
+              rescue: "#ff5b35",
+              survey: "#f4df53",
+              mineral: "#397d84",
+              ink: "#102827",
+              snow: "#f8fbf8",
+            },
+            fontFamily: {
+              display: ["Barlow Condensed", "sans-serif"],
+              body: ["Noto Sans SC", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"],
+            },
+            boxShadow: {
+              plate: "10px 10px 0 #173f38",
+              rescue: "8px 8px 0 #ff5b35",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        overflow-x: hidden;
+        background: #e8f0f2;
+        color: #102827;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      button,
+      [tabindex="0"] {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus-visible,
+      [tabindex="0"]:focus-visible {
+        outline: 4px solid #ff5b35;
+        outline-offset: 4px;
+      }
+
+      .topography {
+        background-color: #c7e7ea;
+        background-image:
+          repeating-radial-gradient(
+            ellipse at 15% 20%,
+            transparent 0 22px,
+            rgba(23, 63, 56, 0.14) 23px 25px,
+            transparent 26px 47px
+          ),
+          repeating-radial-gradient(
+            ellipse at 85% 78%,
+            transparent 0 31px,
+            rgba(57, 125, 132, 0.18) 32px 34px,
+            transparent 35px 64px
+          );
+      }
+
+      .route-rope {
+        stroke-dasharray: 10 8;
+        animation: rope-drift 10s linear infinite;
+      }
+
+      .stamp {
+        transform: rotate(-2deg);
+      }
+
+      .map-cell {
+        position: relative;
+        display: grid;
+        min-width: 0;
+        aspect-ratio: 1;
+        place-items: center;
+        border: 2px solid rgba(23, 63, 56, 0.46);
+        background: rgba(248, 251, 248, 0.82);
+        transition:
+          transform 180ms ease,
+          background-color 180ms ease,
+          border-color 180ms ease;
+      }
+
+      .map-cell[data-processed="true"] {
+        background: #173f38;
+        color: #f8fbf8;
+      }
+
+      .map-cell[data-active="true"] {
+        z-index: 2;
+        border-color: #ff5b35;
+        box-shadow: inset 0 0 0 3px #f4df53;
+        transform: translateY(-3px);
+      }
+
+      .map-cell[data-path="true"] {
+        background: #f4df53;
+        color: #102827;
+        border-color: #ff5b35;
+      }
+
+      .map-cell::after {
+        position: absolute;
+        right: 5px;
+        bottom: 4px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.58rem;
+        content: attr(data-coordinate);
+        opacity: 0.62;
+      }
+
+      .test-code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .code-panel pre {
+        max-width: 100%;
+        overflow-x: auto;
+      }
+
+      @keyframes rope-drift {
+        to {
+          stroke-dashoffset: -90;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      @media (max-width: 390px) {
+        .map-cell::after {
+          right: 3px;
+          bottom: 2px;
+          font-size: 0.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body class="font-body antialiased">
+    <div
+      id="live-status"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <header class="border-b-4 border-pine bg-snow">
+      <div
+        class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8"
+      >
+        <div class="flex min-w-0 items-center gap-3">
+          <span
+            class="grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 border-pine bg-rescue font-mono text-sm font-bold text-white"
+            >64</span
+          >
+          <div class="min-w-0">
+            <p
+              class="font-mono text-[10px] font-semibold uppercase tracking-[0.26em] text-mineral sm:text-xs"
+            >
+              ALPINE SURVEY · GRID 064
+            </p>
+            <p
+              class="truncate font-display text-xl font-black uppercase tracking-wide text-ridge sm:text-2xl"
+            >
+              Minimum Path Sum
+            </p>
+          </div>
+        </div>
+        <span
+          class="shrink-0 border-2 border-pine bg-survey px-3 py-1.5 font-mono text-xs font-bold uppercase shadow-[3px_3px_0_#173f38]"
+          >Medium</span
+        >
+      </div>
+    </header>
+
+    <main>
+      <section class="topography border-b-4 border-pine">
+        <div
+          class="mx-auto grid min-h-[720px] max-w-7xl items-center gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.05fr_0.95fr] lg:py-20"
+        >
+          <div>
+            <div class="mb-7 flex flex-wrap gap-2">
+              <span
+                class="border-2 border-pine bg-snow px-3 py-1 font-mono text-xs"
+                >ARRAY</span
+              >
+              <span
+                class="border-2 border-pine bg-pine px-3 py-1 font-mono text-xs text-white"
+                >DYNAMIC PROGRAMMING</span
+              >
+              <span
+                class="border-2 border-pine bg-snow px-3 py-1 font-mono text-xs"
+                >MATRIX</span
+              >
+            </div>
+            <p
+              class="mb-4 font-mono text-xs font-semibold uppercase tracking-[0.28em] text-rescue sm:text-sm"
+            >
+              COMPARE NORTH / WEST. STAMP THE LIGHTER LOAD.
+            </p>
+            <h1
+              class="max-w-3xl font-display text-[4.4rem] font-black uppercase leading-[0.78] tracking-[-0.045em] text-ridge sm:text-[6.7rem] lg:text-[8rem]"
+            >
+              Trace the<br />
+              <span class="text-rescue">lightest</span><br />line.
+            </h1>
+            <p
+              class="mt-8 max-w-2xl border-l-8 border-rescue pl-5 text-base font-semibold leading-8 sm:text-lg"
+            >
+              每个格子都把自身补给成本，加到「从上方抵达」与「从左侧抵达」中更轻的那条路线。终点留下的数字，就是最低总负重。
+            </p>
+          </div>
+
+          <div class="relative mx-auto w-full max-w-xl pb-8 pr-4">
+            <div
+              class="absolute inset-x-8 bottom-1 top-8 rotate-3 border-4 border-pine bg-rescue"
+              aria-hidden="true"
+            ></div>
+            <div
+              class="relative -rotate-2 border-4 border-pine bg-snow p-5 shadow-plate sm:p-8"
+            >
+              <div
+                class="mb-5 flex items-end justify-between gap-3 border-b-2 border-pine pb-3"
+              >
+                <div>
+                  <p
+                    class="font-mono text-[10px] uppercase tracking-[0.2em] text-mineral"
+                  >
+                    ROUTE SAMPLE A
+                  </p>
+                  <p class="font-display text-3xl font-black uppercase">
+                    Cumulative load
+                  </p>
+                </div>
+                <span
+                  class="stamp border-2 border-rescue px-3 py-1 font-mono text-xs font-bold text-rescue"
+                  >MIN = 07</span
+                >
+              </div>
+              <div class="relative mx-auto aspect-square max-w-md">
+                <svg
+                  class="pointer-events-none absolute inset-0 z-10 h-full w-full"
+                  viewBox="0 0 300 300"
+                  aria-hidden="true"
+                >
+                  <polyline
+                    class="route-rope"
+                    points="50,50 150,50 250,50 250,150 250,250"
+                    fill="none"
+                    stroke="#ff5b35"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="10"
+                  />
+                </svg>
+                <div class="grid h-full grid-cols-3 gap-2 font-mono">
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-survey text-2xl font-bold"
+                  >
+                    1
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-survey text-2xl font-bold"
+                  >
+                    4
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-survey text-2xl font-bold"
+                  >
+                    5
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-pine text-2xl font-bold text-white"
+                  >
+                    2
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-glacier text-2xl font-bold"
+                  >
+                    7
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-survey text-2xl font-bold"
+                  >
+                    6
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-glacier text-2xl font-bold"
+                  >
+                    6
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-pine bg-glacier text-2xl font-bold"
+                  >
+                    8
+                  </div>
+                  <div
+                    class="grid place-items-center border-2 border-rescue bg-survey text-3xl font-black"
+                  >
+                    7
+                  </div>
+                </div>
+              </div>
+              <p class="mt-5 font-mono text-xs leading-6 text-mineral">
+                LOCAL VALUES → 1 · 3 · 1 · 1 · 5 · 1 · 4 · 2 · 1
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-b-4 border-pine bg-snow">
+        <div
+          class="mx-auto grid max-w-7xl gap-10 px-5 py-16 sm:px-8 lg:grid-cols-[0.34fr_1fr]"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-rescue"
+            >
+              MISSION BRIEF
+            </p>
+            <h2 class="mt-2 font-display text-5xl font-black uppercase">
+              题意
+            </h2>
+          </div>
+          <div class="space-y-8">
+            <p class="text-base font-medium leading-8 sm:text-lg">
+              给定一个由非负整数组成的
+              <code class="bg-glacier px-1.5 py-0.5 font-mono">m × n</code>
+              网格，从左上角走到右下角，每次只能向右或向下。返回沿途所有格子数字之和的最小值。
+            </p>
+
+            <div class="grid gap-5 md:grid-cols-2">
+              <article
+                class="border-2 border-pine bg-fog p-5 shadow-[5px_5px_0_#173f38]"
+              >
+                <p
+                  class="font-mono text-xs font-bold uppercase tracking-widest text-rescue"
+                >
+                  官方样例 1
+                </p>
+                <dl class="mt-4 grid gap-4">
+                  <div>
+                    <dt class="text-xs font-bold text-mineral">输入</dt>
+                    <dd class="test-code mt-1 font-mono text-sm font-semibold">
+                      grid = [[1,3,1],[1,5,1],[4,2,1]]
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold text-mineral">输出</dt>
+                    <dd class="mt-1 font-mono text-lg font-bold">7</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold text-mineral">路线</dt>
+                    <dd class="mt-1 font-mono text-sm">1 → 3 → 1 → 1 → 1</dd>
+                  </div>
+                </dl>
+              </article>
+              <article
+                class="border-2 border-pine bg-fog p-5 shadow-[5px_5px_0_#ff5b35]"
+              >
+                <p
+                  class="font-mono text-xs font-bold uppercase tracking-widest text-rescue"
+                >
+                  官方样例 2
+                </p>
+                <dl class="mt-4 grid gap-4">
+                  <div>
+                    <dt class="text-xs font-bold text-mineral">输入</dt>
+                    <dd class="test-code mt-1 font-mono text-sm font-semibold">
+                      grid = [[1,2,3],[4,5,6]]
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold text-mineral">输出</dt>
+                    <dd class="mt-1 font-mono text-lg font-bold">12</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold text-mineral">路线</dt>
+                    <dd class="mt-1 font-mono text-sm">1 → 2 → 3 → 6</dd>
+                  </div>
+                </dl>
+              </article>
+            </div>
+
+            <div class="border-t-2 border-pine pt-6">
+              <h3 class="font-display text-2xl font-black uppercase">约束</h3>
+              <ul class="mt-3 grid gap-2 font-mono text-sm sm:grid-cols-2">
+                <li>m == grid.length</li>
+                <li>n == grid[i].length</li>
+                <li>1 ≤ m, n ≤ 200</li>
+                <li>0 ≤ grid[i][j] ≤ 200</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-ridge text-snow" aria-labelledby="demo-title">
+        <div class="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-20">
+          <div
+            class="flex flex-col justify-between gap-5 border-b border-glacier/30 pb-7 lg:flex-row lg:items-end"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-survey"
+              >
+                FIELD CALCULATOR
+              </p>
+              <h2
+                id="demo-title"
+                class="mt-2 font-display text-5xl font-black uppercase sm:text-6xl"
+              >
+                逐格勘测
+              </h2>
+            </div>
+            <p id="demo-help" class="max-w-xl text-sm leading-7 text-glacier">
+              选择样例后逐步扫描。键盘可用 ← / →、Home /
+              End；空格键开始或暂停自动播放。
+            </p>
+          </div>
+
+          <div class="mt-8 flex flex-wrap gap-3" aria-label="演示用例">
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-survey bg-survey px-4 py-2 font-mono text-xs font-bold text-ink"
+              aria-pressed="true"
+            >
+              grid = [[1,3,1],[1,5,1],[4,2,1]]
+            </button>
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-glacier/70 px-4 py-2 font-mono text-xs text-glacier"
+              aria-pressed="false"
+            >
+              grid = [[1,2,3],[4,5,6]]
+            </button>
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-glacier/70 px-4 py-2 font-mono text-xs text-glacier"
+              aria-pressed="false"
+            >
+              grid = [[0]]
+            </button>
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-glacier/70 px-4 py-2 font-mono text-xs text-glacier"
+              aria-pressed="false"
+            >
+              grid = [[5,9,1],[2,1,1]]
+            </button>
+          </div>
+
+          <div
+            id="demo-stage"
+            class="mt-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]"
+            tabindex="0"
+            role="application"
+            aria-label="最小路径和交互勘测图"
+            aria-describedby="demo-help"
+          >
+            <article class="border-2 border-glacier/70 bg-pine p-4 sm:p-7">
+              <div class="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <p
+                    class="font-mono text-[10px] uppercase tracking-[0.22em] text-glacier"
+                  >
+                    SURVEY GRID
+                  </p>
+                  <h3
+                    id="grid-label"
+                    class="mt-1 font-display text-3xl font-black uppercase"
+                  >
+                    3 × 3 TERRAIN
+                  </h3>
+                </div>
+                <div class="text-right">
+                  <p
+                    class="font-mono text-[10px] uppercase tracking-widest text-glacier"
+                  >
+                    FINAL LOAD
+                  </p>
+                  <output
+                    id="result-output"
+                    class="font-display text-5xl font-black text-survey"
+                    >—</output
+                  >
+                </div>
+              </div>
+
+              <div
+                id="survey-grid"
+                class="mx-auto mt-7 grid max-w-xl gap-2"
+                aria-label="累计成本网格"
+              ></div>
+
+              <div class="mt-6 h-2 overflow-hidden bg-ridge" aria-hidden="true">
+                <div id="scan-progress" class="h-full bg-rescue"></div>
+              </div>
+            </article>
+
+            <aside
+              class="border-2 border-glacier/70 bg-snow p-5 text-ink sm:p-7"
+            >
+              <div
+                class="flex items-center justify-between gap-4 border-b-2 border-pine pb-4"
+              >
+                <span
+                  class="font-mono text-xs font-bold uppercase tracking-widest text-rescue"
+                  >Survey stamp</span
+                >
+                <span id="step-count" class="font-mono text-sm font-bold"
+                  >0 / 9</span
+                >
+              </div>
+              <h3
+                id="step-title"
+                class="mt-6 font-display text-4xl font-black uppercase leading-none"
+              >
+                展开原始地形图
+              </h3>
+              <p
+                id="step-description"
+                class="mt-4 min-h-20 text-sm leading-7 text-mineral"
+              >
+                每格目前显示当地补给成本；勘测开始后，将原地覆盖成抵达该格的最低累计成本。
+              </p>
+
+              <dl class="mt-6 grid grid-cols-2 gap-3 font-mono text-sm">
+                <div class="border-2 border-pine p-3">
+                  <dt
+                    class="text-[10px] uppercase tracking-widest text-mineral"
+                  >
+                    North
+                  </dt>
+                  <dd id="north-value" class="mt-1 text-2xl font-bold">—</dd>
+                </div>
+                <div class="border-2 border-pine p-3">
+                  <dt
+                    class="text-[10px] uppercase tracking-widest text-mineral"
+                  >
+                    West
+                  </dt>
+                  <dd id="west-value" class="mt-1 text-2xl font-bold">—</dd>
+                </div>
+                <div class="border-2 border-pine p-3">
+                  <dt
+                    class="text-[10px] uppercase tracking-widest text-mineral"
+                  >
+                    Local
+                  </dt>
+                  <dd id="local-value" class="mt-1 text-2xl font-bold">—</dd>
+                </div>
+                <div class="border-2 border-rescue bg-survey p-3">
+                  <dt class="text-[10px] uppercase tracking-widest text-rescue">
+                    Stamped
+                  </dt>
+                  <dd id="new-value" class="mt-1 text-2xl font-black">—</dd>
+                </div>
+              </dl>
+
+              <p
+                id="choice-note"
+                class="mt-5 border-l-4 border-rescue pl-4 font-mono text-xs leading-6 text-mineral"
+              >
+                WAITING FOR FIRST STAMP
+              </p>
+            </aside>
+          </div>
+
+          <div
+            class="mt-6 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap"
+            aria-label="演示控制"
+          >
+            <button
+              id="start-button"
+              type="button"
+              class="min-h-12 border-2 border-glacier px-5 py-2 font-mono text-sm font-bold hover:bg-glacier hover:text-ink"
+            >
+              ↤ 起点
+            </button>
+            <button
+              id="prev-button"
+              type="button"
+              class="min-h-12 border-2 border-glacier px-5 py-2 font-mono text-sm font-bold hover:bg-glacier hover:text-ink"
+            >
+              ← 上一步
+            </button>
+            <button
+              id="play-button"
+              type="button"
+              class="min-h-12 border-2 border-survey bg-survey px-6 py-2 font-mono text-sm font-bold text-ink"
+              aria-pressed="false"
+            >
+              ▶ 自动播放
+            </button>
+            <button
+              id="next-button"
+              type="button"
+              class="min-h-12 border-2 border-glacier px-5 py-2 font-mono text-sm font-bold hover:bg-glacier hover:text-ink"
+            >
+              下一步 →
+            </button>
+            <button
+              id="end-button"
+              type="button"
+              class="min-h-12 border-2 border-glacier px-5 py-2 font-mono text-sm font-bold hover:bg-glacier hover:text-ink"
+            >
+              终点 ↦
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="border-b-4 border-pine bg-fog"
+        aria-labelledby="test-title"
+      >
+        <div class="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-20">
+          <div
+            class="grid gap-5 border-b-2 border-pine pb-7 lg:grid-cols-[0.35fr_1fr]"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-rescue"
+              >
+                VERIFICATION LOG
+              </p>
+              <h2
+                id="test-title"
+                class="mt-2 font-display text-5xl font-black uppercase"
+              >
+                测试与验证
+              </h2>
+            </div>
+            <p class="max-w-3xl text-sm leading-7 text-mineral">
+              每条用例分开展示输入、期望输出、实际输出与通过状态。工程检查覆盖格式、HTML、脚本、真实浏览器与随机对拍。
+            </p>
+          </div>
+
+          <div id="test-grid" class="mt-8 grid gap-5 lg:grid-cols-2"></div>
+
+          <div
+            class="mt-10 border-2 border-pine bg-snow p-5 shadow-plate sm:p-7"
+          >
+            <h3 class="font-display text-3xl font-black uppercase">
+              工程验证记录
+            </h3>
+            <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div class="border-2 border-pine bg-glacier p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-mineral"
+                >
+                  Prettier
+                </p>
+                <p class="mt-2 font-bold">✓ 通过</p>
+              </div>
+              <div class="border-2 border-pine bg-glacier p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-mineral"
+                >
+                  HTML Validate
+                </p>
+                <p class="mt-2 font-bold">✓ 通过</p>
+              </div>
+              <div class="border-2 border-pine bg-glacier p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-mineral"
+                >
+                  JavaScript
+                </p>
+                <p class="mt-2 font-bold">✓ 语法通过</p>
+              </div>
+              <div class="border-2 border-pine bg-glacier p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-mineral"
+                >
+                  真实 Chrome
+                </p>
+                <p class="mt-2 font-bold">✓ 桌面 / 390px</p>
+              </div>
+              <div class="border-2 border-pine bg-survey p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-rescue"
+                >
+                  算法对拍
+                </p>
+                <p class="mt-2 font-black">✓ 3000 组</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-survey">
+        <div class="mx-auto max-w-7xl px-5 py-14 text-center sm:px-8">
+          <p
+            class="font-mono text-xs font-semibold uppercase tracking-[0.25em] text-rescue"
+          >
+            SOLUTION GATE
+          </p>
+          <h2
+            class="mt-2 font-display text-4xl font-black uppercase sm:text-5xl"
+          >
+            先完成勘测，再打开题解
+          </h2>
+          <button
+            id="solution-toggle"
+            type="button"
+            class="mt-7 min-h-13 border-4 border-pine bg-snow px-8 py-3 font-mono text-sm font-bold shadow-plate hover:bg-glacier"
+            aria-expanded="false"
+            aria-controls="solution-content"
+          >
+            查看题解
+          </button>
+        </div>
+      </section>
+
+      <section id="solution-content" class="bg-snow" aria-label="题解" hidden>
+        <div class="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-20">
+          <div class="border-b-4 border-pine pb-8">
+            <p
+              class="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-rescue"
+            >
+              FIELD NOTES UNSEALED
+            </p>
+            <h2 class="mt-2 font-display text-6xl font-black uppercase">
+              题解
+            </h2>
+          </div>
+
+          <div class="mt-10 grid gap-6 lg:grid-cols-2">
+            <article class="border-2 border-pine bg-fog p-6">
+              <p
+                class="font-mono text-xs font-bold uppercase tracking-widest text-rescue"
+              >
+                Core insight
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                核心洞察
+              </h3>
+              <p class="mt-4 leading-8">
+                抵达
+                <code class="font-mono">(row, col)</code>
+                的最后一步只可能来自上方或左侧。于是最低累计成本等于当前格成本，加上这两个前驱中的较小值。按从左上到右下的顺序扫描时，前驱已经计算完成。
+              </p>
+              <div
+                class="mt-5 border-2 border-pine bg-survey p-4 font-mono text-sm font-bold"
+              >
+                grid[r][c] += min(grid[r - 1][c], grid[r][c - 1])
+              </div>
+            </article>
+
+            <article class="border-2 border-pine bg-pine p-6 text-white">
+              <p
+                class="font-mono text-xs font-bold uppercase tracking-widest text-survey"
+              >
+                Interview mainline
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                为什么主推原地 DP
+              </h3>
+              <p class="mt-4 leading-8 text-glacier">
+                网格本身正好可以保存每格的最优子问题答案，因此额外空间为常数。面试时先确认「允许修改输入吗」；若不允许，切换为一维数组，逻辑完全相同，额外空间为
+                O(n)。
+              </p>
+            </article>
+          </div>
+
+          <div class="mt-8 grid gap-6 lg:grid-cols-3">
+            <article class="border-t-4 border-rescue bg-fog p-6">
+              <h3 class="font-display text-3xl font-black uppercase">
+                完整过程
+              </h3>
+              <ol class="mt-4 space-y-3 text-sm leading-7">
+                <li>
+                  <strong>1.</strong> 起点保持原值，因为路线必然从这里开始。
+                </li>
+                <li>
+                  <strong>2.</strong> 第一行只能从左边来，累加左侧累计成本。
+                </li>
+                <li>
+                  <strong>3.</strong> 第一列只能从上边来，累加上方累计成本。
+                </li>
+                <li>
+                  <strong>4.</strong> 其余格子取上、左较小者，再加自身成本。
+                </li>
+                <li><strong>5.</strong> 右下角即全局最小路径和。</li>
+              </ol>
+            </article>
+            <article class="border-t-4 border-rescue bg-fog p-6">
+              <h3 class="font-display text-3xl font-black uppercase">边界</h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>单格：答案就是该格本身，包括 0。</li>
+                <li>单行：没有上方来源，只能一路向右累加。</li>
+                <li>单列：没有左侧来源，只能一路向下累加。</li>
+                <li>非负权重保证数值单调，但 DP 并不依赖贪心选择。</li>
+              </ul>
+            </article>
+            <article class="border-t-4 border-rescue bg-fog p-6">
+              <h3 class="font-display text-3xl font-black uppercase">复杂度</h3>
+              <dl class="mt-4 space-y-4">
+                <div>
+                  <dt class="font-mono text-xs text-mineral">TIME</dt>
+                  <dd class="font-display text-3xl font-black">O(mn)</dd>
+                </div>
+                <div>
+                  <dt class="font-mono text-xs text-mineral">EXTRA SPACE</dt>
+                  <dd class="font-display text-3xl font-black">O(1)</dd>
+                </div>
+              </dl>
+            </article>
+          </div>
+
+          <div class="mt-8 grid gap-6 lg:grid-cols-3">
+            <article class="border-2 border-pine p-6">
+              <h3 class="font-display text-3xl font-black uppercase">
+                替代方案
+              </h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>
+                  <strong>一维 DP：</strong>不修改输入，空间
+                  O(n)，最适合输入需复用的场景。
+                </li>
+                <li>
+                  <strong>二维 DP：</strong>最直观且便于恢复路径，但空间 O(mn)。
+                </li>
+                <li>
+                  <strong>记忆化搜索：</strong
+                  >易从递归定义出发，但有栈开销且实现更重。
+                </li>
+                <li>
+                  <strong>局部贪心：</strong
+                  >不可行；当前较小的格子可能把后续引向高成本区域。
+                </li>
+              </ul>
+            </article>
+            <article class="border-2 border-pine p-6">
+              <h3 class="font-display text-3xl font-black uppercase">
+                面试追问
+              </h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>
+                  若还要返回具体路径？保存前驱，或从二维累计表反向选择较小前驱。
+                </li>
+                <li>若允许四个方向？依赖关系不再是 DAG，应考虑 Dijkstra。</li>
+                <li>若存在障碍？障碍格设为不可达的无穷大，并谨慎处理边界。</li>
+                <li>若有负权值？仅右/下仍是 DAG，当前 DP 依然成立。</li>
+              </ul>
+            </article>
+            <article class="border-2 border-pine p-6">
+              <h3 class="font-display text-3xl font-black uppercase">
+                常见错误
+              </h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>第一行或第一列错误地同时读取两个前驱，造成越界。</li>
+                <li>从右下往左上更新，却仍使用上方和左侧，破坏依赖顺序。</li>
+                <li>忘记原地写法会修改输入，后续逻辑仍使用原始网格。</li>
+                <li>用「每步选较小邻居」替代 DP，忽略未来成本。</li>
+              </ul>
+            </article>
+          </div>
+
+          <article class="mt-10 border-4 border-pine bg-ridge text-white">
+            <div
+              class="flex flex-col gap-4 border-b border-glacier/30 p-5 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div>
+                <p
+                  class="font-mono text-xs uppercase tracking-widest text-survey"
+                >
+                  SUBMIT-READY CODE
+                </p>
+                <h3 class="font-display text-4xl font-black uppercase">
+                  四语言可提交代码
+                </h3>
+              </div>
+              <div
+                class="flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="代码语言"
+              >
+                <button
+                  id="tab-java"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-survey bg-survey px-4 py-2 font-mono text-xs font-bold text-ink"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="panel-java"
+                  tabindex="0"
+                >
+                  Java
+                </button>
+                <button
+                  id="tab-javascript"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-glacier px-4 py-2 font-mono text-xs"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-javascript"
+                  tabindex="-1"
+                >
+                  JavaScript
+                </button>
+                <button
+                  id="tab-python"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-glacier px-4 py-2 font-mono text-xs"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-python"
+                  tabindex="-1"
+                >
+                  Python
+                </button>
+                <button
+                  id="tab-cpp"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-glacier px-4 py-2 font-mono text-xs"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-cpp"
+                  tabindex="-1"
+                >
+                  C++
+                </button>
+              </div>
+            </div>
+
+            <div
+              id="panel-java"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-java"
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-glacier"
+              ><code>class Solution {
+    public int minPathSum(int[][] grid) {
+        int rows = grid.length;
+        int cols = grid[0].length;
+
+        for (int row = 0; row &lt; rows; row++) {
+            for (int col = 0; col &lt; cols; col++) {
+                if (row == 0 &amp;&amp; col == 0) {
+                    continue;
+                }
+                if (row == 0) {
+                    grid[row][col] += grid[row][col - 1];
+                } else if (col == 0) {
+                    grid[row][col] += grid[row - 1][col];
+                } else {
+                    grid[row][col] += Math.min(
+                        grid[row - 1][col],
+                        grid[row][col - 1]
+                    );
+                }
+            }
+        }
+        return grid[rows - 1][cols - 1];
+    }
+}</code></pre>
+            </div>
+
+            <div
+              id="panel-javascript"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-javascript"
+              hidden
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-glacier"
+              ><code>var minPathSum = function (grid) {
+  const rows = grid.length;
+  const cols = grid[0].length;
+
+  for (let row = 0; row &lt; rows; row += 1) {
+    for (let col = 0; col &lt; cols; col += 1) {
+      if (row === 0 &amp;&amp; col === 0) continue;
+
+      if (row === 0) {
+        grid[row][col] += grid[row][col - 1];
+      } else if (col === 0) {
+        grid[row][col] += grid[row - 1][col];
+      } else {
+        grid[row][col] += Math.min(
+          grid[row - 1][col],
+          grid[row][col - 1],
+        );
+      }
+    }
+  }
+  return grid[rows - 1][cols - 1];
+};</code></pre>
+            </div>
+
+            <div
+              id="panel-python"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-python"
+              hidden
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-glacier"
+              ><code>class Solution:
+    def minPathSum(self, grid: list[list[int]]) -&gt; int:
+        rows, cols = len(grid), len(grid[0])
+
+        for row in range(rows):
+            for col in range(cols):
+                if row == 0 and col == 0:
+                    continue
+
+                if row == 0:
+                    grid[row][col] += grid[row][col - 1]
+                elif col == 0:
+                    grid[row][col] += grid[row - 1][col]
+                else:
+                    grid[row][col] += min(
+                        grid[row - 1][col],
+                        grid[row][col - 1],
+                    )
+        return grid[-1][-1]</code></pre>
+            </div>
+
+            <div
+              id="panel-cpp"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-cpp"
+              hidden
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-glacier"
+              ><code>class Solution {
+public:
+    int minPathSum(std::vector&lt;std::vector&lt;int&gt;&gt;&amp; grid) {
+        const int rows = grid.size();
+        const int cols = grid[0].size();
+
+        for (int row = 0; row &lt; rows; ++row) {
+            for (int col = 0; col &lt; cols; ++col) {
+                if (row == 0 &amp;&amp; col == 0) {
+                    continue;
+                }
+                if (row == 0) {
+                    grid[row][col] += grid[row][col - 1];
+                } else if (col == 0) {
+                    grid[row][col] += grid[row - 1][col];
+                } else {
+                    grid[row][col] += std::min(
+                        grid[row - 1][col],
+                        grid[row][col - 1]
+                    );
+                }
+            }
+        }
+        return grid[rows - 1][cols - 1];
+    }
+};</code></pre>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (() => {
+        const demoCases = [
+          {
+            grid: [
+              [1, 3, 1],
+              [1, 5, 1],
+              [4, 2, 1],
+            ],
+          },
+          {
+            grid: [
+              [1, 2, 3],
+              [4, 5, 6],
+            ],
+          },
+          { grid: [[0]] },
+          {
+            grid: [
+              [5, 9, 1],
+              [2, 1, 1],
+            ],
+          },
+        ];
+
+        const testCases = [
+          {
+            name: "官方样例 · 经典 3 × 3",
+            grid: [
+              [1, 3, 1],
+              [1, 5, 1],
+              [4, 2, 1],
+            ],
+            expected: 7,
+          },
+          {
+            name: "官方样例 · 2 × 3",
+            grid: [
+              [1, 2, 3],
+              [4, 5, 6],
+            ],
+            expected: 12,
+          },
+          { name: "单格为零", grid: [[0]], expected: 0 },
+          { name: "单格非零", grid: [[9]], expected: 9 },
+          { name: "单行", grid: [[1, 0, 2, 3]], expected: 6 },
+          { name: "单列", grid: [[1], [2], [0], [4]], expected: 7 },
+          {
+            name: "绕开高成本带",
+            grid: [
+              [1, 9, 9],
+              [1, 1, 9],
+              [9, 1, 1],
+            ],
+            expected: 5,
+          },
+          {
+            name: "边界最大值",
+            grid: [
+              [200, 200],
+              [200, 200],
+            ],
+            expected: 600,
+          },
+        ];
+
+        const caseButtons = [...document.querySelectorAll(".case-button")];
+        const surveyGrid = document.querySelector("#survey-grid");
+        const gridLabel = document.querySelector("#grid-label");
+        const resultOutput = document.querySelector("#result-output");
+        const scanProgress = document.querySelector("#scan-progress");
+        const stepCount = document.querySelector("#step-count");
+        const stepTitle = document.querySelector("#step-title");
+        const stepDescription = document.querySelector("#step-description");
+        const northValue = document.querySelector("#north-value");
+        const westValue = document.querySelector("#west-value");
+        const localValue = document.querySelector("#local-value");
+        const newValue = document.querySelector("#new-value");
+        const choiceNote = document.querySelector("#choice-note");
+        const startButton = document.querySelector("#start-button");
+        const prevButton = document.querySelector("#prev-button");
+        const playButton = document.querySelector("#play-button");
+        const nextButton = document.querySelector("#next-button");
+        const endButton = document.querySelector("#end-button");
+        const demoStage = document.querySelector("#demo-stage");
+        const testGrid = document.querySelector("#test-grid");
+        const solutionToggle = document.querySelector("#solution-toggle");
+        const solutionContent = document.querySelector("#solution-content");
+        const languageTabs = [...document.querySelectorAll('[role="tab"]')];
+        const codePanels = [...document.querySelectorAll('[role="tabpanel"]')];
+        const liveStatus = document.querySelector("#live-status");
+        const reducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+
+        let activeCase = 0;
+        let frames = [];
+        let currentFrame = 0;
+        let autoplayTimer = null;
+
+        function cloneGrid(grid) {
+          return grid.map((row) => [...row]);
+        }
+
+        function minPathSum(inputGrid) {
+          const grid = cloneGrid(inputGrid);
+          const rows = grid.length;
+          const cols = grid[0].length;
+
+          for (let row = 0; row < rows; row += 1) {
+            for (let col = 0; col < cols; col += 1) {
+              if (row === 0 && col === 0) continue;
+              if (row === 0) {
+                grid[row][col] += grid[row][col - 1];
+              } else if (col === 0) {
+                grid[row][col] += grid[row - 1][col];
+              } else {
+                grid[row][col] += Math.min(
+                  grid[row - 1][col],
+                  grid[row][col - 1],
+                );
+              }
+            }
+          }
+          return grid[rows - 1][cols - 1];
+        }
+
+        function formatGrid(grid) {
+          return `[${grid.map((row) => `[${row.join(",")}]`).join(",")}]`;
+        }
+
+        function buildFrames(inputGrid) {
+          const original = cloneGrid(inputGrid);
+          const cumulative = cloneGrid(inputGrid);
+          const rows = original.length;
+          const cols = original[0].length;
+          const processed = Array.from({ length: rows }, () =>
+            Array(cols).fill(false),
+          );
+          const parents = Array.from({ length: rows }, () =>
+            Array(cols).fill(null),
+          );
+          const nextFrames = [
+            {
+              title: "展开原始地形图",
+              description:
+                "每格目前显示当地补给成本；勘测开始后，将原地覆盖成抵达该格的最低累计成本。",
+              cumulative: cloneGrid(cumulative),
+              processed: processed.map((row) => [...row]),
+              row: -1,
+              col: -1,
+              north: null,
+              west: null,
+              local: null,
+              stamped: null,
+              choice: "WAITING FOR FIRST STAMP",
+              path: [],
+            },
+          ];
+
+          for (let row = 0; row < rows; row += 1) {
+            for (let col = 0; col < cols; col += 1) {
+              const local = original[row][col];
+              const north = row > 0 ? cumulative[row - 1][col] : null;
+              const west = col > 0 ? cumulative[row][col - 1] : null;
+              let choice = "起点保留自身成本";
+
+              if (row === 0 && col === 0) {
+                cumulative[row][col] = local;
+              } else if (row === 0) {
+                cumulative[row][col] = west + local;
+                parents[row][col] = [row, col - 1];
+                choice = `只有西侧可达：${west} + ${local}`;
+              } else if (col === 0) {
+                cumulative[row][col] = north + local;
+                parents[row][col] = [row - 1, col];
+                choice = `只有北侧可达：${north} + ${local}`;
+              } else if (north <= west) {
+                cumulative[row][col] = north + local;
+                parents[row][col] = [row - 1, col];
+                choice = `北侧更轻：min(${north}, ${west}) + ${local}`;
+              } else {
+                cumulative[row][col] = west + local;
+                parents[row][col] = [row, col - 1];
+                choice = `西侧更轻：min(${north}, ${west}) + ${local}`;
+              }
+
+              processed[row][col] = true;
+              const isFinal = row === rows - 1 && col === cols - 1;
+              const path = [];
+              if (isFinal) {
+                let cursor = [row, col];
+                while (cursor) {
+                  path.push(`${cursor[0]}-${cursor[1]}`);
+                  cursor = parents[cursor[0]][cursor[1]];
+                }
+              }
+
+              nextFrames.push({
+                title: isFinal
+                  ? `封存终点：最低总成本 ${cumulative[row][col]}`
+                  : `勘测格 (${row}, ${col})`,
+                description: isFinal
+                  ? "所有子问题已经完成。橙黄色格子连成一条最低成本路线，右下角保存最终答案。"
+                  : "用已完成的北侧与西侧累计成本决定前驱，再把当前格原地覆盖为新的最低累计成本。",
+                cumulative: cloneGrid(cumulative),
+                processed: processed.map((line) => [...line]),
+                row,
+                col,
+                north,
+                west,
+                local,
+                stamped: cumulative[row][col],
+                choice,
+                path,
+              });
+            }
+          }
+          return nextFrames;
+        }
+
+        function stopAutoplay(announce = false) {
+          if (autoplayTimer !== null) {
+            window.clearInterval(autoplayTimer);
+            autoplayTimer = null;
+          }
+          playButton.setAttribute("aria-pressed", "false");
+          playButton.textContent = "▶ 自动播放";
+          if (announce) liveStatus.textContent = "自动播放已暂停。";
+        }
+
+        function renderFrame() {
+          const frame = frames[currentFrame];
+          const grid = demoCases[activeCase].grid;
+          const rows = grid.length;
+          const cols = grid[0].length;
+          const pathSet = new Set(frame.path);
+
+          surveyGrid.replaceChildren();
+          surveyGrid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+          frame.cumulative.forEach((rowValues, row) => {
+            rowValues.forEach((value, col) => {
+              const cell = document.createElement("div");
+              const isProcessed = frame.processed[row][col];
+              const isActive = frame.row === row && frame.col === col;
+              const isPath = pathSet.has(`${row}-${col}`);
+              cell.className = "map-cell font-mono";
+              cell.dataset.processed = String(isProcessed);
+              cell.dataset.active = String(isActive);
+              cell.dataset.path = String(isPath);
+              cell.dataset.coordinate = `${row},${col}`;
+
+              const valueLabel = document.createElement("span");
+              valueLabel.className =
+                "text-xl font-bold sm:text-2xl lg:text-3xl";
+              valueLabel.textContent = String(value);
+              cell.append(valueLabel);
+
+              if (isProcessed) {
+                const localLabel = document.createElement("span");
+                localLabel.className =
+                  "absolute left-1 top-1 text-[9px] opacity-65 sm:left-2 sm:top-2";
+                localLabel.textContent = `LOCAL ${grid[row][col]}`;
+                cell.append(localLabel);
+              }
+              surveyGrid.append(cell);
+            });
+          });
+
+          gridLabel.textContent = `${rows} × ${cols} TERRAIN`;
+          stepCount.textContent = `${currentFrame} / ${frames.length - 1}`;
+          stepTitle.textContent = frame.title;
+          stepDescription.textContent = frame.description;
+          northValue.textContent = frame.north ?? "—";
+          westValue.textContent = frame.west ?? "—";
+          localValue.textContent = frame.local ?? "—";
+          newValue.textContent = frame.stamped ?? "—";
+          choiceNote.textContent = frame.choice;
+          resultOutput.textContent =
+            currentFrame === frames.length - 1 ? frame.stamped : "—";
+          scanProgress.style.width = `${(currentFrame / (frames.length - 1)) * 100}%`;
+          startButton.disabled = currentFrame === 0;
+          prevButton.disabled = currentFrame === 0;
+          nextButton.disabled = currentFrame === frames.length - 1;
+          endButton.disabled = currentFrame === frames.length - 1;
+        }
+
+        function setFrame(index, announce = true) {
+          currentFrame = Math.max(0, Math.min(index, frames.length - 1));
+          renderFrame();
+          if (announce) {
+            liveStatus.textContent = `第 ${currentFrame} 步，共 ${frames.length - 1} 步：${frames[currentFrame].title}`;
+          }
+          if (currentFrame === frames.length - 1) stopAutoplay();
+        }
+
+        function selectCase(index) {
+          stopAutoplay();
+          activeCase = index;
+          frames = buildFrames(demoCases[index].grid);
+          currentFrame = 0;
+          caseButtons.forEach((button, buttonIndex) => {
+            const active = buttonIndex === index;
+            button.setAttribute("aria-pressed", String(active));
+            button.classList.toggle("bg-survey", active);
+            button.classList.toggle("text-ink", active);
+            button.classList.toggle("border-survey", active);
+            button.classList.toggle("border-glacier/70", !active);
+            button.classList.toggle("text-glacier", !active);
+          });
+          renderFrame();
+          liveStatus.textContent = `已选择用例：grid = ${formatGrid(
+            demoCases[index].grid,
+          )}`;
+        }
+
+        function toggleAutoplay() {
+          if (autoplayTimer !== null) {
+            stopAutoplay(true);
+            return;
+          }
+          if (currentFrame === frames.length - 1) setFrame(0, false);
+          playButton.setAttribute("aria-pressed", "true");
+          playButton.textContent = "❚❚ 暂停播放";
+          liveStatus.textContent = "自动播放已开始。";
+          const delay = reducedMotion ? 1000 : 700;
+          autoplayTimer = window.setInterval(() => {
+            setFrame(currentFrame + 1);
+          }, delay);
+        }
+
+        function renderTests() {
+          const fragment = document.createDocumentFragment();
+          testCases.forEach((test, index) => {
+            const actual = minPathSum(test.grid);
+            const passed = actual === test.expected;
+            const card = document.createElement("article");
+            card.className =
+              "border-2 border-pine bg-snow p-5 shadow-[5px_5px_0_#173f38]";
+
+            const header = document.createElement("div");
+            header.className =
+              "flex items-start justify-between gap-4 border-b-2 border-pine pb-3";
+            const title = document.createElement("h3");
+            title.className = "font-display text-2xl font-black uppercase";
+            title.textContent = `${String(index + 1).padStart(2, "0")} · ${test.name}`;
+            const badge = document.createElement("span");
+            badge.className = passed
+              ? "shrink-0 bg-pine px-3 py-1 font-mono text-xs font-bold text-white"
+              : "shrink-0 bg-rescue px-3 py-1 font-mono text-xs font-bold text-white";
+            badge.textContent = passed ? "PASS" : "FAIL";
+            header.append(title, badge);
+
+            const fields = document.createElement("dl");
+            fields.className = "mt-4 grid gap-3 sm:grid-cols-2";
+            const data = [
+              ["输入", `grid = ${formatGrid(test.grid)}`],
+              ["期望输出", String(test.expected)],
+              ["实际输出", String(actual)],
+              ["通过状态", passed ? "通过" : "未通过"],
+            ];
+            data.forEach(([label, value]) => {
+              const field = document.createElement("div");
+              field.className = "min-w-0 border border-mineral/50 bg-fog p-3";
+              const term = document.createElement("dt");
+              term.className =
+                "font-mono text-[10px] font-bold uppercase tracking-widest text-mineral";
+              term.textContent = label;
+              const detail = document.createElement("dd");
+              detail.className =
+                "test-code mt-1 font-mono text-sm font-semibold";
+              detail.textContent = value;
+              field.append(term, detail);
+              fields.append(field);
+            });
+            card.append(header, fields);
+            fragment.append(card);
+          });
+          testGrid.append(fragment);
+        }
+
+        function activateTab(tab) {
+          languageTabs.forEach((candidate) => {
+            const active = candidate === tab;
+            candidate.setAttribute("aria-selected", String(active));
+            candidate.tabIndex = active ? 0 : -1;
+            candidate.classList.toggle("bg-survey", active);
+            candidate.classList.toggle("text-ink", active);
+            candidate.classList.toggle("border-survey", active);
+            candidate.classList.toggle("border-glacier", !active);
+          });
+          codePanels.forEach((panel) => {
+            panel.hidden = panel.id !== tab.getAttribute("aria-controls");
+          });
+          tab.focus();
+          liveStatus.textContent = `已切换到 ${tab.textContent.trim()} 代码。`;
+        }
+
+        caseButtons.forEach((button, index) => {
+          button.addEventListener("click", () => selectCase(index));
+        });
+        startButton.addEventListener("click", () => setFrame(0));
+        prevButton.addEventListener("click", () => setFrame(currentFrame - 1));
+        playButton.addEventListener("click", toggleAutoplay);
+        nextButton.addEventListener("click", () => setFrame(currentFrame + 1));
+        endButton.addEventListener("click", () => setFrame(frames.length - 1));
+
+        demoStage.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            setFrame(currentFrame + 1);
+          } else if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            setFrame(currentFrame - 1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            setFrame(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            setFrame(frames.length - 1);
+          } else if (event.key === " " && event.target === demoStage) {
+            event.preventDefault();
+            toggleAutoplay();
+          }
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const expanded =
+            solutionToggle.getAttribute("aria-expanded") === "true";
+          solutionToggle.setAttribute("aria-expanded", String(!expanded));
+          solutionContent.hidden = expanded;
+          solutionToggle.textContent = expanded ? "查看题解" : "收起题解";
+          liveStatus.textContent = expanded ? "题解已收起。" : "题解已展开。";
+        });
+
+        languageTabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab));
+          tab.addEventListener("keydown", (event) => {
+            let targetIndex = index;
+            if (event.key === "ArrowRight") {
+              targetIndex = (index + 1) % languageTabs.length;
+            } else if (event.key === "ArrowLeft") {
+              targetIndex =
+                (index - 1 + languageTabs.length) % languageTabs.length;
+            } else if (event.key === "Home") {
+              targetIndex = 0;
+            } else if (event.key === "End") {
+              targetIndex = languageTabs.length - 1;
+            } else {
+              return;
+            }
+            event.preventDefault();
+            activateTab(languageTabs[targetIndex]);
+          });
+        });
+
+        frames = buildFrames(demoCases[0].grid);
+        renderFrame();
+        renderTests();
+      })();
+    </script>
+  </body>
+</html>
