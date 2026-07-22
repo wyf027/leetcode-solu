@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Jeson Mor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-teal-950 text-teal-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:items-center md:justify-center">
+    <section class="w-full max-w-xl">
+      <div class="mb-4 flex items-end justify-between gap-3">
+        <div>
+          <p class="text-sm uppercase tracking-[0.24em] text-lime-300">Classic Games</p>
+          <h1 class="text-3xl font-bold text-white">Mini Jeson Mor</h1>
+        </div>
+        <button id="reset" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-teal-950 hover:bg-lime-200">Reset</button>
+      </div>
+
+      <div class="relative aspect-square w-full rounded bg-teal-900 p-4 shadow-2xl shadow-black/40">
+        <svg class="absolute inset-4 h-[calc(100%-2rem)] w-[calc(100%-2rem)]" viewBox="0 0 100 100" aria-hidden="true">
+          <g stroke="rgba(190,242,100,0.48)" stroke-width="2" fill="none" stroke-linecap="round">
+            <path d="M10 10H90V90H10Z"></path>
+            <path d="M50 10V90M10 50H90M10 10L90 90M90 10L10 90"></path>
+          </g>
+        </svg>
+        <div id="board" class="relative h-full w-full"></div>
+      </div>
+    </section>
+
+    <aside class="w-full max-w-sm space-y-4">
+      <div class="rounded border border-teal-700 bg-teal-900 p-4">
+        <h2 class="mb-2 text-lg font-bold text-lime-200">Status</h2>
+        <p id="status" class="min-h-12 text-sm leading-6 text-teal-100"></p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded border border-teal-700 bg-teal-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-teal-300">Sun score</p>
+          <p id="sunScore" class="mt-1 text-2xl font-bold text-amber-300">0</p>
+        </div>
+        <div class="rounded border border-teal-700 bg-teal-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-teal-300">Moon score</p>
+          <p id="moonScore" class="mt-1 text-2xl font-bold text-sky-300">0</p>
+        </div>
+      </div>
+
+      <div class="rounded border border-teal-700 bg-teal-900 p-4 text-sm leading-6 text-teal-100">
+        <h2 class="mb-2 text-lg font-bold text-lime-200">Rules</h2>
+        <p>Move one of your horses along a drawn line to an empty point.</p>
+        <p class="mt-2">After a move, every fresh straight row of three horses scores 1 point. First to 3 points wins.</p>
+        <p class="mt-2">If the next player has no legal move, the player who made the trap wins.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const sunScoreEl = document.getElementById("sunScore");
+    const moonScoreEl = document.getElementById("moonScore");
+    const resetButton = document.getElementById("reset");
+
+    const points = [
+      { x: 10, y: 10 }, { x: 50, y: 10 }, { x: 90, y: 10 },
+      { x: 10, y: 50 }, { x: 50, y: 50 }, { x: 90, y: 50 },
+      { x: 10, y: 90 }, { x: 50, y: 90 }, { x: 90, y: 90 }
+    ];
+    const links = [
+      [0, 1], [1, 2], [3, 4], [4, 5], [6, 7], [7, 8],
+      [0, 3], [3, 6], [1, 4], [4, 7], [2, 5], [5, 8],
+      [0, 4], [4, 8], [2, 4], [4, 6]
+    ];
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+
+    let board = [];
+    let turn = "sun";
+    let selected = null;
+    let moves = [];
+    let score = { sun: 0, moon: 0 };
+    let scoredLines = { sun: new Set(), moon: new Set() };
+    let gameOver = false;
+
+    function resetGame() {
+      board = ["sun", "sun", "sun", "", "", "", "moon", "moon", "moon"];
+      turn = "sun";
+      selected = null;
+      moves = [];
+      score = { sun: 0, moon: 0 };
+      scoredLines = { sun: new Set(), moon: new Set() };
+      gameOver = false;
+      render();
+    }
+
+    function opponent(side) {
+      return side === "sun" ? "moon" : "sun";
+    }
+
+    function sideName(side) {
+      return side === "sun" ? "Sun" : "Moon";
+    }
+
+    function neighbors(index) {
+      return links
+        .filter(([a, b]) => a === index || b === index)
+        .map(([a, b]) => (a === index ? b : a));
+    }
+
+    function legalMoves(index) {
+      if (board[index] !== turn) return [];
+      return neighbors(index).filter((target) => board[target] === "");
+    }
+
+    function allMovesFor(side) {
+      const result = [];
+      board.forEach((cell, index) => {
+        if (cell === side) {
+          neighbors(index)
+            .filter((target) => board[target] === "")
+            .forEach((target) => result.push({ from: index, to: target }));
+        }
+      });
+      return result;
+    }
+
+    function lineKey(line) {
+      return line.join("-");
+    }
+
+    function scoreFreshLines(side) {
+      let gained = 0;
+      lines.forEach((line) => {
+        if (line.every((index) => board[index] === side)) {
+          const key = lineKey(line);
+          if (!scoredLines[side].has(key)) {
+            scoredLines[side].add(key);
+            gained += 1;
+          }
+        }
+      });
+      score[side] += gained;
+      return gained;
+    }
+
+    function finishGame(message) {
+      gameOver = true;
+      selected = null;
+      moves = [];
+      statusEl.textContent = message;
+    }
+
+    function checkGame(lastSide, gained) {
+      if (score[lastSide] >= 3) {
+        finishGame(`${sideName(lastSide)} wins with three scored rows.`);
+        return true;
+      }
+      if (allMovesFor(turn).length === 0) {
+        finishGame(`${sideName(lastSide)} wins by trapping ${sideName(turn)}.`);
+        return true;
+      }
+      if (gained > 0) {
+        statusEl.textContent = `${sideName(lastSide)} scores ${gained}. ${sideName(turn)} to move.`;
+      }
+      return false;
+    }
+
+    function selectPoint(index) {
+      if (gameOver) return;
+      if (board[index] !== turn) {
+        selected = null;
+        moves = [];
+        render();
+        return;
+      }
+      selected = index;
+      moves = legalMoves(index);
+      render();
+    }
+
+    function applyMove(index) {
+      if (selected === null || !moves.includes(index) || gameOver) return;
+      const movingSide = turn;
+      board[index] = movingSide;
+      board[selected] = "";
+      selected = null;
+      moves = [];
+      const gained = scoreFreshLines(movingSide);
+      turn = opponent(turn);
+      render();
+      if (!checkGame(movingSide, gained)) renderStatus();
+    }
+
+    function handlePoint(index) {
+      if (moves.includes(index)) {
+        applyMove(index);
+        return;
+      }
+      selectPoint(index);
+    }
+
+    function pointClasses(index) {
+      const isSelected = selected === index;
+      const isMove = moves.includes(index);
+      const owner = board[index];
+      const classes = [
+        "absolute",
+        "flex",
+        "h-16",
+        "w-16",
+        "-translate-x-1/2",
+        "-translate-y-1/2",
+        "items-center",
+        "justify-center",
+        "rounded-full",
+        "border-2",
+        "text-lg",
+        "font-black",
+        "transition"
+      ];
+      if (owner === "sun") classes.push("border-amber-200 bg-amber-300 text-amber-950");
+      if (owner === "moon") classes.push("border-sky-200 bg-sky-300 text-sky-950");
+      if (!owner) classes.push("border-teal-500 bg-teal-800 text-teal-200");
+      if (isSelected) classes.push("ring-4 ring-lime-300");
+      if (isMove) classes.push("cursor-pointer border-lime-200 bg-lime-300 text-teal-950 ring-2 ring-lime-100");
+      if (!gameOver && !isMove) classes.push("hover:scale-105");
+      return classes.join(" ");
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = pointClasses(index);
+        button.style.left = `${point.x}%`;
+        button.style.top = `${point.y}%`;
+        button.textContent = board[index] === "sun" ? "S" : board[index] === "moon" ? "M" : index + 1;
+        button.setAttribute("aria-label", `Point ${index + 1}`);
+        button.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(button);
+      });
+    }
+
+    function renderStatus() {
+      if (gameOver) return;
+      statusEl.textContent = selected === null
+        ? `${sideName(turn)} to move. Select one of your horses.`
+        : `${sideName(turn)}: choose a highlighted neighboring point.`;
+    }
+
+    function renderScores() {
+      sunScoreEl.textContent = score.sun;
+      moonScoreEl.textContent = score.moon;
+    }
+
+    function render() {
+      renderBoard();
+      renderScores();
+      renderStatus();
+    }
+
+    resetButton.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
