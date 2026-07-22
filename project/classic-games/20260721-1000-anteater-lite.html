@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Anteater</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-4 px-4 py-6">
+    <section class="w-full rounded-lg border border-stone-700 bg-stone-900 p-4 shadow-2xl">
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-orange-200">Mini Anteater</h1>
+          <p class="text-sm text-stone-400">移动到通道口，伸出舌头吃掉所有食物，避开巡逻虫。</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-stone-700 bg-stone-800 px-3 py-2">
+            <div class="text-stone-400">分数</div>
+            <div id="score" class="text-lg font-bold text-emerald-300">0</div>
+          </div>
+          <div class="rounded border border-stone-700 bg-stone-800 px-3 py-2">
+            <div class="text-stone-400">剩余</div>
+            <div id="foodLeft" class="text-lg font-bold text-amber-300">0</div>
+          </div>
+          <div class="rounded border border-stone-700 bg-stone-800 px-3 py-2">
+            <div class="text-stone-400">生命</div>
+            <div id="lives" class="text-lg font-bold text-rose-300">3</div>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="game" width="640" height="560" class="mx-auto block h-auto w-full max-w-[640px] rounded border border-stone-700 bg-stone-950"></canvas>
+
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-stone-300">
+        <span>方向键 / WASD 移动，空格沿当前方向伸舌，R 重新开始。</span>
+        <button id="restart" class="rounded bg-orange-300 px-4 py-2 font-semibold text-stone-950 hover:bg-orange-200">重新开始</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const foodLeftEl = document.getElementById("foodLeft");
+    const livesEl = document.getElementById("lives");
+    const restartBtn = document.getElementById("restart");
+
+    const cell = 40;
+    const cols = canvas.width / cell;
+    const rows = canvas.height / cell;
+    const tunnels = new Set();
+    const food = new Set();
+    const bugs = [];
+    const keys = new Set();
+    let player;
+    let tongue;
+    let score;
+    let lives;
+    let running;
+    let message;
+    let lastTime;
+
+    function keyOf(x, y) {
+      return `${x},${y}`;
+    }
+
+    function buildTunnels() {
+      tunnels.clear();
+      const lines = [
+        [2, 2, 13, 2], [2, 5, 13, 5], [2, 8, 13, 8], [2, 11, 13, 11],
+        [2, 2, 2, 11], [7, 2, 7, 11], [13, 2, 13, 11],
+        [4, 3, 4, 7], [10, 6, 10, 10]
+      ];
+      lines.forEach(([x1, y1, x2, y2]) => {
+        for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x += 1) {
+          for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y += 1) tunnels.add(keyOf(x, y));
+        }
+      });
+    }
+
+    function seedFood() {
+      food.clear();
+      tunnels.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        if ((x + y) % 2 === 0 && key !== keyOf(7, 11)) food.add(key);
+      });
+    }
+
+    function setupGame() {
+      buildTunnels();
+      seedFood();
+      player = { x: 7, y: 12, dir: { x: 0, y: -1 }, moveTimer: 0 };
+      tongue = null;
+      score = 0;
+      lives = 3;
+      bugs.length = 0;
+      bugs.push({ x: 2, y: 2, dir: 1, path: [[2, 2], [13, 2]] });
+      bugs.push({ x: 13, y: 11, dir: -1, path: [[2, 11], [13, 11]] });
+      bugs.push({ x: 7, y: 5, dir: 1, path: [[7, 2], [7, 11]] });
+      running = true;
+      message = "";
+      lastTime = performance.now();
+      updateHud();
+      requestAnimationFrame(loop);
+    }
+
+    function isTunnel(x, y) {
+      return tunnels.has(keyOf(x, y));
+    }
+
+    function updatePlayer(dt) {
+      player.moveTimer -= dt;
+      if (player.moveTimer > 0 || tongue) return;
+      const intent = { x: 0, y: 0 };
+      if (keys.has("ArrowLeft") || keys.has("a")) intent.x = -1;
+      if (keys.has("ArrowRight") || keys.has("d")) intent.x = 1;
+      if (keys.has("ArrowUp") || keys.has("w")) intent.y = -1;
+      if (keys.has("ArrowDown") || keys.has("s")) intent.y = 1;
+      if (intent.x === 0 && intent.y === 0) return;
+      player.dir = intent;
+      const nx = player.x + intent.x;
+      const ny = player.y + intent.y;
+      if (isTunnel(nx, ny) || ny === 12) {
+        player.x = Math.max(1, Math.min(cols - 2, nx));
+        player.y = Math.max(1, Math.min(rows - 2, ny));
+        player.moveTimer = 0.11;
+      }
+    }
+
+    function shootTongue() {
+      if (tongue || !running) return;
+      tongue = { x: player.x, y: player.y, dx: player.dir.x, dy: player.dir.y, length: 0, retract: false, hits: [] };
+    }
+
+    function updateTongue(dt) {
+      if (!tongue) return;
+      const speed = 12 * dt;
+      tongue.length += tongue.retract ? -speed : speed;
+      const tx = Math.round(tongue.x + tongue.dx * tongue.length);
+      const ty = Math.round(tongue.y + tongue.dy * tongue.length);
+      const key = keyOf(tx, ty);
+
+      if (!tongue.retract && food.has(key)) {
+        food.delete(key);
+        tongue.hits.push(key);
+        score += 25 + tongue.hits.length * 5;
+        updateHud();
+      }
+      if (!tongue.retract && (!isTunnel(tx, ty) || tongue.length > 12)) tongue.retract = true;
+      if (tongue.length <= 0) tongue = null;
+      if (food.size === 0) {
+        running = false;
+        message = "Stage Clear";
+      }
+    }
+
+    function updateBugs(dt) {
+      bugs.forEach((bug) => {
+        const [[x1, y1], [x2, y2]] = bug.path;
+        if (x1 === x2) {
+          bug.y += bug.dir * dt * 2.8;
+          if (bug.y > Math.max(y1, y2) || bug.y < Math.min(y1, y2)) bug.dir *= -1;
+        } else {
+          bug.x += bug.dir * dt * 2.8;
+          if (bug.x > Math.max(x1, x2) || bug.x < Math.min(x1, x2)) bug.dir *= -1;
+        }
+        if (Math.hypot(bug.x - player.x, bug.y - player.y) < 0.55) loseLife();
+      });
+    }
+
+    function loseLife() {
+      lives -= 1;
+      player.x = 7;
+      player.y = 12;
+      tongue = null;
+      message = lives > 0 ? "Careful" : "Game Over";
+      running = lives > 0;
+      updateHud();
+    }
+
+    function drawCell(x, y, color, inset = 4) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * cell + inset, y * cell + inset, cell - inset * 2, cell - inset * 2);
+    }
+
+    function drawWorld() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#1c1917";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      tunnels.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        drawCell(x, y, "#44403c", 6);
+      });
+      food.forEach((key) => {
+        const [x, y] = key.split(",").map(Number);
+        ctx.fillStyle = "#fbbf24";
+        ctx.beginPath();
+        ctx.arc(x * cell + cell / 2, y * cell + cell / 2, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      if (tongue) {
+        ctx.strokeStyle = "#fb7185";
+        ctx.lineWidth = 6;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(player.x * cell + cell / 2, player.y * cell + cell / 2);
+        ctx.lineTo((tongue.x + tongue.dx * tongue.length) * cell + cell / 2, (tongue.y + tongue.dy * tongue.length) * cell + cell / 2);
+        ctx.stroke();
+      }
+      bugs.forEach((bug) => {
+        ctx.fillStyle = "#a3e635";
+        ctx.beginPath();
+        ctx.arc(bug.x * cell + cell / 2, bug.y * cell + cell / 2, 12, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      drawCell(player.x, player.y, "#fdba74", 5);
+      ctx.fillStyle = "#431407";
+      ctx.fillRect(player.x * cell + 12, player.y * cell + 14, 16, 8);
+
+      if (!running || message) {
+        ctx.fillStyle = "rgba(28, 25, 23, 0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fed7aa";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(message, canvas.width / 2, canvas.height / 2 - 8);
+        ctx.font = "18px sans-serif";
+        ctx.fillText(running ? "继续采食" : "按 R 或点击重新开始", canvas.width / 2, canvas.height / 2 + 30);
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      foodLeftEl.textContent = food.size;
+      livesEl.textContent = lives;
+    }
+
+    function loop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      if (running) {
+        message = "";
+        updatePlayer(dt);
+        updateTongue(dt);
+        updateBugs(dt);
+      }
+      drawWorld();
+      if (running) requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "w", "a", "s", "d", " ", "r"].includes(key)) event.preventDefault();
+      if (key === " ") shootTongue();
+      if (key === "r") setupGame();
+      keys.add(key);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
