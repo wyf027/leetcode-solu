@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pepper II</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-emerald-400/30 bg-stone-900 p-4 shadow-2xl shadow-emerald-950/30">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-emerald-200">Mini Pepper II</h1>
+          <p class="text-sm text-stone-400">Trace boxes, close loops, and outrun the patrolling peppers.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-stone-700 px-3 py-2">
+            <div class="text-stone-500">Score</div>
+            <div id="score" class="font-mono text-emerald-200">0</div>
+          </div>
+          <div class="rounded border border-stone-700 px-3 py-2">
+            <div class="text-stone-500">Lives</div>
+            <div id="lives" class="font-mono text-rose-200">3</div>
+          </div>
+          <div class="rounded border border-stone-700 px-3 py-2">
+            <div class="text-stone-500">Loops</div>
+            <div id="loops" class="font-mono text-amber-200">0/12</div>
+          </div>
+        </div>
+      </div>
+      <canvas id="game" width="720" height="520" class="aspect-[18/13] w-full rounded border border-stone-700 bg-black"></canvas>
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-stone-400">
+        <p>Move: Arrow keys / WASD. Restart: Enter.</p>
+        <p id="status" class="font-medium text-emerald-200">Trace every box outline.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const loopsEl = document.getElementById('loops');
+    const statusEl = document.getElementById('status');
+    const keys = new Set();
+
+    const grid = { cols: 5, rows: 4, cell: 92, left: 130, top: 74 };
+    const totalBoxes = (grid.cols - 1) * (grid.rows - 1);
+    const dirs = {
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 }
+    };
+
+    let player;
+    let peppers;
+    let visitedEdges;
+    let closedBoxes;
+    let score;
+    let lives;
+    let wave;
+    let frame;
+    let running;
+    let gameOver;
+
+    function setupGame() {
+      player = makeMover(0, 0, '#6ee7b7', 0.14);
+      peppers = [];
+      visitedEdges = new Set();
+      closedBoxes = new Set();
+      score = 0;
+      lives = 3;
+      wave = 1;
+      frame = 0;
+      running = false;
+      gameOver = false;
+      spawnPeppers();
+      updateHud();
+      statusEl.textContent = 'Trace every box outline.';
+      draw();
+    }
+
+    function makeMover(col, row, color, speed) {
+      return {
+        col,
+        row,
+        x: nodeX(col),
+        y: nodeY(row),
+        dir: null,
+        targetCol: col,
+        targetRow: row,
+        progress: 0,
+        speed,
+        color,
+        invulnerable: 90
+      };
+    }
+
+    function spawnPeppers() {
+      peppers = [];
+      const starts = [
+        [grid.cols - 1, 0],
+        [0, grid.rows - 1],
+        [grid.cols - 1, grid.rows - 1],
+        [2, 2]
+      ];
+      for (let i = 0; i < Math.min(4, 1 + wave); i++) {
+        const [col, row] = starts[i];
+        const pepper = makeMover(col, row, i % 2 ? '#f97316' : '#f43f5e', 0.09 + wave * 0.006);
+        pepper.turnTimer = 0;
+        peppers.push(pepper);
+      }
+    }
+
+    function nodeX(col) {
+      return grid.left + col * grid.cell;
+    }
+
+    function nodeY(row) {
+      return grid.top + row * grid.cell;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      loopsEl.textContent = `${closedBoxes.size}/${totalBoxes}`;
+    }
+
+    function setDirection(dirName) {
+      if (gameOver || player.progress > 0) return;
+      const dir = dirs[dirName];
+      const nextCol = player.col + dir.x;
+      const nextRow = player.row + dir.y;
+      if (!insideNode(nextCol, nextRow)) return;
+      running = true;
+      startMove(player, dirName);
+    }
+
+    function startMove(mover, dirName) {
+      const dir = dirs[dirName];
+      mover.dir = dirName;
+      mover.targetCol = mover.col + dir.x;
+      mover.targetRow = mover.row + dir.y;
+      mover.progress = 0.001;
+    }
+
+    function updatePlayer() {
+      if (player.invulnerable > 0) player.invulnerable -= 1;
+      if (player.progress === 0) {
+        if (keys.has('ArrowLeft') || keys.has('a')) setDirection('left');
+        if (keys.has('ArrowRight') || keys.has('d')) setDirection('right');
+        if (keys.has('ArrowUp') || keys.has('w')) setDirection('up');
+        if (keys.has('ArrowDown') || keys.has('s')) setDirection('down');
+      }
+      advanceMover(player, true);
+    }
+
+    function updatePeppers() {
+      for (const pepper of peppers) {
+        if (pepper.progress === 0) {
+          pepper.turnTimer -= 1;
+          if (pepper.turnTimer <= 0) {
+            startMove(pepper, choosePepperDirection(pepper));
+            pepper.turnTimer = 4 + Math.floor(Math.random() * 10);
+          }
+        }
+        advanceMover(pepper, false);
+      }
+    }
+
+    function choosePepperDirection(pepper) {
+      const options = Object.keys(dirs).filter((dirName) => {
+        const dir = dirs[dirName];
+        return insideNode(pepper.col + dir.x, pepper.row + dir.y);
+      });
+      options.sort((a, b) => distanceAfter(pepper, a) - distanceAfter(pepper, b));
+      return Math.random() < 0.72 ? options[0] : options[Math.floor(Math.random() * options.length)];
+    }
+
+    function distanceAfter(mover, dirName) {
+      const dir = dirs[dirName];
+      return Math.hypot(nodeX(mover.col + dir.x) - player.x, nodeY(mover.row + dir.y) - player.y);
+    }
+
+    function advanceMover(mover, marksEdges) {
+      if (mover.progress === 0) return;
+      mover.progress = Math.min(1, mover.progress + mover.speed);
+      mover.x = nodeX(mover.col) + (nodeX(mover.targetCol) - nodeX(mover.col)) * mover.progress;
+      mover.y = nodeY(mover.row) + (nodeY(mover.targetRow) - nodeY(mover.row)) * mover.progress;
+      if (mover.progress >= 1) {
+        const fromCol = mover.col;
+        const fromRow = mover.row;
+        mover.col = mover.targetCol;
+        mover.row = mover.targetRow;
+        mover.x = nodeX(mover.col);
+        mover.y = nodeY(mover.row);
+        mover.progress = 0;
+        if (marksEdges) markEdge(fromCol, fromRow, mover.col, mover.row);
+      }
+    }
+
+    function markEdge(aCol, aRow, bCol, bRow) {
+      const key = edgeKey(aCol, aRow, bCol, bRow);
+      if (!visitedEdges.has(key)) {
+        visitedEdges.add(key);
+        score += 10;
+      }
+      checkBoxes();
+      updateHud();
+    }
+
+    function edgeKey(aCol, aRow, bCol, bRow) {
+      const a = `${aCol},${aRow}`;
+      const b = `${bCol},${bRow}`;
+      return a < b ? `${a}|${b}` : `${b}|${a}`;
+    }
+
+    function checkBoxes() {
+      for (let row = 0; row < grid.rows - 1; row++) {
+        for (let col = 0; col < grid.cols - 1; col++) {
+          const box = `${col},${row}`;
+          if (closedBoxes.has(box)) continue;
+          const top = visitedEdges.has(edgeKey(col, row, col + 1, row));
+          const right = visitedEdges.has(edgeKey(col + 1, row, col + 1, row + 1));
+          const bottom = visitedEdges.has(edgeKey(col, row + 1, col + 1, row + 1));
+          const left = visitedEdges.has(edgeKey(col, row, col, row + 1));
+          if (top && right && bottom && left) {
+            closedBoxes.add(box);
+            score += 120;
+            statusEl.textContent = 'Loop closed.';
+          }
+        }
+      }
+      if (closedBoxes.size === totalBoxes) {
+        wave += 1;
+        score += 500;
+        player.invulnerable = 100;
+        visitedEdges.clear();
+        closedBoxes.clear();
+        spawnPeppers();
+        statusEl.textContent = `Wave ${wave}: fresh grid.`;
+      }
+    }
+
+    function insideNode(col, row) {
+      return col >= 0 && row >= 0 && col < grid.cols && row < grid.rows;
+    }
+
+    function checkCollisions() {
+      if (player.invulnerable > 0) return;
+      for (const pepper of peppers) {
+        if (Math.hypot(player.x - pepper.x, player.y - pepper.y) < 24) {
+          loseLife();
+          break;
+        }
+      }
+    }
+
+    function loseLife() {
+      lives -= 1;
+      updateHud();
+      if (lives <= 0) {
+        running = false;
+        gameOver = true;
+        statusEl.textContent = 'Game over. Press Enter to restart.';
+        return;
+      }
+      player = makeMover(0, 0, '#6ee7b7', 0.14);
+      player.invulnerable = 110;
+      statusEl.textContent = 'Caught. Start from the corner.';
+    }
+
+    function drawBoard() {
+      ctx.fillStyle = '#0c0a09';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let row = 0; row < grid.rows - 1; row++) {
+        for (let col = 0; col < grid.cols - 1; col++) {
+          ctx.fillStyle = closedBoxes.has(`${col},${row}`) ? '#064e3b' : '#1c1917';
+          ctx.fillRect(nodeX(col) + 5, nodeY(row) + 5, grid.cell - 10, grid.cell - 10);
+        }
+      }
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      for (let row = 0; row < grid.rows; row++) {
+        for (let col = 0; col < grid.cols; col++) {
+          if (col < grid.cols - 1) drawEdge(col, row, col + 1, row);
+          if (row < grid.rows - 1) drawEdge(col, row, col, row + 1);
+        }
+      }
+      ctx.fillStyle = '#d6d3d1';
+      for (let row = 0; row < grid.rows; row++) {
+        for (let col = 0; col < grid.cols; col++) {
+          ctx.beginPath();
+          ctx.arc(nodeX(col), nodeY(row), 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawEdge(aCol, aRow, bCol, bRow) {
+      ctx.strokeStyle = visitedEdges.has(edgeKey(aCol, aRow, bCol, bRow)) ? '#34d399' : '#57534e';
+      ctx.beginPath();
+      ctx.moveTo(nodeX(aCol), nodeY(aRow));
+      ctx.lineTo(nodeX(bCol), nodeY(bRow));
+      ctx.stroke();
+    }
+
+    function drawMover(mover, isPlayer) {
+      ctx.save();
+      ctx.translate(mover.x, mover.y);
+      if (isPlayer && mover.invulnerable > 0 && Math.floor(frame / 6) % 2 === 0) ctx.globalAlpha = 0.45;
+      ctx.fillStyle = mover.color;
+      ctx.beginPath();
+      if (isPlayer) {
+        ctx.moveTo(0, -17);
+        ctx.lineTo(16, 12);
+        ctx.lineTo(-16, 12);
+      } else {
+        ctx.arc(0, 0, 16, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      ctx.fillStyle = '#0c0a09';
+      ctx.fillRect(-7, -5, 5, 5);
+      ctx.fillRect(3, -5, 5, 5);
+      ctx.restore();
+    }
+
+    function drawOverlay() {
+      if (running && !gameOver) return;
+      ctx.fillStyle = 'rgba(12, 10, 9, 0.72)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#a7f3d0';
+      ctx.font = '700 34px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(gameOver ? 'Peppered Out' : 'Mini Pepper II', canvas.width / 2, canvas.height / 2 - 18);
+      ctx.font = '16px system-ui, sans-serif';
+      ctx.fillStyle = '#d6d3d1';
+      ctx.fillText(gameOver ? 'Press Enter for a new grid' : 'Trace all four edges of each box while dodging patrols.', canvas.width / 2, canvas.height / 2 + 20);
+    }
+
+    function draw() {
+      drawBoard();
+      for (const pepper of peppers) drawMover(pepper, false);
+      drawMover(player, true);
+      drawOverlay();
+    }
+
+    function tick() {
+      frame += 1;
+      if (running && !gameOver) {
+        updatePlayer();
+        updatePeppers();
+        checkCollisions();
+      }
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) event.preventDefault();
+      if (key === 'Enter' && gameOver) {
+        setupGame();
+        return;
+      }
+      keys.add(key);
+      if (key === 'ArrowLeft' || key === 'a') setDirection('left');
+      if (key === 'ArrowRight' || key === 'd') setDirection('right');
+      if (key === 'ArrowUp' || key === 'w') setDirection('up');
+      if (key === 'ArrowDown' || key === 's') setDirection('down');
+    });
+
+    window.addEventListener('keyup', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    setupGame();
+    tick();
+  </script>
+</body>
+</html>
