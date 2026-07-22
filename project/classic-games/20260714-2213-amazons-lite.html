@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Amazons</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-lime-200">Mini Amazons</h1>
+        <p class="mt-1 text-sm text-emerald-300">移动女王，再射出一支箭封锁格子；无法行动的一方落败。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-emerald-700 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-400">当前</div>
+          <div id="turn" class="text-lg font-bold text-lime-200">White</div>
+        </div>
+        <div class="rounded border border-emerald-700 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-400">阶段</div>
+          <div id="phase" class="text-lg font-bold">移动</div>
+        </div>
+        <div class="rounded border border-emerald-700 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-400">封锁</div>
+          <div id="arrows" class="text-lg font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_260px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[600px] grid-cols-6 gap-1 rounded bg-emerald-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-emerald-300">状态</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-emerald-100">选择己方女王，沿直线或斜线移动。</p>
+          <button id="reset" class="mt-4 w-full rounded bg-lime-300 px-4 py-2 font-semibold text-emerald-950 hover:bg-lime-200">重新开局</button>
+        </div>
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4 text-sm leading-6 text-emerald-200">
+          <div class="font-semibold text-emerald-100">记号</div>
+          <div class="mt-2">♕ White 女王</div>
+          <div>♛ Black 女王</div>
+          <div>× 箭矢封锁</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const boardEl = document.getElementById('board');
+    const turnEl = document.getElementById('turn');
+    const phaseEl = document.getElementById('phase');
+    const arrowsEl = document.getElementById('arrows');
+    const msgEl = document.getElementById('message');
+    const resetBtn = document.getElementById('reset');
+
+    let board;
+    let current;
+    let selected;
+    let movedFrom;
+    let phase;
+    let gameOver;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(''));
+      board[0][1] = 'B';
+      board[0][4] = 'B';
+      board[5][1] = 'W';
+      board[5][4] = 'W';
+      current = 'W';
+      selected = null;
+      movedFrom = null;
+      phase = 'move';
+      gameOver = false;
+      msgEl.textContent = '选择己方女王，沿直线或斜线移动。';
+      render();
+    }
+
+    function playerName(mark) {
+      return mark === 'W' ? 'White' : 'Black';
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function isQueenLine(from, to) {
+      const dr = to.row - from.row;
+      const dc = to.col - from.col;
+      return dr === 0 || dc === 0 || Math.abs(dr) === Math.abs(dc);
+    }
+
+    function clearPath(from, to) {
+      if (!isQueenLine(from, to)) return false;
+      const stepRow = Math.sign(to.row - from.row);
+      const stepCol = Math.sign(to.col - from.col);
+      let row = from.row + stepRow;
+      let col = from.col + stepCol;
+      while (row !== to.row || col !== to.col) {
+        if (board[row][col]) return false;
+        row += stepRow;
+        col += stepCol;
+      }
+      return board[to.row][to.col] === '';
+    }
+
+    function possibleMoves(from) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const to = { row, col };
+          if ((row !== from.row || col !== from.col) && clearPath(from, to)) moves.push(to);
+        }
+      }
+      return moves;
+    }
+
+    function hasAnyMove(mark) {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === mark && possibleMoves({ row, col }).length) return true;
+        }
+      }
+      return false;
+    }
+
+    function render() {
+      turnEl.textContent = playerName(current);
+      phaseEl.textContent = phase === 'move' ? '移动' : '射箭';
+      arrowsEl.textContent = board.flat().filter((cell) => cell === 'X').length;
+      boardEl.innerHTML = '';
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = cell === 'W' ? '♕' : cell === 'B' ? '♛' : cell === 'X' ? '×' : '';
+          btn.className = [
+            'aspect-square rounded border text-3xl font-black transition',
+            (row + col) % 2 === 0 ? 'bg-emerald-800' : 'bg-emerald-700',
+            cell === 'W' ? 'border-lime-200 text-lime-100' : '',
+            cell === 'B' ? 'border-cyan-200 text-cyan-100' : '',
+            cell === 'X' ? 'border-stone-500 bg-stone-700 text-stone-300' : '',
+            !cell ? 'border-emerald-600 hover:border-lime-200' : '',
+            active ? 'outline outline-4 outline-lime-200' : ''
+          ].join(' ');
+          btn.addEventListener('click', () => handleCell(row, col));
+          boardEl.appendChild(btn);
+        }
+      }
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      const cell = board[row][col];
+      if (phase === 'move') {
+        if (cell === current) {
+          selected = { row, col };
+          msgEl.textContent = `已选择 ${playerName(current)} 女王，选择目标空格。`;
+          render();
+          return;
+        }
+        if (!selected) {
+          msgEl.textContent = '请先选择己方女王。';
+          return;
+        }
+        const target = { row, col };
+        if (!clearPath(selected, target)) {
+          msgEl.textContent = '女王只能沿畅通的直线或斜线移动到空格。';
+          return;
+        }
+        board[selected.row][selected.col] = '';
+        board[row][col] = current;
+        movedFrom = selected;
+        selected = { row, col };
+        phase = 'arrow';
+        msgEl.textContent = '移动完成，现在从新位置射箭封锁一个空格。';
+        render();
+        return;
+      }
+
+      const arrowTarget = { row, col };
+      if (!clearPath(selected, arrowTarget)) {
+        msgEl.textContent = '箭也必须沿畅通的直线或斜线射到空格。';
+        return;
+      }
+      board[row][col] = 'X';
+      const next = current === 'W' ? 'B' : 'W';
+      selected = null;
+      movedFrom = null;
+      phase = 'move';
+      if (!hasAnyMove(next)) {
+        gameOver = true;
+        msgEl.textContent = `${playerName(current)} 获胜，${playerName(next)} 已无路可走。`;
+      } else {
+        current = next;
+        msgEl.textContent = `轮到 ${playerName(current)}，选择一枚女王。`;
+      }
+      render();
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
