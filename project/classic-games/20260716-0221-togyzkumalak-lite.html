@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Togyzkumalak</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-cyan-300">Classic Mini Game</p>
+        <h1 class="text-3xl font-bold">Mini Togyzkumalak</h1>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-cyan-400 px-4 py-2 font-semibold text-neutral-950 hover:bg-cyan-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+        <div class="mb-3 flex items-center justify-between rounded-md bg-neutral-800 px-4 py-3">
+          <span class="font-semibold text-rose-300">北方</span>
+          <span>仓库：<strong id="storeNorth" class="text-2xl">0</strong></span>
+        </div>
+        <div id="northRow" class="grid grid-cols-6 gap-2"></div>
+        <div id="southRow" class="mt-2 grid grid-cols-6 gap-2"></div>
+        <div class="mt-3 flex items-center justify-between rounded-md bg-neutral-800 px-4 py-3">
+          <span class="font-semibold text-sky-300">南方</span>
+          <span>仓库：<strong id="storeSouth" class="text-2xl">0</strong></span>
+        </div>
+      </div>
+
+      <aside class="rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+        <div class="rounded-md bg-neutral-800 p-3">
+          <p class="text-xs text-neutral-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-lg font-semibold">南方</p>
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-3 text-center">
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs text-neutral-400">目标分</p>
+            <p class="text-2xl font-bold text-cyan-300">25</p>
+          </div>
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p class="text-xs text-neutral-400">每坑初始</p>
+            <p class="text-2xl font-bold text-cyan-300">4</p>
+          </div>
+        </div>
+        <div class="mt-4 rounded-md bg-neutral-800 p-3">
+          <p id="statusText" class="text-sm leading-6 text-neutral-200">选择己方非空坑播种。最后一颗落到对方坑且该坑为偶数时，收入这些棋子。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const northRow = document.getElementById("northRow");
+    const southRow = document.getElementById("southRow");
+    const storeNorthEl = document.getElementById("storeNorth");
+    const storeSouthEl = document.getElementById("storeSouth");
+    const turnTextEl = document.getElementById("turnText");
+    const statusTextEl = document.getElementById("statusText");
+    const resetBtn = document.getElementById("resetBtn");
+    const pitsPerSide = 6;
+    const initialSeeds = 4;
+    const targetScore = 25;
+    let pits;
+    let stores;
+    let turn;
+    let gameOver;
+
+    function resetGame() {
+      pits = {
+        north: Array(pitsPerSide).fill(initialSeeds),
+        south: Array(pitsPerSide).fill(initialSeeds)
+      };
+      stores = { north: 0, south: 0 };
+      turn = "south";
+      gameOver = false;
+      render("南方先手：选择己方任一非空坑。");
+    }
+
+    function opponent(player) {
+      return player === "south" ? "north" : "south";
+    }
+
+    function ring() {
+      const track = [];
+      for (let i = 0; i < pitsPerSide; i++) track.push(["south", i]);
+      for (let i = pitsPerSide - 1; i >= 0; i--) track.push(["north", i]);
+      return track;
+    }
+
+    function sideEmpty(player) {
+      return pits[player].every((count) => count === 0);
+    }
+
+    function collectRemainder() {
+      for (const player of ["south", "north"]) {
+        for (let i = 0; i < pitsPerSide; i++) {
+          stores[player] += pits[player][i];
+          pits[player][i] = 0;
+        }
+      }
+    }
+
+    function endGame(message) {
+      gameOver = true;
+      render(message);
+    }
+
+    function checkGameEnd() {
+      if (stores.south >= targetScore || stores.north >= targetScore || sideEmpty("south") || sideEmpty("north")) {
+        collectRemainder();
+        const winner = stores.south === stores.north ? "平局" : stores.south > stores.north ? "南方获胜" : "北方获胜";
+        endGame(winner + "，最终比分 " + stores.south + " : " + stores.north + "。");
+        return true;
+      }
+      return false;
+    }
+
+    function sow(player, pitIndex) {
+      if (gameOver || player !== turn || pits[player][pitIndex] === 0) return;
+      const path = ring();
+      let position = path.findIndex(([side, index]) => side === player && index === pitIndex);
+      let seeds = pits[player][pitIndex];
+      pits[player][pitIndex] = 0;
+      let lastSide = player;
+      let lastIndex = pitIndex;
+      while (seeds > 0) {
+        position = (position + 1) % path.length;
+        const [side, index] = path[position];
+        pits[side][index]++;
+        lastSide = side;
+        lastIndex = index;
+        seeds--;
+      }
+      let message = "最后一颗落在" + (lastSide === "south" ? "南方" : "北方") + "第 " + (lastIndex + 1) + " 坑。";
+      if (lastSide === opponent(player) && pits[lastSide][lastIndex] % 2 === 0) {
+        const captured = pits[lastSide][lastIndex];
+        pits[lastSide][lastIndex] = 0;
+        stores[player] += captured;
+        message = "捕获对方第 " + (lastIndex + 1) + " 坑的 " + captured + " 枚棋子。";
+      }
+      turn = opponent(turn);
+      if (!checkGameEnd()) render(message);
+    }
+
+    function createPit(player, index) {
+      const button = document.createElement("button");
+      const count = pits[player][index];
+      const ownTurn = player === turn && !gameOver && count > 0;
+      button.className = [
+        "flex aspect-square flex-col items-center justify-center rounded-lg border font-bold transition",
+        player === "south" ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-rose-500/40 bg-rose-500/10 text-rose-200",
+        ownTurn ? "hover:scale-[1.03] hover:border-cyan-300" : "opacity-80",
+      ].join(" ");
+      button.innerHTML = "<span class=\"text-xs text-neutral-400\">坑 " + (index + 1) + "</span><span class=\"text-2xl\">" + count + "</span>";
+      button.addEventListener("click", () => sow(player, index));
+      return button;
+    }
+
+    function render(message) {
+      storeNorthEl.textContent = stores.north;
+      storeSouthEl.textContent = stores.south;
+      turnTextEl.textContent = gameOver ? "游戏结束" : turn === "south" ? "南方" : "北方";
+      statusTextEl.textContent = message;
+      northRow.innerHTML = "";
+      southRow.innerHTML = "";
+      for (let i = pitsPerSide - 1; i >= 0; i--) northRow.appendChild(createPit("north", i));
+      for (let i = 0; i < pitsPerSide; i++) southRow.appendChild(createPit("south", i));
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
