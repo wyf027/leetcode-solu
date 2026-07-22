@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Adu Go</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-lime-300">Classic Mini Game</p>
+        <h1 class="text-3xl font-bold">Mini Adu Go</h1>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 font-semibold text-emerald-950 hover:bg-lime-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div class="rounded-lg border border-emerald-700 bg-emerald-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-emerald-700 bg-emerald-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded-md bg-emerald-800 p-3">
+            <p class="text-xs text-emerald-300">黑子</p>
+            <p id="blackCount" class="text-2xl font-bold">2</p>
+          </div>
+          <div class="rounded-md bg-emerald-800 p-3">
+            <p class="text-xs text-emerald-300">白子</p>
+            <p id="whiteCount" class="text-2xl font-bold">2</p>
+          </div>
+        </div>
+        <div class="mt-4 rounded-md bg-emerald-800 p-3">
+          <p class="text-xs text-emerald-300">当前回合</p>
+          <p id="turnText" class="mt-1 text-lg font-semibold">黑方</p>
+        </div>
+        <div class="mt-4 rounded-md bg-emerald-800 p-3">
+          <p id="statusText" class="text-sm leading-6 text-emerald-50">轮流移动一枚棋子到相邻空点。夹住对手即可移除；吃掉全部对手或让对手无路可走获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const blackCountEl = document.getElementById("blackCount");
+    const whiteCountEl = document.getElementById("whiteCount");
+    const turnTextEl = document.getElementById("turnText");
+    const statusTextEl = document.getElementById("statusText");
+    const size = 5;
+    let cells;
+    let turn;
+    let selected;
+    let gameOver;
+
+    function indexOf(row, col) {
+      return row * size + col;
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function opponent(player) {
+      return player === "B" ? "W" : "B";
+    }
+
+    function playerName(player) {
+      return player === "B" ? "黑方" : "白方";
+    }
+
+    function resetGame() {
+      cells = Array(size * size).fill("");
+      cells[indexOf(0, 1)] = "B";
+      cells[indexOf(0, 3)] = "B";
+      cells[indexOf(4, 1)] = "W";
+      cells[indexOf(4, 3)] = "W";
+      turn = "B";
+      selected = null;
+      gameOver = false;
+      render("黑方先手：选择一枚棋子移动。");
+    }
+
+    function neighbors(index) {
+      const row = rowOf(index);
+      const col = colOf(index);
+      return [[row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]]
+        .filter(([nextRow, nextCol]) => inside(nextRow, nextCol))
+        .map(([nextRow, nextCol]) => indexOf(nextRow, nextCol));
+    }
+
+    function legalMoves(index) {
+      return neighbors(index).filter((target) => !cells[target]);
+    }
+
+    function allMoves(player) {
+      return cells.flatMap((piece, index) => piece === player ? legalMoves(index).map((target) => [index, target]) : []);
+    }
+
+    function countPieces(player) {
+      return cells.filter((piece) => piece === player).length;
+    }
+
+    function captureFrom(index, player) {
+      const rival = opponent(player);
+      let removed = 0;
+      const lines = [[1, 0], [0, 1]];
+      for (const [dr, dc] of lines) {
+        const aRow = rowOf(index) + dr;
+        const aCol = colOf(index) + dc;
+        const bRow = rowOf(index) - dr;
+        const bCol = colOf(index) - dc;
+        if (inside(aRow, aCol) && inside(bRow, bCol)) {
+          const a = indexOf(aRow, aCol);
+          const b = indexOf(bRow, bCol);
+          if (cells[a] === rival && cells[b] === player) {
+            cells[a] = "";
+            removed++;
+          }
+          if (cells[b] === rival && cells[a] === player) {
+            cells[b] = "";
+            removed++;
+          }
+        }
+      }
+      return removed;
+    }
+
+    function endGame(message) {
+      gameOver = true;
+      selected = null;
+      render(message);
+    }
+
+    function checkWin(lastPlayer) {
+      const rival = opponent(lastPlayer);
+      if (countPieces(rival) === 0) {
+        endGame(playerName(lastPlayer) + "吃掉全部对手，获胜。");
+        return true;
+      }
+      if (allMoves(rival).length === 0) {
+        endGame(playerName(rival) + "无路可走，" + playerName(lastPlayer) + "获胜。");
+        return true;
+      }
+      return false;
+    }
+
+    function handleCell(index) {
+      if (gameOver) return;
+      if (selected === null) {
+        if (cells[index] === turn) {
+          selected = index;
+          render("选择相邻空点移动。");
+        }
+        return;
+      }
+      if (selected === index) {
+        selected = null;
+        render("已取消选择。");
+        return;
+      }
+      if (cells[index] === turn) {
+        selected = index;
+        render("已切换棋子。");
+        return;
+      }
+      if (!legalMoves(selected).includes(index)) {
+        render("只能移动到相邻空点。");
+        return;
+      }
+      cells[index] = turn;
+      cells[selected] = "";
+      const removed = captureFrom(index, turn);
+      const movedPlayer = turn;
+      if (checkWin(movedPlayer)) return;
+      turn = opponent(turn);
+      selected = null;
+      render(removed ? playerName(movedPlayer) + "夹住并移除 " + removed + " 枚对手棋。" : playerName(movedPlayer) + "完成移动。");
+    }
+
+    function render(message) {
+      blackCountEl.textContent = countPieces("B");
+      whiteCountEl.textContent = countPieces("W");
+      turnTextEl.textContent = gameOver ? "游戏结束" : playerName(turn);
+      statusTextEl.textContent = message;
+      boardEl.innerHTML = "";
+      cells.forEach((piece, index) => {
+        const active = selected === index;
+        const button = document.createElement("button");
+        button.className = [
+          "flex aspect-square items-center justify-center rounded-md border text-3xl font-black transition",
+          active ? "border-lime-200 bg-lime-300/20" : "border-emerald-700 bg-emerald-800 hover:bg-emerald-700",
+          piece === "B" ? "text-gray-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.45)]" : piece === "W" ? "text-white" : "text-emerald-700"
+        ].join(" ");
+        button.setAttribute("aria-label", "row " + (rowOf(index) + 1) + " column " + (colOf(index) + 1));
+        button.textContent = piece === "B" ? "●" : piece === "W" ? "○" : "·";
+        button.addEventListener("click", () => handleCell(index));
+        boardEl.appendChild(button);
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
