@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gorf</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-sky-200">Mini Gorf</h1>
+        <p class="mt-1 text-sm text-slate-400">穿过两波编队，击破母舰核心。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-xs md:w-[28rem]">
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">关卡</div>
+          <div id="waveLabel" class="text-lg font-semibold text-sky-200">1</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">护盾</div>
+          <div id="shieldLabel" class="text-lg font-semibold text-emerald-200">3</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">目标</div>
+          <div id="targetLabel" class="text-lg font-semibold text-rose-200">14</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-slate-500">分数</div>
+          <div id="scoreLabel" class="text-lg font-semibold text-amber-200">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-2">
+        <canvas id="game" width="760" height="520" class="block aspect-[19/13] w-full bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
+        <div id="status" class="mb-4 rounded bg-slate-950 px-3 py-2 text-sky-100">清空敌机编队，进入母舰阶段。</div>
+        <dl class="space-y-3">
+          <div>
+            <dt class="text-slate-500">移动</dt>
+            <dd>A/D 或 方向键</dd>
+          </div>
+          <div>
+            <dt class="text-slate-500">射击</dt>
+            <dd>Space</dd>
+          </div>
+          <div>
+            <dt class="text-slate-500">重开</dt>
+            <dd>R</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const waveLabel = document.getElementById('waveLabel');
+    const shieldLabel = document.getElementById('shieldLabel');
+    const targetLabel = document.getElementById('targetLabel');
+    const scoreLabel = document.getElementById('scoreLabel');
+    const statusLabel = document.getElementById('status');
+    const keys = new Set();
+
+    let player;
+    let shots;
+    let bolts;
+    let aliens;
+    let mothership;
+    let wave;
+    let score;
+    let state;
+    let direction;
+    let fireTimer;
+    let lastTime;
+
+    function setupGame() {
+      player = { x: canvas.width / 2, y: 470, w: 34, h: 18, shields: 3, cooldown: 0 };
+      shots = [];
+      bolts = [];
+      wave = 1;
+      score = 0;
+      state = 'playing';
+      direction = 1;
+      fireTimer = 0.8;
+      buildWave();
+      lastTime = performance.now();
+      statusLabel.textContent = '清空敌机编队，进入母舰阶段。';
+      updateLabels();
+    }
+
+    function buildWave() {
+      aliens = [];
+      const rows = wave === 1 ? 2 : 3;
+      const cols = wave === 1 ? 7 : 8;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          aliens.push({
+            x: 110 + col * 70,
+            y: 80 + row * 54,
+            w: 32,
+            h: 22,
+            phase: row + col
+          });
+        }
+      }
+      mothership = null;
+    }
+
+    function startMothership() {
+      aliens = [];
+      mothership = { x: canvas.width / 2 - 86, y: 74, w: 172, h: 58, core: 30, hp: 5, vx: 80 };
+      statusLabel.textContent = '母舰出现了，击中中央核心 5 次。';
+    }
+
+    function updateLabels() {
+      waveLabel.textContent = wave < 3 ? wave : '母舰';
+      shieldLabel.textContent = player.shields;
+      targetLabel.textContent = mothership ? mothership.hp : aliens.length;
+      scoreLabel.textContent = score;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function movePlayer(dt) {
+      let vx = 0;
+      if (keys.has('ArrowLeft') || keys.has('a')) vx -= 1;
+      if (keys.has('ArrowRight') || keys.has('d')) vx += 1;
+      player.x = clamp(player.x + vx * 330 * dt, 18, canvas.width - player.w - 18);
+      player.cooldown = Math.max(0, player.cooldown - dt);
+    }
+
+    function fireShot() {
+      if (state !== 'playing' || player.cooldown > 0) return;
+      shots.push({ x: player.x + player.w / 2 - 2, y: player.y - 10, w: 4, h: 14, vy: -440 });
+      player.cooldown = 0.22;
+    }
+
+    function updateAliens(dt) {
+      if (mothership) return;
+      let edgeHit = false;
+      const speed = 42 + wave * 18;
+      aliens.forEach((alien) => {
+        alien.x += direction * speed * dt;
+        alien.phase += dt * 4;
+        if (alien.x < 22 || alien.x + alien.w > canvas.width - 22) edgeHit = true;
+      });
+      if (edgeHit) {
+        direction *= -1;
+        aliens.forEach((alien) => {
+          alien.y += 18;
+          if (alien.y + alien.h > player.y - 14) loseShield('敌机突破防线。');
+        });
+      }
+      fireTimer -= dt;
+      if (fireTimer <= 0 && aliens.length > 0) {
+        const alien = aliens[Math.floor(Math.random() * aliens.length)];
+        bolts.push({ x: alien.x + alien.w / 2 - 2, y: alien.y + alien.h, w: 4, h: 14, vy: 180 + wave * 35 });
+        fireTimer = Math.max(0.35, 1.1 - wave * 0.18);
+      }
+    }
+
+    function updateMothership(dt) {
+      if (!mothership) return;
+      mothership.x += mothership.vx * dt;
+      if (mothership.x < 30 || mothership.x + mothership.w > canvas.width - 30) {
+        mothership.vx *= -1;
+      }
+      fireTimer -= dt;
+      if (fireTimer <= 0) {
+        bolts.push({ x: mothership.x + 28, y: mothership.y + mothership.h, w: 5, h: 18, vy: 250 });
+        bolts.push({ x: mothership.x + mothership.w - 33, y: mothership.y + mothership.h, w: 5, h: 18, vy: 250 });
+        fireTimer = 0.7;
+      }
+    }
+
+    function updateShots(dt) {
+      shots.forEach((shot) => {
+        shot.y += shot.vy * dt;
+      });
+      shots = shots.filter((shot) => {
+        if (shot.y + shot.h < 0) return false;
+        if (mothership) {
+          const core = {
+            x: mothership.x + mothership.w / 2 - mothership.core / 2,
+            y: mothership.y + 14,
+            w: mothership.core,
+            h: mothership.core
+          };
+          if (rectsOverlap(shot, core)) {
+            mothership.hp -= 1;
+            score += 300;
+            if (mothership.hp <= 0) {
+              state = 'won';
+              statusLabel.textContent = '母舰核心被击破，胜利！按 R 再玩。';
+            }
+            return false;
+          }
+          return true;
+        }
+        const hitIndex = aliens.findIndex((alien) => rectsOverlap(shot, alien));
+        if (hitIndex >= 0) {
+          aliens.splice(hitIndex, 1);
+          score += 80;
+          if (aliens.length === 0) {
+            if (wave === 1) {
+              wave = 2;
+              direction = 1;
+              buildWave();
+              statusLabel.textContent = '第二波更快。继续推进。';
+            } else {
+              wave = 3;
+              startMothership();
+            }
+          }
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function updateBolts(dt) {
+      bolts.forEach((bolt) => {
+        bolt.y += bolt.vy * dt;
+      });
+      bolts = bolts.filter((bolt) => {
+        if (bolt.y > canvas.height + 20) return false;
+        if (rectsOverlap(bolt, player)) {
+          loseShield('护盾被击中。');
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function loseShield(message) {
+      if (state !== 'playing') return;
+      player.shields -= 1;
+      statusLabel.textContent = message;
+      bolts = [];
+      if (player.shields <= 0) {
+        state = 'lost';
+        statusLabel.textContent = '飞船失守。按 R 重开。';
+      }
+    }
+
+    function drawStars() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#334155';
+      for (let i = 0; i < 90; i += 1) {
+        const x = (i * 97) % canvas.width;
+        const y = (i * 53 + performance.now() / 45) % canvas.height;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = '#7dd3fc';
+      ctx.beginPath();
+      ctx.moveTo(player.x + player.w / 2, player.y - 10);
+      ctx.lineTo(player.x + player.w, player.y + player.h);
+      ctx.lineTo(player.x, player.y + player.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(player.x + 6, player.y + player.h - 4, player.w - 12, 4);
+    }
+
+    function drawAliens() {
+      aliens.forEach((alien) => {
+        ctx.fillStyle = Math.sin(alien.phase) > 0 ? '#fb7185' : '#f97316';
+        ctx.fillRect(alien.x, alien.y, alien.w, alien.h);
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(alien.x + 7, alien.y + 7, 5, 5);
+        ctx.fillRect(alien.x + alien.w - 12, alien.y + 7, 5, 5);
+      });
+    }
+
+    function drawMothership() {
+      if (!mothership) return;
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(mothership.x, mothership.y, mothership.w, mothership.h);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(mothership.x + 14, mothership.y + 12, mothership.w - 28, mothership.h - 24);
+      ctx.fillStyle = '#f43f5e';
+      ctx.beginPath();
+      ctx.arc(mothership.x + mothership.w / 2, mothership.y + 29, mothership.core / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = '#fde047';
+      shots.forEach((shot) => ctx.fillRect(shot.x, shot.y, shot.w, shot.h));
+      ctx.fillStyle = '#a78bfa';
+      bolts.forEach((bolt) => ctx.fillRect(bolt.x, bolt.y, bolt.w, bolt.h));
+    }
+
+    function drawBanner() {
+      if (state === 'playing') return;
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+      ctx.fillRect(0, 210, canvas.width, 96);
+      ctx.fillStyle = state === 'won' ? '#bbf7d0' : '#fecaca';
+      ctx.font = 'bold 32px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(state === 'won' ? 'MISSION COMPLETE' : 'GAME OVER', canvas.width / 2, 267);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawStars();
+      drawAliens();
+      drawMothership();
+      drawProjectiles();
+      drawPlayer();
+      drawBanner();
+    }
+
+    function tick(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      if (state === 'playing') {
+        movePlayer(dt);
+        updateAliens(dt);
+        updateMothership(dt);
+        updateShots(dt);
+        updateBolts(dt);
+      }
+      updateLabels();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.preventDefault();
+      if (event.key === ' ') fireShot();
+      if (event.key.toLowerCase() === 'r') setupGame();
+      keys.add(event.key);
+      keys.add(event.key.toLowerCase());
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    setupGame();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
