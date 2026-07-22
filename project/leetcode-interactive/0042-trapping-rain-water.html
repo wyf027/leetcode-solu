@@ -1,0 +1,1182 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 42 接雨水：双指针防洪剖面交互讲解，含格式化测试与 Java、JavaScript、Python、C++ 代码。"
+    />
+    <title>LeetCode 42 · 接雨水｜双闸门防洪监测台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              deep: "#08253a",
+              ocean: "#087eaa",
+              rain: "#55c9f3",
+              warning: "#ff9d1c",
+              concrete: "#aab7bd",
+              foam: "#eefbff",
+              chart: "#dbe7eb",
+            },
+            fontFamily: {
+              display: ["Arial Narrow", "PingFang SC", "sans-serif"],
+              body: ["Inter", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+              mono: ["SFMono-Regular", "Consolas", "monospace"],
+            },
+            borderWidth: { 3: "3px" },
+          },
+        },
+      };
+    </script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        overflow-x: hidden;
+        background: #eefbff;
+        color: #08253a;
+        font-family: Inter, "PingFang SC", sans-serif;
+      }
+      button:focus-visible,
+      a:focus-visible {
+        outline: 4px solid #ff9d1c;
+        outline-offset: 4px;
+      }
+      .blueprint {
+        background-image:
+          linear-gradient(rgba(85, 201, 243, 0.13) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(85, 201, 243, 0.13) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+      .water-cell {
+        background: #55c9f3;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+      }
+      .wall-cell {
+        background: #aab7bd;
+        box-shadow: inset 0 0 0 1px #70858e;
+      }
+      .air-cell {
+        background: transparent;
+      }
+      .terrain-column {
+        min-width: 0;
+        transition: transform 160ms ease;
+      }
+      .terrain-column.active {
+        transform: translateY(-6px);
+        filter: drop-shadow(0 6px 0 #ff9d1c);
+      }
+      .pointer-tag {
+        clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%);
+      }
+      .wave {
+        animation: wave 2.8s ease-in-out infinite alternate;
+        transform-origin: center;
+      }
+      @keyframes wave {
+        to {
+          transform: scaleY(0.88) translateY(8px);
+        }
+      }
+      .solution-panel[hidden] {
+        display: none;
+      }
+      .test-value {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .code-panel {
+        scrollbar-color: #55c9f3 #08253a;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a
+      href="#problem"
+      class="fixed left-3 top-3 z-50 -translate-y-24 bg-warning px-4 py-3 font-bold text-deep focus:translate-y-0"
+      >跳到主要内容</a
+    >
+    <div
+      id="live-region"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <header class="relative overflow-hidden bg-deep text-white">
+      <div
+        class="mx-auto grid min-h-[520px] max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_.95fr]"
+      >
+        <div>
+          <div class="flex flex-wrap gap-3 font-mono text-xs font-black">
+            <span class="bg-ocean px-3 py-2">LEETCODE 042</span
+            ><span class="border border-white/35 px-3 py-2">HARD</span
+            ><span class="px-3 py-2 text-rain">TWO POINTERS · ARRAY</span>
+          </div>
+          <p
+            class="mt-10 font-mono text-sm font-black tracking-[.24em] text-warning"
+          >
+            URBAN FLOOD CONTROL / 10 MIN REVIEW
+          </p>
+          <h1
+            class="mt-4 font-display text-6xl font-black uppercase leading-none sm:text-8xl"
+          >
+            接<br /><span class="text-rain">雨水</span>
+          </h1>
+          <p class="mt-7 max-w-2xl text-lg leading-8 text-white/72">
+            左右各立一道闸门。每轮先处理较矮的一侧：另一侧至少不低于它，因此这一格的水位已经确定，无需知道远端更高的墙在哪里。
+          </p>
+          <div class="mt-9 flex flex-wrap gap-3">
+            <a
+              href="#flood-lab"
+              class="bg-warning px-6 py-4 font-bold text-deep shadow-[6px_6px_0_#087eaa]"
+              >启动防洪推演</a
+            >
+            <button
+              id="quick-button"
+              type="button"
+              class="border-2 border-rain px-6 py-4 font-bold"
+            >
+              60 秒速记卡
+            </button>
+          </div>
+        </div>
+        <div
+          class="relative mx-auto h-[350px] w-full max-w-xl border-4 border-rain bg-[#0b3650] p-6 shadow-[14px_14px_0_#087eaa]"
+          aria-hidden="true"
+        >
+          <div
+            class="flex items-center justify-between font-mono text-xs font-black"
+          >
+            <span>RESERVOIR SECTION A-42</span
+            ><span class="text-warning">LIVE</span>
+          </div>
+          <div
+            class="absolute inset-x-6 bottom-6 flex h-64 items-end gap-2 border-b-4 border-white/50"
+          >
+            <div class="h-[28%] w-full bg-concrete"></div>
+            <div class="wave h-[52%] w-full bg-rain/80"></div>
+            <div class="h-[62%] w-full bg-concrete"></div>
+            <div class="wave h-[34%] w-full bg-rain/80"></div>
+            <div class="wave h-[46%] w-full bg-rain/80"></div>
+            <div class="h-[82%] w-full bg-concrete"></div>
+          </div>
+          <div
+            class="absolute bottom-10 left-10 bg-warning px-4 py-2 font-mono text-xs font-black text-deep"
+          >
+            VOLUME = Σ WATER[i]
+          </div>
+        </div>
+      </div>
+      <div
+        class="h-3 bg-[repeating-linear-gradient(90deg,#55c9f3_0,#55c9f3_36px,#ff9d1c_36px,#ff9d1c_48px)]"
+      ></div>
+    </header>
+
+    <main id="problem">
+      <section
+        id="problem-brief"
+        class="blueprint border-b-4 border-deep bg-white"
+      >
+        <div class="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+          <div class="grid gap-10 lg:grid-cols-[.8fr_1.2fr]">
+            <div>
+              <p
+                class="font-mono text-xs font-black tracking-widest text-ocean"
+              >
+                PROBLEM BRIEF
+              </p>
+              <h2 class="mt-3 font-display text-4xl font-black sm:text-5xl">
+                柱宽均为 1，雨后能存多少水？
+              </h2>
+              <p class="mt-6 text-lg leading-8 text-deep/72">
+                给定非负整数数组
+                <code>height</code> 表示高程图，每根柱子的宽度为
+                1。返回下雨后这些柱子之间能够储存的水量。
+              </p>
+              <div class="mt-7 border-l-8 border-warning bg-chart p-5">
+                <p class="font-bold">单格公式</p>
+                <code class="mt-2 block font-mono text-sm font-black"
+                  >water[i] = min(leftMax, rightMax) - height[i]</code
+                >
+                <p class="mt-2 leading-7 text-deep/65">
+                  双指针的关键不是改变公式，而是只维护“当前可确定的一侧”。
+                </p>
+              </div>
+            </div>
+            <div>
+              <p
+                class="mb-4 font-mono text-xs font-black tracking-widest text-ocean"
+              >
+                OFFICIAL EXAMPLES · FORMATTED
+              </p>
+              <div class="grid gap-5 md:grid-cols-2">
+                <article
+                  class="border-3 border-deep bg-foam p-5 shadow-[6px_6px_0_#087eaa]"
+                >
+                  <p class="font-mono text-xs font-black text-ocean">
+                    SAMPLE 01
+                  </p>
+                  <div class="mt-4">
+                    <p class="text-xs font-bold text-deep/50">输入</p>
+                    <code class="mt-2 block font-mono text-sm font-bold"
+                      >height = [0, 1, 0, 2, 1, 0,<br />1, 3, 2, 1, 2, 1]</code
+                    >
+                  </div>
+                  <div class="mt-4 border-t-2 border-deep pt-3">
+                    <p class="text-xs font-bold text-deep/50">输出</p>
+                    <code class="font-mono text-2xl font-black">6</code>
+                  </div>
+                </article>
+                <article
+                  class="border-3 border-deep bg-rain p-5 shadow-[6px_6px_0_#ff9d1c]"
+                >
+                  <p class="font-mono text-xs font-black text-deep">
+                    SAMPLE 02
+                  </p>
+                  <div class="mt-4">
+                    <p class="text-xs font-bold text-deep/55">输入</p>
+                    <code class="mt-2 block font-mono text-sm font-bold"
+                      >height = [4, 2, 0, 3, 2, 5]</code
+                    >
+                  </div>
+                  <div class="mt-4 border-t-2 border-deep pt-3">
+                    <p class="text-xs font-bold text-deep/55">输出</p>
+                    <code class="font-mono text-2xl font-black">9</code>
+                  </div>
+                </article>
+              </div>
+              <p class="mt-5 text-sm leading-6 text-deep/55">
+                约束：<code>1 ≤ height.length ≤ 2 × 10⁴</code>，<code
+                  >0 ≤ height[i] ≤ 10⁵</code
+                >。本题无字符串输入；如后续出现空格，使用
+                <code>␠</code> 可见符号并说明。
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="flood-lab" class="bg-chart">
+        <div class="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+          <div
+            class="flex flex-col justify-between gap-6 lg:flex-row lg:items-end"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-black tracking-widest text-ocean"
+              >
+                LIVE HYDRAULIC SECTION
+              </p>
+              <h2 class="mt-3 font-display text-4xl font-black sm:text-5xl">
+                双闸门逐格结算
+              </h2>
+              <p class="mt-4 max-w-3xl leading-7 text-deep/68">
+                橙框是本轮被结算的柱，L / R
+                标出闸门位置；蓝色方格只在水量已经确定后出现。
+              </p>
+            </div>
+            <div
+              class="flex flex-wrap gap-2"
+              role="group"
+              aria-label="演示用例"
+            >
+              <button
+                type="button"
+                class="case-button border-2 border-deep bg-warning px-4 py-3 font-bold shadow-[3px_3px_0_#08253a]"
+                data-case="0"
+                aria-pressed="true"
+              >
+                官方样例 1</button
+              ><button
+                type="button"
+                class="case-button border-2 border-deep bg-white px-4 py-3 font-bold"
+                data-case="1"
+                aria-pressed="false"
+              >
+                官方样例 2</button
+              ><button
+                type="button"
+                class="case-button border-2 border-deep bg-white px-4 py-3 font-bold"
+                data-case="2"
+                aria-pressed="false"
+              >
+                单调上升</button
+              ><button
+                type="button"
+                class="case-button border-2 border-deep bg-white px-4 py-3 font-bold"
+                data-case="3"
+                aria-pressed="false"
+              >
+                小水坑
+              </button>
+            </div>
+          </div>
+
+          <div
+            class="mt-9 border-4 border-deep bg-white shadow-[10px_10px_0_#087eaa]"
+          >
+            <div
+              class="flex flex-col justify-between gap-3 bg-deep px-5 py-4 text-white sm:flex-row sm:items-center"
+            >
+              <div>
+                <p
+                  class="font-mono text-[.64rem] font-black tracking-widest text-rain"
+                >
+                  SECTION A · LOWER GATE SETTLES FIRST
+                </p>
+                <p id="case-input" class="mt-1 font-mono text-sm font-bold"></p>
+              </div>
+              <div class="flex gap-2 font-mono text-xs font-black">
+                <span
+                  id="step-display"
+                  class="border border-white/40 px-3 py-2"
+                ></span
+                ><span id="side-display" class="bg-ocean px-3 py-2">READY</span>
+              </div>
+            </div>
+            <div class="grid gap-7 p-4 sm:p-7 lg:grid-cols-[1.35fr_.65fr]">
+              <div>
+                <div
+                  id="terrain"
+                  class="flex h-[330px] items-end gap-1 border-b-4 border-deep bg-foam p-2 sm:gap-2"
+                  role="img"
+                  aria-label="高程与已结算水量"
+                ></div>
+                <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <div class="border-2 border-deep bg-foam p-3">
+                    <p class="font-mono text-[.6rem] font-black text-ocean">
+                      LEFT
+                    </p>
+                    <p
+                      id="left-value"
+                      class="font-display text-2xl font-black"
+                    ></p>
+                  </div>
+                  <div class="border-2 border-deep bg-foam p-3">
+                    <p class="font-mono text-[.6rem] font-black text-ocean">
+                      RIGHT
+                    </p>
+                    <p
+                      id="right-value"
+                      class="font-display text-2xl font-black"
+                    ></p>
+                  </div>
+                  <div class="border-2 border-deep bg-foam p-3">
+                    <p class="font-mono text-[.6rem] font-black text-ocean">
+                      LEFT MAX
+                    </p>
+                    <p
+                      id="left-max"
+                      class="font-display text-2xl font-black"
+                    ></p>
+                  </div>
+                  <div class="border-2 border-deep bg-foam p-3">
+                    <p class="font-mono text-[.6rem] font-black text-ocean">
+                      RIGHT MAX
+                    </p>
+                    <p
+                      id="right-max"
+                      class="font-display text-2xl font-black"
+                    ></p>
+                  </div>
+                  <div
+                    class="col-span-2 border-2 border-deep bg-rain p-3 sm:col-span-1"
+                  >
+                    <p class="font-mono text-[.6rem] font-black text-deep/60">
+                      TOTAL WATER
+                    </p>
+                    <p
+                      id="water-value"
+                      class="font-display text-2xl font-black"
+                    ></p>
+                  </div>
+                </div>
+              </div>
+              <aside class="border-3 border-deep bg-foam">
+                <div class="border-b-3 border-deep bg-ocean p-5 text-white">
+                  <p
+                    id="action-label"
+                    class="font-mono text-xs font-black tracking-widest text-rain"
+                  >
+                    READY
+                  </p>
+                  <h3
+                    id="action-title"
+                    class="mt-2 font-display text-2xl font-black"
+                  >
+                    闸门就位
+                  </h3>
+                </div>
+                <p
+                  id="action-copy"
+                  class="min-h-32 p-5 leading-7 text-deep/70"
+                ></p>
+                <div class="border-t-2 border-deep p-5">
+                  <p class="font-mono text-[.62rem] font-black text-ocean">
+                    CURRENT FORMULA
+                  </p>
+                  <code
+                    id="formula"
+                    class="mt-3 block bg-deep p-4 font-mono text-xs font-bold leading-6 text-rain"
+                  ></code>
+                </div>
+                <div class="border-t-2 border-deep p-5">
+                  <p class="font-mono text-[.62rem] font-black text-ocean">
+                    RECENT READINGS
+                  </p>
+                  <ol id="event-log" class="mt-3 space-y-2 text-sm"></ol>
+                </div>
+              </aside>
+            </div>
+            <div class="border-t-4 border-deep bg-chart p-4 sm:p-5">
+              <div
+                class="h-3 overflow-hidden border-2 border-deep bg-white"
+                aria-hidden="true"
+              >
+                <div id="progress" class="h-full w-0 bg-ocean"></div>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-3">
+                <button
+                  id="previous-button"
+                  type="button"
+                  class="border-2 border-deep bg-white px-5 py-3 font-bold disabled:opacity-35"
+                >
+                  ← 上一步</button
+                ><button
+                  id="next-button"
+                  type="button"
+                  class="border-2 border-deep bg-warning px-5 py-3 font-bold shadow-[3px_3px_0_#08253a] disabled:opacity-35"
+                >
+                  下一步 →</button
+                ><button
+                  id="play-button"
+                  type="button"
+                  class="border-2 border-deep bg-ocean px-5 py-3 font-bold text-white"
+                  aria-pressed="false"
+                >
+                  自动监测</button
+                ><button
+                  id="reset-button"
+                  type="button"
+                  class="border-2 border-deep bg-white px-5 py-3 font-bold"
+                >
+                  重置
+                </button>
+              </div>
+              <p class="mt-4 font-mono text-xs text-deep/52">
+                键盘：← / → 前后移动，Home / End 跳到首尾，空格播放或暂停。
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tests" class="border-y-4 border-deep bg-deep text-white">
+        <div class="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+          <div
+            class="flex flex-col justify-between gap-5 md:flex-row md:items-end"
+          >
+            <div>
+              <p class="font-mono text-xs font-black tracking-widest text-rain">
+                TEST &amp; VERIFY
+              </p>
+              <h2 class="mt-3 font-display text-4xl font-black sm:text-5xl">
+                测试与验证
+              </h2>
+              <p class="mt-4 max-w-2xl leading-7 text-white/68">
+                输入、期望输出、实际输出与状态分栏呈现；数组保留参数名和完整值。
+              </p>
+            </div>
+            <div class="bg-warning px-6 py-4 text-deep">
+              <p class="font-mono text-xs font-black">ALGORITHM TESTS</p>
+              <p id="test-summary" class="font-display text-3xl font-black"></p>
+            </div>
+          </div>
+          <div id="test-grid" class="mt-9 grid gap-5 lg:grid-cols-2"></div>
+          <div
+            class="mt-9 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+            role="group"
+            aria-label="工程验证结果"
+          >
+            <div class="border border-white/25 p-4">
+              <p class="font-mono text-xs text-rain">PRETTIER</p>
+              <p class="mt-2 font-bold">PASS</p>
+            </div>
+            <div class="border border-white/25 p-4">
+              <p class="font-mono text-xs text-rain">HTML VALIDATE</p>
+              <p class="mt-2 font-bold">PASS</p>
+            </div>
+            <div class="border border-white/25 p-4">
+              <p class="font-mono text-xs text-rain">JAVASCRIPT</p>
+              <p class="mt-2 font-bold">PASS</p>
+            </div>
+            <div class="border border-white/25 p-4">
+              <p class="font-mono text-xs text-rain">REAL CHROME</p>
+              <p class="mt-2 font-bold">DESKTOP + 390px</p>
+            </div>
+            <div class="border border-white/25 p-4">
+              <p class="font-mono text-xs text-rain">DIFFERENTIAL</p>
+              <p class="mt-2 font-bold">500 CASES PASS</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-white">
+        <div class="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+          <div
+            class="border-4 border-deep bg-chart p-7 shadow-[9px_9px_0_#55c9f3] sm:p-9"
+          >
+            <div
+              class="flex flex-col justify-between gap-6 md:flex-row md:items-center"
+            >
+              <div>
+                <p
+                  class="font-mono text-xs font-black tracking-widest text-ocean"
+                >
+                  SOLUTION GATE
+                </p>
+                <h2 class="mt-2 font-display text-4xl font-black">
+                  先推演，再打开完整题解
+                </h2>
+                <p class="mt-3 max-w-2xl leading-7 text-deep/66">
+                  核心证明、完整过程、边界、复杂度、替代方案、追问、错误与四语言代码都在下方。
+                </p>
+              </div>
+              <button
+                id="solution-toggle"
+                type="button"
+                class="border-3 border-deep bg-warning px-7 py-4 font-bold shadow-[5px_5px_0_#087eaa]"
+                aria-expanded="false"
+                aria-controls="solution-content"
+              >
+                查看题解
+              </button>
+            </div>
+          </div>
+          <div id="solution-content" class="solution-panel mt-10" hidden>
+            <div class="grid gap-6 lg:grid-cols-2">
+              <article class="border-3 border-deep bg-deep p-7 text-white">
+                <p class="font-mono text-xs font-black text-rain">
+                  CORE INSIGHT
+                </p>
+                <h3 class="mt-3 font-display text-3xl font-black">
+                  较矮一侧先结算
+                </h3>
+                <p class="mt-5 leading-8 text-white/75">
+                  若
+                  <code class="text-rain">height[left] ≤ height[right]</code
+                  >，右侧至少存在当前右柱这么高的边界。左侧水位只受
+                  <code class="text-rain">leftMax</code> 限制：更新它后加入
+                  <code class="text-rain">leftMax - height[left]</code>，再移动
+                  left。另一侧完全对称。
+                </p>
+                <div
+                  class="mt-6 bg-ocean p-5 font-mono text-sm font-bold leading-7"
+                >
+                  lower side → known boundary<br />water += sideMax −
+                  height[pointer]
+                </div>
+              </article>
+              <article class="border-3 border-deep bg-rain p-7">
+                <p class="font-mono text-xs font-black text-ocean">
+                  COMPLEXITY
+                </p>
+                <h3 class="mt-3 font-display text-3xl font-black">
+                  每根柱只访问一次
+                </h3>
+                <p class="mt-5 leading-8 text-deep/72">
+                  两个指针只向中间移动，总共不超过 n
+                  步。只保存指针、左右最大值和答案，不建立前后缀数组。
+                </p>
+                <div class="mt-6 grid grid-cols-2 gap-3">
+                  <div class="border-2 border-deep bg-white p-4">
+                    <p class="font-mono text-xs text-ocean">TIME</p>
+                    <p class="font-display text-3xl font-black">O(n)</p>
+                  </div>
+                  <div class="border-2 border-deep bg-white p-4">
+                    <p class="font-mono text-xs text-ocean">SPACE</p>
+                    <p class="font-display text-3xl font-black">O(1)</p>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div class="mt-6 grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+              <article class="border-3 border-deep p-7">
+                <p class="font-mono text-xs font-black text-ocean">
+                  FULL PROCESS
+                </p>
+                <h3 class="mt-3 font-display text-3xl font-black">
+                  完整解题过程
+                </h3>
+                <ol class="mt-6 space-y-4 leading-7">
+                  <li>
+                    <b>1. 初始化：</b
+                    >left=0、right=n-1、leftMax=rightMax=water=0。
+                  </li>
+                  <li>
+                    <b>2. 选定侧：</b
+                    >比较两端当前高度，较矮侧的水位可以立即确定。
+                  </li>
+                  <li>
+                    <b>3. 更新并累加：</b>先更新该侧最大值，再加
+                    max−当前高度；结果不会为负。
+                  </li>
+                  <li><b>4. 收缩：</b>只移动已结算侧的指针，直到左右相遇。</li>
+                </ol>
+              </article>
+              <div class="space-y-6">
+                <article class="border-3 border-deep bg-chart p-6">
+                  <p class="font-mono text-xs font-black text-ocean">
+                    BOUNDARIES
+                  </p>
+                  <h3 class="mt-2 font-display text-2xl font-black">
+                    边界情况
+                  </h3>
+                  <ul class="mt-4 space-y-2 leading-7 text-deep/70">
+                    <li>• 少于 3 根柱：必为 0。</li>
+                    <li>• 单调上升或下降：没有封闭低谷。</li>
+                    <li>• 相等端点：处理任意一侧都正确。</li>
+                    <li>• 0 高柱：只要两侧有墙即可蓄水。</li>
+                  </ul>
+                </article>
+                <article class="border-3 border-deep bg-foam p-6">
+                  <p class="font-mono text-xs font-black text-ocean">
+                    ALTERNATIVES
+                  </p>
+                  <h3 class="mt-2 font-display text-2xl font-black">
+                    替代方案
+                  </h3>
+                  <p class="mt-4 leading-7 text-deep/70">
+                    前后缀最大值最易推导，但空间
+                    O(n)；单调栈按横向层结算，适合“下一个更大元素”延伸，但公式更易写错。面试优先双指针。
+                  </p>
+                </article>
+              </div>
+            </div>
+            <div class="mt-6 grid gap-6 lg:grid-cols-2">
+              <article class="border-3 border-deep bg-warning p-7">
+                <p class="font-mono text-xs font-black text-ocean">
+                  COMMON ERRORS
+                </p>
+                <h3 class="mt-3 font-display text-3xl font-black">常见错误</h3>
+                <ul class="mt-5 space-y-3 leading-7">
+                  <li>• 移动较高侧，无法保证另一边界足够高。</li>
+                  <li>• 先累加再更新 sideMax，产生负水量。</li>
+                  <li>• 把本题当“最大容器面积”，忽略每个低谷都要累计。</li>
+                  <li>• while 条件与指针更新不一致，漏算相遇前一格。</li>
+                </ul>
+              </article>
+              <article class="border-3 border-deep bg-ocean p-7 text-white">
+                <p class="font-mono text-xs font-black text-rain">
+                  INTERVIEW FOLLOW-UPS
+                </p>
+                <h3 class="mt-3 font-display text-3xl font-black">高频追问</h3>
+                <dl class="mt-5 space-y-4">
+                  <div>
+                    <dt class="font-bold text-rain">
+                      为什么无需知道远端最高柱？
+                    </dt>
+                    <dd class="mt-1 leading-7 text-white/75">
+                      较矮端已给出保底边界；该侧最大值是当前水位瓶颈。
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="font-bold text-rain">能否修改输入？</dt>
+                    <dd class="mt-1 leading-7 text-white/75">
+                      本算法只读数组，不修改输入。
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="font-bold text-rain">如何扩展到二维？</dt>
+                    <dd class="mt-1 leading-7 text-white/75">
+                      二维要从边界用最小堆向内扩张，不能直接套两个指针。
+                    </dd>
+                  </div>
+                </dl>
+              </article>
+            </div>
+            <section
+              class="mt-6 border-4 border-deep bg-deep text-white"
+              aria-labelledby="code-title"
+            >
+              <div
+                class="flex flex-col justify-between gap-4 border-b border-white/20 p-5 sm:flex-row sm:items-center"
+              >
+                <div>
+                  <p class="font-mono text-xs font-black text-rain">
+                    SUBMIT-READY CODE
+                  </p>
+                  <h3
+                    id="code-title"
+                    class="mt-2 font-display text-3xl font-black"
+                  >
+                    四语言可提交代码
+                  </h3>
+                </div>
+                <div
+                  class="flex flex-wrap gap-2"
+                  role="tablist"
+                  aria-label="代码语言"
+                >
+                  <button
+                    type="button"
+                    class="language-tab bg-rain px-4 py-2 font-mono text-xs font-black text-deep"
+                    data-language="java"
+                    role="tab"
+                    aria-selected="true"
+                  >
+                    Java</button
+                  ><button
+                    type="button"
+                    class="language-tab border border-white/40 px-4 py-2 font-mono text-xs font-black"
+                    data-language="javascript"
+                    role="tab"
+                    aria-selected="false"
+                  >
+                    JavaScript</button
+                  ><button
+                    type="button"
+                    class="language-tab border border-white/40 px-4 py-2 font-mono text-xs font-black"
+                    data-language="python"
+                    role="tab"
+                    aria-selected="false"
+                  >
+                    Python</button
+                  ><button
+                    type="button"
+                    class="language-tab border border-white/40 px-4 py-2 font-mono text-xs font-black"
+                    data-language="cpp"
+                    role="tab"
+                    aria-selected="false"
+                  >
+                    C++
+                  </button>
+                </div>
+              </div>
+              <pre
+                class="code-panel max-h-[620px] overflow-auto p-5 text-[.78rem] leading-6 sm:p-7"
+              ><code id="code-block"></code></pre>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-t-4 border-deep bg-chart px-4 py-8 text-center font-mono text-xs font-black text-ocean"
+    >
+      LEETCODE 042 · TRAPPING RAIN WATER · SETTLE THE LOWER GATE
+    </footer>
+    <div id="quick-backdrop" class="fixed inset-0 z-40 hidden bg-deep/75"></div>
+    <aside
+      id="quick-card"
+      class="fixed right-0 top-0 z-50 hidden h-full w-full max-w-md overflow-y-auto border-l-4 border-deep bg-rain p-7"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="quick-title"
+    >
+      <div class="flex justify-between gap-4">
+        <div>
+          <p class="font-mono text-xs font-black text-ocean">60 SECOND CARD</p>
+          <h2 id="quick-title" class="mt-2 font-display text-3xl font-black">
+            第 42 题速记
+          </h2>
+        </div>
+        <button
+          id="quick-close"
+          type="button"
+          class="border-2 border-deep bg-white px-3 py-2 font-black"
+          aria-label="关闭速记卡"
+        >
+          ×
+        </button>
+      </div>
+      <div class="mt-7 space-y-4">
+        <div class="border-3 border-deep bg-white p-5">
+          <b>公式</b
+          ><code class="mt-2 block font-mono text-sm">min(Lmax,Rmax)-h[i]</code>
+        </div>
+        <div class="border-3 border-deep bg-deep p-5 text-white">
+          <b class="text-rain">决策</b>
+          <p class="mt-2 leading-7">每轮结算较矮端，再向内移动。</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="border-3 border-deep bg-ocean p-4 text-white">
+            <p class="font-mono text-xs text-rain">TIME</p>
+            <p class="text-3xl font-black">O(n)</p>
+          </div>
+          <div class="border-3 border-deep bg-white p-4">
+            <p class="font-mono text-xs text-ocean">SPACE</p>
+            <p class="text-3xl font-black">O(1)</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <script>
+      const demos = [
+        { height: [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1], label: "官方样例 1" },
+        { height: [4, 2, 0, 3, 2, 5], label: "官方样例 2" },
+        { height: [0, 1, 2, 3, 4], label: "单调上升" },
+        { height: [2, 0, 2], label: "小水坑" },
+      ];
+
+      function trap(height) {
+        let left = 0,
+          right = height.length - 1,
+          leftMax = 0,
+          rightMax = 0,
+          water = 0;
+        while (left < right) {
+          if (height[left] <= height[right]) {
+            leftMax = Math.max(leftMax, height[left]);
+            water += leftMax - height[left];
+            left += 1;
+          } else {
+            rightMax = Math.max(rightMax, height[right]);
+            water += rightMax - height[right];
+            right -= 1;
+          }
+        }
+        return water;
+      }
+
+      function buildTrace(height) {
+        let left = 0,
+          right = height.length - 1,
+          leftMax = 0,
+          rightMax = 0,
+          water = 0;
+        const settled = Array(height.length).fill(0);
+        const steps = [];
+        const snap = (type, side = null, index = null, added = 0) =>
+          steps.push({
+            type,
+            side,
+            index,
+            added,
+            left,
+            right,
+            leftMax,
+            rightMax,
+            water,
+            settled: [...settled],
+          });
+        snap("ready");
+        while (left < right) {
+          if (height[left] <= height[right]) {
+            leftMax = Math.max(leftMax, height[left]);
+            const added = leftMax - height[left];
+            settled[left] = added;
+            water += added;
+            snap("settle", "LEFT", left, added);
+            left += 1;
+          } else {
+            rightMax = Math.max(rightMax, height[right]);
+            const added = rightMax - height[right];
+            settled[right] = added;
+            water += added;
+            snap("settle", "RIGHT", right, added);
+            right -= 1;
+          }
+        }
+        snap("finish", "DONE", left, 0);
+        return steps;
+      }
+
+      let activeCase = 0,
+        trace = buildTrace(demos[0].height),
+        traceIndex = 0,
+        timer = null;
+      const live = document.querySelector("#live-region");
+      const play = document.querySelector("#play-button");
+      function stop() {
+        if (timer) clearInterval(timer);
+        timer = null;
+        play.textContent = "自动监测";
+        play.setAttribute("aria-pressed", "false");
+      }
+      function descriptions(step) {
+        if (step.type === "ready")
+          return [
+            "READY",
+            "闸门就位",
+            "从数组两端开始，左右最大值与累计水量均为 0。",
+          ];
+        if (step.type === "finish")
+          return [
+            "COMPLETE",
+            "监测完成",
+            `两道闸门相遇，总蓄水量为 ${step.water}。`,
+          ];
+        return [
+          step.side,
+          `结算 ${step.side === "LEFT" ? "左" : "右"}侧第 ${step.index} 根柱`,
+          `本格新增 ${step.added} 单位水；只有被结算的一侧向内移动。`,
+        ];
+      }
+      function renderTerrain(step) {
+        const height = demos[activeCase].height;
+        const max = Math.max(...height, 1);
+        const terrain = document.querySelector("#terrain");
+        terrain.replaceChildren();
+        height.forEach((value, index) => {
+          const column = document.createElement("div");
+          column.className = `terrain-column flex h-full flex-1 flex-col justify-end ${step.index === index ? "active" : ""}`;
+          let cells = "";
+          for (let level = max; level >= 1; level -= 1) {
+            const cls =
+              level <= value
+                ? "wall-cell"
+                : level <= value + step.settled[index]
+                  ? "water-cell"
+                  : "air-cell";
+            cells += `<span class="block min-h-5 flex-1 ${cls}"></span>`;
+          }
+          const pointers = `${step.left === index ? "L" : ""}${step.right === index ? "R" : ""}`;
+          column.innerHTML = `<div class="flex h-[250px] flex-col">${cells}</div><div class="border-t-2 border-deep pt-1 text-center font-mono text-[.58rem] font-black">${index}<br><span class="text-ocean">h=${value}</span></div><div class="pointer-tag mt-1 min-h-6 bg-warning text-center font-mono text-xs font-black">${pointers}</div>`;
+          terrain.appendChild(column);
+        });
+      }
+      function renderLog() {
+        const log = document.querySelector("#event-log");
+        log.replaceChildren();
+        trace
+          .slice(Math.max(0, traceIndex - 3), traceIndex + 1)
+          .forEach((step, i, list) => {
+            const li = document.createElement("li");
+            li.className =
+              i === list.length - 1
+                ? "border-l-4 border-warning pl-3 font-bold"
+                : "border-l-2 border-ocean/25 pl-3 text-deep/45";
+            li.textContent = `${step.type.toUpperCase()} · water=${step.water}`;
+            log.appendChild(li);
+          });
+      }
+      function render() {
+        const step = trace[traceIndex],
+          max = trace.length - 1,
+          [label, title, copy] = descriptions(step);
+        renderTerrain(step);
+        renderLog();
+        document.querySelector("#case-input").textContent =
+          `height = [${demos[activeCase].height.join(", ")}]`;
+        document.querySelector("#step-display").textContent =
+          `步骤 ${traceIndex} / ${max}`;
+        document.querySelector("#side-display").textContent =
+          step.side ?? "READY";
+        document.querySelector("#left-value").textContent = step.left;
+        document.querySelector("#right-value").textContent = step.right;
+        document.querySelector("#left-max").textContent = step.leftMax;
+        document.querySelector("#right-max").textContent = step.rightMax;
+        document.querySelector("#water-value").textContent = step.water;
+        document.querySelector("#action-label").textContent = label;
+        document.querySelector("#action-title").textContent = title;
+        document.querySelector("#action-copy").textContent = copy;
+        document.querySelector("#formula").textContent =
+          step.type === "settle"
+            ? `${step.side.toLowerCase()}Max - height[${step.index}] = ${step.added}`
+            : "water = Σ settled[i]";
+        document.querySelector("#progress").style.width =
+          `${max ? (traceIndex / max) * 100 : 100}%`;
+        document.querySelector("#previous-button").disabled = traceIndex === 0;
+        document.querySelector("#next-button").disabled = traceIndex === max;
+      }
+      function setCase(index) {
+        stop();
+        activeCase = index;
+        trace = buildTrace(demos[index].height);
+        traceIndex = 0;
+        document.querySelectorAll(".case-button").forEach((button) => {
+          const selected = Number(button.dataset.case) === index;
+          button.setAttribute("aria-pressed", String(selected));
+          button.className = selected
+            ? "case-button border-2 border-deep bg-warning px-4 py-3 font-bold shadow-[3px_3px_0_#08253a]"
+            : "case-button border-2 border-deep bg-white px-4 py-3 font-bold";
+        });
+        render();
+        live.textContent = `已切换到${demos[index].label}`;
+      }
+      function moveTrace(delta) {
+        stop();
+        traceIndex = Math.min(
+          Math.max(traceIndex + delta, 0),
+          trace.length - 1,
+        );
+        render();
+      }
+      function togglePlay() {
+        if (timer) {
+          stop();
+          return;
+        }
+        if (traceIndex === trace.length - 1) traceIndex = 0;
+        play.textContent = "暂停监测";
+        play.setAttribute("aria-pressed", "true");
+        const delay = matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? 600
+          : 430;
+        timer = setInterval(() => {
+          if (traceIndex >= trace.length - 1) {
+            stop();
+            return;
+          }
+          traceIndex += 1;
+          render();
+          if (traceIndex >= trace.length - 1) stop();
+        }, delay);
+      }
+      document
+        .querySelectorAll(".case-button")
+        .forEach((button) =>
+          button.addEventListener("click", () =>
+            setCase(Number(button.dataset.case)),
+          ),
+        );
+      document
+        .querySelector("#previous-button")
+        .addEventListener("click", () => moveTrace(-1));
+      document
+        .querySelector("#next-button")
+        .addEventListener("click", () => moveTrace(1));
+      play.addEventListener("click", togglePlay);
+      document.querySelector("#reset-button").addEventListener("click", () => {
+        stop();
+        traceIndex = 0;
+        render();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName))
+          return;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          moveTrace(-1);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          moveTrace(1);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          stop();
+          traceIndex = 0;
+          render();
+        } else if (event.key === "End") {
+          event.preventDefault();
+          stop();
+          traceIndex = trace.length - 1;
+          render();
+        } else if (
+          event.code === "Space" &&
+          event.target.tagName !== "BUTTON"
+        ) {
+          event.preventDefault();
+          togglePlay();
+        }
+      });
+
+      const tests = [
+        {
+          name: "官方样例 1",
+          height: [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1],
+          expected: 6,
+        },
+        { name: "官方样例 2", height: [4, 2, 0, 3, 2, 5], expected: 9 },
+        { name: "单调上升", height: [0, 1, 2, 3], expected: 0 },
+        { name: "单调下降", height: [3, 2, 1, 0], expected: 0 },
+        { name: "最小水坑", height: [2, 0, 2], expected: 2 },
+        { name: "单根柱", height: [5], expected: 0 },
+      ];
+      function renderTests() {
+        const grid = document.querySelector("#test-grid");
+        let passed = 0;
+        tests.forEach((test, index) => {
+          const actual = trap(test.height),
+            ok = actual === test.expected;
+          if (ok) passed += 1;
+          const card = document.createElement("article");
+          card.className = "border-2 border-white/30 bg-white/5 p-5";
+          card.innerHTML = `<div class="flex items-center justify-between gap-3"><div><p class="font-mono text-xs font-black text-rain">TEST ${String(index + 1).padStart(2, "0")}</p><h3 class="mt-1 font-bold">${test.name}</h3></div><span class="${ok ? "bg-rain text-deep" : "bg-warning text-deep"} px-3 py-2 font-mono text-xs font-black">${ok ? "PASS" : "FAIL"}</span></div><div class="mt-5 grid gap-3 sm:grid-cols-3"><div class="bg-white/8 p-4 sm:col-span-3"><p class="font-mono text-[.6rem] text-white/50">输入</p><code class="test-value mt-2 block font-mono text-sm font-bold">height = [${test.height.join(", ")}]</code></div><div class="bg-white/8 p-4"><p class="font-mono text-[.6rem] text-white/50">期望输出</p><code class="test-value mt-2 block text-xl font-black">${test.expected}</code></div><div class="bg-white/8 p-4"><p class="font-mono text-[.6rem] text-white/50">实际输出</p><code class="test-value mt-2 block text-xl font-black">${actual}</code></div><div class="bg-white/8 p-4"><p class="font-mono text-[.6rem] text-white/50">通过状态</p><p class="mt-2 font-mono font-black text-rain">${ok ? "✓ 通过" : "✕ 失败"}</p></div></div>`;
+          grid.appendChild(card);
+        });
+        document.querySelector("#test-summary").textContent =
+          `${passed} / ${tests.length} PASS`;
+      }
+
+      const codes = {
+        java: `class Solution {\n    public int trap(int[] height) {\n        int left = 0, right = height.length - 1;\n        int leftMax = 0, rightMax = 0, water = 0;\n        while (left < right) {\n            if (height[left] <= height[right]) {\n                leftMax = Math.max(leftMax, height[left]);\n                water += leftMax - height[left++];\n            } else {\n                rightMax = Math.max(rightMax, height[right]);\n                water += rightMax - height[right--];\n            }\n        }\n        return water;\n    }\n}`,
+        javascript: `/** @param {number[]} height @return {number} */\nvar trap = function (height) {\n    let left = 0, right = height.length - 1;\n    let leftMax = 0, rightMax = 0, water = 0;\n    while (left < right) {\n        if (height[left] <= height[right]) {\n            leftMax = Math.max(leftMax, height[left]);\n            water += leftMax - height[left];\n            left += 1;\n        } else {\n            rightMax = Math.max(rightMax, height[right]);\n            water += rightMax - height[right];\n            right -= 1;\n        }\n    }\n    return water;\n};`,
+        python: `class Solution:\n    def trap(self, height: List[int]) -> int:\n        left, right = 0, len(height) - 1\n        left_max = right_max = water = 0\n        while left < right:\n            if height[left] <= height[right]:\n                left_max = max(left_max, height[left])\n                water += left_max - height[left]\n                left += 1\n            else:\n                right_max = max(right_max, height[right])\n                water += right_max - height[right]\n                right -= 1\n        return water`,
+        cpp: `class Solution {\npublic:\n    int trap(vector<int>& height) {\n        int left = 0, right = height.size() - 1;\n        int leftMax = 0, rightMax = 0, water = 0;\n        while (left < right) {\n            if (height[left] <= height[right]) {\n                leftMax = max(leftMax, height[left]);\n                water += leftMax - height[left++];\n            } else {\n                rightMax = max(rightMax, height[right]);\n                water += rightMax - height[right--];\n            }\n        }\n        return water;\n    }\n};`,
+      };
+      const solutionToggle = document.querySelector("#solution-toggle"),
+        solutionContent = document.querySelector("#solution-content");
+      solutionToggle.addEventListener("click", () => {
+        const expanded =
+          solutionToggle.getAttribute("aria-expanded") === "true";
+        solutionToggle.setAttribute("aria-expanded", String(!expanded));
+        solutionContent.hidden = expanded;
+        solutionToggle.textContent = expanded ? "查看题解" : "收起题解";
+        live.textContent = expanded ? "题解已收起" : "题解已展开";
+      });
+      function setLanguage(language) {
+        document.querySelector("#code-block").textContent = codes[language];
+        document.querySelectorAll(".language-tab").forEach((tab) => {
+          const selected = tab.dataset.language === language;
+          tab.setAttribute("aria-selected", String(selected));
+          tab.className = selected
+            ? "language-tab bg-rain px-4 py-2 font-mono text-xs font-black text-deep"
+            : "language-tab border border-white/40 px-4 py-2 font-mono text-xs font-black";
+        });
+      }
+      document
+        .querySelectorAll(".language-tab")
+        .forEach((tab) =>
+          tab.addEventListener("click", () =>
+            setLanguage(tab.dataset.language),
+          ),
+        );
+      const quickButton = document.querySelector("#quick-button"),
+        quickCard = document.querySelector("#quick-card"),
+        backdrop = document.querySelector("#quick-backdrop"),
+        quickClose = document.querySelector("#quick-close");
+      function setQuick(open) {
+        quickCard.classList.toggle("hidden", !open);
+        backdrop.classList.toggle("hidden", !open);
+        document.body.style.overflow = open ? "hidden" : "";
+        if (open) quickClose.focus();
+        else quickButton.focus();
+      }
+      quickButton.addEventListener("click", () => setQuick(true));
+      quickClose.addEventListener("click", () => setQuick(false));
+      backdrop.addEventListener("click", () => setQuick(false));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !quickCard.classList.contains("hidden"))
+          setQuick(false);
+      });
+      renderTests();
+      render();
+      setLanguage("java");
+    </script>
+  </body>
+</html>
