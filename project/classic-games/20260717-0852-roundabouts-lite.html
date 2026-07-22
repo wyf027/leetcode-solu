@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Roundabouts</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-teal-950 text-teal-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-teal-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic race puzzle</p>
+        <h1 class="text-3xl font-bold">Mini Roundabouts</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-teal-950 hover:bg-amber-200">
+        New game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-teal-800 bg-teal-900 p-4 shadow-lg">
+        <div id="board" class="relative mx-auto aspect-square max-w-[620px] rounded-full border-4 border-teal-700 bg-teal-950"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-teal-800 bg-teal-900 p-4 shadow-lg">
+          <p class="text-xs font-semibold uppercase tracking-wide text-teal-400">Turn</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold">Gold</p>
+          <p id="statusText" class="mt-3 min-h-16 text-sm leading-6 text-teal-100"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-teal-800 bg-teal-900 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-teal-400">Gold gates</p>
+            <p id="goldScore" class="mt-1 text-2xl font-bold text-amber-300">0</p>
+          </div>
+          <div class="rounded border border-teal-800 bg-teal-900 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-teal-400">Silver gates</p>
+            <p id="silverScore" class="mt-1 text-2xl font-bold text-slate-100">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-teal-800 bg-teal-900 p-4 text-sm leading-6 text-teal-100 shadow-lg">
+          Move one of your marbles along its arrow direction into an empty roundabout. Landing on your three marked gates scores. First to occupy all three gates wins; a player with no legal move loses.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const goldScore = document.getElementById("goldScore");
+    const silverScore = document.getElementById("silverScore");
+
+    const spaces = 12;
+    const gates = { G: [3, 6, 9], S: [0, 4, 8] };
+    const arrows = [1, 1, 2, 1, -1, -2, -1, -1, 2, 1, -2, -1];
+    let board = [];
+    let turn = "G";
+    let selected = null;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array(spaces).fill("");
+      [0, 1, 2, 11].forEach((index) => board[index] = "G");
+      [5, 6, 7, 8].forEach((index) => board[index] = "S");
+      turn = "G";
+      selected = null;
+      gameOver = false;
+      statusText.textContent = "Gold starts. Select a marble, then a highlighted empty roundabout.";
+      render();
+    }
+
+    function playerName(player) {
+      return player === "G" ? "Gold" : "Silver";
+    }
+
+    function opponent(player) {
+      return player === "G" ? "S" : "G";
+    }
+
+    function nextIndex(index) {
+      return (index + arrows[index] + spaces) % spaces;
+    }
+
+    function legalMoves(index) {
+      if (board[index] !== turn) return [];
+      const target = nextIndex(index);
+      return board[target] ? [] : [target];
+    }
+
+    function allMoves(player) {
+      const current = turn;
+      turn = player;
+      const moves = [];
+      board.forEach((piece, index) => {
+        if (piece === player) legalMoves(index).forEach((target) => moves.push({ from: index, to: target }));
+      });
+      turn = current;
+      return moves;
+    }
+
+    function gateScore(player) {
+      return gates[player].filter((index) => board[index] === player).length;
+    }
+
+    function hasWon(player) {
+      return gateScore(player) === gates[player].length;
+    }
+
+    function finishTurn() {
+      if (hasWon(turn)) {
+        gameOver = true;
+        statusText.textContent = `${playerName(turn)} wins by occupying all three gates.`;
+        render();
+        return;
+      }
+
+      const next = opponent(turn);
+      if (allMoves(next).length === 0) {
+        gameOver = true;
+        statusText.textContent = `${playerName(turn)} wins by blocking every ${playerName(next)} move.`;
+        render();
+        return;
+      }
+
+      turn = next;
+      selected = null;
+      statusText.textContent = `${playerName(turn)} to move.`;
+      render();
+    }
+
+    function handleSpace(index) {
+      if (gameOver) return;
+
+      if (board[index] === turn) {
+        selected = selected === index ? null : index;
+        statusText.textContent = selected === null
+          ? `${playerName(turn)} selection cleared.`
+          : `${playerName(turn)} selected a marble.`;
+        render();
+        return;
+      }
+
+      if (selected !== null && legalMoves(selected).includes(index)) {
+        board[index] = turn;
+        board[selected] = "";
+        finishTurn();
+      }
+    }
+
+    function arrowLabel(index) {
+      const step = arrows[index];
+      if (step === 1) return "clockwise 1";
+      if (step === 2) return "clockwise 2";
+      if (step === -1) return "counter 1";
+      return "counter 2";
+    }
+
+    function renderSpace(index) {
+      const piece = board[index];
+      const isSelected = selected === index;
+      const isMove = selected !== null && legalMoves(selected).includes(index);
+      const onGoldGate = gates.G.includes(index);
+      const onSilverGate = gates.S.includes(index);
+      const angle = (index / spaces) * Math.PI * 2 - Math.PI / 2;
+      const radius = 39;
+      const x = 50 + Math.cos(angle) * radius;
+      const y = 50 + Math.sin(angle) * radius;
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = [
+        "absolute flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border text-xs font-bold transition",
+        onGoldGate ? "border-amber-300" : onSilverGate ? "border-slate-100" : "border-teal-600",
+        isMove ? "bg-emerald-500 text-teal-950 ring-4 ring-emerald-200" : "bg-teal-800",
+        isSelected ? "ring-4 ring-amber-300" : "",
+        gameOver ? "cursor-default" : "hover:scale-105"
+      ].join(" ");
+      cell.style.left = `${x}%`;
+      cell.style.top = `${y}%`;
+      cell.setAttribute("aria-label", `Roundabout ${index + 1}, ${arrowLabel(index)}`);
+      cell.addEventListener("click", () => handleSpace(index));
+
+      const arrow = document.createElement("span");
+      arrow.className = "text-[10px] uppercase tracking-wide text-teal-200";
+      arrow.textContent = arrows[index] > 0 ? `+${arrows[index]}` : `${arrows[index]}`;
+      cell.appendChild(arrow);
+
+      const marble = document.createElement("span");
+      marble.className = [
+        "mt-1 block h-8 w-8 rounded-full border-4 shadow",
+        piece === "G" ? "border-amber-100 bg-amber-400" : piece === "S" ? "border-slate-300 bg-white" : "border-teal-600 bg-teal-950"
+      ].join(" ");
+      cell.appendChild(marble);
+      return cell;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+
+      const hub = document.createElement("div");
+      hub.className = "absolute left-1/2 top-1/2 flex h-28 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-teal-700 bg-teal-900 text-center text-xs font-bold uppercase tracking-wide text-teal-300";
+      hub.textContent = "Roundabouts";
+      boardEl.appendChild(hub);
+
+      for (let index = 0; index < spaces; index += 1) {
+        boardEl.appendChild(renderSpace(index));
+      }
+
+      turnText.textContent = gameOver ? "Game over" : playerName(turn);
+      goldScore.textContent = gateScore("G");
+      silverScore.textContent = gateScore("S");
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
