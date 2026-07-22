@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Sylver Coinage</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-yellow-300">Classic number game</p>
+        <h1 class="text-3xl font-bold">Mini Sylver Coinage</h1>
+      </div>
+      <button id="resetBtn" class="w-fit rounded bg-yellow-300 px-4 py-2 font-semibold text-emerald-950 hover:bg-yellow-200">Reset</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <div class="rounded border border-emerald-800 bg-emerald-900/70 p-4">
+        <h2 class="mb-2 text-lg font-semibold">Your move</h2>
+        <p id="status" class="mb-4 text-sm text-emerald-200">Choose a number that cannot be made from earlier numbers.</p>
+        <form id="moveForm" class="mb-4 flex gap-2">
+          <input id="moveInput" type="number" min="1" max="60" class="min-w-0 flex-1 rounded border border-emerald-700 bg-emerald-950 px-4 py-3 text-lg font-bold outline-none focus:border-yellow-300" placeholder="2-60">
+          <button class="rounded bg-yellow-300 px-4 py-2 font-semibold text-emerald-950 hover:bg-yellow-200">Play</button>
+        </form>
+        <div class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div class="rounded bg-emerald-950 p-3">
+            <p class="text-emerald-300">Turn</p>
+            <p id="turnLabel" class="text-xl font-bold">Player</p>
+          </div>
+          <div class="rounded bg-emerald-950 p-3">
+            <p class="text-emerald-300">Named</p>
+            <p id="namedCount" class="text-xl font-bold">0</p>
+          </div>
+          <div class="rounded bg-emerald-950 p-3">
+            <p class="text-emerald-300">Legal under 30</p>
+            <p id="legalCount" class="text-xl font-bold">29</p>
+          </div>
+          <div class="rounded bg-emerald-950 p-3">
+            <p class="text-emerald-300">Poison</p>
+            <p class="text-xl font-bold">1</p>
+          </div>
+        </div>
+      </div>
+
+      <aside class="rounded border border-emerald-800 bg-emerald-900/70 p-4">
+        <h2 class="mb-3 text-lg font-semibold">Numbers</h2>
+        <div id="chosenList" class="mb-4 flex flex-wrap gap-2"></div>
+        <h3 class="mb-2 font-semibold">Playable examples</h3>
+        <div id="legalList" class="flex flex-wrap gap-2 text-sm"></div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const moveForm = document.getElementById("moveForm");
+    const moveInput = document.getElementById("moveInput");
+    const resetBtn = document.getElementById("resetBtn");
+    const statusEl = document.getElementById("status");
+    const turnLabelEl = document.getElementById("turnLabel");
+    const namedCountEl = document.getElementById("namedCount");
+    const legalCountEl = document.getElementById("legalCount");
+    const chosenListEl = document.getElementById("chosenList");
+    const legalListEl = document.getElementById("legalList");
+    let chosen = [];
+    let playerTurn = true;
+    let finished = false;
+
+    function resetGame() {
+      chosen = [];
+      playerTurn = true;
+      finished = false;
+      moveInput.value = "";
+      moveInput.disabled = false;
+      statusEl.textContent = "Choose a number that cannot be made from earlier numbers.";
+      render();
+    }
+
+    function canMake(target, coins) {
+      if (target === 0) return true;
+      if (coins.length === 0) return false;
+      const reachable = Array(target + 1).fill(false);
+      reachable[0] = true;
+      for (let total = 0; total <= target; total += 1) {
+        if (!reachable[total]) continue;
+        coins.forEach((coin) => {
+          if (total + coin <= target) reachable[total + coin] = true;
+        });
+      }
+      return reachable[target];
+    }
+
+    function isLegal(number) {
+      if (!Number.isInteger(number) || number < 1 || number > 60) return false;
+      if (chosen.includes(number)) return false;
+      return !canMake(number, chosen);
+    }
+
+    function legalNumbers(limit = 30) {
+      const values = [];
+      for (let number = 1; number <= limit; number += 1) {
+        if (isLegal(number)) values.push(number);
+      }
+      return values;
+    }
+
+    function playNumber(number) {
+      if (finished) return;
+      if (!isLegal(number)) {
+        statusEl.textContent = `${number} is not legal now. It is already named or can be made from earlier numbers.`;
+        render();
+        return;
+      }
+      chosen.push(number);
+      if (number === 1) {
+        finished = true;
+        statusEl.textContent = `${playerTurn ? "Player" : "Computer"} said 1 and loses.`;
+      } else {
+        playerTurn = !playerTurn;
+        statusEl.textContent = `${number} accepted. ${playerTurn ? "Player" : "Computer"} to move.`;
+      }
+      render();
+      if (!finished && !playerTurn) {
+        window.setTimeout(computerMove, 450);
+      }
+    }
+
+    function computerMove() {
+      const options = legalNumbers(40).filter((number) => number !== 1);
+      const pick = options.length ? options[Math.floor(Math.random() * Math.min(options.length, 6))] : 1;
+      playNumber(pick);
+    }
+
+    function submitMove(event) {
+      event.preventDefault();
+      if (!playerTurn || finished) return;
+      const number = Number(moveInput.value);
+      moveInput.value = "";
+      playNumber(number);
+    }
+
+    function renderPills(container, values, tone) {
+      container.innerHTML = "";
+      if (values.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "text-sm text-emerald-300";
+        empty.textContent = "None";
+        container.appendChild(empty);
+        return;
+      }
+      values.forEach((value) => {
+        const pill = document.createElement("span");
+        pill.className = `rounded px-2 py-1 font-bold ${tone}`;
+        pill.textContent = value;
+        container.appendChild(pill);
+      });
+    }
+
+    function render() {
+      const legal = legalNumbers(30);
+      turnLabelEl.textContent = finished ? "Done" : playerTurn ? "Player" : "Computer";
+      namedCountEl.textContent = chosen.length;
+      legalCountEl.textContent = legal.length;
+      moveInput.disabled = finished || !playerTurn;
+      renderPills(chosenListEl, chosen, "bg-yellow-300 text-emerald-950");
+      renderPills(legalListEl, legal.slice(0, 18), "bg-emerald-950 text-emerald-100 border border-emerald-700");
+    }
+
+    moveForm.addEventListener("submit", submitMove);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
