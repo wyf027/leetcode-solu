@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Sinistar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-cyan-200">Mini Sinistar</h1>
+        <p class="mt-1 text-sm text-zinc-400">采集星晶，发射星弹，别被追上。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-xs sm:w-80">
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">星晶</div>
+          <div id="oreLabel" class="text-lg font-semibold text-cyan-200">0</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">Boss</div>
+          <div id="bossLabel" class="text-lg font-semibold text-rose-200">3</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">分数</div>
+          <div id="scoreLabel" class="text-lg font-semibold text-amber-200">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-2">
+        <canvas id="game" width="720" height="480" class="block aspect-[3/2] w-full bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-300">
+        <div id="status" class="mb-4 rounded bg-zinc-950 px-3 py-2 text-cyan-100">收集 4 颗星晶后按空格发射星弹。</div>
+        <dl class="space-y-3">
+          <div>
+            <dt class="text-zinc-500">移动</dt>
+            <dd>WASD / 方向键</dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">发射</dt>
+            <dd>Space</dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">重开</dt>
+            <dd>R</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const oreLabel = document.getElementById('oreLabel');
+    const bossLabel = document.getElementById('bossLabel');
+    const scoreLabel = document.getElementById('scoreLabel');
+    const statusLabel = document.getElementById('status');
+    const keys = new Set();
+
+    let player;
+    let boss;
+    let ores;
+    let bombs;
+    let sparks;
+    let oreCount;
+    let score;
+    let state;
+    let lastTime;
+
+    function setupGame() {
+      player = { x: 120, y: 240, r: 12, speed: 220, angle: 0 };
+      boss = { x: 610, y: 240, r: 30, hp: 3, speed: 55 };
+      ores = Array.from({ length: 9 }, (_, index) => ({
+        x: 90 + Math.random() * 540,
+        y: 55 + Math.random() * 370,
+        r: 8,
+        spin: index * 0.8
+      }));
+      bombs = [];
+      sparks = [];
+      oreCount = 0;
+      score = 0;
+      state = 'playing';
+      lastTime = performance.now();
+      statusLabel.textContent = '收集 4 颗星晶后按空格发射星弹。';
+      updateLabels();
+    }
+
+    function updateLabels() {
+      oreLabel.textContent = oreCount;
+      bossLabel.textContent = Math.max(0, boss.hp);
+      scoreLabel.textContent = score;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function movePlayer(dt) {
+      let vx = 0;
+      let vy = 0;
+      if (keys.has('ArrowLeft') || keys.has('a')) vx -= 1;
+      if (keys.has('ArrowRight') || keys.has('d')) vx += 1;
+      if (keys.has('ArrowUp') || keys.has('w')) vy -= 1;
+      if (keys.has('ArrowDown') || keys.has('s')) vy += 1;
+      if (vx !== 0 || vy !== 0) {
+        const len = Math.hypot(vx, vy);
+        vx /= len;
+        vy /= len;
+        player.x = clamp(player.x + vx * player.speed * dt, player.r, canvas.width - player.r);
+        player.y = clamp(player.y + vy * player.speed * dt, player.r, canvas.height - player.r);
+        player.angle = Math.atan2(vy, vx);
+      }
+    }
+
+    function updateBoss(dt) {
+      const dx = player.x - boss.x;
+      const dy = player.y - boss.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const pressure = 1 + (3 - boss.hp) * 0.18;
+      boss.x += (dx / len) * boss.speed * pressure * dt;
+      boss.y += (dy / len) * boss.speed * pressure * dt;
+      if (distance(player, boss) < player.r + boss.r) {
+        state = 'lost';
+        statusLabel.textContent = '被 Sinistar 追上了。按 R 重开。';
+      }
+    }
+
+    function collectOre() {
+      ores = ores.filter((ore) => {
+        if (distance(player, ore) < player.r + ore.r + 4) {
+          oreCount += 1;
+          score += 50;
+          burst(ore.x, ore.y, '#67e8f9');
+          statusLabel.textContent = oreCount >= 4 ? '星弹已就绪，按空格攻击 Boss。' : '继续采集星晶。';
+          return false;
+        }
+        return true;
+      });
+      if (ores.length < 5 && Math.random() < 0.01) {
+        ores.push({ x: 40 + Math.random() * 640, y: 40 + Math.random() * 400, r: 8, spin: Math.random() * 6 });
+      }
+    }
+
+    function fireBomb() {
+      if (state !== 'playing') return;
+      if (oreCount < 4) {
+        statusLabel.textContent = '还需要 4 颗星晶才能组装星弹。';
+        return;
+      }
+      const dx = boss.x - player.x;
+      const dy = boss.y - player.y;
+      const len = Math.hypot(dx, dy) || 1;
+      bombs.push({
+        x: player.x,
+        y: player.y,
+        vx: (dx / len) * 360,
+        vy: (dy / len) * 360,
+        r: 6
+      });
+      oreCount -= 4;
+      statusLabel.textContent = '星弹发射。继续保持距离。';
+    }
+
+    function updateBombs(dt) {
+      bombs.forEach((bomb) => {
+        bomb.x += bomb.vx * dt;
+        bomb.y += bomb.vy * dt;
+      });
+      bombs = bombs.filter((bomb) => {
+        if (bomb.x < -20 || bomb.x > canvas.width + 20 || bomb.y < -20 || bomb.y > canvas.height + 20) {
+          return false;
+        }
+        if (distance(bomb, boss) < bomb.r + boss.r) {
+          boss.hp -= 1;
+          score += 200;
+          burst(boss.x, boss.y, '#fb7185');
+          statusLabel.textContent = boss.hp > 0 ? '命中。再来几发。' : 'Sinistar 被击破，胜利！按 R 再玩。';
+          if (boss.hp <= 0) state = 'won';
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 18; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 40 + Math.random() * 120;
+        sparks.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0.45, color });
+      }
+    }
+
+    function updateSparks(dt) {
+      sparks.forEach((spark) => {
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+      });
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.rotate(player.angle);
+      ctx.fillStyle = '#a5f3fc';
+      ctx.beginPath();
+      ctx.moveTo(16, 0);
+      ctx.lineTo(-10, -9);
+      ctx.lineTo(-5, 0);
+      ctx.lineTo(-10, 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBoss() {
+      ctx.save();
+      ctx.translate(boss.x, boss.y);
+      ctx.fillStyle = state === 'won' ? '#3f3f46' : '#e11d48';
+      ctx.beginPath();
+      for (let i = 0; i < 12; i += 1) {
+        const radius = i % 2 === 0 ? boss.r : boss.r * 0.68;
+        const angle = (Math.PI * 2 * i) / 12 + performance.now() / 900;
+        ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fff1f2';
+      ctx.fillRect(-13, -6, 8, 8);
+      ctx.fillRect(5, -6, 8, 8);
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#27272a';
+      for (let x = 0; x < canvas.width; x += 40) {
+        for (let y = 0; y < canvas.height; y += 40) {
+          ctx.fillRect(x + 1, y + 1, 1, 1);
+        }
+      }
+
+      ores.forEach((ore) => {
+        ore.spin += 0.04;
+        ctx.save();
+        ctx.translate(ore.x, ore.y);
+        ctx.rotate(ore.spin);
+        ctx.fillStyle = '#22d3ee';
+        ctx.fillRect(-ore.r, -ore.r, ore.r * 2, ore.r * 2);
+        ctx.restore();
+      });
+
+      bombs.forEach((bomb) => {
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath();
+        ctx.arc(bomb.x, bomb.y, bomb.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = Math.max(0, spark.life * 2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+
+      drawShip();
+      drawBoss();
+    }
+
+    function tick(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      if (state === 'playing') {
+        movePlayer(dt);
+        updateBoss(dt);
+        collectOre();
+        updateBombs(dt);
+      }
+      updateSparks(dt);
+      updateLabels();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === ' ') fireBomb();
+      if (event.key.toLowerCase() === 'r') setupGame();
+      keys.add(event.key.toLowerCase());
+      keys.add(event.key);
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key.toLowerCase());
+      keys.delete(event.key);
+    });
+
+    setupGame();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
