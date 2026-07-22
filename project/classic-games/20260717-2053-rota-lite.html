@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Rota</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-6 px-4 py-8">
+    <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-cyan-300">Classic Strategy</p>
+          <h1 class="text-3xl font-semibold text-white">Mini Rota</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-cyan-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_250px]">
+        <div class="rounded-lg border border-zinc-700 bg-zinc-950 p-4">
+          <div id="board" class="relative mx-auto grid max-w-md grid-cols-3 gap-3 rounded-full border border-zinc-800 p-5"></div>
+        </div>
+        <aside class="rounded-lg border border-zinc-700 bg-zinc-950 p-4">
+          <div class="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p class="text-zinc-400">你的棋</p>
+              <p id="humanCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-zinc-400">AI 棋</p>
+              <p id="aiCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-zinc-400">阶段</p>
+              <p id="phaseLabel" class="text-2xl font-semibold text-white">落子</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-16 rounded-md bg-zinc-900 p-3 text-sm leading-6 text-zinc-200"></p>
+          <div class="mt-4 space-y-2 text-sm text-zinc-300">
+            <p>你执蓝色棋，AI 执琥珀棋。</p>
+            <p>双方先各落 3 子，然后沿线移动到相邻空位。</p>
+            <p>率先连成一条 3 子直线获胜。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const wins = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+    const neighbors = {
+      0: [1, 3, 4],
+      1: [0, 2, 4],
+      2: [1, 4, 5],
+      3: [0, 4, 6],
+      4: [0, 1, 2, 3, 5, 6, 7, 8],
+      5: [2, 4, 8],
+      6: [3, 4, 7],
+      7: [4, 6, 8],
+      8: [4, 5, 7]
+    };
+
+    let boardState = Array(9).fill("");
+    let selected = null;
+    let turn = "H";
+    let locked = false;
+    let gameOver = false;
+
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const humanCountEl = document.getElementById("humanCount");
+    const aiCountEl = document.getElementById("aiCount");
+    const phaseLabelEl = document.getElementById("phaseLabel");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function countPieces(player) {
+      return boardState.filter((piece) => piece === player).length;
+    }
+
+    function phaseFor(player) {
+      return countPieces(player) < 3 ? "place" : "move";
+    }
+
+    function winner(state = boardState) {
+      for (const line of wins) {
+        const [a, b, c] = line;
+        if (state[a] && state[a] === state[b] && state[b] === state[c]) return state[a];
+      }
+      return "";
+    }
+
+    function legalMoves(player, state = boardState) {
+      if (state.filter((piece) => piece === player).length < 3) {
+        return state.flatMap((piece, index) => piece === "" ? [{ from: null, to: index }] : []);
+      }
+      return state.flatMap((piece, index) => {
+        if (piece !== player) return [];
+        return neighbors[index]
+          .filter((target) => state[target] === "")
+          .map((target) => ({ from: index, to: target }));
+      });
+    }
+
+    function applyMove(move, player) {
+      if (move.from !== null) boardState[move.from] = "";
+      boardState[move.to] = player;
+      selected = null;
+      const won = winner();
+      if (won) {
+        gameOver = true;
+        locked = true;
+        setMessage(won === "H" ? "你连成三子，获胜！" : "AI 连成三子，点击重开再试。");
+        render();
+        return;
+      }
+      turn = player === "H" ? "A" : "H";
+      render();
+      if (turn === "A") {
+        locked = true;
+        setMessage("AI 思考中...");
+        setTimeout(playComputerTurn, 400);
+      } else {
+        locked = false;
+        setMessage(phaseFor("H") === "place" ? "选择空位落下蓝棋。" : "选择蓝棋，再移动到高亮相邻空位。");
+      }
+    }
+
+    function scoreMove(move) {
+      const next = [...boardState];
+      if (move.from !== null) next[move.from] = "";
+      next[move.to] = "A";
+      if (winner(next) === "A") return 100;
+      const humanThreats = legalMoves("H", next).filter((reply) => {
+        const after = [...next];
+        if (reply.from !== null) after[reply.from] = "";
+        after[reply.to] = "H";
+        return winner(after) === "H";
+      }).length;
+      return 20 - humanThreats * 8 + (move.to === 4 ? 3 : 0);
+    }
+
+    function playComputerTurn() {
+      if (gameOver) return;
+      const moves = legalMoves("A");
+      moves.sort((a, b) => scoreMove(b) - scoreMove(a));
+      locked = false;
+      applyMove(moves[0], "A");
+    }
+
+    function chooseCell(index) {
+      if (locked || gameOver || turn !== "H") return;
+      const phase = phaseFor("H");
+      const moves = legalMoves("H");
+      if (phase === "place") {
+        const move = moves.find((item) => item.to === index);
+        if (move) applyMove(move, "H");
+        return;
+      }
+      const selectedMove = moves.find((item) => item.from === selected && item.to === index);
+      if (selectedMove) {
+        applyMove(selectedMove, "H");
+        return;
+      }
+      if (boardState[index] === "H" && moves.some((item) => item.from === index)) {
+        selected = index;
+        setMessage("选择高亮空位移动。");
+      } else {
+        selected = null;
+        setMessage("请选择有相邻空位的蓝棋。");
+      }
+      render();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function startGame() {
+      boardState = Array(9).fill("");
+      selected = null;
+      turn = "H";
+      locked = false;
+      gameOver = false;
+      render();
+      setMessage("选择空位落下蓝棋。");
+    }
+
+    function render() {
+      const moves = selected === null ? [] : legalMoves("H").filter((move) => move.from === selected);
+      boardEl.innerHTML = "";
+      boardState.forEach((piece, index) => {
+        const cell = document.createElement("button");
+        const isSelected = selected === index;
+        const isTarget = moves.some((move) => move.to === index);
+        cell.type = "button";
+        cell.className = [
+          "aspect-square rounded-full border text-4xl font-bold transition",
+          piece === "H" ? "border-cyan-300 bg-cyan-400 text-zinc-950" : "",
+          piece === "A" ? "border-amber-300 bg-amber-300 text-zinc-950" : "",
+          piece === "" ? "border-zinc-700 bg-zinc-900" : "",
+          isSelected ? "ring-4 ring-cyan-200" : "",
+          isTarget ? "border-emerald-300 bg-emerald-500/30" : "",
+          locked || gameOver ? "cursor-default" : "hover:border-white"
+        ].join(" ");
+        cell.textContent = piece === "H" ? "●" : piece === "A" ? "●" : "";
+        cell.setAttribute("aria-label", `cell ${index + 1}`);
+        cell.addEventListener("click", () => chooseCell(index));
+        boardEl.appendChild(cell);
+      });
+      humanCountEl.textContent = countPieces("H");
+      aiCountEl.textContent = countPieces("A");
+      phaseLabelEl.textContent = phaseFor("H") === "place" ? "落子" : "移动";
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
