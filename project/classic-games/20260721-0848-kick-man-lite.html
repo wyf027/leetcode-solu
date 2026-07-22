@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kick Man</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center gap-4 px-4 py-6">
+    <section class="w-full rounded-lg border border-slate-700 bg-slate-900/90 p-4 shadow-2xl">
+      <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-wide text-cyan-200">Mini Kick Man</h1>
+          <p class="text-sm text-slate-400">左右移动接住落下的帽子和气球，避开黑色炸弹。</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-slate-700 bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">分数</div>
+            <div id="score" class="text-lg font-bold text-emerald-300">0</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">连击</div>
+            <div id="combo" class="text-lg font-bold text-amber-300">0</div>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800 px-3 py-2">
+            <div class="text-slate-400">生命</div>
+            <div id="lives" class="text-lg font-bold text-rose-300">3</div>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="game" width="720" height="520" class="h-auto w-full rounded border border-slate-700 bg-slate-950"></canvas>
+
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
+        <div>方向键 / A D 移动，空格开始或重新开始。</div>
+        <button id="restart" class="rounded bg-cyan-500 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-400">重新开始</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const comboEl = document.getElementById("combo");
+    const livesEl = document.getElementById("lives");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    let player;
+    let drops;
+    let score;
+    let combo;
+    let lives;
+    let spawnTimer;
+    let speedBoost;
+    let running;
+    let lastTime;
+
+    function setupGame() {
+      player = { x: canvas.width / 2, y: canvas.height - 58, width: 64, speed: 360 };
+      drops = [];
+      score = 0;
+      combo = 0;
+      lives = 3;
+      spawnTimer = 0;
+      speedBoost = 0;
+      running = true;
+      lastTime = performance.now();
+      updateHud();
+      requestAnimationFrame(loop);
+    }
+
+    function spawnDrop() {
+      const types = [
+        { kind: "balloon", color: "#67e8f9", points: 20, radius: 16 },
+        { kind: "hat", color: "#facc15", points: 35, radius: 14 },
+        { kind: "bomb", color: "#0f172a", points: -1, radius: 15 }
+      ];
+      const type = types[Math.random() < 0.18 ? 2 : Math.random() < 0.45 ? 1 : 0];
+      drops.push({
+        ...type,
+        x: 54 + Math.random() * (canvas.width - 108),
+        y: -28,
+        vy: 115 + Math.random() * 80 + speedBoost,
+        spin: Math.random() * Math.PI
+      });
+    }
+
+    function updatePlayer(dt) {
+      let dir = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dir -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dir += 1;
+      player.x += dir * player.speed * dt;
+      const half = player.width / 2;
+      player.x = Math.max(half, Math.min(canvas.width - half, player.x));
+    }
+
+    function updateDrops(dt) {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnDrop();
+        speedBoost = Math.min(130, speedBoost + 1.2);
+        spawnTimer = Math.max(0.45, 1.02 - score / 1800);
+      }
+
+      const catchY = player.y - 22;
+      drops.forEach((drop) => {
+        drop.y += drop.vy * dt;
+        drop.spin += dt * 4;
+      });
+
+      drops = drops.filter((drop) => {
+        const caught = Math.abs(drop.x - player.x) < player.width / 2 + drop.radius && Math.abs(drop.y - catchY) < 24;
+        if (caught && drop.kind === "bomb") {
+          lives -= 1;
+          combo = 0;
+          flash("炸弹失误");
+          return false;
+        }
+        if (caught) {
+          combo += 1;
+          score += drop.points + combo * 3;
+          return false;
+        }
+        if (drop.y > canvas.height + 30) {
+          if (drop.kind !== "bomb") {
+            lives -= 1;
+            combo = 0;
+            flash("漏接");
+          }
+          return false;
+        }
+        return true;
+      });
+
+      if (lives <= 0) running = false;
+      updateHud();
+    }
+
+    function drawPerformer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(0, 20, 24, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.arc(0, -30, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.moveTo(0, -16);
+      ctx.lineTo(0, 4);
+      ctx.moveTo(0, -6);
+      ctx.lineTo(-28, -22);
+      ctx.moveTo(0, -6);
+      ctx.lineTo(28, -22);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawDrop(drop) {
+      ctx.save();
+      ctx.translate(drop.x, drop.y);
+      ctx.rotate(drop.spin * (drop.kind === "hat" ? 0.25 : 0.08));
+      if (drop.kind === "hat") {
+        ctx.fillStyle = drop.color;
+        ctx.fillRect(-18, -4, 36, 9);
+        ctx.fillRect(-11, -17, 22, 14);
+      } else if (drop.kind === "bomb") {
+        ctx.fillStyle = drop.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, drop.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#f43f5e";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(7, -13);
+        ctx.lineTo(18, -23);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = drop.color;
+        ctx.beginPath();
+        ctx.ellipse(0, -3, 13, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#bae6fd";
+        ctx.beginPath();
+        ctx.moveTo(0, 15);
+        ctx.lineTo(0, 29);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawStage() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#1e293b";
+      for (let x = 60; x < canvas.width; x += 90) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, canvas.height - 30, canvas.width, 30);
+      drops.forEach(drawDrop);
+      drawPerformer();
+      if (!running) {
+        ctx.fillStyle = "rgba(2, 6, 23, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 18);
+        ctx.font = "18px sans-serif";
+        ctx.fillText("按空格或点击重新开始", canvas.width / 2, canvas.height / 2 + 22);
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      comboEl.textContent = combo;
+      livesEl.textContent = lives;
+    }
+
+    function flash(text) {
+      ctx.save();
+      ctx.fillStyle = "#fb7185";
+      ctx.font = "bold 20px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(text, canvas.width / 2, 48);
+      ctx.restore();
+    }
+
+    function loop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      if (running) {
+        updatePlayer(dt);
+        updateDrops(dt);
+      }
+      drawStage();
+      if (running) requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowLeft", "ArrowRight", " ", "a", "d"].includes(key)) event.preventDefault();
+      if (key === " ") {
+        if (!running) setupGame();
+        return;
+      }
+      keys.add(key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
