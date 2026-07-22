@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Radar Scope Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-emerald-300">Classic Games</p>
+        <h1 class="text-2xl font-bold tracking-wide text-white">Mini Radar Scope</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-mono text-lg text-emerald-200">0</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Wave</div>
+          <div id="wave" class="font-mono text-lg text-emerald-200">1</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Shields</div>
+          <div id="shields" class="font-mono text-lg text-emerald-200">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <canvas id="game" width="720" height="560" class="h-auto w-full rounded bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+        <h2 class="mb-2 text-base font-semibold text-white">Controls</h2>
+        <p><span class="font-mono text-emerald-200">Left / Right</span> move along the scope rail.</p>
+        <p><span class="font-mono text-emerald-200">Space</span> fires forward.</p>
+        <p><span class="font-mono text-emerald-200">Mouse / Touch</span> aim position and fire.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-emerald-400 px-3 py-2 font-semibold text-slate-950 hover:bg-emerald-300">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-slate-700 bg-slate-950 p-3 text-emerald-100">Hold the radar lane and intercept the diving squadrons.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const waveEl = document.getElementById("wave");
+    const shieldsEl = document.getElementById("shields");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const shots = [];
+    const enemies = [];
+    const enemyShots = [];
+    const sparks = [];
+    const stars = [];
+    let playerX = 0.5;
+    let score = 0;
+    let wave = 1;
+    let shields = 3;
+    let cooldown = 0;
+    let spawnTimer = 0;
+    let waveLeft = 0;
+    let gameOver = false;
+    let lastTime = 0;
+
+    for (let i = 0; i < 100; i += 1) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height * 0.72,
+        r: Math.random() * 1.8 + 0.3,
+        alpha: Math.random() * 0.6 + 0.25
+      });
+    }
+
+    function reset() {
+      playerX = 0.5;
+      score = 0;
+      wave = 1;
+      shields = 3;
+      cooldown = 0;
+      gameOver = false;
+      shots.length = 0;
+      enemies.length = 0;
+      enemyShots.length = 0;
+      sparks.length = 0;
+      startWave();
+      updateHud();
+      messageEl.textContent = "Hold the radar lane and intercept the diving squadrons.";
+    }
+
+    function startWave() {
+      waveLeft = 7 + wave * 2;
+      spawnTimer = 0.35;
+      messageEl.textContent = `Wave ${wave}: ${waveLeft} targets incoming.`;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      waveEl.textContent = wave;
+      shieldsEl.textContent = shields;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rand(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function project(lane, depth) {
+      const horizonY = 96;
+      const deckY = canvas.height - 72;
+      const scale = 1 - depth;
+      const halfWidth = 34 + scale * 306;
+      return {
+        x: canvas.width / 2 + (lane - 0.5) * halfWidth * 2,
+        y: horizonY + scale * (deckY - horizonY),
+        scale: 0.25 + scale * 1.15
+      };
+    }
+
+    function spawnEnemy() {
+      enemies.push({
+        lane: rand(0.12, 0.88),
+        depth: 1.02,
+        drift: rand(-0.16, 0.16),
+        speed: rand(0.16, 0.24) + wave * 0.018,
+        wobble: rand(0, Math.PI * 2),
+        fireTimer: rand(0.8, 1.6),
+        hp: wave > 4 && Math.random() > 0.62 ? 2 : 1,
+        hue: Math.floor(rand(150, 215))
+      });
+    }
+
+    function fire() {
+      if (cooldown > 0 || gameOver) return;
+      shots.push({ lane: playerX, depth: 0.02, speed: 1.9, life: 0.8 });
+      cooldown = Math.max(0.13, 0.27 - wave * 0.012);
+    }
+
+    function burst(x, y, color, count = 12) {
+      for (let i = 0; i < count; i += 1) {
+        const a = rand(0, Math.PI * 2);
+        const s = rand(50, 220);
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(a) * s,
+          vy: Math.sin(a) * s,
+          life: rand(0.25, 0.65),
+          max: 0.65,
+          color
+        });
+      }
+    }
+
+    function playerPoint() {
+      return project(playerX, 0);
+    }
+
+    function damageCore(text) {
+      shields -= 1;
+      updateHud();
+      if (shields <= 0) {
+        gameOver = true;
+        messageEl.textContent = "Radar station lost. Press Restart to try again.";
+      } else {
+        messageEl.textContent = text;
+      }
+    }
+
+    function update(dt) {
+      if (gameOver) return;
+
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) playerX -= dt * 0.82;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) playerX += dt * 0.82;
+      if (keys.has("Space")) fire();
+      playerX = clamp(playerX, 0.05, 0.95);
+      cooldown = Math.max(0, cooldown - dt);
+
+      spawnTimer -= dt;
+      if (waveLeft > 0 && spawnTimer <= 0) {
+        spawnEnemy();
+        waveLeft -= 1;
+        spawnTimer = Math.max(0.34, 0.9 - wave * 0.045);
+      }
+
+      for (let i = shots.length - 1; i >= 0; i -= 1) {
+        const shot = shots[i];
+        shot.depth += shot.speed * dt;
+        shot.life -= dt;
+        if (shot.depth > 1.08 || shot.life <= 0) shots.splice(i, 1);
+      }
+
+      for (let i = enemies.length - 1; i >= 0; i -= 1) {
+        const enemy = enemies[i];
+        enemy.wobble += dt * 4.2;
+        enemy.depth -= enemy.speed * dt;
+        enemy.lane += (enemy.drift + Math.sin(enemy.wobble) * 0.08) * dt;
+        enemy.lane = clamp(enemy.lane, 0.06, 0.94);
+        enemy.fireTimer -= dt;
+
+        if (enemy.fireTimer <= 0 && enemy.depth < 0.82) {
+          enemyShots.push({
+            lane: enemy.lane,
+            depth: enemy.depth,
+            speed: 0.9 + wave * 0.035
+          });
+          enemy.fireTimer = rand(1.1, 2.0);
+        }
+
+        if (enemy.depth <= -0.04) {
+          const p = project(enemy.lane, 0);
+          burst(p.x, p.y - 16, "#fb923c", 20);
+          enemies.splice(i, 1);
+          damageCore("A target crossed the radar rail.");
+          continue;
+        }
+
+        for (let j = shots.length - 1; j >= 0; j -= 1) {
+          const shot = shots[j];
+          const laneHit = Math.abs(shot.lane - enemy.lane) < 0.065 + (1 - enemy.depth) * 0.025;
+          const depthHit = Math.abs(shot.depth - enemy.depth) < 0.07;
+          if (laneHit && depthHit) {
+            shots.splice(j, 1);
+            enemy.hp -= 1;
+            const p = project(enemy.lane, enemy.depth);
+            burst(p.x, p.y, "#a7f3d0", 8);
+            if (enemy.hp <= 0) {
+              score += 100 + wave * 25;
+              burst(p.x, p.y, `hsl(${enemy.hue}, 90%, 60%)`, 18);
+              enemies.splice(i, 1);
+              updateHud();
+            }
+            break;
+          }
+        }
+      }
+
+      const player = playerPoint();
+      for (let i = enemyShots.length - 1; i >= 0; i -= 1) {
+        const shot = enemyShots[i];
+        shot.depth -= shot.speed * dt;
+        if (shot.depth <= -0.06) {
+          const p = project(shot.lane, 0);
+          const hit = Math.abs(p.x - player.x) < 42;
+          enemyShots.splice(i, 1);
+          if (hit) {
+            burst(player.x, player.y - 18, "#f43f5e", 20);
+            damageCore("Direct hit on the scope fighter.");
+          }
+        }
+      }
+
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.vx *= 0.97;
+        spark.vy *= 0.97;
+        spark.life -= dt;
+        if (spark.life <= 0) sparks.splice(i, 1);
+      }
+
+      if (waveLeft <= 0 && enemies.length === 0 && enemyShots.length === 0) {
+        score += 500 + wave * 100;
+        wave += 1;
+        updateHud();
+        startWave();
+      }
+    }
+
+    function drawBackground() {
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, "#020617");
+      gradient.addColorStop(0.6, "#0f172a");
+      gradient.addColorStop(1, "#111827");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (const star of stars) {
+        ctx.globalAlpha = star.alpha;
+        ctx.fillStyle = "#d1fae5";
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = "rgba(52, 211, 153, 0.25)";
+      ctx.lineWidth = 2;
+      const leftNear = project(0.05, 0);
+      const rightNear = project(0.95, 0);
+      const leftFar = project(0.05, 1);
+      const rightFar = project(0.95, 1);
+      ctx.beginPath();
+      ctx.moveTo(leftNear.x, leftNear.y);
+      ctx.lineTo(leftFar.x, leftFar.y);
+      ctx.moveTo(rightNear.x, rightNear.y);
+      ctx.lineTo(rightFar.x, rightFar.y);
+      ctx.stroke();
+
+      for (let i = 0; i <= 10; i += 1) {
+        const d = i / 10;
+        const a = project(0.08, d);
+        const b = project(0.92, d);
+        ctx.globalAlpha = 0.12 + (1 - d) * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawPlayer() {
+      const p = playerPoint();
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.beginPath();
+      ctx.moveTo(0, -34);
+      ctx.lineTo(28, 22);
+      ctx.lineTo(8, 14);
+      ctx.lineTo(0, 30);
+      ctx.lineTo(-8, 14);
+      ctx.lineTo(-28, 22);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = "#34d399";
+      ctx.fillRect(-4, -44, 8, 24);
+      ctx.restore();
+    }
+
+    function drawShots() {
+      ctx.fillStyle = "#bbf7d0";
+      for (const shot of shots) {
+        const p = project(shot.lane, shot.depth);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4 * p.scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#fb7185";
+      for (const shot of enemyShots) {
+        const p = project(shot.lane, shot.depth);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5 * p.scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawEnemies() {
+      const sorted = [...enemies].sort((a, b) => b.depth - a.depth);
+      for (const enemy of sorted) {
+        const p = project(enemy.lane, enemy.depth);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.scale(p.scale, p.scale);
+        ctx.fillStyle = `hsl(${enemy.hue}, 85%, ${enemy.hp > 1 ? 62 : 48}%)`;
+        ctx.beginPath();
+        ctx.moveTo(0, -18);
+        ctx.lineTo(28, 12);
+        ctx.lineTo(8, 8);
+        ctx.lineTo(0, 22);
+        ctx.lineTo(-8, 8);
+        ctx.lineTo(-28, 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = enemy.hp > 1 ? "#fde68a" : "#064e3b";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life / spark.max);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawBackground();
+      drawEnemies();
+      drawShots();
+      drawPlayer();
+      drawSparks();
+      if (gameOver) {
+        ctx.fillStyle = "rgba(2, 6, 23, 0.74)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 42px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("RADAR DOWN", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillStyle = "#86efac";
+        ctx.fillText("Press Restart to launch again", canvas.width / 2, canvas.height / 2 + 28);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD", "Space"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      playerX = clamp((event.clientX - rect.left) / rect.width, 0.05, 0.95);
+    });
+
+    canvas.addEventListener("pointerdown", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      playerX = clamp((event.clientX - rect.left) / rect.width, 0.05, 0.95);
+      fire();
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
