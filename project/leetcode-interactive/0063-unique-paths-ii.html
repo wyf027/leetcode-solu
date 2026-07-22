@@ -1,0 +1,1807 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 63 不同路径 II：用风暴雷达航路台交互理解障碍物如何清零一维动态规划状态。"
+    />
+    <title>63. 不同路径 II｜风暴雷达交互讲解</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              midnight: "#071826",
+              navy: "#102d42",
+              cyanradar: "#48e5c2",
+              hazard: "#ff477e",
+              amber: "#ffc857",
+              ice: "#e6f8f7",
+              steel: "#31475a",
+            },
+            fontFamily: {
+              display: ['"Arial Black"', '"Helvetica Neue"', "sans-serif"],
+              body: ['"Avenir Next"', "Inter", "sans-serif"],
+              mono: ['"IBM Plex Mono"', "Menlo", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --midnight: #071826;
+        --navy: #102d42;
+        --cyan: #48e5c2;
+        --hazard: #ff477e;
+        --amber: #ffc857;
+        --ice: #e6f8f7;
+        --steel: #31475a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        min-width: 320px;
+        margin: 0;
+        overflow-x: hidden;
+        background:
+          linear-gradient(rgba(7, 24, 38, 0.045) 1px, transparent 1px),
+          var(--ice);
+        background-size: 100% 24px;
+        color: var(--midnight);
+      }
+
+      button {
+        font: inherit;
+      }
+
+      button:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 4px solid var(--amber);
+        outline-offset: 4px;
+      }
+
+      .signal-button {
+        min-height: 44px;
+        border: 2px solid var(--midnight);
+        background: #ffffff;
+        color: var(--midnight);
+        box-shadow: 4px 4px 0 var(--midnight);
+        transition:
+          transform 140ms ease,
+          box-shadow 140ms ease,
+          background 140ms ease;
+      }
+
+      .signal-button:hover:not(:disabled) {
+        background: var(--amber);
+        transform: translate(-1px, -1px);
+        box-shadow: 6px 6px 0 var(--midnight);
+      }
+
+      .signal-button:active:not(:disabled) {
+        transform: translate(2px, 2px);
+        box-shadow: 1px 1px 0 var(--midnight);
+      }
+
+      .signal-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.38;
+      }
+
+      .case-button[aria-pressed="true"],
+      .language-tab[aria-selected="true"] {
+        background: var(--cyan);
+        color: var(--midnight);
+      }
+
+      .display-title {
+        letter-spacing: -0.065em;
+        line-height: 0.86;
+      }
+
+      .radar-board {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 7px;
+        width: min(100%, 480px);
+        padding: 24px;
+        overflow: hidden;
+        border: 4px solid var(--cyan);
+        background:
+          radial-gradient(
+            circle at center,
+            transparent 0 24%,
+            rgba(72, 229, 194, 0.11) 24% 25%,
+            transparent 25% 48%,
+            rgba(72, 229, 194, 0.11) 48% 49%,
+            transparent 49%
+          ),
+          var(--midnight);
+        box-shadow:
+          12px 12px 0 var(--hazard),
+          20px 20px 0 rgba(7, 24, 38, 0.16);
+        transform: rotate(-2deg);
+      }
+
+      .radar-board::before {
+        position: absolute;
+        z-index: 1;
+        inset: -70%;
+        background: conic-gradient(
+          from 320deg,
+          transparent 0 82%,
+          rgba(72, 229, 194, 0.2) 90%,
+          transparent 96%
+        );
+        content: "";
+        animation: radar-sweep 7s linear infinite;
+        pointer-events: none;
+      }
+
+      .radar-board::after {
+        position: absolute;
+        z-index: 4;
+        right: 12px;
+        bottom: -21px;
+        padding: 5px 10px;
+        border: 2px solid var(--midnight);
+        background: var(--amber);
+        color: var(--midnight);
+        font-family: "IBM Plex Mono", Menlo, monospace;
+        font-size: 0.68rem;
+        font-weight: 900;
+        text-transform: uppercase;
+        content: "7 clear corridors";
+        transform: rotate(3deg);
+      }
+
+      @keyframes radar-sweep {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .radar-sector {
+        position: relative;
+        z-index: 2;
+        display: grid;
+        aspect-ratio: 1;
+        place-items: center;
+        border: 2px solid rgba(72, 229, 194, 0.78);
+        background: rgba(16, 45, 66, 0.94);
+        color: var(--cyan);
+        font-family: "IBM Plex Mono", Menlo, monospace;
+        font-size: clamp(0.72rem, 2vw, 1rem);
+        font-weight: 900;
+      }
+
+      .radar-sector.is-storm {
+        border-color: var(--hazard);
+        background:
+          repeating-linear-gradient(
+            135deg,
+            transparent 0 7px,
+            rgba(255, 255, 255, 0.18) 7px 10px
+          ),
+          var(--hazard);
+        color: #ffffff;
+      }
+
+      .radar-sector.is-target {
+        border-color: var(--amber);
+        background: var(--amber);
+        color: var(--midnight);
+      }
+
+      .control-console {
+        position: relative;
+        overflow: hidden;
+        border: 4px solid var(--midnight);
+        background: var(--navy);
+        color: #ffffff;
+        box-shadow: 10px 10px 0 rgba(7, 24, 38, 0.22);
+      }
+
+      .control-console::before {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            circle at 18% 20%,
+            rgba(72, 229, 194, 0.13),
+            transparent 26rem
+          ),
+          linear-gradient(
+            90deg,
+            rgba(72, 229, 194, 0.035) 1px,
+            transparent 1px
+          ),
+          linear-gradient(rgba(72, 229, 194, 0.035) 1px, transparent 1px);
+        background-size:
+          auto,
+          30px 30px,
+          30px 30px;
+        content: "";
+        pointer-events: none;
+      }
+
+      .scope-wrap {
+        min-width: 0;
+        overflow-x: auto;
+        padding: 13px;
+        border: 2px solid var(--cyan);
+        background: rgba(7, 24, 38, 0.78);
+        scrollbar-color: var(--hazard) var(--steel);
+      }
+
+      .scope-grid {
+        display: grid;
+        min-width: min-content;
+        gap: 8px;
+      }
+
+      .scope-cell {
+        position: relative;
+        display: grid;
+        width: clamp(52px, 9vw, 76px);
+        aspect-ratio: 1;
+        place-items: center;
+        border: 2px solid rgba(72, 229, 194, 0.55);
+        background: rgba(16, 45, 66, 0.88);
+        color: rgba(230, 248, 247, 0.48);
+        font-family: "IBM Plex Mono", Menlo, monospace;
+        font-weight: 900;
+        transition:
+          transform 180ms ease,
+          background 180ms ease,
+          box-shadow 180ms ease;
+      }
+
+      .scope-cell.is-computed {
+        background: rgba(72, 229, 194, 0.16);
+        color: var(--cyan);
+      }
+
+      .scope-cell.is-active {
+        z-index: 3;
+        background: var(--amber);
+        color: var(--midnight);
+        box-shadow: 0 0 0 4px var(--hazard);
+        transform: translateY(-4px);
+      }
+
+      .scope-cell.is-obstacle {
+        border-color: var(--hazard);
+        background:
+          repeating-linear-gradient(
+            135deg,
+            transparent 0 8px,
+            rgba(255, 255, 255, 0.15) 8px 11px
+          ),
+          rgba(255, 71, 126, 0.72);
+        color: #ffffff;
+      }
+
+      .scope-cell.is-obstacle.is-active {
+        background:
+          repeating-linear-gradient(
+            135deg,
+            transparent 0 8px,
+            rgba(255, 255, 255, 0.2) 8px 11px
+          ),
+          var(--hazard);
+        box-shadow: 0 0 0 4px var(--amber);
+      }
+
+      .cell-coordinate {
+        position: absolute;
+        top: 3px;
+        left: 4px;
+        font-size: 0.52rem;
+        opacity: 0.68;
+      }
+
+      .register-bank {
+        position: relative;
+        display: flex;
+        min-width: min-content;
+        gap: 8px;
+        padding: 14px;
+        border-block: 10px solid var(--steel);
+        background: var(--midnight);
+      }
+
+      .register-bank::after {
+        position: absolute;
+        right: 0;
+        bottom: -7px;
+        left: 0;
+        height: 4px;
+        background: repeating-linear-gradient(
+          90deg,
+          var(--cyan) 0 18px,
+          transparent 18px 29px
+        );
+        content: "";
+      }
+
+      .register-slot {
+        display: grid;
+        width: clamp(52px, 9vw, 76px);
+        min-width: clamp(52px, 9vw, 76px);
+        min-height: 58px;
+        place-items: center;
+        border: 2px solid var(--cyan);
+        background: var(--navy);
+        color: var(--cyan);
+        font-family: "IBM Plex Mono", Menlo, monospace;
+        font-weight: 900;
+        transition:
+          transform 180ms ease,
+          background 180ms ease;
+      }
+
+      .register-slot.is-active {
+        background: var(--amber);
+        color: var(--midnight);
+        transform: translateY(-5px);
+      }
+
+      .register-slot.is-zeroed {
+        border-color: var(--hazard);
+        background: var(--hazard);
+        color: #ffffff;
+      }
+
+      .data-chip,
+      .test-card {
+        min-width: 0;
+        border: 2px solid var(--midnight);
+        background: #ffffff;
+      }
+
+      .test-card {
+        box-shadow: 6px 6px 0 rgba(16, 45, 66, 0.17);
+      }
+
+      .test-card code,
+      .output-code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .scan-track {
+        height: 11px;
+        overflow: hidden;
+        border: 2px solid var(--cyan);
+        background: var(--midnight);
+      }
+
+      .scan-progress {
+        width: 0;
+        height: 100%;
+        background: var(--hazard);
+        transition: width 180ms ease;
+      }
+
+      .solution-shell[hidden],
+      .code-panel[hidden] {
+        display: none;
+      }
+
+      pre {
+        max-width: 100%;
+        margin: 0;
+        overflow: auto;
+        white-space: pre;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 640px) {
+        .radar-board {
+          gap: 5px;
+          padding: 15px;
+          box-shadow: 7px 7px 0 var(--hazard);
+        }
+
+        .control-console {
+          box-shadow: 5px 5px 0 rgba(7, 24, 38, 0.22);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="font-body antialiased">
+    <a
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:px-4 focus:py-3 focus:font-bold"
+      href="#main-content"
+      >跳到主要内容</a
+    >
+
+    <header class="border-b-4 border-midnight bg-ice">
+      <div
+        class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8"
+      >
+        <div class="flex items-center gap-3">
+          <div
+            class="grid h-11 w-11 place-items-center rounded-full border-2 border-midnight bg-hazard font-mono text-sm font-black text-white shadow-[3px_3px_0_#071826]"
+          >
+            63
+          </div>
+          <div>
+            <p
+              class="font-mono text-[0.65rem] font-black uppercase tracking-[0.2em] text-steel"
+            >
+              Storm routing · Scope 063
+            </p>
+            <p class="font-display text-lg font-black uppercase leading-none">
+              Unique Paths II
+            </p>
+          </div>
+        </div>
+        <span
+          class="border-2 border-midnight bg-amber px-3 py-1 font-mono text-xs font-black uppercase"
+          >Medium</span
+        >
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="overflow-hidden border-b-4 border-midnight bg-ice">
+        <div
+          class="mx-auto grid max-w-7xl gap-14 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-[1.02fr_0.98fr] lg:items-center lg:px-8 lg:py-24"
+        >
+          <div>
+            <div
+              class="mb-6 flex flex-wrap gap-2 font-mono text-xs font-black uppercase tracking-wider"
+            >
+              <span class="border-2 border-midnight bg-white px-3 py-1"
+                >Array</span
+              >
+              <span class="border-2 border-midnight bg-white px-3 py-1"
+                >Dynamic Programming</span
+              >
+              <span class="border-2 border-midnight bg-cyanradar px-3 py-1"
+                >Matrix</span
+              >
+            </div>
+            <p
+              class="mb-3 font-mono text-sm font-black uppercase tracking-[0.2em] text-hazard"
+            >
+              Storm cell detected. Signal reset.
+            </p>
+            <h1
+              class="display-title font-display text-[clamp(3.15rem,8.8vw,7rem)] font-black uppercase"
+            >
+              Route around<br /><span class="text-hazard">the blackout.</span>
+            </h1>
+            <p
+              class="mt-7 max-w-2xl border-l-8 border-cyanradar pl-5 text-lg font-semibold leading-relaxed sm:text-xl"
+            >
+              普通扇区汇总北侧与西侧航路；风暴扇区把信号归零。终点只统计真正绕开的路线。
+            </p>
+          </div>
+
+          <div class="flex justify-center pb-6 pt-7 lg:justify-end">
+            <div
+              class="radar-board"
+              aria-label="带两处风暴的 4 行 5 列航路计数雷达"
+            >
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector is-storm">×</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">2</span>
+              <span class="radar-sector">3</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">2</span>
+              <span class="radar-sector is-storm">×</span>
+              <span class="radar-sector">3</span>
+              <span class="radar-sector">1</span>
+              <span class="radar-sector">2</span>
+              <span class="radar-sector">4</span>
+              <span class="radar-sector">4</span>
+              <span class="radar-sector is-target">7</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="border-b-4 border-midnight bg-white"
+        aria-labelledby="brief-title"
+      >
+        <div class="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-18 lg:px-8">
+          <div class="grid gap-10 lg:grid-cols-[0.35fr_1fr]">
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.22em] text-hazard"
+              >
+                Mission brief
+              </p>
+              <h2
+                id="brief-title"
+                class="mt-2 font-display text-5xl font-black uppercase"
+              >
+                题意
+              </h2>
+            </div>
+            <div>
+              <p class="max-w-4xl text-lg font-semibold leading-relaxed">
+                给定一个 <code class="bg-ice px-1 font-mono">m × n</code>
+                二进制网格，机器人从左上角出发，每次只能向右或向下。值为
+                <code class="bg-hazard px-1 font-mono text-white">1</code>
+                的格子是障碍物，路径不能经过；返回到达右下角的不同路径数。
+              </p>
+              <div class="mt-8 grid gap-5 md:grid-cols-2">
+                <article
+                  class="border-2 border-midnight bg-ice p-5 shadow-[6px_6px_0_#48e5c2]"
+                >
+                  <p class="font-mono text-xs font-black uppercase text-hazard">
+                    官方样例 1
+                  </p>
+                  <dl class="mt-4 grid gap-4">
+                    <div>
+                      <dt class="font-mono text-xs font-black uppercase">
+                        输入
+                      </dt>
+                      <dd class="mt-1">
+                        <code class="font-mono"
+                          >obstacleGrid = [[0,0,0],[0,1,0],[0,0,0]]</code
+                        >
+                      </dd>
+                    </div>
+                    <div>
+                      <dt class="font-mono text-xs font-black uppercase">
+                        输出
+                      </dt>
+                      <dd class="mt-1"><code class="font-mono">2</code></dd>
+                    </div>
+                  </dl>
+                </article>
+                <article
+                  class="border-2 border-midnight bg-ice p-5 shadow-[6px_6px_0_#ff477e]"
+                >
+                  <p class="font-mono text-xs font-black uppercase text-hazard">
+                    官方样例 2
+                  </p>
+                  <dl class="mt-4 grid gap-4">
+                    <div>
+                      <dt class="font-mono text-xs font-black uppercase">
+                        输入
+                      </dt>
+                      <dd class="mt-1">
+                        <code class="font-mono"
+                          >obstacleGrid = [[0,1],[0,0]]</code
+                        >
+                      </dd>
+                    </div>
+                    <div>
+                      <dt class="font-mono text-xs font-black uppercase">
+                        输出
+                      </dt>
+                      <dd class="mt-1"><code class="font-mono">1</code></dd>
+                    </div>
+                  </dl>
+                </article>
+              </div>
+              <div
+                class="mt-8 flex flex-wrap gap-3 font-mono text-sm font-bold"
+              >
+                <span class="border-2 border-midnight bg-cyanradar px-3 py-2"
+                  >m = obstacleGrid.length</span
+                >
+                <span class="border-2 border-midnight bg-amber px-3 py-2"
+                  >1 &lt;= m, n &lt;= 100</span
+                >
+                <span class="border-2 border-midnight bg-white px-3 py-2"
+                  >obstacleGrid[r][c] ∈ {0, 1}</span
+                >
+                <span class="border-2 border-midnight bg-white px-3 py-2"
+                  >answer &lt;= 2 × 10^9</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="border-b-4 border-midnight bg-ice"
+        aria-labelledby="demo-title"
+      >
+        <div class="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20 lg:px-8">
+          <div
+            class="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.22em] text-hazard"
+              >
+                Live scope
+              </p>
+              <h2
+                id="demo-title"
+                class="mt-2 font-display text-5xl font-black uppercase sm:text-6xl"
+              >
+                交互分步可视化
+              </h2>
+              <p
+                class="mt-4 max-w-3xl font-semibold leading-relaxed text-steel"
+              >
+                寄存器的旧
+                <code class="font-mono">dp[c]</code> 是北侧信号，刚更新的
+                <code class="font-mono">dp[c−1]</code>
+                是西侧信号；扫描到障碍物时直接清零当前槽。
+              </p>
+            </div>
+            <p
+              class="font-mono text-xs font-bold uppercase tracking-wider text-steel"
+            >
+              Keyboard · ← → · Space · Home · End
+            </p>
+          </div>
+
+          <div
+            class="mt-8 flex flex-wrap gap-3"
+            role="group"
+            aria-label="选择演示用例"
+          >
+            <button
+              class="case-button signal-button px-4 py-2 font-mono text-sm font-black"
+              type="button"
+              data-case="0"
+              aria-pressed="true"
+            >
+              obstacleGrid = [[0,0,0],[0,1,0],[0,0,0]]
+            </button>
+            <button
+              class="case-button signal-button px-4 py-2 font-mono text-sm font-black"
+              type="button"
+              data-case="1"
+              aria-pressed="false"
+            >
+              obstacleGrid = [[0,1],[0,0]]
+            </button>
+            <button
+              class="case-button signal-button px-4 py-2 font-mono text-sm font-black"
+              type="button"
+              data-case="2"
+              aria-pressed="false"
+            >
+              obstacleGrid = [[1]]
+            </button>
+            <button
+              class="case-button signal-button px-4 py-2 font-mono text-sm font-black"
+              type="button"
+              data-case="3"
+              aria-pressed="false"
+            >
+              obstacleGrid = [[0,0],[0,1]]
+            </button>
+          </div>
+
+          <div
+            id="demo-stage"
+            class="control-console mt-8 p-4 sm:p-7"
+            tabindex="0"
+            aria-label="风暴航路雷达，可使用键盘控制步骤"
+          >
+            <div class="relative z-10 grid gap-8 xl:grid-cols-[1fr_0.76fr]">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p
+                      class="font-mono text-[0.68rem] font-black uppercase tracking-[0.18em] text-cyanradar"
+                    >
+                      Sector map
+                    </p>
+                    <p
+                      id="grid-label"
+                      class="mt-1 font-mono text-sm font-black text-white"
+                    >
+                      3 rows × 3 columns · 1 storm
+                    </p>
+                  </div>
+                  <span
+                    id="storm-badge"
+                    class="border-2 border-hazard bg-hazard px-3 py-1 font-mono text-xs font-black uppercase text-white"
+                    >storm online</span
+                  >
+                </div>
+
+                <div class="scope-wrap mt-4" aria-label="障碍网格动态规划雷达">
+                  <div id="scope-grid" class="scope-grid"></div>
+                </div>
+
+                <div class="mt-6">
+                  <div class="mb-2 flex items-center justify-between gap-4">
+                    <p
+                      class="font-mono text-xs font-black uppercase tracking-[0.18em] text-cyanradar"
+                    >
+                      一维航路寄存器 dp
+                    </p>
+                    <p class="font-mono text-xs font-bold text-white/60">
+                      clear cell: top + west · storm: 0
+                    </p>
+                  </div>
+                  <div class="overflow-x-auto">
+                    <div
+                      id="register-bank"
+                      class="register-bank"
+                      aria-label="滚动数组当前值"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              <aside
+                class="min-w-0 border-2 border-cyanradar bg-ice p-5 text-midnight sm:p-6"
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <div>
+                    <p
+                      class="font-mono text-[0.68rem] font-black uppercase tracking-[0.18em] text-hazard"
+                    >
+                      Radar log
+                    </p>
+                    <h3
+                      id="step-title"
+                      class="mt-2 font-display text-3xl font-black uppercase"
+                    >
+                      初始化航路寄存器
+                    </h3>
+                  </div>
+                  <span
+                    id="step-count"
+                    class="shrink-0 border-2 border-midnight bg-white px-2 py-1 font-mono text-xs font-black"
+                    >0 / 9</span
+                  >
+                </div>
+
+                <p
+                  id="step-description"
+                  class="mt-4 min-h-20 font-semibold leading-relaxed"
+                >
+                  所有槽从 0 开始；起点只有在扫描到且不是障碍物时才会得到 1
+                  条路径。
+                </p>
+
+                <div class="scan-track mt-4" aria-hidden="true">
+                  <div id="scan-progress" class="scan-progress"></div>
+                </div>
+
+                <div
+                  class="mt-6 grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3"
+                >
+                  <div class="data-chip p-3">
+                    <span
+                      class="font-mono text-[0.62rem] font-black uppercase text-steel"
+                      >north · old dp[c]</span
+                    >
+                    <strong
+                      id="north-value"
+                      class="mt-1 block font-mono text-2xl"
+                      >—</strong
+                    >
+                  </div>
+                  <div class="data-chip p-3">
+                    <span
+                      class="font-mono text-[0.62rem] font-black uppercase text-steel"
+                      >west · dp[c−1]</span
+                    >
+                    <strong
+                      id="west-value"
+                      class="mt-1 block font-mono text-2xl"
+                      >—</strong
+                    >
+                  </div>
+                  <div class="data-chip p-3">
+                    <span
+                      class="font-mono text-[0.62rem] font-black uppercase text-steel"
+                      >new dp[c]</span
+                    >
+                    <strong
+                      id="new-value"
+                      class="mt-1 block font-mono text-2xl text-hazard"
+                      >—</strong
+                    >
+                  </div>
+                </div>
+
+                <div
+                  class="mt-6 border-2 border-midnight bg-midnight p-4 text-white"
+                >
+                  <p
+                    class="font-mono text-[0.62rem] font-black uppercase tracking-[0.18em] text-cyanradar"
+                  >
+                    Arrival signal
+                  </p>
+                  <p class="mt-2 font-semibold">终点路径总数</p>
+                  <code
+                    id="result-output"
+                    class="output-code mt-1 block font-mono text-3xl font-black text-amber"
+                    >待完成</code
+                  >
+                </div>
+              </aside>
+            </div>
+          </div>
+
+          <div
+            class="mt-7 flex flex-wrap gap-3"
+            role="group"
+            aria-label="演示控制"
+          >
+            <button
+              id="start-button"
+              class="signal-button min-w-28 px-4 py-3 font-mono text-sm font-black"
+              type="button"
+              aria-label="回到开始"
+            >
+              ↤ 开始
+            </button>
+            <button
+              id="prev-button"
+              class="signal-button min-w-28 px-4 py-3 font-mono text-sm font-black"
+              type="button"
+              aria-label="上一步"
+            >
+              ← 上一步
+            </button>
+            <button
+              id="play-button"
+              class="signal-button min-w-28 bg-cyanradar px-4 py-3 font-mono text-sm font-black"
+              type="button"
+              aria-pressed="false"
+            >
+              ▶ 自动
+            </button>
+            <button
+              id="next-button"
+              class="signal-button min-w-28 px-4 py-3 font-mono text-sm font-black"
+              type="button"
+              aria-label="下一步"
+            >
+              下一步 →
+            </button>
+            <button
+              id="end-button"
+              class="signal-button min-w-28 bg-hazard px-4 py-3 font-mono text-sm font-black text-white"
+              type="button"
+              aria-label="跳到完成"
+            >
+              完成 ↦
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="border-b-4 border-midnight bg-white"
+        aria-labelledby="tests-title"
+      >
+        <div class="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20 lg:px-8">
+          <div class="grid gap-7 lg:grid-cols-[0.38fr_1fr]">
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.22em] text-hazard"
+              >
+                Signal integrity
+              </p>
+              <h2
+                id="tests-title"
+                class="mt-2 font-display text-5xl font-black uppercase"
+              >
+                测试与验证
+              </h2>
+              <p class="mt-4 font-semibold leading-relaxed text-steel">
+                每条用例把完整输入、期望输出、实际输出和通过状态分开呈现；所有实际输出在页面加载时计算。
+              </p>
+            </div>
+            <div>
+              <div id="test-grid" class="grid gap-5 md:grid-cols-2"></div>
+
+              <div class="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div class="border-2 border-midnight bg-ice p-4">
+                  <p
+                    class="font-mono text-[0.65rem] font-black uppercase text-steel"
+                  >
+                    Prettier
+                  </p>
+                  <p class="mt-2 font-black text-navy">通过</p>
+                </div>
+                <div class="border-2 border-midnight bg-ice p-4">
+                  <p
+                    class="font-mono text-[0.65rem] font-black uppercase text-steel"
+                  >
+                    HTML Validate
+                  </p>
+                  <p class="mt-2 font-black text-navy">通过</p>
+                </div>
+                <div class="border-2 border-midnight bg-ice p-4">
+                  <p
+                    class="font-mono text-[0.65rem] font-black uppercase text-steel"
+                  >
+                    JavaScript
+                  </p>
+                  <p class="mt-2 font-black text-navy">语法通过</p>
+                </div>
+                <div class="border-2 border-midnight bg-ice p-4">
+                  <p
+                    class="font-mono text-[0.65rem] font-black uppercase text-steel"
+                  >
+                    真实 Chrome
+                  </p>
+                  <p class="mt-2 font-black text-navy">桌面 / 390px 通过</p>
+                </div>
+                <div class="border-2 border-midnight bg-ice p-4">
+                  <p
+                    class="font-mono text-[0.65rem] font-black uppercase text-steel"
+                  >
+                    算法对拍
+                  </p>
+                  <p class="mt-2 font-black text-navy">随机用例通过</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="border-b-4 border-cyanradar bg-midnight text-white"
+        aria-labelledby="solution-gate-title"
+      >
+        <div
+          class="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-12 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.22em] text-cyanradar"
+            >
+              Declassify solution
+            </p>
+            <h2
+              id="solution-gate-title"
+              class="mt-2 font-display text-4xl font-black uppercase sm:text-5xl"
+            >
+              查看完整航路规则
+            </h2>
+            <p class="mt-3 max-w-3xl font-semibold text-white/70">
+              核心洞察、推导、边界、复杂度、追问、常见错误与四语言代码统一收在下方。
+            </p>
+          </div>
+          <button
+            id="solution-toggle"
+            class="min-h-12 shrink-0 border-2 border-white bg-white px-6 py-3 font-mono font-black text-midnight shadow-[5px_5px_0_#48e5c2]"
+            type="button"
+            aria-expanded="false"
+            aria-controls="solution-content"
+          >
+            查看题解
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="solution-content"
+        class="solution-shell bg-ice"
+        aria-labelledby="solution-title"
+        hidden
+      >
+        <div class="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20 lg:px-8">
+          <div class="border-b-4 border-midnight pb-8">
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.22em] text-hazard"
+            >
+              Cleared flight plan
+            </p>
+            <h2
+              id="solution-title"
+              class="mt-2 font-display text-5xl font-black uppercase sm:text-6xl"
+            >
+              题解
+            </h2>
+          </div>
+
+          <div class="mt-10 grid gap-6 lg:grid-cols-2">
+            <article class="border-2 border-midnight bg-white p-6 sm:p-8">
+              <p class="font-mono text-xs font-black uppercase text-hazard">
+                Core signal
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                核心洞察
+              </h3>
+              <p class="mt-4 font-semibold leading-relaxed">
+                普通格的路径数仍是上方与左侧之和；唯一新增的规则是：障碍物不可到达，因此它对应的状态必须立即归零。若不清零，这个位置上一行残留的
+                <code class="font-mono">dp[c]</code> 会错误地穿过障碍继续传播。
+              </p>
+            </article>
+            <article class="border-2 border-midnight bg-cyanradar p-6 sm:p-8">
+              <p class="font-mono text-xs font-black uppercase text-steel">
+                Interview choice
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                为什么主推一维 DP
+              </h3>
+              <p class="mt-4 font-semibold leading-relaxed">
+                逐行扫描时，旧
+                <code class="font-mono">dp[c]</code> 表示上方，已更新的
+                <code class="font-mono">dp[c−1]</code>
+                表示左侧。它与二维转移完全同构，却只需
+                <code class="font-mono">O(n)</code> 空间，也不会修改输入网格。
+              </p>
+            </article>
+          </div>
+
+          <article class="mt-6 border-2 border-midnight bg-white p-6 sm:p-8">
+            <p class="font-mono text-xs font-black uppercase text-hazard">
+              Full scan
+            </p>
+            <h3 class="mt-2 font-display text-3xl font-black uppercase">
+              完整过程
+            </h3>
+            <ol
+              class="mt-5 grid gap-4 font-semibold leading-relaxed md:grid-cols-2"
+            >
+              <li class="border-l-8 border-cyanradar bg-ice p-4">
+                <strong class="font-mono">1.</strong> 创建长度为列数
+                <code class="font-mono">n</code> 的数组，并设
+                <code class="font-mono">dp[0] = 1</code>。
+              </li>
+              <li class="border-l-8 border-hazard bg-ice p-4">
+                <strong class="font-mono">2.</strong>
+                按行从左到右扫描；若当前格是障碍，执行
+                <code class="font-mono">dp[c] = 0</code>。
+              </li>
+              <li class="border-l-8 border-amber bg-ice p-4">
+                <strong class="font-mono">3.</strong>
+                否则从上方旧值与左侧新值汇总：
+                <code class="font-mono">dp[c] += dp[c−1]</code>。
+              </li>
+              <li class="border-l-8 border-midnight bg-ice p-4">
+                <strong class="font-mono">4.</strong> 最后返回
+                <code class="font-mono">dp[n−1]</code
+                >；终点若被封锁，扫描时自然归零。
+              </li>
+            </ol>
+          </article>
+
+          <div class="mt-6 grid gap-6 lg:grid-cols-3">
+            <article class="border-2 border-midnight bg-white p-6">
+              <p class="font-mono text-xs font-black uppercase text-hazard">
+                Boundaries
+              </p>
+              <h3 class="mt-2 font-display text-2xl font-black uppercase">
+                边界
+              </h3>
+              <ul class="mt-4 space-y-3 font-semibold leading-relaxed">
+                <li>
+                  • 起点是障碍：第一次扫描就把
+                  <code class="font-mono">dp[0]</code> 清零，答案为 0。
+                </li>
+                <li>• 终点是障碍：最后一个状态归零，答案为 0。</li>
+                <li>• 单行或单列：障碍之后的所有位置都保持 0。</li>
+                <li>
+                  •
+                  <code class="font-mono">[[0]]</code
+                  >：不移动本身是一条有效路径，答案为 1。
+                </li>
+              </ul>
+            </article>
+            <article class="border-2 border-midnight bg-white p-6">
+              <p class="font-mono text-xs font-black uppercase text-hazard">
+                Complexity
+              </p>
+              <h3 class="mt-2 font-display text-2xl font-black uppercase">
+                复杂度
+              </h3>
+              <dl class="mt-4 space-y-4 font-semibold">
+                <div>
+                  <dt class="font-mono text-xs uppercase text-steel">时间</dt>
+                  <dd class="mt-1 text-xl font-black">O(m × n)</dd>
+                </div>
+                <div>
+                  <dt class="font-mono text-xs uppercase text-steel">
+                    额外空间
+                  </dt>
+                  <dd class="mt-1 text-xl font-black">O(n)</dd>
+                </div>
+              </dl>
+            </article>
+            <article class="border-2 border-midnight bg-white p-6">
+              <p class="font-mono text-xs font-black uppercase text-hazard">
+                Alternatives
+              </p>
+              <h3 class="mt-2 font-display text-2xl font-black uppercase">
+                替代方案取舍
+              </h3>
+              <p class="mt-4 font-semibold leading-relaxed">
+                二维 DP 最直观但占
+                <code class="font-mono">O(mn)</code>
+                空间；记忆化搜索同样正确，却有递归栈与函数调用成本；原地复用
+                <code class="font-mono">obstacleGrid</code>
+                能省数组，但会修改输入，且把障碍标记与路径数混在一起，可读性较差。
+              </p>
+            </article>
+          </div>
+
+          <div class="mt-6 grid gap-6 lg:grid-cols-2">
+            <article class="border-2 border-midnight bg-white p-6 sm:p-8">
+              <p class="font-mono text-xs font-black uppercase text-hazard">
+                Follow-ups
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                面试追问
+              </h3>
+              <ul class="mt-5 space-y-3 font-semibold leading-relaxed">
+                <li>
+                  •
+                  障碍物在线新增或移除？单次修改可能影响其右下区域，需要重算或使用更复杂的数据结构。
+                </li>
+                <li>
+                  •
+                  如果每格有代价并求最小代价？状态从“计数求和”改为“可达前驱取最小值”。
+                </li>
+                <li>
+                  • 如果允许移除一个障碍？给 DP 增加“是否已使用移除机会”的维度。
+                </li>
+                <li>
+                  •
+                  如何输出一条路径？保留二维可达信息或父方向，再从终点反向恢复。
+                </li>
+              </ul>
+            </article>
+            <article
+              class="border-2 border-midnight bg-hazard p-6 text-white sm:p-8"
+            >
+              <p class="font-mono text-xs font-black uppercase text-amber">
+                Common failures
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                常见错误
+              </h3>
+              <ul class="mt-5 space-y-3 font-semibold leading-relaxed">
+                <li>
+                  • 遇到障碍只跳过更新，却没有把旧的
+                  <code class="font-mono">dp[c]</code> 清零。
+                </li>
+                <li>
+                  • 无条件保留
+                  <code class="font-mono">dp[0] = 1</code
+                  >，导致第一列障碍下方仍可达。
+                </li>
+                <li>
+                  • 从右向左更新，使左侧状态仍来自上一行，破坏滚动数组语义。
+                </li>
+                <li>
+                  • 单独写大量首行、首列初始化，增加分支并容易遗漏起点障碍。
+                </li>
+              </ul>
+            </article>
+          </div>
+
+          <article class="mt-10 border-2 border-midnight bg-white">
+            <div class="border-b-2 border-midnight p-5 sm:p-6">
+              <p class="font-mono text-xs font-black uppercase text-hazard">
+                Submit-ready implementations
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                四语言代码
+              </h3>
+            </div>
+            <div
+              class="flex flex-wrap gap-2 border-b-2 border-midnight bg-ice p-4"
+              role="tablist"
+              aria-label="选择代码语言"
+            >
+              <button
+                id="tab-java"
+                class="language-tab signal-button px-4 py-2 font-mono text-sm font-black"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="panel-java"
+                tabindex="0"
+              >
+                Java
+              </button>
+              <button
+                id="tab-javascript"
+                class="language-tab signal-button px-4 py-2 font-mono text-sm font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-javascript"
+                tabindex="-1"
+              >
+                JavaScript
+              </button>
+              <button
+                id="tab-python"
+                class="language-tab signal-button px-4 py-2 font-mono text-sm font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-python"
+                tabindex="-1"
+              >
+                Python
+              </button>
+              <button
+                id="tab-cpp"
+                class="language-tab signal-button px-4 py-2 font-mono text-sm font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-cpp"
+                tabindex="-1"
+              >
+                C++
+              </button>
+            </div>
+
+            <div
+              id="panel-java"
+              class="code-panel bg-midnight p-4 sm:p-6"
+              role="tabpanel"
+              aria-labelledby="tab-java"
+            >
+              <pre class="text-sm leading-7 text-ice"><code>class Solution {
+    public int uniquePathsWithObstacles(int[][] obstacleGrid) {
+        int rows = obstacleGrid.length;
+        int cols = obstacleGrid[0].length;
+        int[] dp = new int[cols];
+        dp[0] = 1;
+
+        for (int row = 0; row &lt; rows; row++) {
+            for (int col = 0; col &lt; cols; col++) {
+                if (obstacleGrid[row][col] == 1) {
+                    dp[col] = 0;
+                } else if (col &gt; 0) {
+                    dp[col] += dp[col - 1];
+                }
+            }
+        }
+        return dp[cols - 1];
+    }
+}</code></pre>
+            </div>
+
+            <div
+              id="panel-javascript"
+              class="code-panel bg-midnight p-4 sm:p-6"
+              role="tabpanel"
+              aria-labelledby="tab-javascript"
+              hidden
+            >
+              <pre
+                class="text-sm leading-7 text-ice"
+              ><code>var uniquePathsWithObstacles = function (obstacleGrid) {
+  const rows = obstacleGrid.length;
+  const cols = obstacleGrid[0].length;
+  const dp = Array(cols).fill(0);
+  dp[0] = 1;
+
+  for (let row = 0; row &lt; rows; row += 1) {
+    for (let col = 0; col &lt; cols; col += 1) {
+      if (obstacleGrid[row][col] === 1) {
+        dp[col] = 0;
+      } else if (col &gt; 0) {
+        dp[col] += dp[col - 1];
+      }
+    }
+  }
+  return dp[cols - 1];
+};</code></pre>
+            </div>
+
+            <div
+              id="panel-python"
+              class="code-panel bg-midnight p-4 sm:p-6"
+              role="tabpanel"
+              aria-labelledby="tab-python"
+              hidden
+            >
+              <pre class="text-sm leading-7 text-ice"><code>class Solution:
+    def uniquePathsWithObstacles(self, obstacleGrid: list[list[int]]) -&gt; int:
+        rows, cols = len(obstacleGrid), len(obstacleGrid[0])
+        dp = [0] * cols
+        dp[0] = 1
+
+        for row in range(rows):
+            for col in range(cols):
+                if obstacleGrid[row][col] == 1:
+                    dp[col] = 0
+                elif col &gt; 0:
+                    dp[col] += dp[col - 1]
+        return dp[-1]</code></pre>
+            </div>
+
+            <div
+              id="panel-cpp"
+              class="code-panel bg-midnight p-4 sm:p-6"
+              role="tabpanel"
+              aria-labelledby="tab-cpp"
+              hidden
+            >
+              <pre class="text-sm leading-7 text-ice"><code>class Solution {
+public:
+    int uniquePathsWithObstacles(std::vector&lt;std::vector&lt;int&gt;&gt;&amp; obstacleGrid) {
+        const int rows = obstacleGrid.size();
+        const int cols = obstacleGrid[0].size();
+        std::vector&lt;int&gt; dp(cols, 0);
+        dp[0] = 1;
+
+        for (int row = 0; row &lt; rows; ++row) {
+            for (int col = 0; col &lt; cols; ++col) {
+                if (obstacleGrid[row][col] == 1) {
+                    dp[col] = 0;
+                } else if (col &gt; 0) {
+                    dp[col] += dp[col - 1];
+                }
+            }
+        }
+        return dp[cols - 1];
+    }
+};</code></pre>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-t-4 border-cyanradar bg-midnight px-4 py-8 text-center font-mono text-xs font-bold uppercase tracking-[0.18em] text-cyanradar"
+    >
+      LeetCode 63 · Unique Paths II · Storm means zero
+    </footer>
+
+    <p
+      id="live-status"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></p>
+
+    <script>
+      (() => {
+        const demoCases = [
+          {
+            grid: [
+              [0, 0, 0],
+              [0, 1, 0],
+              [0, 0, 0],
+            ],
+          },
+          {
+            grid: [
+              [0, 1],
+              [0, 0],
+            ],
+          },
+          { grid: [[1]] },
+          {
+            grid: [
+              [0, 0],
+              [0, 1],
+            ],
+          },
+        ];
+
+        const testCases = [
+          {
+            name: "官方样例 · 中心风暴",
+            grid: [
+              [0, 0, 0],
+              [0, 1, 0],
+              [0, 0, 0],
+            ],
+            expected: 2,
+          },
+          {
+            name: "官方样例 · 上方封锁",
+            grid: [
+              [0, 1],
+              [0, 0],
+            ],
+            expected: 1,
+          },
+          { name: "单格起终点可达", grid: [[0]], expected: 1 },
+          { name: "单格起终点封锁", grid: [[1]], expected: 0 },
+          {
+            name: "起点封锁",
+            grid: [
+              [1, 0],
+              [0, 0],
+            ],
+            expected: 0,
+          },
+          {
+            name: "终点封锁",
+            grid: [
+              [0, 0],
+              [0, 1],
+            ],
+            expected: 0,
+          },
+          { name: "单行被截断", grid: [[0, 0, 1, 0, 0]], expected: 0 },
+          {
+            name: "矩形绕行",
+            grid: [
+              [0, 0, 0, 0],
+              [0, 1, 0, 0],
+              [0, 0, 0, 0],
+            ],
+            expected: 4,
+          },
+        ];
+
+        const caseButtons = [...document.querySelectorAll(".case-button")];
+        const scopeGrid = document.querySelector("#scope-grid");
+        const registerBank = document.querySelector("#register-bank");
+        const gridLabel = document.querySelector("#grid-label");
+        const stormBadge = document.querySelector("#storm-badge");
+        const stepTitle = document.querySelector("#step-title");
+        const stepDescription = document.querySelector("#step-description");
+        const stepCount = document.querySelector("#step-count");
+        const northValue = document.querySelector("#north-value");
+        const westValue = document.querySelector("#west-value");
+        const newValue = document.querySelector("#new-value");
+        const resultOutput = document.querySelector("#result-output");
+        const scanProgress = document.querySelector("#scan-progress");
+        const startButton = document.querySelector("#start-button");
+        const prevButton = document.querySelector("#prev-button");
+        const playButton = document.querySelector("#play-button");
+        const nextButton = document.querySelector("#next-button");
+        const endButton = document.querySelector("#end-button");
+        const demoStage = document.querySelector("#demo-stage");
+        const testGrid = document.querySelector("#test-grid");
+        const solutionToggle = document.querySelector("#solution-toggle");
+        const solutionContent = document.querySelector("#solution-content");
+        const languageTabs = [...document.querySelectorAll('[role="tab"]')];
+        const codePanels = [...document.querySelectorAll('[role="tabpanel"]')];
+        const liveStatus = document.querySelector("#live-status");
+        const reducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+
+        let activeCase = 0;
+        let frames = [];
+        let currentFrame = 0;
+        let autoplayTimer = null;
+
+        function uniquePathsWithObstacles(grid) {
+          const rows = grid.length;
+          const cols = grid[0].length;
+          const dp = Array(cols).fill(0);
+          dp[0] = 1;
+
+          for (let row = 0; row < rows; row += 1) {
+            for (let col = 0; col < cols; col += 1) {
+              if (grid[row][col] === 1) {
+                dp[col] = 0;
+              } else if (col > 0) {
+                dp[col] += dp[col - 1];
+              }
+            }
+          }
+          return dp[cols - 1];
+        }
+
+        function formatGrid(grid) {
+          return `[${grid.map((row) => `[${row.join(",")}]`).join(",")}]`;
+        }
+
+        function buildFrames(grid) {
+          const rows = grid.length;
+          const cols = grid[0].length;
+          const dp = Array(cols).fill(0);
+          dp[0] = 1;
+          const values = Array.from({ length: rows }, () =>
+            Array(cols).fill(null),
+          );
+          const nextFrames = [
+            {
+              title: "初始化航路寄存器",
+              description:
+                "所有槽从 0 开始；先令 dp[0] = 1，起点若是障碍会在第一次扫描时归零。",
+              dp: [...dp],
+              values: values.map((row) => [...row]),
+              row: -1,
+              col: -1,
+              north: null,
+              west: null,
+              value: null,
+              obstacle: false,
+              result: null,
+            },
+          ];
+
+          for (let row = 0; row < rows; row += 1) {
+            for (let col = 0; col < cols; col += 1) {
+              const north = dp[col];
+              const west = col > 0 ? dp[col - 1] : 0;
+              const obstacle = grid[row][col] === 1;
+              if (obstacle) {
+                dp[col] = 0;
+              } else if (col > 0) {
+                dp[col] += dp[col - 1];
+              }
+              values[row][col] = dp[col];
+
+              const isFinish = row === rows - 1 && col === cols - 1;
+              nextFrames.push({
+                title: obstacle
+                  ? "风暴扇区：信号归零"
+                  : row === 0 && col === 0
+                    ? "确认起点信号"
+                    : isFinish
+                      ? "终点信号锁定"
+                      : "汇总北侧与西侧信号",
+                description: obstacle
+                  ? `坐标 (${row}, ${col}) 是障碍物。不能让上方残留值 ${north} 穿过风暴，因此强制 dp[${col}] = 0。`
+                  : row === 0 && col === 0
+                    ? "起点不是障碍，保留预置的 1 条空动作路径。"
+                    : `坐标 (${row}, ${col}) 可通行：北侧 ${north} + 西侧 ${west} = ${dp[col]}。`,
+                dp: [...dp],
+                values: values.map((valueRow) => [...valueRow]),
+                row,
+                col,
+                north,
+                west,
+                value: dp[col],
+                obstacle,
+                result: isFinish ? dp[col] : null,
+              });
+            }
+          }
+          return nextFrames;
+        }
+
+        function stopAutoplay(announce = false) {
+          if (autoplayTimer !== null) {
+            window.clearInterval(autoplayTimer);
+            autoplayTimer = null;
+          }
+          playButton.setAttribute("aria-pressed", "false");
+          playButton.textContent = "▶ 自动";
+          if (announce) liveStatus.textContent = "自动播放已暂停。";
+        }
+
+        function renderFrame(announce = true) {
+          const grid = demoCases[activeCase].grid;
+          const frame = frames[currentFrame];
+          const rows = grid.length;
+          const cols = grid[0].length;
+          const storms = grid.flat().filter((cell) => cell === 1).length;
+          gridLabel.textContent = `${rows} rows × ${cols} columns · ${storms} storm${storms === 1 ? "" : "s"}`;
+          stormBadge.textContent =
+            storms === 0
+              ? "all clear"
+              : `${storms} storm${storms === 1 ? "" : "s"} online`;
+          stormBadge.classList.toggle("bg-hazard", storms > 0);
+          stormBadge.classList.toggle("border-hazard", storms > 0);
+          stormBadge.classList.toggle("bg-cyanradar", storms === 0);
+          stormBadge.classList.toggle("border-cyanradar", storms === 0);
+          stormBadge.classList.toggle("text-white", storms > 0);
+          stormBadge.classList.toggle("text-midnight", storms === 0);
+
+          scopeGrid.innerHTML = "";
+          scopeGrid.style.gridTemplateColumns = `repeat(${cols}, minmax(52px, 76px))`;
+          grid.forEach((gridRow, row) => {
+            gridRow.forEach((cellValue, col) => {
+              const cell = document.createElement("div");
+              cell.className = "scope-cell";
+              if (frame.values[row][col] !== null)
+                cell.classList.add("is-computed");
+              if (row === frame.row && col === frame.col)
+                cell.classList.add("is-active");
+              if (cellValue === 1) cell.classList.add("is-obstacle");
+              const display =
+                cellValue === 1 ? "×" : (frame.values[row][col] ?? "·");
+              cell.innerHTML = `<span class="cell-coordinate">${row},${col}</span><span>${display}</span>`;
+              scopeGrid.append(cell);
+            });
+          });
+
+          registerBank.innerHTML = "";
+          frame.dp.forEach((value, col) => {
+            const slot = document.createElement("div");
+            slot.className = "register-slot";
+            if (col === frame.col) slot.classList.add("is-active");
+            if (col === frame.col && frame.obstacle)
+              slot.classList.add("is-zeroed");
+            slot.innerHTML = `<span class="sr-only">dp[${col}] = </span>${value}`;
+            registerBank.append(slot);
+          });
+
+          stepTitle.textContent = frame.title;
+          stepDescription.textContent = frame.description;
+          stepCount.textContent = `${currentFrame} / ${frames.length - 1}`;
+          northValue.textContent = frame.north ?? "—";
+          westValue.textContent = frame.west ?? "—";
+          newValue.textContent = frame.value ?? "—";
+          resultOutput.textContent = frame.result ?? "待完成";
+          scanProgress.style.width = `${(currentFrame / Math.max(frames.length - 1, 1)) * 100}%`;
+
+          startButton.disabled = currentFrame === 0;
+          prevButton.disabled = currentFrame === 0;
+          nextButton.disabled = currentFrame === frames.length - 1;
+          endButton.disabled = currentFrame === frames.length - 1;
+
+          if (announce) {
+            liveStatus.textContent = `第 ${currentFrame} 步，共 ${frames.length - 1} 步。${frame.title}。${frame.description}`;
+          }
+        }
+
+        function selectCase(index) {
+          stopAutoplay();
+          activeCase = index;
+          currentFrame = 0;
+          frames = buildFrames(demoCases[index].grid);
+          caseButtons.forEach((button, buttonIndex) => {
+            button.setAttribute("aria-pressed", String(buttonIndex === index));
+          });
+          renderFrame(false);
+          liveStatus.textContent = `已切换演示用例：obstacleGrid = ${formatGrid(demoCases[index].grid)}。`;
+        }
+
+        function moveTo(index, announce = true) {
+          currentFrame = Math.max(0, Math.min(index, frames.length - 1));
+          renderFrame(announce);
+          if (currentFrame === frames.length - 1) stopAutoplay(false);
+        }
+
+        function toggleAutoplay() {
+          if (autoplayTimer !== null) {
+            stopAutoplay(true);
+            return;
+          }
+          if (currentFrame === frames.length - 1) currentFrame = 0;
+          playButton.setAttribute("aria-pressed", "true");
+          playButton.textContent = "Ⅱ 暂停";
+          liveStatus.textContent = "自动播放已开始。";
+          autoplayTimer = window.setInterval(
+            () => moveTo(currentFrame + 1),
+            reducedMotion ? 1200 : 700,
+          );
+        }
+
+        function renderTests() {
+          testGrid.innerHTML = "";
+          testCases.forEach((test) => {
+            const actual = uniquePathsWithObstacles(test.grid);
+            const passed = actual === test.expected;
+            const card = document.createElement("article");
+            card.className = "test-card p-5 sm:p-6";
+            card.innerHTML = `
+              <div class="flex items-start justify-between gap-3">
+                <h3 class="font-display text-xl font-black uppercase">${test.name}</h3>
+                <span class="shrink-0 border-2 border-midnight ${passed ? "bg-cyanradar" : "bg-hazard text-white"} px-2 py-1 font-mono text-xs font-black">${passed ? "PASS" : "FAIL"}</span>
+              </div>
+              <dl class="mt-5 grid gap-4">
+                <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">输入</dt><dd class="mt-1 bg-ice p-3"><code class="font-mono">obstacleGrid = ${formatGrid(test.grid)}</code></dd></div>
+                <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">期望输出</dt><dd class="mt-1 bg-ice p-3"><code class="font-mono">${test.expected}</code></dd></div>
+                <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">实际输出</dt><dd class="mt-1 bg-ice p-3"><code class="font-mono">${actual}</code></dd></div>
+                <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">通过状态</dt><dd class="mt-1 font-bold">${passed ? "通过：实际输出与期望输出完全一致" : "未通过：输出不一致"}</dd></div>
+              </dl>`;
+            testGrid.append(card);
+          });
+        }
+
+        function selectLanguage(tab, focus = false) {
+          languageTabs.forEach((item) => {
+            const selected = item === tab;
+            item.setAttribute("aria-selected", String(selected));
+            item.tabIndex = selected ? 0 : -1;
+          });
+          codePanels.forEach((panel) => {
+            panel.hidden = panel.id !== tab.getAttribute("aria-controls");
+          });
+          if (focus) tab.focus();
+          liveStatus.textContent = `已切换到 ${tab.textContent.trim()} 代码。`;
+        }
+
+        caseButtons.forEach((button) => {
+          button.addEventListener("click", () =>
+            selectCase(Number(button.dataset.case)),
+          );
+        });
+        startButton.addEventListener("click", () => moveTo(0));
+        prevButton.addEventListener("click", () => moveTo(currentFrame - 1));
+        playButton.addEventListener("click", toggleAutoplay);
+        nextButton.addEventListener("click", () => moveTo(currentFrame + 1));
+        endButton.addEventListener("click", () => moveTo(frames.length - 1));
+
+        demoStage.addEventListener("keydown", (event) => {
+          if (
+            ["ArrowRight", "ArrowLeft", "Home", "End", " "].includes(event.key)
+          ) {
+            event.preventDefault();
+          }
+          if (event.key === "ArrowRight") moveTo(currentFrame + 1);
+          if (event.key === "ArrowLeft") moveTo(currentFrame - 1);
+          if (event.key === "Home") moveTo(0);
+          if (event.key === "End") moveTo(frames.length - 1);
+          if (event.key === " ") toggleAutoplay();
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const willOpen = solutionContent.hidden;
+          solutionContent.hidden = !willOpen;
+          solutionToggle.setAttribute("aria-expanded", String(willOpen));
+          solutionToggle.textContent = willOpen ? "收起题解" : "查看题解";
+          liveStatus.textContent = willOpen ? "题解已展开。" : "题解已收起。";
+        });
+
+        languageTabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => selectLanguage(tab));
+          tab.addEventListener("keydown", (event) => {
+            let targetIndex = index;
+            if (event.key === "ArrowRight")
+              targetIndex = (index + 1) % languageTabs.length;
+            if (event.key === "ArrowLeft") {
+              targetIndex =
+                (index - 1 + languageTabs.length) % languageTabs.length;
+            }
+            if (event.key === "Home") targetIndex = 0;
+            if (event.key === "End") targetIndex = languageTabs.length - 1;
+            if (targetIndex !== index || ["Home", "End"].includes(event.key)) {
+              event.preventDefault();
+              selectLanguage(languageTabs[targetIndex], true);
+            }
+          });
+        });
+
+        frames = buildFrames(demoCases[0].grid);
+        renderFrame(false);
+        renderTests();
+      })();
+    </script>
+  </body>
+</html>
