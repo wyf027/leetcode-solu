@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini King and Balloon</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-4 p-4">
+    <section class="w-full rounded-lg border border-cyan-300/40 bg-indigo-900 p-4 shadow-2xl shadow-black/40">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-normal text-cyan-100">Mini King and Balloon</h1>
+          <p class="text-sm text-indigo-100">Shoot the drifting balloons before they carry the king away.</p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-sm">
+          <div class="rounded border border-indigo-700 px-3 py-2">
+            <div class="text-indigo-200">Score</div>
+            <div id="score" class="text-lg font-bold text-cyan-100">0</div>
+          </div>
+          <div class="rounded border border-indigo-700 px-3 py-2">
+            <div class="text-indigo-200">Kings</div>
+            <div id="lives" class="text-lg font-bold text-rose-200">3</div>
+          </div>
+          <div class="rounded border border-indigo-700 px-3 py-2">
+            <div class="text-indigo-200">Wave</div>
+            <div id="wave" class="text-lg font-bold text-amber-100">1</div>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="game" width="900" height="520" class="h-auto w-full rounded border border-indigo-700 bg-slate-950"></canvas>
+
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-indigo-100">
+        <div>Arrow keys or A/D move. Space fires. Enter restarts.</div>
+        <button id="restart" class="rounded bg-cyan-200 px-4 py-2 font-semibold text-indigo-950 hover:bg-cyan-100">Restart</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const waveEl = document.getElementById("wave");
+    const restartBtn = document.getElementById("restart");
+    const keys = new Set();
+
+    const state = {
+      score: 0,
+      lives: 3,
+      wave: 1,
+      cannonX: 450,
+      cooldown: 0,
+      balloons: [],
+      shots: [],
+      sparks: [],
+      spawnTimer: 0,
+      king: { x: 450, y: 438, carriedBy: null, rescued: true },
+      message: "Defend the king",
+      messageTimer: 1200,
+      over: false,
+      lastTime: 0
+    };
+
+    function setupGame() {
+      state.score = 0;
+      state.lives = 3;
+      state.wave = 1;
+      state.cannonX = 450;
+      state.cooldown = 0;
+      state.balloons = [];
+      state.shots = [];
+      state.sparks = [];
+      state.spawnTimer = 350;
+      state.king = { x: 450, y: 438, carriedBy: null, rescued: true };
+      state.message = "Defend the king";
+      state.messageTimer = 1200;
+      state.over = false;
+      state.lastTime = performance.now();
+      updateHud();
+      requestAnimationFrame(tick);
+    }
+
+    function spawnBalloon() {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const target = 420 + Math.random() * 60;
+      state.balloons.push({
+        x: side < 0 ? -40 : 940,
+        y: 72 + Math.random() * 170,
+        vx: side < 0 ? 36 + state.wave * 5 : -36 - state.wave * 5,
+        vy: 12 + Math.random() * 14,
+        target,
+        caught: false,
+        color: ["#22d3ee", "#f472b6", "#facc15", "#a78bfa"][Math.floor(Math.random() * 4)]
+      });
+    }
+
+    function fireShot() {
+      if (state.over || state.cooldown > 0) return;
+      state.shots.push({ x: state.cannonX, y: 410, vy: -520 });
+      state.cooldown = 210;
+    }
+
+    function updateCannon(delta) {
+      const seconds = delta / 1000;
+      const move = (keys.has("ArrowRight") || keys.has("d") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("a") ? 1 : 0);
+      state.cannonX = clamp(state.cannonX + move * 300 * seconds, 55, 845);
+      state.cooldown = Math.max(0, state.cooldown - delta);
+    }
+
+    function updateBalloons(delta) {
+      const seconds = delta / 1000;
+      state.spawnTimer -= delta;
+      if (state.spawnTimer <= 0 && !state.over) {
+        spawnBalloon();
+        state.spawnTimer = Math.max(360, 1160 - state.wave * 70) + Math.random() * 520;
+      }
+
+      for (const balloon of state.balloons) {
+        if (balloon.caught) {
+          balloon.x += balloon.vx * 0.15 * seconds;
+          balloon.y -= (72 + state.wave * 8) * seconds;
+          state.king.x = balloon.x;
+          state.king.y = balloon.y + 56;
+          if (balloon.y < -78) loseKing();
+          continue;
+        }
+
+        const drift = Math.sign(balloon.target - balloon.x) * Math.min(Math.abs(balloon.target - balloon.x), 48) * seconds;
+        balloon.x += balloon.vx * seconds + drift;
+        balloon.y += balloon.vy * seconds;
+
+        if (Math.abs(balloon.x - state.king.x) < 35 && Math.abs(balloon.y - (state.king.y - 74)) < 42 && !state.king.carriedBy) {
+          balloon.caught = true;
+          state.king.carriedBy = balloon;
+          state.king.rescued = false;
+          state.message = "King captured!";
+          state.messageTimer = 900;
+        }
+      }
+
+      state.balloons = state.balloons.filter((balloon) => balloon.y < 560 && balloon.x > -110 && balloon.x < 1010);
+    }
+
+    function updateShots(delta) {
+      const seconds = delta / 1000;
+      for (const shot of state.shots) shot.y += shot.vy * seconds;
+      state.shots = state.shots.filter((shot) => shot.y > -20);
+    }
+
+    function checkHits() {
+      for (const shot of state.shots) {
+        for (const balloon of state.balloons) {
+          if (Math.hypot(shot.x - balloon.x, shot.y - balloon.y) < 34) {
+            popBalloon(balloon, shot);
+            return;
+          }
+        }
+      }
+    }
+
+    function popBalloon(balloon, shot) {
+      state.score += balloon.caught ? 180 : 90;
+      if (balloon.caught) rescueKing();
+      state.sparks.push({ x: balloon.x, y: balloon.y, life: 420, color: balloon.color });
+      state.balloons = state.balloons.filter((item) => item !== balloon);
+      state.shots = state.shots.filter((item) => item !== shot);
+      state.wave = 1 + Math.floor(state.score / 900);
+      state.message = balloon.caught ? "King rescued" : "Balloon popped";
+      state.messageTimer = 650;
+      updateHud();
+    }
+
+    function rescueKing() {
+      state.king = { x: 450, y: 438, carriedBy: null, rescued: true };
+    }
+
+    function loseKing() {
+      state.lives -= 1;
+      state.message = "A king was carried away";
+      state.messageTimer = 1200;
+      state.balloons = state.balloons.filter((balloon) => !balloon.caught);
+      rescueKing();
+      if (state.lives <= 0) {
+        state.over = true;
+        state.message = "Kingdom lost - press Enter";
+      }
+      updateHud();
+    }
+
+    function updateSparks(delta) {
+      for (const spark of state.sparks) spark.life -= delta;
+      state.sparks = state.sparks.filter((spark) => spark.life > 0);
+      state.messageTimer = Math.max(0, state.messageTimer - delta);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      waveEl.textContent = state.wave;
+    }
+
+    function drawSky() {
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, "#0f172a");
+      gradient.addColorStop(0.55, "#312e81");
+      gradient.addColorStop(1, "#111827");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#e0f2fe";
+      for (let i = 0; i < 30; i += 1) {
+        const x = (i * 83 + 31) % 900;
+        const y = (i * 47 + 24) % 250;
+        ctx.fillRect(x, y, 2, 2);
+      }
+
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(0, 448, canvas.width, 72);
+      ctx.fillStyle = "#475569";
+      for (let x = 25; x < canvas.width; x += 92) {
+        ctx.fillRect(x, 410, 54, 42);
+        ctx.fillRect(x + 14, 388, 26, 24);
+      }
+
+      ctx.fillStyle = "#cffafe";
+      ctx.font = "bold 22px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(state.messageTimer > 0 || state.over ? state.message : "Stop the balloons", canvas.width / 2, 42);
+    }
+
+    function drawKing() {
+      const king = state.king;
+      ctx.fillStyle = "#fef3c7";
+      ctx.beginPath();
+      ctx.arc(king.x, king.y - 28, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(king.x - 18, king.y - 52, 36, 12);
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(king.x - 17, king.y - 14, 34, 38);
+      ctx.fillStyle = "#fef08a";
+      ctx.fillRect(king.x - 27, king.y - 6, 10, 25);
+      ctx.fillRect(king.x + 17, king.y - 6, 10, 25);
+    }
+
+    function drawCannon() {
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(state.cannonX - 38, 422, 76, 22);
+      ctx.fillStyle = "#94a3b8";
+      ctx.fillRect(state.cannonX - 9, 385, 18, 45);
+      ctx.beginPath();
+      ctx.arc(state.cannonX, 424, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = state.cooldown > 0 ? "#64748b" : "#67e8f9";
+      ctx.fillRect(state.cannonX - 5, 374, 10, 24);
+    }
+
+    function drawBalloons() {
+      for (const balloon of state.balloons) {
+        ctx.fillStyle = balloon.color;
+        ctx.beginPath();
+        ctx.ellipse(balloon.x, balloon.y, 25, 34, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#e0f2fe";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(balloon.x, balloon.y + 34);
+        ctx.lineTo(balloon.caught ? state.king.x : balloon.x, balloon.caught ? state.king.y - 54 : balloon.y + 70);
+        ctx.stroke();
+      }
+    }
+
+    function drawShots() {
+      ctx.fillStyle = "#fef08a";
+      for (const shot of state.shots) {
+        ctx.fillRect(shot.x - 3, shot.y - 16, 6, 22);
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of state.sparks) {
+        const radius = 34 * (spark.life / 420);
+        ctx.strokeStyle = spark.color;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(spark.x, spark.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawOverlay() {
+      if (!state.over) return;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.84)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#cffafe";
+      ctx.font = "bold 42px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("Kingdom Lost", canvas.width / 2, 238);
+      ctx.font = "22px ui-sans-serif, system-ui";
+      ctx.fillText("Press Enter or Restart", canvas.width / 2, 278);
+    }
+
+    function draw() {
+      drawSky();
+      drawBalloons();
+      drawShots();
+      drawSparks();
+      drawKing();
+      drawCannon();
+      drawOverlay();
+    }
+
+    function tick(now) {
+      const delta = Math.min(60, now - state.lastTime);
+      state.lastTime = now;
+      if (!state.over) {
+        updateCannon(delta);
+        updateBalloons(delta);
+        updateShots(delta);
+        checkHits();
+        updateSparks(delta);
+      }
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    document.addEventListener("keydown", (event) => {
+      keys.add(event.key);
+      keys.add(event.key.toLowerCase());
+      if (event.key === " ") fireShot();
+      if (event.key === "Enter") setupGame();
+    });
+
+    document.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    canvas.addEventListener("click", fireShot);
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
