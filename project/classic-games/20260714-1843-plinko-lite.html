@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Plinko</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal">Mini Plinko</h1>
+        <p class="text-sm text-slate-300">选择投放位置，让 8 颗球穿过钉板落入底部分槽。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3">
+        <canvas id="board" width="620" height="760" class="mx-auto aspect-[31/38] w-full max-w-[620px] rounded bg-slate-100"></canvas>
+      </div>
+
+      <aside class="flex flex-col gap-3 rounded border border-slate-700 bg-slate-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs text-slate-400">总分</div>
+            <div id="score" class="text-2xl font-bold text-fuchsia-300">0</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs text-slate-400">剩余</div>
+            <div id="ballsLeft" class="text-2xl font-bold text-cyan-300">8</div>
+          </div>
+        </div>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-slate-300"><span>投放位置</span><span id="dropValue">50%</span></span>
+          <input id="dropX" type="range" min="10" max="90" value="50" class="w-full accent-fuchsia-300">
+        </label>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-slate-300"><span>初始偏移</span><span id="nudgeValue">0</span></span>
+          <input id="nudge" type="range" min="-20" max="20" value="0" class="w-full accent-cyan-300">
+        </label>
+
+        <button id="dropBtn" class="rounded bg-fuchsia-300 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-fuchsia-200">投球</button>
+        <p id="message" class="min-h-16 rounded bg-slate-800 p-3 text-sm leading-6 text-slate-200">边缘分槽倍率更高，但路径更容易被钉子弹回中间。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const dropInput = document.getElementById("dropX");
+    const nudgeInput = document.getElementById("nudge");
+    const dropValue = document.getElementById("dropValue");
+    const nudgeValue = document.getElementById("nudgeValue");
+    const scoreEl = document.getElementById("score");
+    const ballsLeftEl = document.getElementById("ballsLeft");
+    const messageEl = document.getElementById("message");
+    const dropBtn = document.getElementById("dropBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const frame = { x: 72, y: 42, w: 476, h: 660 };
+    const multipliers = [5, 2, 1, 0, 1, 2, 5];
+    const pegs = [];
+    let score = 0;
+    let ballsLeft = 8;
+    let busy = false;
+    let ball = null;
+    let trail = [];
+
+    function buildPegs() {
+      pegs.length = 0;
+      const rowGap = 58;
+      const colGap = 58;
+      for (let row = 0; row < 8; row += 1) {
+        const count = row % 2 === 0 ? 7 : 8;
+        const startX = frame.x + frame.w / 2 - ((count - 1) * colGap) / 2;
+        const y = frame.y + 118 + row * rowGap;
+        for (let col = 0; col < count; col += 1) {
+          pegs.push({ x: startX + col * colGap, y, r: 8 });
+        }
+      }
+    }
+
+    function resetGame() {
+      score = 0;
+      ballsLeft = 8;
+      busy = false;
+      ball = null;
+      trail = [];
+      messageEl.textContent = "边缘分槽倍率更高，但路径更容易被钉子弹回中间。";
+      updateHud();
+      drawBoard();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      ballsLeftEl.textContent = ballsLeft;
+      dropValue.textContent = `${dropInput.value}%`;
+      nudgeValue.textContent = nudgeInput.value;
+      dropBtn.disabled = busy || ballsLeft <= 0;
+      dropBtn.className = dropBtn.disabled
+        ? "rounded bg-slate-700 px-4 py-3 text-sm font-bold text-slate-400"
+        : "rounded bg-fuchsia-300 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-fuchsia-200";
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bg = ctx.createLinearGradient(frame.x, frame.y, frame.x, frame.y + frame.h);
+      bg.addColorStop(0, "#e0f2fe");
+      bg.addColorStop(1, "#c4b5fd");
+      ctx.fillStyle = bg;
+      roundRect(frame.x, frame.y, frame.w, frame.h, 24);
+      ctx.fill();
+      ctx.strokeStyle = "#334155";
+      ctx.lineWidth = 7;
+      ctx.stroke();
+      drawSlots();
+      drawPegs();
+      drawDropGuide();
+      trail.forEach((point, index) => {
+        ctx.fillStyle = `rgba(217,70,239,${0.12 + index * 0.026})`;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      if (ball) drawBall(ball.x, ball.y);
+      else drawBall(currentDropX(), frame.y + 38);
+    }
+
+    function drawPegs() {
+      pegs.forEach((peg) => {
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(peg.x, peg.y, peg.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#475569";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    function drawSlots() {
+      const slotW = frame.w / multipliers.length;
+      multipliers.forEach((value, index) => {
+        const x = frame.x + index * slotW;
+        ctx.fillStyle = index % 2 === 0 ? "rgba(15,23,42,0.18)" : "rgba(15,23,42,0.08)";
+        ctx.fillRect(x, frame.y + frame.h - 88, slotW, 88);
+        ctx.strokeStyle = "rgba(51,65,85,0.55)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, frame.y + frame.h - 88);
+        ctx.lineTo(x, frame.y + frame.h);
+        ctx.stroke();
+        ctx.fillStyle = value === 0 ? "#334155" : "#7e22ce";
+        ctx.font = "bold 18px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(`${value}x`, x + slotW / 2, frame.y + frame.h - 38);
+      });
+    }
+
+    function drawDropGuide() {
+      const x = currentDropX();
+      ctx.strokeStyle = "rgba(14,165,233,0.75)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 10]);
+      ctx.beginPath();
+      ctx.moveTo(x, frame.y + 24);
+      ctx.lineTo(x, frame.y + 98);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawBall(x, y) {
+      ctx.fillStyle = "#fdf4ff";
+      ctx.beginPath();
+      ctx.arc(x, y, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#a21caf";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    function currentDropX() {
+      return frame.x + frame.w * Number(dropInput.value) / 100;
+    }
+
+    function dropBall() {
+      if (busy || ballsLeft <= 0) return;
+      busy = true;
+      ballsLeft -= 1;
+      trail = [];
+      ball = {
+        x: currentDropX(),
+        y: frame.y + 38,
+        vx: Number(nudgeInput.value) / 12,
+        vy: 1.2
+      };
+      let ticks = 0;
+      const step = () => {
+        ticks += 1;
+        ball.vy = Math.min(7.2, ball.vy + 0.055);
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+        collideWithWalls();
+        collideWithPegs();
+        if (ticks % 4 === 0) trail.push({ x: ball.x, y: ball.y });
+        drawBoard();
+        if (ball.y < frame.y + frame.h - 34 && ticks < 360) {
+          requestAnimationFrame(step);
+          return;
+        }
+        settleBall();
+      };
+      updateHud();
+      requestAnimationFrame(step);
+    }
+
+    function collideWithWalls() {
+      if (ball.x < frame.x + 18) {
+        ball.x = frame.x + 18;
+        ball.vx = Math.abs(ball.vx) * 0.72;
+      }
+      if (ball.x > frame.x + frame.w - 18) {
+        ball.x = frame.x + frame.w - 18;
+        ball.vx = -Math.abs(ball.vx) * 0.72;
+      }
+    }
+
+    function collideWithPegs() {
+      pegs.forEach((peg) => {
+        const dx = ball.x - peg.x;
+        const dy = ball.y - peg.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > 0 && distance < peg.r + 13) {
+          const nx = dx / distance;
+          const ny = dy / distance;
+          ball.x = peg.x + nx * (peg.r + 13);
+          ball.y = peg.y + ny * (peg.r + 13);
+          ball.vx += nx * 1.45 + (Math.random() - 0.5) * 0.35;
+          ball.vy = Math.max(1.4, Math.abs(ball.vy * 0.55 + ny * 0.6));
+        }
+      });
+      ball.vx *= 0.992;
+    }
+
+    function settleBall() {
+      const slotW = frame.w / multipliers.length;
+      const rawIndex = Math.floor((ball.x - frame.x) / slotW);
+      const index = Math.max(0, Math.min(multipliers.length - 1, rawIndex));
+      const gained = multipliers[index] * 10;
+      score += gained;
+      ball = null;
+      busy = false;
+      messageEl.textContent = gained > 0
+        ? `落入 ${multipliers[index]}x 分槽，获得 ${gained} 分。`
+        : "落入 0x 分槽，没有得分。";
+      if (ballsLeft === 0) {
+        messageEl.textContent += ` 游戏结束，总分 ${score}。`;
+      }
+      updateHud();
+      drawBoard();
+    }
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+    }
+
+    dropInput.addEventListener("input", () => { updateHud(); drawBoard(); });
+    nudgeInput.addEventListener("input", updateHud);
+    dropBtn.addEventListener("click", dropBall);
+    resetBtn.addEventListener("click", resetGame);
+    buildPegs();
+    resetGame();
+  </script>
+</body>
+</html>
