@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Tactix</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 md:px-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-lime-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Tactix</h1>
+      </div>
+      <button id="resetBtn" class="w-fit rounded bg-lime-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-lime-300">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3 shadow-2xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2 rounded bg-zinc-800 p-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <h2 class="text-lg font-semibold text-white">战况</h2>
+          <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-zinc-800 p-3">
+              <p class="text-zinc-400">剩余棋子</p>
+              <p id="leftCount" class="mt-1 text-2xl font-bold text-lime-300">25</p>
+            </div>
+            <div class="rounded bg-zinc-800 p-3">
+              <p class="text-zinc-400">本轮选择</p>
+              <p id="pickCount" class="mt-1 text-2xl font-bold text-cyan-300">0</p>
+            </div>
+          </div>
+          <p id="status" class="mt-4 min-h-12 rounded bg-zinc-800 p-3 text-sm leading-6 text-zinc-200"></p>
+          <button id="takeBtn" class="mt-3 w-full rounded bg-cyan-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400">
+            取走选中棋子
+          </button>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <h2 class="text-lg font-semibold text-white">规则</h2>
+          <p class="mt-3">每回合从同一行或同一列取走连续的 1 到多枚棋子。你不能跨过空格选择。</p>
+          <p class="mt-2">这是 misere 规则：被迫取走最后一枚棋子的一方输。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const leftCountEl = document.getElementById("leftCount");
+    const pickCountEl = document.getElementById("pickCount");
+    const takeBtn = document.getElementById("takeBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board;
+    let selected;
+    let turn;
+    let gameOver;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(true));
+      selected = [];
+      turn = "player";
+      gameOver = false;
+      setStatus("选择同一行或同一列的连续棋子，然后取走。不要拿到最后一枚。");
+      render();
+    }
+
+    function keyOf(r, c) {
+      return `${r},${c}`;
+    }
+
+    function countPieces() {
+      return board.flat().filter(Boolean).length;
+    }
+
+    function isSelected(r, c) {
+      return selected.some(cell => cell.r === r && cell.c === c);
+    }
+
+    function selectedLine(cells) {
+      if (cells.length <= 1) return true;
+      const sameRow = cells.every(cell => cell.r === cells[0].r);
+      const sameCol = cells.every(cell => cell.c === cells[0].c);
+      if (!sameRow && !sameCol) return false;
+      const fixed = sameRow ? "r" : "c";
+      const axis = sameRow ? "c" : "r";
+      const coords = cells.map(cell => cell[axis]).sort((a, b) => a - b);
+      for (let i = 1; i < coords.length; i++) {
+        if (coords[i] !== coords[i - 1] + 1) return false;
+      }
+      for (let pos = coords[0]; pos <= coords[coords.length - 1]; pos++) {
+        const r = fixed === "r" ? cells[0].r : pos;
+        const c = fixed === "c" ? cells[0].c : pos;
+        if (!board[r][c]) return false;
+      }
+      return true;
+    }
+
+    function toggleCell(r, c) {
+      if (gameOver || turn !== "player" || !board[r][c]) return;
+      const exists = isSelected(r, c);
+      const next = exists ? selected.filter(cell => cell.r !== r || cell.c !== c) : [...selected, { r, c }];
+      if (!selectedLine(next)) {
+        setStatus("必须选择同一行或同一列的连续棋子。");
+        return;
+      }
+      selected = next;
+      setStatus(selected.length ? "选择有效。确认后取走这些棋子。" : "重新选择棋子。");
+      render();
+    }
+
+    function takeSelected() {
+      if (gameOver || turn !== "player" || !selected.length) return;
+      applyMove(selected, "player");
+    }
+
+    function applyMove(cells, side) {
+      for (const cell of cells) board[cell.r][cell.c] = false;
+      selected = [];
+      render();
+      if (checkEnd(side)) return;
+      turn = side === "player" ? "cpu" : "player";
+      if (turn === "cpu") {
+        setStatus("电脑正在取子...");
+        window.setTimeout(cpuMove, 450);
+      } else {
+        setStatus("轮到你。选择一段连续棋子。");
+      }
+    }
+
+    function allMoves() {
+      const moves = [];
+      for (let r = 0; r < size; r++) {
+        let run = [];
+        for (let c = 0; c < size; c++) {
+          if (board[r][c]) run.push({ r, c });
+          if (!board[r][c] || c === size - 1) {
+            collectSegments(run, moves);
+            run = [];
+          }
+        }
+      }
+      for (let c = 0; c < size; c++) {
+        let run = [];
+        for (let r = 0; r < size; r++) {
+          if (board[r][c]) run.push({ r, c });
+          if (!board[r][c] || r === size - 1) {
+            collectSegments(run, moves);
+            run = [];
+          }
+        }
+      }
+      const seen = new Set();
+      return moves.filter(move => {
+        const key = move.map(cell => keyOf(cell.r, cell.c)).join("|");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function collectSegments(run, moves) {
+      for (let start = 0; start < run.length; start++) {
+        for (let end = start; end < run.length; end++) {
+          moves.push(run.slice(start, end + 1));
+        }
+      }
+    }
+
+    function cpuMove() {
+      if (gameOver) return;
+      const moves = allMoves();
+      if (!moves.length) {
+        finish("没有棋子可取，你获胜。");
+        return;
+      }
+      const left = countPieces();
+      const safeMoves = moves.filter(move => move.length !== left);
+      const winningMove = safeMoves.find(move => left - move.length === 1);
+      const balancedMoves = safeMoves.filter(move => (left - move.length) % 4 === 1);
+      const pool = winningMove ? [winningMove] : (balancedMoves.length ? balancedMoves : safeMoves.length ? safeMoves : moves);
+      const move = pool[Math.floor(Math.random() * pool.length)];
+      applyMove(move, "cpu");
+    }
+
+    function checkEnd(side) {
+      const left = countPieces();
+      if (left === 0) {
+        const winner = side === "player" ? "电脑" : "你";
+        finish(`${side === "player" ? "你" : "电脑"}取走了最后一枚，${winner}获胜。`);
+        return true;
+      }
+      return false;
+    }
+
+    function finish(message) {
+      gameOver = true;
+      setStatus(message);
+      render();
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      leftCountEl.textContent = countPieces();
+      pickCountEl.textContent = selected.length;
+      takeBtn.disabled = gameOver || turn !== "player" || !selected.length;
+
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const cell = document.createElement("button");
+          const active = board[r][c];
+          const picked = isSelected(r, c);
+          cell.type = "button";
+          cell.className = [
+            "aspect-square rounded border text-xl font-bold transition",
+            active ? "border-zinc-600 bg-zinc-700 hover:bg-zinc-600" : "border-zinc-800 bg-zinc-900 text-zinc-700",
+            picked ? "ring-4 ring-cyan-300 bg-cyan-500 text-zinc-950" : "",
+            gameOver || turn !== "player" ? "cursor-default" : ""
+          ].join(" ");
+          cell.textContent = active ? "●" : "";
+          cell.setAttribute("aria-label", `row ${r + 1}, column ${c + 1}`);
+          cell.addEventListener("click", () => toggleCell(r, c));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    takeBtn.addEventListener("click", takeSelected);
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
