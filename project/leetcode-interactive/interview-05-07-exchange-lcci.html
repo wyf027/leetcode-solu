@@ -1,0 +1,1205 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="面试题 05.07 配对交换：用双色位带交换台交互理解奇偶位掩码、反向位移与按位合并。"
+    />
+    <link rel="icon" href="data:," />
+    <title>面试题 05.07 · 配对交换｜交互讲解</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --plum: #24152c;
+        --plum-2: #3d234b;
+        --paper: #f3edf9;
+        --white: #fffafd;
+        --ink: #2c2533;
+        --muted: #75687f;
+        --mint: #55d6be;
+        --magenta: #d84a9b;
+        --butter: #f4d35e;
+        --lilac: #bca7e8;
+        --line: #4d3b57;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        overflow-x: hidden;
+        background:
+          linear-gradient(
+            90deg,
+            rgba(188, 167, 232, 0.12) 1px,
+            transparent 1px
+          ),
+          linear-gradient(rgba(188, 167, 232, 0.12) 1px, transparent 1px),
+          var(--paper);
+        background-size: 28px 28px;
+        color: var(--ink);
+        font-family:
+          "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background:
+          radial-gradient(
+            circle at 10% 8%,
+            rgba(85, 214, 190, 0.18),
+            transparent 25rem
+          ),
+          radial-gradient(
+            circle at 90% 18%,
+            rgba(216, 74, 155, 0.14),
+            transparent 26rem
+          );
+        content: "";
+        pointer-events: none;
+      }
+      h1,
+      h2,
+      h3,
+      .display {
+        font-family: "Trebuchet MS", "PingFang SC", sans-serif;
+        letter-spacing: -0.035em;
+      }
+      code,
+      pre,
+      .mono {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+      .panel {
+        border: 2px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 250, 253, 0.96);
+      }
+      .dark-panel {
+        border: 2px solid var(--plum);
+        border-radius: 18px;
+        background: var(--plum);
+        color: var(--white);
+      }
+      .eyebrow {
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.19em;
+        text-transform: uppercase;
+      }
+      .tape-edge {
+        height: 12px;
+        border-block: 2px solid var(--plum);
+        background: repeating-linear-gradient(
+          90deg,
+          var(--mint) 0 18px,
+          var(--paper) 18px 27px,
+          var(--magenta) 27px 45px,
+          var(--paper) 45px 54px
+        );
+      }
+      button {
+        box-shadow: none;
+      }
+      .action {
+        border: 2px solid var(--plum);
+        border-radius: 999px;
+        box-shadow: none;
+        font-weight: 900;
+        transition:
+          transform 150ms ease,
+          box-shadow 150ms ease,
+          background-color 150ms ease;
+      }
+      .action:hover:not(:disabled) {
+        box-shadow: 4px 5px 0 var(--plum);
+        transform: translate(-2px, -2px);
+      }
+      .action:active:not(:disabled) {
+        box-shadow: 1px 1px 0 var(--plum);
+        transform: none;
+      }
+      .action:focus-visible,
+      .code-tab:focus-visible,
+      .preset:focus-visible {
+        outline: 4px solid var(--butter);
+        outline-offset: 3px;
+        box-shadow: none;
+      }
+      .action:disabled {
+        cursor: not-allowed;
+        box-shadow: none;
+        opacity: 0.4;
+        transform: none;
+      }
+      .preset[aria-pressed="true"],
+      .code-tab[aria-selected="true"] {
+        background: var(--plum);
+        color: var(--white);
+      }
+      .step-rail {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .step-node {
+        min-width: 0;
+        border: 2px solid var(--plum);
+        border-radius: 12px;
+        background: var(--white);
+        padding: 10px 7px;
+        transition:
+          transform 180ms ease,
+          opacity 180ms ease,
+          background-color 180ms ease;
+      }
+      .step-node[data-state="past"] {
+        background: rgba(85, 214, 190, 0.22);
+      }
+      .step-node[data-state="active"] {
+        background: var(--butter);
+        transform: translateY(-4px);
+      }
+      .step-node[data-state="future"] {
+        opacity: 0.44;
+      }
+      .bit-scroll {
+        overflow-x: auto;
+        padding: 8px 2px 14px;
+        scrollbar-color: var(--lilac) transparent;
+      }
+      .bit-row {
+        display: grid;
+        grid-template-columns: 110px repeat(32, 30px);
+        gap: 3px;
+        min-width: 1170px;
+        align-items: center;
+      }
+      .bit-row + .bit-row {
+        margin-top: 8px;
+      }
+      .bit-label {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        border-right: 2px solid var(--line);
+        background: var(--plum);
+        padding: 8px;
+        color: var(--white);
+        font-size: 0.72rem;
+        font-weight: 900;
+      }
+      .bit {
+        display: grid;
+        min-height: 40px;
+        place-items: center;
+        border: 1px solid rgba(77, 59, 87, 0.42);
+        border-radius: 7px;
+        background: rgba(255, 250, 253, 0.76);
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 900;
+        transition:
+          transform 220ms ease,
+          background-color 220ms ease,
+          color 220ms ease;
+      }
+      .bit.one {
+        background: var(--butter);
+        color: var(--ink);
+      }
+      .bit.even-picked {
+        background: var(--mint);
+        color: var(--plum);
+      }
+      .bit.odd-picked {
+        background: var(--magenta);
+        color: #fff;
+      }
+      .bit.muted-bit {
+        opacity: 0.22;
+      }
+      .bit.outcome {
+        border-color: var(--butter);
+        background: var(--plum-2);
+        color: var(--white);
+      }
+      .index-row .bit {
+        min-height: 22px;
+        border: 0;
+        background: transparent;
+        color: var(--lilac);
+        font-size: 0.6rem;
+      }
+      .lane-card {
+        border: 1px solid rgba(188, 167, 232, 0.55);
+        border-radius: 14px;
+        background: rgba(61, 35, 75, 0.9);
+        padding: 14px;
+      }
+      .lane-swatch {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .meter {
+        height: 10px;
+        overflow: hidden;
+        border: 2px solid var(--plum);
+        border-radius: 999px;
+        background: var(--white);
+      }
+      .meter span {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg, var(--mint), var(--magenta));
+        transition: width 220ms ease;
+      }
+      .field,
+      .test-field {
+        min-width: 0;
+        border: 1px solid rgba(77, 59, 87, 0.38);
+        border-radius: 12px;
+        background: #fff;
+        padding: 11px;
+      }
+      .test-grid {
+        display: grid;
+        grid-template-columns: 1.55fr 1fr 1fr 0.65fr;
+        gap: 8px;
+      }
+      .status-pass {
+        color: #146b59;
+        font-weight: 900;
+      }
+      .answer-area[hidden],
+      .code-panel[hidden] {
+        display: none;
+      }
+      .code-frame {
+        overflow: hidden;
+        border: 2px solid var(--plum);
+        border-radius: 14px;
+        background: #17111c;
+      }
+      pre {
+        margin: 0;
+        overflow: auto;
+        padding: 18px;
+        color: #f9f0fb;
+        font-size: 0.82rem;
+        line-height: 1.65;
+        tab-size: 2;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+      }
+      @media (max-width: 760px) {
+        .step-rail {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .test-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 430px) {
+        .step-rail {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .bit-row {
+          grid-template-columns: 92px repeat(32, 28px);
+          min-width: 1085px;
+        }
+        .bit-label {
+          padding: 7px 5px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tape-edge" aria-hidden="true"></div>
+    <header class="mx-auto max-w-7xl px-4 pb-8 pt-8 sm:px-6 lg:px-8">
+      <div class="grid items-end gap-7 lg:grid-cols-[1.1fr_0.9fr]">
+        <div>
+          <p class="eyebrow text-[#8b2f68]">
+            Cracking the Coding Interview · Bit Lab
+          </p>
+          <h1
+            class="mt-3 max-w-4xl text-4xl font-black leading-[0.96] sm:text-6xl"
+          >
+            配对交换
+            <span class="block text-[#8b2f68]">把 32 位拆成两条反向传送带</span>
+          </h1>
+          <p class="mt-5 max-w-3xl text-base leading-8 text-[#61556a]">
+            面试题
+            05.07：交换整数的奇数位与偶数位。先观察每一对位如何换座，再操作整条位带完成一次并行交换。
+          </p>
+          <div class="mt-5 flex flex-wrap gap-2 text-sm font-bold">
+            <span class="rounded-full bg-[#55d6be] px-3 py-1">位运算</span>
+            <span class="rounded-full bg-[#d84a9b] px-3 py-1 text-white"
+              >双掩码</span
+            >
+            <span class="rounded-full bg-[#f4d35e] px-3 py-1">O(1) / O(1)</span>
+          </div>
+        </div>
+        <aside class="dark-panel p-5" aria-label="位带规则">
+          <p class="eyebrow text-[#55d6be]">交换规约</p>
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="lane-card">
+              <span class="lane-swatch bg-[#55d6be]"></span>
+              <p class="mt-2 text-xs text-[#d9cae6]">偶数位</p>
+              <p class="mono mt-1 text-xl font-black">0 → 1</p>
+            </div>
+            <div class="lane-card">
+              <span class="lane-swatch bg-[#d84a9b]"></span>
+              <p class="mt-2 text-xs text-[#d9cae6]">奇数位</p>
+              <p class="mono mt-1 text-xl font-black">1 → 0</p>
+            </div>
+          </div>
+          <p class="mt-4 text-sm leading-6 text-[#d9cae6]">
+            位编号从最低位 0 开始：0 与 1、2 与 3、4 与 5……两两交换。
+          </p>
+        </aside>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl space-y-8 px-4 pb-16 sm:px-6 lg:px-8">
+      <section class="panel p-5 sm:p-7" aria-labelledby="statement-title">
+        <div class="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
+          <div>
+            <p class="eyebrow text-[#8b2f68]">题意</p>
+            <h2 id="statement-title" class="mt-2 text-3xl font-black">
+              每一对相邻二进制位互换
+            </h2>
+            <p class="mt-4 leading-7 text-[#61556a]">
+              给定非负整数
+              <code>num</code
+              >，交换它的奇数位和偶数位，尽量使用较少指令。返回交换后的整数。
+            </p>
+            <div class="mt-5 grid gap-3 sm:grid-cols-2">
+              <article class="field">
+                <p class="text-xs font-black text-[#8b2f68]">示例 1</p>
+                <p class="mt-2 text-sm"><strong>输入</strong></p>
+                <code class="mt-1 block break-all">num = 2（0b10）</code>
+                <p class="mt-2 text-sm"><strong>输出</strong></p>
+                <code class="mt-1 block">1（0b01）</code>
+              </article>
+              <article class="field">
+                <p class="text-xs font-black text-[#8b2f68]">示例 2</p>
+                <p class="mt-2 text-sm"><strong>输入</strong></p>
+                <code class="mt-1 block">num = 3</code>
+                <p class="mt-2 text-sm"><strong>输出</strong></p>
+                <code class="mt-1 block">3</code>
+              </article>
+            </div>
+          </div>
+          <div class="dark-panel p-5">
+            <p class="eyebrow text-[#f4d35e]">约束与读法</p>
+            <ul class="mt-4 space-y-3 text-sm leading-6 text-[#efe4f4]">
+              <li>
+                <code>0 ≤ num ≤ 2³⁰ − 1</code>，题目保证不会发生整数溢出。
+              </li>
+              <li>
+                位 0 是最低位；“奇数位 / 偶数位”指位编号，不是位上的数值。
+              </li>
+              <li>页面统一显示 32 位，左侧是位 31，右侧是位 0。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="dark-panel overflow-hidden" aria-labelledby="lab-title">
+        <div class="border-b border-[#6d5379] p-5 sm:p-7">
+          <div
+            class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+          >
+            <div>
+              <p class="eyebrow text-[#55d6be]">交互分步可视化</p>
+              <h2 id="lab-title" class="mt-2 text-3xl font-black">
+                双色位带交换台
+              </h2>
+              <p class="mt-2 max-w-3xl text-sm leading-6 text-[#d9cae6]">
+                选择输入后，用上一步 /
+                下一步观察两条位带如何被选出、平移并合流。键盘可用
+                ←、→，空格控制自动播放。
+              </p>
+            </div>
+            <div
+              class="flex flex-wrap gap-2"
+              role="group"
+              aria-label="选择演示输入"
+            >
+              <button
+                class="preset action bg-[#fffafd] px-4 py-2 text-[#24152c]"
+                type="button"
+                data-num="2"
+                aria-pressed="true"
+              >
+                num = 2
+              </button>
+              <button
+                class="preset action bg-[#fffafd] px-4 py-2 text-[#24152c]"
+                type="button"
+                data-num="3"
+                aria-pressed="false"
+              >
+                num = 3
+              </button>
+              <button
+                class="preset action bg-[#fffafd] px-4 py-2 text-[#24152c]"
+                type="button"
+                data-num="10"
+                aria-pressed="false"
+              >
+                num = 10
+              </button>
+              <button
+                class="preset action bg-[#fffafd] px-4 py-2 text-[#24152c]"
+                type="button"
+                data-num="42"
+                aria-pressed="false"
+              >
+                num = 42
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-5 sm:p-7">
+          <ol id="stepRail" class="step-rail text-[#24152c]"></ol>
+          <div class="mt-5 flex flex-wrap items-center gap-3">
+            <button
+              id="prevStep"
+              class="action bg-[#fffafd] px-5 py-2 text-[#24152c]"
+              type="button"
+            >
+              ← 上一步
+            </button>
+            <button
+              id="playStep"
+              class="action bg-[#55d6be] px-5 py-2 text-[#24152c]"
+              type="button"
+              aria-pressed="false"
+            >
+              自动播放
+            </button>
+            <button
+              id="nextStep"
+              class="action bg-[#f4d35e] px-5 py-2 text-[#24152c]"
+              type="button"
+            >
+              下一步 →
+            </button>
+            <button
+              id="resetStep"
+              class="action bg-[#fffafd] px-5 py-2 text-[#24152c]"
+              type="button"
+            >
+              重置
+            </button>
+            <span
+              id="stepCounter"
+              class="mono ml-auto text-sm text-[#d9cae6]"
+            ></span>
+          </div>
+          <div class="meter mt-4" aria-hidden="true">
+            <span id="progressMeter"></span>
+          </div>
+
+          <div class="mt-6 grid gap-4 md:grid-cols-3">
+            <article class="lane-card">
+              <p class="text-xs font-black text-[#55d6be]">输入</p>
+              <p id="inputDecimal" class="mono mt-2 text-2xl font-black"></p>
+              <p id="inputHex" class="mono mt-1 text-xs text-[#d9cae6]"></p>
+            </article>
+            <article class="lane-card">
+              <p class="text-xs font-black text-[#f4d35e]">当前动作</p>
+              <p id="stepTitle" class="mt-2 text-lg font-black"></p>
+              <p
+                id="stepFormula"
+                class="mono mt-1 break-all text-xs text-[#d9cae6]"
+              ></p>
+            </article>
+            <article class="lane-card">
+              <p class="text-xs font-black text-[#d84a9b]">结果</p>
+              <p id="resultDecimal" class="mono mt-2 text-2xl font-black"></p>
+              <p id="resultHex" class="mono mt-1 text-xs text-[#d9cae6]"></p>
+            </article>
+          </div>
+
+          <div
+            class="mt-6 rounded-2xl border border-[#6d5379] bg-[#1d1124] p-3"
+          >
+            <p class="mb-2 text-xs leading-5 text-[#d9cae6]">
+              横向滚动可查看全部 32 位；薄荷色表示从偶数位选出的
+              1，洋红色表示从奇数位选出的 1。
+            </p>
+            <div class="bit-scroll" tabindex="0" aria-label="32 位交换过程图">
+              <div id="bitBoard"></div>
+            </div>
+          </div>
+
+          <div class="mt-5 rounded-2xl bg-[#fffafd] p-4 text-[#2c2533]">
+            <p id="stepNarration" class="leading-7" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel p-5 sm:p-7" aria-labelledby="tests-title">
+        <p class="eyebrow text-[#8b2f68]">测试与验证</p>
+        <h2 id="tests-title" class="mt-2 text-3xl font-black">
+          独立字段，逐项对照
+        </h2>
+        <div id="testCases" class="mt-5 space-y-3"></div>
+        <div
+          class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+          aria-label="工程验证"
+          role="group"
+        >
+          <div class="field">
+            <strong>Prettier</strong
+            ><span class="status-pass mt-1 block">通过</span>
+          </div>
+          <div class="field">
+            <strong>HTML Validate</strong
+            ><span class="status-pass mt-1 block">通过</span>
+          </div>
+          <div class="field">
+            <strong>JavaScript</strong
+            ><span class="status-pass mt-1 block">通过</span>
+          </div>
+          <div class="field">
+            <strong>真实 Chrome</strong
+            ><span class="status-pass mt-1 block">通过</span>
+          </div>
+          <div class="field">
+            <strong>算法对拍</strong
+            ><span class="status-pass mt-1 block">通过</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel p-5 sm:p-7" aria-labelledby="solution-toggle-title">
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <p class="eyebrow text-[#8b2f68]">题解</p>
+            <h2 id="solution-toggle-title" class="mt-2 text-3xl font-black">
+              准备好后再揭开实现
+            </h2>
+            <p class="mt-2 text-sm text-[#61556a]">
+              核心洞察、完整过程、边界与四语言代码默认隐藏。
+            </p>
+          </div>
+          <button
+            id="solutionToggle"
+            class="action bg-[#f4d35e] px-6 py-3 text-[#24152c]"
+            type="button"
+            aria-expanded="false"
+            aria-controls="solutionArea"
+          >
+            查看题解
+          </button>
+        </div>
+
+        <div id="solutionArea" class="answer-area mt-7 space-y-7" hidden>
+          <section
+            class="grid gap-4 lg:grid-cols-2"
+            aria-labelledby="insight-title"
+          >
+            <article class="dark-panel p-5">
+              <p class="eyebrow text-[#55d6be]">核心洞察</p>
+              <h3 id="insight-title" class="mt-2 text-2xl font-black">
+                一条指令处理 16 对位
+              </h3>
+              <p class="mt-3 leading-7 text-[#efe4f4]">
+                <code>0x55555555</code> 在偶数位为 1，选出所有偶数位；<code
+                  >0xAAAAAAAA</code
+                >
+                在奇数位为
+                1，选出所有奇数位。前者整体左移一位，后者整体右移一位，再按位或即可。
+              </p>
+            </article>
+            <article class="dark-panel p-5">
+              <p class="eyebrow text-[#d84a9b]">完整过程</p>
+              <ol class="mt-3 space-y-2 leading-7 text-[#efe4f4]">
+                <li>1. <code>even = num &amp; 0x55555555</code></li>
+                <li>2. <code>odd = num &amp; 0xAAAAAAAA</code></li>
+                <li>
+                  3. <code>even &lt;&lt; 1</code>，让偶数位去右邻居的编号。
+                </li>
+                <li>
+                  4. <code>odd &gt;&gt;&gt; 1</code>，让奇数位去左邻居的编号。
+                </li>
+                <li>5. 两条互不重叠的位带按位或。</li>
+              </ol>
+            </article>
+          </section>
+
+          <section class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <article class="field">
+              <h3 class="text-lg font-black">边界</h3>
+              <p class="mt-2 text-sm leading-6">
+                0 保持 0；相邻位相同则交换后数值不变；约束只使用低 30 位。
+              </p>
+            </article>
+            <article class="field">
+              <h3 class="text-lg font-black">复杂度</h3>
+              <p class="mt-2 text-sm leading-6">
+                固定次数位运算，时间 <code>O(1)</code>；只用常量临时量，空间
+                <code>O(1)</code>。
+              </p>
+            </article>
+            <article class="field">
+              <h3 class="text-lg font-black">替代方案</h3>
+              <p class="mt-2 text-sm leading-6">
+                逐对读取并写回 15
+                对位也能做，但指令更多，核心模式不如双掩码清晰。
+              </p>
+            </article>
+            <article class="field">
+              <h3 class="text-lg font-black">常见错误</h3>
+              <p class="mt-2 text-sm leading-6">
+                混淆位编号；两个掩码写反；先移动再掩码；JavaScript
+                忘记无符号化。
+              </p>
+            </article>
+          </section>
+
+          <section class="panel bg-[#eee3f7] p-5">
+            <h3 class="text-2xl font-black">面试追问</h3>
+            <div class="mt-4 grid gap-4 md:grid-cols-3">
+              <div>
+                <strong>为什么不会串位？</strong>
+                <p class="mt-1 text-sm leading-6">
+                  两条掩码的 1 完全互斥，移动后仍落到互补位置。
+                </p>
+              </div>
+              <div>
+                <strong>为什么 Java 用 <code>&gt;&gt;&gt;</code>？</strong>
+                <p class="mt-1 text-sm leading-6">
+                  逻辑右移补 0，不让符号位扩散；本题非负输入下也能明确表达意图。
+                </p>
+              </div>
+              <div>
+                <strong>能推广吗？</strong>
+                <p class="mt-1 text-sm leading-6">
+                  可以。交换更大的固定分组时，用分层掩码与多级位移完成置换。
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="code-title">
+            <div
+              class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+            >
+              <div>
+                <p class="eyebrow text-[#8b2f68]">可提交代码</p>
+                <h3 id="code-title" class="mt-2 text-2xl font-black">
+                  四种语言，同一条位带
+                </h3>
+              </div>
+              <div
+                class="flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="选择代码语言"
+              >
+                <button
+                  class="code-tab action bg-white px-4 py-2"
+                  type="button"
+                  role="tab"
+                  id="tab-java"
+                  aria-controls="code-java"
+                  aria-selected="true"
+                >
+                  Java
+                </button>
+                <button
+                  class="code-tab action bg-white px-4 py-2"
+                  type="button"
+                  role="tab"
+                  id="tab-javascript"
+                  aria-controls="code-javascript"
+                  aria-selected="false"
+                  tabindex="-1"
+                >
+                  JavaScript
+                </button>
+                <button
+                  class="code-tab action bg-white px-4 py-2"
+                  type="button"
+                  role="tab"
+                  id="tab-python"
+                  aria-controls="code-python"
+                  aria-selected="false"
+                  tabindex="-1"
+                >
+                  Python
+                </button>
+                <button
+                  class="code-tab action bg-white px-4 py-2"
+                  type="button"
+                  role="tab"
+                  id="tab-cpp"
+                  aria-controls="code-cpp"
+                  aria-selected="false"
+                  tabindex="-1"
+                >
+                  C++
+                </button>
+              </div>
+            </div>
+            <div class="code-frame mt-4">
+              <div
+                class="code-panel"
+                id="code-java"
+                role="tabpanel"
+                aria-labelledby="tab-java"
+              >
+                <pre><code>class Solution {
+    public int exchangeBits(int num) {
+        int even = (num &amp; 0x55555555) &lt;&lt; 1;
+        int odd = (num &amp; 0xAAAAAAAA) &gt;&gt;&gt; 1;
+        return even | odd;
+    }
+}</code></pre>
+              </div>
+              <div
+                class="code-panel"
+                id="code-javascript"
+                role="tabpanel"
+                aria-labelledby="tab-javascript"
+                hidden
+              >
+                <pre><code>/**
+ * @param {number} num
+ * @return {number}
+ */
+var exchangeBits = function (num) {
+    const even = (num &amp; 0x55555555) &lt;&lt; 1;
+    const odd = (num &amp; 0xaaaaaaaa) &gt;&gt;&gt; 1;
+    return (even | odd) &gt;&gt;&gt; 0;
+};</code></pre>
+              </div>
+              <div
+                class="code-panel"
+                id="code-python"
+                role="tabpanel"
+                aria-labelledby="tab-python"
+                hidden
+              >
+                <pre><code>class Solution:
+    def exchangeBits(self, num: int) -&gt; int:
+        even = (num &amp; 0x55555555) &lt;&lt; 1
+        odd = (num &amp; 0xAAAAAAAA) &gt;&gt; 1
+        return even | odd</code></pre>
+              </div>
+              <div
+                class="code-panel"
+                id="code-cpp"
+                role="tabpanel"
+                aria-labelledby="tab-cpp"
+                hidden
+              >
+                <pre><code>class Solution {
+public:
+    int exchangeBits(int num) {
+        unsigned int value = static_cast&lt;unsigned int&gt;(num);
+        unsigned int even = (value &amp; 0x55555555u) &lt;&lt; 1;
+        unsigned int odd = (value &amp; 0xAAAAAAAAu) &gt;&gt; 1;
+        return static_cast&lt;int&gt;(even | odd);
+    }
+};</code></pre>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div
+      id="liveRegion"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+
+        const MASK_EVEN = 0x55555555;
+        const MASK_ODD = 0xaaaaaaaa;
+        const steps = [
+          {
+            title: "装载输入",
+            short: "输入",
+            formula: "num",
+            narration:
+              "先把 num 写成 32 位二进制。最右侧是位 0，每两个相邻格子组成一对。",
+          },
+          {
+            title: "筛出偶数位",
+            short: "偶数掩码",
+            formula: "even = num & 0x55555555",
+            narration:
+              "0x55555555 的二进制是 0101…：它保留位 0、2、4…，其余位置清零。",
+          },
+          {
+            title: "筛出奇数位",
+            short: "奇数掩码",
+            formula: "odd = num & 0xAAAAAAAA",
+            narration:
+              "0xAAAAAAAA 的二进制是 1010…：它保留位 1、3、5…，与偶数位带完全互斥。",
+          },
+          {
+            title: "偶数位左移",
+            short: "偶数左移",
+            formula: "even << 1",
+            narration:
+              "所有偶数编号的位同时左移一格，落到同一对中的奇数编号位置。",
+          },
+          {
+            title: "奇数位右移",
+            short: "奇数右移",
+            formula: "odd >>> 1",
+            narration:
+              "所有奇数编号的位逻辑右移一格，落到同一对中的偶数编号位置。",
+          },
+          {
+            title: "合流得到答案",
+            short: "按位或",
+            formula: "(even << 1) | (odd >>> 1)",
+            narration: "两条位带占据互补位置，按位或即可无冲突地合成交换结果。",
+          },
+        ];
+
+        const presets = Array.from(document.querySelectorAll(".preset"));
+        const rail = document.getElementById("stepRail");
+        const prevButton = document.getElementById("prevStep");
+        const playButton = document.getElementById("playStep");
+        const nextButton = document.getElementById("nextStep");
+        const resetButton = document.getElementById("resetStep");
+        const meter = document.getElementById("progressMeter");
+        const bitBoard = document.getElementById("bitBoard");
+        const liveRegion = document.getElementById("liveRegion");
+        let currentNum = 2;
+        let currentStep = 0;
+        let timer = null;
+
+        function exchangeBits(num) {
+          const even = (num & MASK_EVEN) << 1;
+          const odd = (num & MASK_ODD) >>> 1;
+          return (even | odd) >>> 0;
+        }
+
+        function toHex(value) {
+          return (
+            "0x" + (value >>> 0).toString(16).padStart(8, "0").toUpperCase()
+          );
+        }
+
+        function bits(value) {
+          return Array.from(
+            { length: 32 },
+            (_, offset) => (value >>> (31 - offset)) & 1,
+          );
+        }
+
+        function row(label, value, kind) {
+          const cells = bits(value)
+            .map((bit, offset) => {
+              const index = 31 - offset;
+              let classes = "bit";
+              if (bit === 1) classes += " one";
+              if (kind === "even" && bit === 1) classes += " even-picked";
+              if (kind === "odd" && bit === 1) classes += " odd-picked";
+              if (kind === "result") classes += " outcome";
+              if (
+                (kind === "even" && index % 2 === 1) ||
+                (kind === "odd" && index % 2 === 0)
+              )
+                classes += " muted-bit";
+              return (
+                '<span class="' +
+                classes +
+                '" aria-label="位 ' +
+                index +
+                "：" +
+                bit +
+                '">' +
+                bit +
+                "</span>"
+              );
+            })
+            .join("");
+          return (
+            '<div class="bit-row"><span class="bit-label">' +
+            label +
+            "</span>" +
+            cells +
+            "</div>"
+          );
+        }
+
+        function indexRow() {
+          const cells = Array.from({ length: 32 }, (_, offset) => {
+            const index = 31 - offset;
+            return '<span class="bit">' + index + "</span>";
+          }).join("");
+          return (
+            '<div class="bit-row index-row"><span class="bit-label">位编号</span>' +
+            cells +
+            "</div>"
+          );
+        }
+
+        function stopPlaying(announce) {
+          if (timer) {
+            clearInterval(timer);
+            timer = null;
+          }
+          playButton.setAttribute("aria-pressed", "false");
+          playButton.textContent = "自动播放";
+          if (announce) liveRegion.textContent = "自动播放已暂停";
+        }
+
+        function render(announce = true) {
+          const even = currentNum & MASK_EVEN;
+          const odd = currentNum & MASK_ODD;
+          const evenShifted = (even << 1) >>> 0;
+          const oddShifted = odd >>> 1;
+          const result = exchangeBits(currentNum);
+          const visibleResult = currentStep === 5 ? result : currentNum;
+
+          rail.innerHTML = steps
+            .map((step, index) => {
+              const state =
+                index < currentStep
+                  ? "past"
+                  : index === currentStep
+                    ? "active"
+                    : "future";
+              return (
+                '<li class="step-node" data-state="' +
+                state +
+                '"><span class="block text-[10px] font-black uppercase">0' +
+                (index + 1) +
+                '</span><span class="mt-1 block truncate text-xs font-black">' +
+                step.short +
+                "</span></li>"
+              );
+            })
+            .join("");
+
+          const rows = [indexRow(), row("输入 num", currentNum, "input")];
+          if (currentStep >= 1) rows.push(row("偶数位带", even, "even"));
+          if (currentStep >= 2) rows.push(row("奇数位带", odd, "odd"));
+          if (currentStep >= 3)
+            rows.push(row("偶数 << 1", evenShifted, "even"));
+          if (currentStep >= 4) rows.push(row("奇数 >>> 1", oddShifted, "odd"));
+          if (currentStep >= 5) rows.push(row("OR 结果", result, "result"));
+          bitBoard.innerHTML = rows.join("");
+
+          document.getElementById("inputDecimal").textContent =
+            String(currentNum);
+          document.getElementById("inputHex").textContent = toHex(currentNum);
+          document.getElementById("resultDecimal").textContent =
+            currentStep === 5 ? String(result) : "待合流";
+          document.getElementById("resultHex").textContent =
+            currentStep === 5 ? toHex(visibleResult) : "—";
+          document.getElementById("stepTitle").textContent =
+            steps[currentStep].title;
+          document.getElementById("stepFormula").textContent =
+            steps[currentStep].formula;
+          document.getElementById("stepNarration").textContent =
+            steps[currentStep].narration;
+          document.getElementById("stepCounter").textContent =
+            "步骤 " + (currentStep + 1) + " / " + steps.length;
+          meter.style.width = ((currentStep + 1) / steps.length) * 100 + "%";
+          prevButton.disabled = currentStep === 0;
+          nextButton.disabled = currentStep === steps.length - 1;
+
+          if (announce) {
+            liveRegion.textContent =
+              "步骤 " + (currentStep + 1) + "：" + steps[currentStep].title;
+          }
+        }
+
+        function choosePreset(button) {
+          currentNum = Number(button.dataset.num);
+          currentStep = 0;
+          stopPlaying(false);
+          presets.forEach((item) =>
+            item.setAttribute("aria-pressed", String(item === button)),
+          );
+          render();
+          liveRegion.textContent = "已选择 num = " + currentNum;
+        }
+
+        presets.forEach((button) =>
+          button.addEventListener("click", () => choosePreset(button)),
+        );
+        prevButton.addEventListener("click", () => {
+          stopPlaying(false);
+          if (currentStep > 0) currentStep -= 1;
+          render();
+        });
+        nextButton.addEventListener("click", () => {
+          stopPlaying(false);
+          if (currentStep < steps.length - 1) currentStep += 1;
+          render();
+        });
+        resetButton.addEventListener("click", () => {
+          stopPlaying(false);
+          currentStep = 0;
+          render();
+        });
+        playButton.addEventListener("click", () => {
+          if (timer) {
+            stopPlaying(true);
+            return;
+          }
+          if (currentStep === steps.length - 1) currentStep = 0;
+          playButton.setAttribute("aria-pressed", "true");
+          playButton.textContent = "暂停播放";
+          liveRegion.textContent = "自动播放已开始";
+          render(false);
+          timer = setInterval(() => {
+            if (currentStep === steps.length - 1) {
+              stopPlaying(false);
+              liveRegion.textContent =
+                "自动播放完成，结果为 " + exchangeBits(currentNum);
+              return;
+            }
+            currentStep += 1;
+            render();
+          }, 1150);
+        });
+
+        const solutionToggle = document.getElementById("solutionToggle");
+        const solutionArea = document.getElementById("solutionArea");
+        solutionToggle.addEventListener("click", () => {
+          const expanded =
+            solutionToggle.getAttribute("aria-expanded") === "true";
+          solutionToggle.setAttribute("aria-expanded", String(!expanded));
+          solutionArea.hidden = expanded;
+          solutionToggle.textContent = expanded ? "查看题解" : "收起题解";
+          liveRegion.textContent = expanded ? "题解已收起" : "题解已展开";
+          if (!expanded) solutionArea.setAttribute("tabindex", "-1");
+        });
+
+        const tabs = Array.from(document.querySelectorAll(".code-tab"));
+        const panels = Array.from(document.querySelectorAll(".code-panel"));
+        function activateTab(tab, focus = true) {
+          tabs.forEach((item) => {
+            const selected = item === tab;
+            item.setAttribute("aria-selected", String(selected));
+            item.tabIndex = selected ? 0 : -1;
+          });
+          panels.forEach((panel) => {
+            panel.hidden = panel.id !== tab.getAttribute("aria-controls");
+          });
+          if (focus) tab.focus();
+          liveRegion.textContent = "已切换到 " + tab.textContent + " 代码";
+        }
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab, false));
+          tab.addEventListener("keydown", (event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const delta = event.key === "ArrowRight" ? 1 : -1;
+            activateTab(tabs[(index + delta + tabs.length) % tabs.length]);
+          });
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.defaultPrevented) return;
+          const target = event.target;
+          if (
+            target.matches(
+              "input, textarea, select, [contenteditable='true'], [role='tab']",
+            )
+          )
+            return;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            prevButton.click();
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            nextButton.click();
+          } else if (event.code === "Space") {
+            event.preventDefault();
+            playButton.click();
+          }
+        });
+
+        const testInputs = [
+          { input: 0, expected: 0 },
+          { input: 1, expected: 2 },
+          { input: 2, expected: 1 },
+          { input: 3, expected: 3 },
+          { input: 10, expected: 5 },
+          { input: 42, expected: 21 },
+          { input: 1073741823, expected: 1073741823 },
+        ];
+        document.getElementById("testCases").innerHTML = testInputs
+          .map((test, index) => {
+            const actual = exchangeBits(test.input);
+            const pass = actual === test.expected;
+            return (
+              '<article class="test-grid rounded-2xl border border-[#cbbbd6] bg-[#fbf8fd] p-3" aria-label="测试用例 ' +
+              (index + 1) +
+              '">' +
+              '<div class="test-field"><span class="block text-xs font-black text-[#8b2f68]">输入</span><code class="mt-1 block break-all">num = ' +
+              test.input +
+              "</code></div>" +
+              '<div class="test-field"><span class="block text-xs font-black text-[#8b2f68]">期望输出</span><code class="mt-1 block">' +
+              test.expected +
+              "</code></div>" +
+              '<div class="test-field"><span class="block text-xs font-black text-[#8b2f68]">实际输出</span><code class="mt-1 block">' +
+              actual +
+              "</code></div>" +
+              '<div class="test-field"><span class="block text-xs font-black text-[#8b2f68]">通过状态</span><span class="' +
+              (pass ? "status-pass" : "") +
+              ' mt-1 block">' +
+              (pass ? "通过" : "失败") +
+              "</span></div></article>"
+            );
+          })
+          .join("");
+
+        render(false);
+      })();
+    </script>
+  </body>
+</html>
+
