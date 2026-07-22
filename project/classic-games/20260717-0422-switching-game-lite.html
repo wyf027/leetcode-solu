@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Shannon Switching Game</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-emerald-300">classic connection game</p>
+        <h1 class="text-3xl font-bold text-white">Mini Shannon Switching Game</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-4">
+        <div id="edgeGrid" class="grid grid-cols-2 gap-3"></div>
+        <div class="mt-5 rounded border border-slate-800 bg-slate-950 p-4">
+          <p class="text-center text-sm font-semibold uppercase tracking-wide text-slate-400">Terminals</p>
+          <div class="mt-3 flex items-center justify-between text-sm text-slate-300">
+            <span class="rounded bg-emerald-950 px-3 py-2 text-emerald-200">Source A</span>
+            <span id="networkState" class="font-bold text-white"></span>
+            <span class="rounded bg-emerald-950 px-3 py-2 text-emerald-200">Target F</span>
+          </div>
+        </div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-slate-300"></p>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+            <li>Short claims one open link for the network.</li>
+            <li>Cut removes one open link from the network.</li>
+            <li>Short wins by connecting terminal A to terminal F.</li>
+            <li>Cut wins if no open links remain and A cannot reach F.</li>
+          </ul>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="font-semibold text-white">Counts</p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded bg-slate-800 p-3">
+              <p class="text-slate-400">Claimed</p>
+              <p id="claimedCount" class="text-2xl font-bold text-emerald-300"></p>
+            </div>
+            <div class="rounded bg-slate-800 p-3">
+              <p class="text-slate-400">Cut</p>
+              <p id="cutCount" class="text-2xl font-bold text-rose-300"></p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const edgeGrid = document.getElementById("edgeGrid");
+    const turnLabel = document.getElementById("turnLabel");
+    const statusEl = document.getElementById("status");
+    const networkState = document.getElementById("networkState");
+    const claimedCount = document.getElementById("claimedCount");
+    const cutCount = document.getElementById("cutCount");
+    const resetBtn = document.getElementById("resetBtn");
+    const nodes = ["A", "B", "C", "D", "E", "F"];
+    const baseEdges = [
+      ["A", "B"], ["A", "C"], ["B", "C"], ["B", "D"],
+      ["C", "E"], ["D", "E"], ["D", "F"], ["E", "F"],
+      ["B", "E"], ["C", "D"]
+    ];
+
+    let edges = [];
+    let turn = "short";
+    let gameOver = false;
+
+    function startGame() {
+      edges = baseEdges.map(([from, to], index) => ({ id: index, from, to, state: "open" }));
+      turn = "short";
+      gameOver = false;
+      render("Short starts. Claim one open link.");
+    }
+
+    function claimedEdges() {
+      return edges.filter((edge) => edge.state === "short");
+    }
+
+    function buildGraph() {
+      const graph = Object.fromEntries(nodes.map((node) => [node, []]));
+      claimedEdges().forEach(({ from, to }) => {
+        graph[from].push(to);
+        graph[to].push(from);
+      });
+      return graph;
+    }
+
+    function isConnected() {
+      const graph = buildGraph();
+      const seen = new Set(["A"]);
+      const queue = ["A"];
+      while (queue.length) {
+        const node = queue.shift();
+        graph[node].forEach((next) => {
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        });
+      }
+      return seen.has("F");
+    }
+
+    function openEdges() {
+      return edges.filter((edge) => edge.state === "open");
+    }
+
+    function finishTurn(message) {
+      if (isConnected()) {
+        gameOver = true;
+        render("Short wins by completing a path from A to F.");
+        return;
+      }
+      if (openEdges().length === 0) {
+        gameOver = true;
+        render("Cut wins. No open links remain and A is not connected to F.");
+        return;
+      }
+      turn = turn === "short" ? "cut" : "short";
+      render(message || `${turn === "short" ? "Short" : "Cut"} to move.`);
+    }
+
+    function handleEdge(id) {
+      if (gameOver) return;
+      const edge = edges.find((item) => item.id === id);
+      if (!edge || edge.state !== "open") return;
+      edge.state = turn;
+      finishTurn(turn === "short" ? "Short claims a link." : "Cut removes a link.");
+    }
+
+    function edgeClasses(edge) {
+      const base = "rounded border p-4 text-left transition";
+      if (edge.state === "short") return `${base} border-emerald-500 bg-emerald-950 text-emerald-100`;
+      if (edge.state === "cut") return `${base} border-rose-500 bg-rose-950 text-rose-100 line-through`;
+      return `${base} border-slate-700 bg-slate-800 text-slate-100 hover:border-emerald-300`;
+    }
+
+    function render(message) {
+      edgeGrid.innerHTML = "";
+      edges.forEach((edge) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = edgeClasses(edge);
+        button.innerHTML = `<span class="block text-lg font-bold">${edge.from} - ${edge.to}</span><span class="text-sm text-slate-300">${edge.state}</span>`;
+        button.addEventListener("click", () => handleEdge(edge.id));
+        edgeGrid.appendChild(button);
+      });
+      turnLabel.textContent = gameOver ? "Game over" : turn === "short" ? "Short" : "Cut";
+      statusEl.textContent = message;
+      networkState.textContent = isConnected() ? "connected" : "not connected";
+      claimedCount.textContent = edges.filter((edge) => edge.state === "short").length;
+      cutCount.textContent = edges.filter((edge) => edge.state === "cut").length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
