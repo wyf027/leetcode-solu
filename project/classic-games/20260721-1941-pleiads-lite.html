@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pleiads</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-fuchsia-200">Mini Pleiads</h1>
+        <p class="text-sm text-slate-300">Blast alien wings, dodge the rock field, then land gently on the pad.</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-semibold text-amber-200">0</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Lives</div>
+          <div id="lives" class="font-semibold text-rose-200">3</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Stage</div>
+          <div id="stage" class="font-semibold text-sky-200">Wave</div>
+        </div>
+        <div class="rounded bg-slate-900 px-3 py-2 ring-1 ring-slate-700">
+          <div class="text-slate-400">Round</div>
+          <div id="round" class="font-semibold text-fuchsia-200">1</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <div class="rounded bg-slate-900 p-3 ring-1 ring-slate-700">
+        <canvas id="game" width="800" height="520" class="aspect-[20/13] w-full rounded bg-slate-800"></canvas>
+      </div>
+      <aside class="rounded bg-slate-900 p-4 text-sm leading-6 text-slate-300 ring-1 ring-slate-700">
+        <h2 class="mb-2 font-semibold text-slate-100">Controls</h2>
+        <p>Move: Arrow keys or WASD</p>
+        <p>Fire: Space or J</p>
+        <p>Restart: Enter</p>
+        <button id="restart" class="mt-4 w-full rounded bg-fuchsia-300 px-3 py-2 font-semibold text-slate-950 hover:bg-fuchsia-200">Restart</button>
+        <p id="message" class="mt-4 min-h-16 rounded bg-slate-950 p-3 text-fuchsia-100 ring-1 ring-slate-700">Clear the alien wave to reach the next sector.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const stageEl = document.getElementById("stage");
+    const roundEl = document.getElementById("round");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const keys = new Set();
+    let ship;
+    let bullets;
+    let enemies;
+    let rocks;
+    let sparks;
+    let score;
+    let lives;
+    let round;
+    let stage;
+    let tick;
+    let lastShot;
+    let gameState;
+
+    function setupGame() {
+      score = 0;
+      lives = 3;
+      round = 1;
+      gameState = "playing";
+      startWaveStage();
+      setMessage("Clear the alien wing, then survive the rock field.");
+      updateHud();
+    }
+
+    function resetShip() {
+      ship = { x: width / 2, y: height - 66, vx: 0, vy: 0, invincible: 90 };
+      bullets = [];
+      sparks = [];
+      lastShot = 0;
+    }
+
+    function startWaveStage() {
+      stage = "wave";
+      tick = 0;
+      resetShip();
+      enemies = [];
+      rocks = [];
+      for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 8; col++) {
+          enemies.push({
+            x: 126 + col * 76,
+            y: 76 + row * 48,
+            baseX: 126 + col * 76,
+            baseY: 76 + row * 48,
+            phase: col * 0.45 + row,
+            diving: false,
+            alive: true
+          });
+        }
+      }
+      setMessage("Wave sector: shoot the alien wing.");
+      updateHud();
+    }
+
+    function startRockStage() {
+      stage = "rocks";
+      tick = 0;
+      resetShip();
+      enemies = [];
+      rocks = [];
+      for (let i = 0; i < 13; i++) {
+        rocks.push({
+          x: 40 + Math.random() * (width - 80),
+          y: -i * 54,
+          r: 12 + Math.random() * 12,
+          vx: -1.5 + Math.random() * 3,
+          vy: 1.8 + round * 0.22 + Math.random() * 1.4
+        });
+      }
+      setMessage("Rock sector: dodge until the landing beacon appears.");
+      updateHud();
+    }
+
+    function startLandingStage() {
+      stage = "landing";
+      tick = 0;
+      resetShip();
+      enemies = [];
+      rocks = [];
+      ship.y = 88;
+      ship.vy = 0.8;
+      setMessage("Landing sector: touch down slowly on the center pad.");
+      updateHud();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      stageEl.textContent = stage === "wave" ? "Wave" : stage === "rocks" ? "Rocks" : "Land";
+      roundEl.textContent = round;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function fireBullet() {
+      const now = performance.now();
+      if (gameState !== "playing" || stage === "landing" || now - lastShot < 170) {
+        return;
+      }
+      lastShot = now;
+      bullets.push({ x: ship.x, y: ship.y - 18, vy: -7 });
+    }
+
+    function updateShip() {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+      const len = Math.hypot(dx, dy) || 1;
+      const speed = stage === "landing" ? 2.3 : 3.8;
+      ship.x = clamp(ship.x + (dx / len) * speed, 24, width - 24);
+      if (stage === "landing") {
+        ship.vy = clamp(ship.vy + dy * 0.04 + 0.012, -0.7, 2.1);
+        ship.y = clamp(ship.y + ship.vy, 36, height - 42);
+      } else {
+        ship.y = clamp(ship.y + (dy / len) * speed, height * 0.45, height - 36);
+      }
+      ship.invincible = Math.max(0, ship.invincible - 1);
+    }
+
+    function updateBullets() {
+      bullets = bullets.filter((bullet) => {
+        bullet.y += bullet.vy;
+        if (bullet.y < -20) return false;
+        for (const enemy of enemies) {
+          if (!enemy.alive) continue;
+          if (Math.abs(bullet.x - enemy.x) < 22 && Math.abs(bullet.y - enemy.y) < 18) {
+            enemy.alive = false;
+            score += enemy.diving ? 90 : 45;
+            burst(enemy.x, enemy.y, "#f0abfc");
+            updateHud();
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
+    function updateEnemies() {
+      let remaining = 0;
+      enemies.forEach((enemy, index) => {
+        if (!enemy.alive) return;
+        remaining += 1;
+        if (!enemy.diving && tick % Math.max(45, 110 - round * 8) === index % 35) {
+          enemy.diving = true;
+        }
+        if (enemy.diving) {
+          const dx = ship.x - enemy.x;
+          enemy.x += Math.sign(dx) * (1.5 + round * 0.12);
+          enemy.y += 2.2 + round * 0.15;
+          if (enemy.y > height + 30) {
+            enemy.y = enemy.baseY;
+            enemy.x = enemy.baseX;
+            enemy.diving = false;
+          }
+        } else {
+          enemy.x = enemy.baseX + Math.sin(tick * 0.025 + enemy.phase) * 32;
+          enemy.y = enemy.baseY + Math.cos(tick * 0.02 + enemy.phase) * 8;
+        }
+        if (ship.invincible === 0 && distance(ship, enemy) < 25) {
+          loseLife("An alien clipped your fighter.");
+        }
+      });
+      if (remaining === 0) {
+        score += 150;
+        startRockStage();
+      }
+    }
+
+    function updateRocks() {
+      rocks.forEach((rock) => {
+        rock.x += rock.vx;
+        rock.y += rock.vy;
+        if (rock.x < -30) rock.x = width + 30;
+        if (rock.x > width + 30) rock.x = -30;
+        if (rock.y > height + 50) {
+          rock.y = -50;
+          rock.x = 40 + Math.random() * (width - 80);
+        }
+        if (ship.invincible === 0 && distance(ship, rock) < rock.r + 15) {
+          loseLife("A drifting rock smashed the hull.");
+        }
+      });
+      if (tick > 720) {
+        score += 120;
+        startLandingStage();
+      }
+    }
+
+    function updateLanding() {
+      const pad = { x: width / 2 - 72, y: height - 34, w: 144, h: 14 };
+      if (ship.y > pad.y - 18) {
+        const centered = ship.x > pad.x && ship.x < pad.x + pad.w;
+        if (centered && ship.vy < 1.35) {
+          score += 300;
+          round += 1;
+          startWaveStage();
+        } else {
+          loseLife("Landing was too rough.");
+          if (gameState === "playing") startLandingStage();
+        }
+      }
+    }
+
+    function loseLife(reason) {
+      if (ship.invincible > 0 || gameState !== "playing") return;
+      lives -= 1;
+      burst(ship.x, ship.y, "#fb7185");
+      setMessage(reason);
+      if (lives <= 0) {
+        gameState = "over";
+        setMessage("Mission failed. Press Enter or Restart.");
+      } else if (stage === "wave") {
+        resetShip();
+      } else if (stage === "rocks") {
+        resetShip();
+      }
+      updateHud();
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(i * 0.52) * (1 + Math.random() * 2.4),
+          vy: Math.sin(i * 0.52) * (1 + Math.random() * 2.4),
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updateSparks() {
+      sparks = sparks.filter((spark) => {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.life -= 1;
+        return spark.life > 0;
+      });
+    }
+
+    function drawSpace() {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#f8fafc";
+      for (let i = 0; i < 80; i++) {
+        const x = (i * 97 + tick * 0.3) % width;
+        const y = (i * 53 + tick * 0.8) % height;
+        ctx.globalAlpha = 0.25 + (i % 5) * 0.1;
+        ctx.fillRect(x, y, 2, 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.globalAlpha = ship.invincible > 0 && Math.floor(ship.invincible / 7) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.moveTo(0, -20);
+      ctx.lineTo(18, 18);
+      ctx.lineTo(0, 10);
+      ctx.lineTo(-18, 18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f0abfc";
+      ctx.fillRect(-6, 2, 12, 12);
+      ctx.restore();
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy) => {
+        if (!enemy.alive) return;
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.fillStyle = enemy.diving ? "#f97316" : "#a78bfa";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 22, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fef3c7";
+        ctx.beginPath();
+        ctx.arc(-8, -2, 3, 0, Math.PI * 2);
+        ctx.arc(8, -2, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    function drawRocks() {
+      rocks.forEach((rock) => {
+        ctx.fillStyle = "#94a3b8";
+        ctx.beginPath();
+        ctx.arc(rock.x, rock.y, rock.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#cbd5e1";
+        ctx.fillRect(rock.x - rock.r / 2, rock.y - 3, rock.r, 4);
+      });
+    }
+
+    function drawLandingPad() {
+      if (stage !== "landing") return;
+      ctx.fillStyle = "#14532d";
+      ctx.fillRect(width / 2 - 90, height - 44, 180, 24);
+      ctx.fillStyle = "#bef264";
+      ctx.fillRect(width / 2 - 72, height - 34, 144, 14);
+      ctx.fillStyle = "#dcfce7";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("LANDING PAD", width / 2 - 42, height - 50);
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = "#fde68a";
+      bullets.forEach((bullet) => {
+        ctx.fillRect(bullet.x - 2, bullet.y - 10, 4, 14);
+      });
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = Math.max(0, spark.life / 24);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 4, 4);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawOverlay() {
+      if (gameState !== "over") return;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.76)";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#f0abfc";
+      ctx.font = "bold 38px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Mission Failed", width / 2, height / 2 - 8);
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Press Enter to restart", width / 2, height / 2 + 30);
+      ctx.textAlign = "start";
+    }
+
+    function loop() {
+      tick += 1;
+      if (gameState === "playing") {
+        updateShip();
+        updateBullets();
+        if (stage === "wave") updateEnemies();
+        if (stage === "rocks") updateRocks();
+        if (stage === "landing") updateLanding();
+        updateSparks();
+      }
+      drawSpace();
+      drawLandingPad();
+      drawEnemies();
+      drawRocks();
+      drawProjectiles();
+      drawShip();
+      drawOverlay();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === " " || event.key.toLowerCase() === "j") {
+        fireBullet();
+      } else if (event.key === "Enter" && gameState === "over") {
+        setupGame();
+      } else {
+        keys.add(event.key);
+        keys.add(event.key.toLowerCase());
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+    setupGame();
+    loop();
+  </script>
+</body>
+</html>
