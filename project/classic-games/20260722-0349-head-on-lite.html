@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Head On</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-amber-300">Mini Head On</h1>
+        <p class="text-sm text-zinc-400">Switch lanes, collect dots, and avoid the oncoming car.</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-xs uppercase text-zinc-500">Score</div>
+          <div id="score" class="font-mono text-lg text-amber-200">0</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-xs uppercase text-zinc-500">Dots</div>
+          <div id="dots" class="font-mono text-lg text-cyan-200">0</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-xs uppercase text-zinc-500">Lives</div>
+          <div id="lives" class="font-mono text-lg text-rose-200">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <div class="rounded border border-zinc-800 bg-black p-3 shadow-2xl">
+        <canvas id="game" width="720" height="520" class="block h-auto w-full rounded bg-zinc-950"></canvas>
+      </div>
+
+      <aside class="space-y-3 rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div>
+          <h2 class="text-sm font-semibold uppercase text-zinc-400">Controls</h2>
+          <dl class="mt-2 space-y-2 text-sm text-zinc-300">
+            <div class="flex justify-between gap-3">
+              <dt>Move</dt>
+              <dd class="font-mono text-amber-200">Arrow Keys</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt>Switch lane</dt>
+              <dd class="font-mono text-amber-200">Space</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt>Restart</dt>
+              <dd class="font-mono text-amber-200">R</dd>
+            </div>
+          </dl>
+        </div>
+        <button id="restart" class="w-full rounded bg-amber-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-amber-300">
+          Restart
+        </button>
+        <p id="message" class="min-h-16 rounded border border-zinc-800 bg-zinc-950 p-3 text-sm leading-6 text-zinc-300">
+          Clear every dot without crashing into the rival car.
+        </p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const dotsEl = document.getElementById('dots');
+    const livesEl = document.getElementById('lives');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+
+    const outerTrack = { x: 78, y: 58, w: 564, h: 404 };
+    const innerTrack = { x: 196, y: 150, w: 328, h: 220 };
+    const lanes = [0, 1];
+    const cornerRadius = [78, 52];
+    const keys = new Set();
+
+    let score = 0;
+    let lives = 3;
+    let dots = [];
+    let player;
+    let rival;
+    let state = 'ready';
+    let lastTime = 0;
+    let flash = 0;
+
+    function roundedPath(track, inset) {
+      const r = cornerRadius[inset];
+      return [
+        { x: track.x + r, y: track.y },
+        { x: track.x + track.w - r, y: track.y },
+        { x: track.x + track.w, y: track.y + r },
+        { x: track.x + track.w, y: track.y + track.h - r },
+        { x: track.x + track.w - r, y: track.y + track.h },
+        { x: track.x + r, y: track.y + track.h },
+        { x: track.x, y: track.y + track.h - r },
+        { x: track.x, y: track.y + r }
+      ];
+    }
+
+    function lanePoint(path, progress) {
+      const segments = [];
+      let total = 0;
+      for (let i = 0; i < path.length; i++) {
+        const a = path[i];
+        const b = path[(i + 1) % path.length];
+        const length = Math.hypot(b.x - a.x, b.y - a.y);
+        segments.push({ a, b, length });
+        total += length;
+      }
+
+      let target = ((progress % 1) + 1) % 1 * total;
+      for (const segment of segments) {
+        if (target <= segment.length) {
+          const t = target / segment.length;
+          const x = segment.a.x + (segment.b.x - segment.a.x) * t;
+          const y = segment.a.y + (segment.b.y - segment.a.y) * t;
+          const angle = Math.atan2(segment.b.y - segment.a.y, segment.b.x - segment.a.x);
+          return { x, y, angle };
+        }
+        target -= segment.length;
+      }
+      return { ...path[0], angle: 0 };
+    }
+
+    function getLanePath(lane) {
+      const offset = lane === 0 ? 0 : 34;
+      return roundedPath({
+        x: outerTrack.x + offset,
+        y: outerTrack.y + offset,
+        w: outerTrack.w - offset * 2,
+        h: outerTrack.h - offset * 2
+      }, lane);
+    }
+
+    function createDots() {
+      const points = [];
+      for (const lane of lanes) {
+        for (let i = 0; i < 38; i++) {
+          const progress = (i + 0.5) / 38;
+          const point = lanePoint(getLanePath(lane), progress);
+          points.push({ lane, progress, x: point.x, y: point.y, eaten: false });
+        }
+      }
+      return points;
+    }
+
+    function reset() {
+      score = 0;
+      lives = 3;
+      dots = createDots();
+      player = {
+        lane: 0,
+        progress: 0.73,
+        speed: 0.115,
+        direction: 1,
+        targetLane: 0,
+        switching: 0
+      };
+      rival = {
+        lane: 1,
+        progress: 0.27,
+        speed: 0.103,
+        direction: -1
+      };
+      state = 'playing';
+      flash = 0;
+      messageEl.textContent = 'Clear every dot without crashing into the rival car.';
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = String(score);
+      dotsEl.textContent = String(dots.filter((dot) => !dot.eaten).length);
+      livesEl.textContent = String(lives);
+    }
+
+    function switchLane() {
+      if (state !== 'playing' || player.switching > 0) return;
+      player.targetLane = player.lane === 0 ? 1 : 0;
+      player.switching = 0.18;
+    }
+
+    function updatePlayer(dt) {
+      if (keys.has('ArrowLeft') || keys.has('ArrowUp')) player.direction = -1;
+      if (keys.has('ArrowRight') || keys.has('ArrowDown')) player.direction = 1;
+
+      player.progress += player.speed * player.direction * dt;
+      if (player.switching > 0) {
+        player.switching -= dt;
+        if (player.switching <= 0) {
+          player.lane = player.targetLane;
+          player.switching = 0;
+        }
+      }
+    }
+
+    function updateRival(dt) {
+      const remaining = dots.filter((dot) => !dot.eaten).length;
+      rival.speed = 0.103 + Math.max(0, 76 - remaining) * 0.0009;
+      rival.progress += rival.speed * rival.direction * dt;
+
+      const playerPos = lanePoint(getLanePath(player.lane), player.progress);
+      const rivalPos = lanePoint(getLanePath(rival.lane), rival.progress);
+      const close = Math.hypot(playerPos.x - rivalPos.x, playerPos.y - rivalPos.y) < 86;
+      if (close && Math.random() < 0.018) {
+        rival.lane = rival.lane === 0 ? 1 : 0;
+      }
+    }
+
+    function collectDots() {
+      const p = lanePoint(getLanePath(player.lane), player.progress);
+      for (const dot of dots) {
+        if (dot.eaten || dot.lane !== player.lane) continue;
+        if (Math.hypot(dot.x - p.x, dot.y - p.y) < 17) {
+          dot.eaten = true;
+          score += 10;
+        }
+      }
+
+      if (dots.every((dot) => dot.eaten)) {
+        score += lives * 100;
+        state = 'won';
+        messageEl.textContent = 'Track cleared. Press R or Restart for another run.';
+      }
+    }
+
+    function checkCrash() {
+      const p = lanePoint(getLanePath(player.lane), player.progress);
+      const r = lanePoint(getLanePath(rival.lane), rival.progress);
+      if (Math.hypot(p.x - r.x, p.y - r.y) < 25) {
+        lives -= 1;
+        flash = 0.28;
+        if (lives <= 0) {
+          state = 'over';
+          messageEl.textContent = 'Crash out. Press R or Restart to try again.';
+        } else {
+          messageEl.textContent = 'Collision. You have another car ready.';
+          player.progress = 0.73;
+          player.lane = 0;
+          player.targetLane = 0;
+          rival.progress = 0.27;
+          rival.lane = 1;
+        }
+      }
+    }
+
+    function drawTrack() {
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#171717';
+      roundRect(outerTrack.x - 34, outerTrack.y - 34, outerTrack.w + 68, outerTrack.h + 68, 92);
+      ctx.fillStyle = '#050505';
+      roundRect(innerTrack.x, innerTrack.y, innerTrack.w, innerTrack.h, 58);
+
+      for (const lane of lanes) {
+        const path = getLanePath(lane);
+        ctx.strokeStyle = lane === 0 ? '#fbbf24' : '#22d3ee';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([14, 16]);
+        ctx.beginPath();
+        ctx.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.fill();
+    }
+
+    function drawDots() {
+      for (const dot of dots) {
+        if (dot.eaten) continue;
+        ctx.fillStyle = dot.lane === 0 ? '#fde68a' : '#a5f3fc';
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawCar(car, color, label) {
+      const point = lanePoint(getLanePath(car.lane), car.progress);
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.rotate(point.angle + (car.direction < 0 ? Math.PI : 0));
+      ctx.fillStyle = color;
+      ctx.fillRect(-15, -9, 30, 18);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(2, -6, 8, 12);
+      ctx.fillStyle = '#fafafa';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, 0, 4);
+      ctx.restore();
+    }
+
+    function drawOverlay() {
+      if (flash > 0) {
+        ctx.fillStyle = `rgba(244, 63, 94, ${Math.min(0.5, flash * 2)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      if (state === 'over' || state === 'won') {
+        ctx.fillStyle = 'rgba(0,0,0,0.72)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = state === 'won' ? '#fbbf24' : '#fb7185';
+        ctx.font = 'bold 34px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(state === 'won' ? 'TRACK CLEARED' : 'GAME OVER', canvas.width / 2, canvas.height / 2 - 8);
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '16px system-ui';
+        ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 28);
+      }
+    }
+
+    function update(dt) {
+      if (state !== 'playing') return;
+      updatePlayer(dt);
+      updateRival(dt);
+      collectDots();
+      checkCrash();
+      flash = Math.max(0, flash - dt);
+      updateHud();
+    }
+
+    function draw() {
+      drawTrack();
+      drawDots();
+      drawCar(player, '#f59e0b', 'P');
+      drawCar(rival, '#ef4444', 'R');
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.05, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(event.code)) {
+        event.preventDefault();
+      }
+      keys.add(event.code);
+      if (event.code === 'Space') switchLane();
+      if (event.code === 'KeyR') reset();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.code);
+    });
+
+    restartBtn.addEventListener('click', reset);
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
