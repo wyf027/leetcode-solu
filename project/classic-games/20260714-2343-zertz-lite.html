@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini ZERTZ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-950 text-gray-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-gray-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-teal-200">Mini ZERTZ</h1>
+        <p class="mt-1 text-sm text-gray-400">放置共享珠子，跳吃收集，再移除一个外圈空环。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-gray-700 bg-gray-900 px-3 py-2">
+          <div class="text-gray-500">当前</div>
+          <div id="turn" class="text-lg font-bold text-teal-200">A</div>
+        </div>
+        <div class="rounded border border-gray-700 bg-gray-900 px-3 py-2">
+          <div class="text-gray-500">A 收集</div>
+          <div id="aScore" class="text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-gray-700 bg-gray-900 px-3 py-2">
+          <div class="text-gray-500">B 收集</div>
+          <div id="bScore" class="text-lg font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_300px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[620px] grid-cols-5 gap-2 rounded bg-gray-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-gray-800 bg-gray-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400">珠子供应</h2>
+          <div id="marbles" class="mt-3 grid grid-cols-3 gap-2"></div>
+        </div>
+        <div class="rounded border border-gray-800 bg-gray-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400">状态</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-gray-300">选择一个颜色，再放到任意空环上。</p>
+          <button id="reset" class="mt-4 w-full rounded bg-teal-300 px-4 py-2 font-semibold text-gray-950 hover:bg-teal-200">重新开局</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById('board');
+    const marblesEl = document.getElementById('marbles');
+    const turnEl = document.getElementById('turn');
+    const aScoreEl = document.getElementById('aScore');
+    const bScoreEl = document.getElementById('bScore');
+    const msgEl = document.getElementById('message');
+    const resetBtn = document.getElementById('reset');
+
+    let rings;
+    let current;
+    let selectedColor;
+    let selectedJump;
+    let captured;
+    let supply;
+    let gameOver;
+
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]];
+    const colors = {
+      white: 'bg-stone-100 text-gray-950',
+      gray: 'bg-gray-500 text-white',
+      black: 'bg-black text-white'
+    };
+
+    function resetGame() {
+      rings = Array.from({ length: size }, () => Array(size).fill(null));
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          rings[row][col] = { active: true, marble: '' };
+        }
+      }
+      current = 'A';
+      selectedColor = 'white';
+      selectedJump = null;
+      captured = { A: [], B: [] };
+      supply = { white: 6, gray: 6, black: 6 };
+      gameOver = false;
+      msgEl.textContent = '选择一个颜色，再放到任意空环上。';
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function cellAt(row, col) {
+      return inBounds(row, col) ? rings[row][col] : null;
+    }
+
+    function isOuterEmpty(row, col) {
+      const cell = cellAt(row, col);
+      if (!cell || !cell.active || cell.marble) return false;
+      return dirs.some(([dr, dc]) => {
+        const neighbor = cellAt(row + dr, col + dc);
+        return !neighbor || !neighbor.active;
+      });
+    }
+
+    function availableJumps() {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const from = cellAt(row, col);
+          if (!from?.active || !from.marble) continue;
+          dirs.forEach(([dr, dc]) => {
+            const mid = cellAt(row + dr, col + dc);
+            const to = cellAt(row + dr * 2, col + dc * 2);
+            if (mid?.active && mid.marble && to?.active && !to.marble) {
+              moves.push({ from: { row, col }, mid: { row: row + dr, col: col + dc }, to: { row: row + dr * 2, col: col + dc * 2 } });
+            }
+          });
+        }
+      }
+      return moves;
+    }
+
+    function score(player) {
+      return captured[player].length;
+    }
+
+    function renderMarbles() {
+      marblesEl.innerHTML = '';
+      Object.keys(supply).forEach((color) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.disabled = supply[color] === 0 || gameOver;
+        btn.textContent = `${color} ${supply[color]}`;
+        btn.className = [
+          'rounded border px-3 py-2 text-sm font-semibold',
+          colors[color],
+          selectedColor === color ? 'outline outline-4 outline-teal-200' : '',
+          supply[color] === 0 ? 'cursor-not-allowed opacity-40' : ''
+        ].join(' ');
+        btn.addEventListener('click', () => {
+          selectedColor = color;
+          msgEl.textContent = `已选择 ${color} 珠子。`;
+          render();
+        });
+        marblesEl.appendChild(btn);
+      });
+    }
+
+    function renderBoard() {
+      const jumps = availableJumps();
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = cellAt(row, col);
+          const jumpStart = jumps.some((move) => move.from.row === row && move.from.col === col);
+          const activeJump = selectedJump && selectedJump.to.row === row && selectedJump.to.col === col;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = !cell.active ? '' : cell.marble ? '●' : '○';
+          btn.className = [
+            'aspect-square rounded-full border text-3xl font-black transition',
+            !cell.active ? 'border-gray-900 bg-gray-950 opacity-20' : 'border-teal-700 bg-gray-800 hover:border-teal-200',
+            cell.marble ? colors[cell.marble] : 'text-teal-300',
+            jumpStart ? 'ring-2 ring-amber-300' : '',
+            activeJump ? 'outline outline-4 outline-amber-200' : ''
+          ].join(' ');
+          btn.addEventListener('click', () => handleCell(row, col));
+          boardEl.appendChild(btn);
+        }
+      }
+    }
+
+    function render() {
+      turnEl.textContent = current;
+      aScoreEl.textContent = score('A');
+      bScoreEl.textContent = score('B');
+      renderMarbles();
+      renderBoard();
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      const jumps = availableJumps();
+      if (jumps.length) {
+        handleJump(row, col, jumps);
+        return;
+      }
+      const cell = cellAt(row, col);
+      if (!cell.active || cell.marble) {
+        msgEl.textContent = '只能把珠子放在空环上。';
+        return;
+      }
+      if (!selectedColor || supply[selectedColor] <= 0) {
+        msgEl.textContent = '请先选择还有供应的珠子颜色。';
+        return;
+      }
+      cell.marble = selectedColor;
+      supply[selectedColor] -= 1;
+      msgEl.textContent = '已放置珠子。现在移除一个外圈空环。';
+      render();
+      selectedColor = '';
+    }
+
+    function handleJump(row, col, jumps) {
+      if (!selectedJump) {
+        const starts = jumps.filter((move) => move.from.row === row && move.from.col === col);
+        if (!starts.length) {
+          msgEl.textContent = '有可跳吃时必须跳吃；请选择带高亮的起点。';
+          return;
+        }
+        selectedJump = starts[0];
+        msgEl.textContent = '已选择跳吃起点，再点击目标空环。';
+        render();
+        return;
+      }
+      const matching = jumps.find((move) => move.from.row === selectedJump.from.row && move.from.col === selectedJump.from.col && move.to.row === row && move.to.col === col);
+      if (!matching) {
+        msgEl.textContent = '目标必须是该起点两格外的空环。';
+        return;
+      }
+      const from = cellAt(matching.from.row, matching.from.col);
+      const mid = cellAt(matching.mid.row, matching.mid.col);
+      const to = cellAt(matching.to.row, matching.to.col);
+      captured[current].push(mid.marble);
+      to.marble = from.marble;
+      from.marble = '';
+      mid.marble = '';
+      selectedJump = null;
+      endTurn('跳吃成功。');
+    }
+
+    function removeRing(row, col) {
+      const cell = cellAt(row, col);
+      if (!isOuterEmpty(row, col)) return false;
+      cell.active = false;
+      endTurn('已移除外圈空环。');
+      return true;
+    }
+
+    function endTurn(prefix) {
+      if (score(current) >= 5 || Object.values(supply).every((amount) => amount === 0)) {
+        finishGame();
+        return;
+      }
+      current = current === 'A' ? 'B' : 'A';
+      selectedColor = Object.keys(supply).find((color) => supply[color] > 0) || '';
+      msgEl.textContent = `${prefix} 轮到 ${current}。`;
+      render();
+    }
+
+    function finishGame() {
+      gameOver = true;
+      const a = score('A');
+      const b = score('B');
+      msgEl.textContent = a === b ? `平局：双方各收集 ${a}。` : `${a > b ? 'A' : 'B'} 获胜：${a} - ${b}。`;
+      render();
+    }
+
+    boardEl.addEventListener('dblclick', (event) => {
+      const buttons = [...boardEl.children];
+      const index = buttons.indexOf(event.target);
+      if (index < 0 || gameOver || availableJumps().length) return;
+      const row = Math.floor(index / size);
+      const col = index % size;
+      if (!removeRing(row, col)) msgEl.textContent = '双击只能移除外圈空环。';
+    });
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
