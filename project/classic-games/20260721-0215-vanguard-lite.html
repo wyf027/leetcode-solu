@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Vanguard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-lime-200">Mini Vanguard</h1>
+        <p class="mt-1 text-sm text-zinc-400">穿越洞穴航道，清除巡逻机并抵达出口。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-xs md:w-[28rem]">
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">护盾</div>
+          <div id="shieldLabel" class="text-lg font-semibold text-lime-200">3</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">目标</div>
+          <div id="enemyLabel" class="text-lg font-semibold text-rose-200">0</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">航程</div>
+          <div id="rangeLabel" class="text-lg font-semibold text-sky-200">0%</div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">分数</div>
+          <div id="scoreLabel" class="text-lg font-semibold text-amber-200">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-2">
+        <canvas id="game" width="760" height="480" class="block aspect-[19/12] w-full bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-300">
+        <div id="status" class="mb-4 rounded bg-zinc-950 px-3 py-2 text-lime-100">击落巡逻机，避开洞穴边缘。</div>
+        <dl class="space-y-3">
+          <div>
+            <dt class="text-zinc-500">移动</dt>
+            <dd>WASD / 方向键</dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">射击</dt>
+            <dd>Space</dd>
+          </div>
+          <div>
+            <dt class="text-zinc-500">重开</dt>
+            <dd>R</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const shieldLabel = document.getElementById('shieldLabel');
+    const enemyLabel = document.getElementById('enemyLabel');
+    const rangeLabel = document.getElementById('rangeLabel');
+    const scoreLabel = document.getElementById('scoreLabel');
+    const statusLabel = document.getElementById('status');
+    const keys = new Set();
+
+    let ship;
+    let shots;
+    let enemies;
+    let sparks;
+    let scroll;
+    let score;
+    let state;
+    let spawnTimer;
+    let lastTime;
+
+    const routeLength = 3800;
+
+    function setupGame() {
+      ship = { x: 110, y: 240, w: 34, h: 20, shields: 3, cooldown: 0, invuln: 0 };
+      shots = [];
+      enemies = [];
+      sparks = [];
+      scroll = 0;
+      score = 0;
+      state = 'playing';
+      spawnTimer = 0.2;
+      lastTime = performance.now();
+      statusLabel.textContent = '击落巡逻机，避开洞穴边缘。';
+      updateLabels();
+    }
+
+    function topWall(x) {
+      return 58 + Math.sin((x + scroll) / 170) * 28 + Math.sin((x + scroll) / 67) * 10;
+    }
+
+    function bottomWall(x) {
+      return canvas.height - 64 + Math.cos((x + scroll) / 150) * 24 + Math.sin((x + scroll) / 83) * 9;
+    }
+
+    function updateLabels() {
+      shieldLabel.textContent = ship.shields;
+      enemyLabel.textContent = enemies.length;
+      rangeLabel.textContent = `${Math.min(100, Math.floor((scroll / routeLength) * 100))}%`;
+      scoreLabel.textContent = score;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function moveShip(dt) {
+      let vx = 0;
+      let vy = 0;
+      if (keys.has('ArrowLeft') || keys.has('a')) vx -= 1;
+      if (keys.has('ArrowRight') || keys.has('d')) vx += 1;
+      if (keys.has('ArrowUp') || keys.has('w')) vy -= 1;
+      if (keys.has('ArrowDown') || keys.has('s')) vy += 1;
+      if (vx !== 0 || vy !== 0) {
+        const len = Math.hypot(vx, vy);
+        vx /= len;
+        vy /= len;
+      }
+      ship.x = clamp(ship.x + vx * 210 * dt, 18, canvas.width - ship.w - 18);
+      ship.y = clamp(ship.y + vy * 230 * dt, 18, canvas.height - ship.h - 18);
+      ship.cooldown = Math.max(0, ship.cooldown - dt);
+      ship.invuln = Math.max(0, ship.invuln - dt);
+    }
+
+    function fireShot() {
+      if (state !== 'playing' || ship.cooldown > 0) return;
+      shots.push({ x: ship.x + ship.w, y: ship.y + ship.h / 2 - 2, w: 16, h: 4, vx: 430 });
+      ship.cooldown = 0.18;
+    }
+
+    function spawnEnemy() {
+      const y = topWall(canvas.width) + 48 + Math.random() * (bottomWall(canvas.width) - topWall(canvas.width) - 120);
+      enemies.push({
+        x: canvas.width + 30,
+        y,
+        w: 30,
+        h: 22,
+        vx: 120 + Math.random() * 70,
+        bob: Math.random() * Math.PI * 2
+      });
+    }
+
+    function updateEnemies(dt) {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0 && scroll < routeLength - 300) {
+        spawnEnemy();
+        spawnTimer = 0.85 + Math.random() * 0.6;
+      }
+      enemies.forEach((enemy) => {
+        enemy.x -= enemy.vx * dt;
+        enemy.bob += dt * 4;
+        enemy.y += Math.sin(enemy.bob) * 30 * dt;
+      });
+      enemies = enemies.filter((enemy) => enemy.x + enemy.w > -30);
+    }
+
+    function updateShots(dt) {
+      shots.forEach((shot) => {
+        shot.x += shot.vx * dt;
+      });
+      shots = shots.filter((shot) => {
+        if (shot.x > canvas.width + 20) return false;
+        const hitIndex = enemies.findIndex((enemy) => rectsOverlap(shot, enemy));
+        if (hitIndex >= 0) {
+          const enemy = enemies[hitIndex];
+          enemies.splice(hitIndex, 1);
+          score += 120;
+          burst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#bef264');
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function updateCollisions() {
+      const noseX = ship.x + ship.w;
+      if (ship.y < topWall(noseX) + 6 || ship.y + ship.h > bottomWall(noseX) - 6) {
+        damageShip('撞上洞穴边缘。');
+      }
+      enemies.forEach((enemy) => {
+        if (rectsOverlap(ship, enemy)) {
+          enemy.x = -100;
+          damageShip('被巡逻机撞击。');
+        }
+      });
+    }
+
+    function damageShip(message) {
+      if (ship.invuln > 0 || state !== 'playing') return;
+      ship.shields -= 1;
+      ship.invuln = 1.1;
+      statusLabel.textContent = message;
+      burst(ship.x + ship.w / 2, ship.y + ship.h / 2, '#fb7185');
+      if (ship.shields <= 0) {
+        state = 'lost';
+        statusLabel.textContent = '护盾耗尽。按 R 重开。';
+      }
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 14; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 50 + Math.random() * 120;
+        sparks.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0.45, color });
+      }
+    }
+
+    function updateSparks(dt) {
+      sparks.forEach((spark) => {
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+      });
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function updateMission(dt) {
+      scroll += 95 * dt;
+      if (scroll >= routeLength && state === 'playing') {
+        state = 'won';
+        score += 500 + ship.shields * 200;
+        statusLabel.textContent = '抵达出口，任务完成！按 R 再玩。';
+      }
+    }
+
+    function drawCave() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#27272a';
+      for (let x = 0; x <= canvas.width; x += 20) {
+        ctx.fillRect(x, 0, 22, topWall(x));
+        ctx.fillRect(x, bottomWall(x), 22, canvas.height - bottomWall(x));
+      }
+      ctx.strokeStyle = '#84cc16';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let x = 0; x <= canvas.width; x += 12) {
+        const y = topWall(x);
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      for (let x = 0; x <= canvas.width; x += 12) {
+        const y = bottomWall(x);
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.globalAlpha = ship.invuln > 0 && Math.floor(performance.now() / 90) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = '#a3e635';
+      ctx.beginPath();
+      ctx.moveTo(ship.x + ship.w, ship.y + ship.h / 2);
+      ctx.lineTo(ship.x + 4, ship.y);
+      ctx.lineTo(ship.x, ship.y + ship.h / 2);
+      ctx.lineTo(ship.x + 4, ship.y + ship.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillRect(ship.x + 10, ship.y + 7, 10, 5);
+      ctx.restore();
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy) => {
+        ctx.fillStyle = '#f43f5e';
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(enemy.x + 4, enemy.y + 5, enemy.w - 8, 4);
+      });
+    }
+
+    function drawShots() {
+      ctx.fillStyle = '#fef08a';
+      shots.forEach((shot) => ctx.fillRect(shot.x, shot.y, shot.w, shot.h));
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = Math.max(0, spark.life * 2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawBanner() {
+      if (state === 'playing') return;
+      ctx.fillStyle = 'rgba(9, 9, 11, 0.78)';
+      ctx.fillRect(0, 190, canvas.width, 96);
+      ctx.fillStyle = state === 'won' ? '#d9f99d' : '#fecaca';
+      ctx.font = 'bold 32px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(state === 'won' ? 'VANGUARD CLEAR' : 'MISSION FAILED', canvas.width / 2, 247);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawCave();
+      drawEnemies();
+      drawShots();
+      drawShip();
+      drawBanner();
+    }
+
+    function tick(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      if (state === 'playing') {
+        moveShip(dt);
+        updateMission(dt);
+        updateEnemies(dt);
+        updateShots(dt);
+        updateCollisions();
+      }
+      updateSparks(dt);
+      updateLabels();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
+        event.preventDefault();
+      }
+      if (event.key === ' ') fireShot();
+      if (event.key.toLowerCase() === 'r') setupGame();
+      keys.add(event.key);
+      keys.add(event.key.toLowerCase());
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    setupGame();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
