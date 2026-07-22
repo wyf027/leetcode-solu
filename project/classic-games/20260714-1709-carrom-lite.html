@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Carrom</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal">Mini Carrom</h1>
+        <p class="text-sm text-stone-300">调节瞄准和力度，5 次击球内把棋子弹进四角洞。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+      <div class="rounded border border-amber-800/70 bg-amber-950/30 p-3">
+        <canvas id="board" width="680" height="680" class="aspect-square w-full rounded bg-amber-100"></canvas>
+      </div>
+
+      <aside class="flex flex-col gap-3 rounded border border-stone-700 bg-stone-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs text-stone-400">分数</div>
+            <div id="score" class="text-2xl font-bold text-amber-300">0</div>
+          </div>
+          <div class="rounded bg-stone-800 p-3">
+            <div class="text-xs text-stone-400">剩余</div>
+            <div id="shots" class="text-2xl font-bold text-sky-300">5</div>
+          </div>
+        </div>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-stone-300"><span>瞄准角度</span><span id="angleValue">0°</span></span>
+          <input id="angle" type="range" min="-60" max="60" value="0" class="w-full accent-amber-400">
+        </label>
+
+        <label class="space-y-2 text-sm">
+          <span class="flex justify-between text-stone-300"><span>力度</span><span id="powerValue">70%</span></span>
+          <input id="power" type="range" min="35" max="100" value="70" class="w-full accent-sky-400">
+        </label>
+
+        <button id="shootBtn" class="rounded bg-sky-400 px-4 py-3 text-sm font-bold text-stone-950 hover:bg-sky-300">击球</button>
+        <p id="message" class="min-h-12 rounded bg-stone-800 p-3 text-sm leading-6 text-stone-200">白色击球子会沿虚线前进，碰到棋子后尝试送入最近的角洞。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const angleInput = document.getElementById("angle");
+    const powerInput = document.getElementById("power");
+    const angleValue = document.getElementById("angleValue");
+    const powerValue = document.getElementById("powerValue");
+    const scoreEl = document.getElementById("score");
+    const shotsEl = document.getElementById("shots");
+    const messageEl = document.getElementById("message");
+    const shootBtn = document.getElementById("shootBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const board = { x: 54, y: 54, size: 572 };
+    const pockets = [
+      { x: board.x + 24, y: board.y + 24 },
+      { x: board.x + board.size - 24, y: board.y + 24 },
+      { x: board.x + 24, y: board.y + board.size - 24 },
+      { x: board.x + board.size - 24, y: board.y + board.size - 24 }
+    ];
+    let coins = [];
+    let striker = { x: 340, y: 552 };
+    let score = 0;
+    let shots = 5;
+    let busy = false;
+    let trail = [];
+
+    function resetGame() {
+      const center = { x: 340, y: 318 };
+      const ring = [
+        [0, 0, "queen"],
+        [-38, 0, "black"],
+        [38, 0, "black"],
+        [0, -38, "black"],
+        [0, 38, "black"],
+        [-28, -28, "black"],
+        [28, -28, "black"],
+        [-28, 28, "black"],
+        [28, 28, "black"]
+      ];
+      coins = ring.map(([dx, dy, type], index) => ({
+        id: index,
+        x: center.x + dx,
+        y: center.y + dy,
+        r: type === "queen" ? 15 : 14,
+        type,
+        pocketed: false
+      }));
+      score = 0;
+      shots = 5;
+      busy = false;
+      striker = { x: 340, y: 552 };
+      trail = [];
+      messageEl.textContent = "白色击球子会沿虚线前进，碰到棋子后尝试送入最近的角洞。";
+      updateHud();
+      drawBoard();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      shotsEl.textContent = shots;
+      angleValue.textContent = `${angleInput.value}°`;
+      powerValue.textContent = `${powerInput.value}%`;
+      shootBtn.disabled = busy || shots <= 0;
+      shootBtn.className = shootBtn.disabled
+        ? "rounded bg-stone-700 px-4 py-3 text-sm font-bold text-stone-400"
+        : "rounded bg-sky-400 px-4 py-3 text-sm font-bold text-stone-950 hover:bg-sky-300";
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const grd = ctx.createLinearGradient(board.x, board.y, board.x + board.size, board.y + board.size);
+      grd.addColorStop(0, "#fde68a");
+      grd.addColorStop(1, "#d97706");
+      ctx.fillStyle = grd;
+      ctx.fillRect(board.x, board.y, board.size, board.size);
+      ctx.strokeStyle = "#78350f";
+      ctx.lineWidth = 12;
+      ctx.strokeRect(board.x, board.y, board.size, board.size);
+
+      ctx.strokeStyle = "rgba(120,53,15,0.55)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(340, 318, 74, 0, Math.PI * 2);
+      ctx.stroke();
+
+      pockets.forEach((pocket) => {
+        ctx.fillStyle = "#1c1917";
+        ctx.beginPath();
+        ctx.arc(pocket.x, pocket.y, 25, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      drawAimLine();
+      trail.forEach((point, index) => {
+        ctx.fillStyle = `rgba(14, 165, 233, ${0.16 + index * 0.035})`;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      coins.filter((coin) => !coin.pocketed).forEach(drawCoin);
+      drawStriker();
+    }
+
+    function drawCoin(coin) {
+      ctx.fillStyle = coin.type === "queen" ? "#ef4444" : "#292524";
+      ctx.beginPath();
+      ctx.arc(coin.x, coin.y, coin.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = coin.type === "queen" ? "#fecaca" : "#f5f5f4";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function drawStriker() {
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(striker.x, striker.y, 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0ea5e9";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+
+    function drawAimLine() {
+      const radians = (Number(angleInput.value) - 90) * Math.PI / 180;
+      const endX = striker.x + Math.cos(radians) * 210;
+      const endY = striker.y + Math.sin(radians) * 210;
+      ctx.setLineDash([10, 10]);
+      ctx.strokeStyle = "rgba(2,132,199,0.8)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(striker.x, striker.y);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function nearestCoinToPath(start, end) {
+      let best = null;
+      coins.filter((coin) => !coin.pocketed).forEach((coin) => {
+        const distance = distanceToSegment(coin, start, end);
+        const forward = (coin.y < start.y && coin.y > end.y - 40);
+        if (forward && distance < 38 && (!best || distance < best.distance)) {
+          best = { coin, distance };
+        }
+      });
+      return best;
+    }
+
+    function distanceToSegment(point, start, end) {
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = dx * dx + dy * dy;
+      const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length));
+      const x = start.x + t * dx;
+      const y = start.y + t * dy;
+      return Math.hypot(point.x - x, point.y - y);
+    }
+
+    function scoreShot(hit) {
+      if (!hit) return 0;
+      const closestPocket = pockets.reduce((best, pocket) => {
+        const distance = Math.hypot(hit.coin.x - pocket.x, hit.coin.y - pocket.y);
+        return distance < best.distance ? { pocket, distance } : best;
+      }, { pocket: pockets[0], distance: Infinity });
+      const power = Number(powerInput.value);
+      const aimBonus = Math.max(0, 38 - hit.distance);
+      const pocketChance = power + aimBonus - closestPocket.distance / 8;
+      if (pocketChance > 62) {
+        hit.coin.pocketed = true;
+        hit.coin.x = closestPocket.pocket.x;
+        hit.coin.y = closestPocket.pocket.y;
+        return hit.coin.type === "queen" ? 30 : 10;
+      }
+      hit.coin.x += (hit.coin.x - 340) * 0.18;
+      hit.coin.y -= 18;
+      return 0;
+    }
+
+    function shootStriker() {
+      if (busy || shots <= 0) return;
+      busy = true;
+      shots -= 1;
+      trail = [];
+      const start = { ...striker };
+      const radians = (Number(angleInput.value) - 90) * Math.PI / 180;
+      const distance = 180 + Number(powerInput.value) * 2.2;
+      const end = {
+        x: Math.max(board.x + 45, Math.min(board.x + board.size - 45, start.x + Math.cos(radians) * distance)),
+        y: Math.max(board.y + 45, Math.min(board.y + board.size - 45, start.y + Math.sin(radians) * distance))
+      };
+      const hit = nearestCoinToPath(start, end);
+      let frame = 0;
+      const frames = 28;
+      const animate = () => {
+        frame += 1;
+        const t = frame / frames;
+        striker.x = start.x + (end.x - start.x) * t;
+        striker.y = start.y + (end.y - start.y) * t;
+        if (frame % 3 === 0) trail.push({ x: striker.x, y: striker.y });
+        drawBoard();
+        if (frame < frames) {
+          requestAnimationFrame(animate);
+          return;
+        }
+        const gained = scoreShot(hit);
+        score += gained;
+        striker = { x: 340, y: 552 };
+        busy = false;
+        if (gained > 0) {
+          messageEl.textContent = `命中入袋，获得 ${gained} 分。`;
+        } else if (hit) {
+          messageEl.textContent = "碰到了棋子，但角度或力度不够精准。";
+        } else {
+          messageEl.textContent = "击球没有碰到棋子，下一杆调整角度。";
+        }
+        if (coins.every((coin) => coin.pocketed)) {
+          messageEl.textContent = `清台完成，总分 ${score}。`;
+          shots = 0;
+        } else if (shots === 0) {
+          messageEl.textContent += ` 游戏结束，总分 ${score}。`;
+        }
+        updateHud();
+        drawBoard();
+      };
+      updateHud();
+      requestAnimationFrame(animate);
+    }
+
+    angleInput.addEventListener("input", () => { updateHud(); drawBoard(); });
+    powerInput.addEventListener("input", updateHud);
+    shootBtn.addEventListener("click", shootStriker);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
