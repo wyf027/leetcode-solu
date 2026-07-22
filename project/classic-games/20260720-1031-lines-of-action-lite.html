@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Lines of Action</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Lines of Action</h1>
+      </div>
+      <button id="resetButton" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-lime-200">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 gap-1"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-700 bg-zinc-900 p-4">
+          <h2 class="text-lg font-semibold">Status</h2>
+          <p id="status" class="mt-2 min-h-14 text-sm leading-6 text-zinc-300"></p>
+        </div>
+
+        <div class="rounded border border-zinc-700 bg-zinc-900 p-4">
+          <h2 class="text-lg font-semibold">Groups</h2>
+          <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-zinc-800 p-3">
+              <p class="text-zinc-400">Ivory</p>
+              <p id="ivoryGroups" class="text-2xl font-bold text-stone-100">0</p>
+            </div>
+            <div class="rounded bg-zinc-800 p-3">
+              <p class="text-zinc-400">Red</p>
+              <p id="redGroups" class="text-2xl font-bold text-rose-300">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-zinc-700 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <h2 class="text-lg font-semibold text-zinc-100">Rules</h2>
+          <p class="mt-2">Move one piece exactly as many squares as there are pieces in that row, column, or diagonal. You may jump friendly pieces, but not enemy pieces. Capture by landing on an enemy. Connect all your pieces to win.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const directions = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1], [0, 1],
+      [1, -1], [1, 0], [1, 1],
+    ];
+    const initialBoard = [
+      "", "R", "R", "R", "R", "",
+      "I", "", "", "", "", "I",
+      "I", "", "", "", "", "I",
+      "I", "", "", "", "", "I",
+      "I", "", "", "", "", "I",
+      "", "R", "R", "R", "R", "",
+    ];
+
+    const boardElement = document.getElementById("board");
+    const statusElement = document.getElementById("status");
+    const ivoryGroupsElement = document.getElementById("ivoryGroups");
+    const redGroupsElement = document.getElementById("redGroups");
+    const resetButton = document.getElementById("resetButton");
+
+    let board = [];
+    let turn = "I";
+    let selected = null;
+    let legalTargets = [];
+    let gameOver = false;
+
+    function resetGame() {
+      board = [...initialBoard];
+      turn = "I";
+      selected = null;
+      legalTargets = [];
+      gameOver = false;
+      render();
+    }
+
+    function sideName(side) {
+      return side === "I" ? "Ivory" : "Red";
+    }
+
+    function opponent(side) {
+      return side === "I" ? "R" : "I";
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function indexAt(row, col) {
+      return row * size + col;
+    }
+
+    function lineCount(index, dr, dc) {
+      let count = 1;
+      let row = rowOf(index) + dr;
+      let col = colOf(index) + dc;
+
+      while (inBounds(row, col)) {
+        if (board[indexAt(row, col)] !== "") count++;
+        row += dr;
+        col += dc;
+      }
+
+      row = rowOf(index) - dr;
+      col = colOf(index) - dc;
+      while (inBounds(row, col)) {
+        if (board[indexAt(row, col)] !== "") count++;
+        row -= dr;
+        col -= dc;
+      }
+
+      return count;
+    }
+
+    function pathBlockedByEnemy(from, to, dr, dc, side) {
+      let row = rowOf(from) + dr;
+      let col = colOf(from) + dc;
+
+      while (indexAt(row, col) !== to) {
+        const cell = board[indexAt(row, col)];
+        if (cell === opponent(side)) return true;
+        row += dr;
+        col += dc;
+      }
+
+      return false;
+    }
+
+    function movesForPiece(index) {
+      const side = board[index];
+      if (!side) return [];
+      const moves = [];
+
+      directions.forEach(([dr, dc]) => {
+        const distance = lineCount(index, dr, dc);
+        const targetRow = rowOf(index) + dr * distance;
+        const targetCol = colOf(index) + dc * distance;
+
+        if (!inBounds(targetRow, targetCol)) return;
+        const target = indexAt(targetRow, targetCol);
+        if (board[target] === side) return;
+        if (pathBlockedByEnemy(index, target, dr, dc, side)) return;
+        moves.push(target);
+      });
+
+      return moves;
+    }
+
+    function piecesFor(side) {
+      return board
+        .map((cell, index) => (cell === side ? index : -1))
+        .filter((index) => index >= 0);
+    }
+
+    function groupCount(side) {
+      const pieces = piecesFor(side);
+      if (pieces.length === 0) return 0;
+
+      const remaining = new Set(pieces);
+      let groups = 0;
+
+      while (remaining.size > 0) {
+        groups++;
+        const start = remaining.values().next().value;
+        const stack = [start];
+        remaining.delete(start);
+
+        while (stack.length > 0) {
+          const current = stack.pop();
+          directions.forEach(([dr, dc]) => {
+            const row = rowOf(current) + dr;
+            const col = colOf(current) + dc;
+            if (!inBounds(row, col)) return;
+            const next = indexAt(row, col);
+            if (board[next] === side && remaining.has(next)) {
+              remaining.delete(next);
+              stack.push(next);
+            }
+          });
+        }
+      }
+
+      return groups;
+    }
+
+    function hasAnyMove(side) {
+      return piecesFor(side).some((index) => movesForPiece(index).length > 0);
+    }
+
+    function clearSelection() {
+      selected = null;
+      legalTargets = [];
+    }
+
+    function finishGame(message) {
+      gameOver = true;
+      clearSelection();
+      statusElement.textContent = message;
+      renderBoard();
+      renderGroups();
+    }
+
+    function checkWin(movingSide) {
+      if (groupCount(movingSide) === 1) {
+        finishGame(`${sideName(movingSide)} wins by connecting every piece.`);
+        return true;
+      }
+
+      const nextSide = opponent(movingSide);
+      if (!hasAnyMove(nextSide)) {
+        finishGame(`${sideName(movingSide)} wins because ${sideName(nextSide)} has no legal move.`);
+        return true;
+      }
+
+      return false;
+    }
+
+    function selectPiece(index) {
+      if (board[index] !== turn || gameOver) return;
+      selected = index;
+      legalTargets = movesForPiece(index);
+      statusElement.textContent = `${sideName(turn)} selected. Move exactly the line count to a highlighted square.`;
+      renderBoard();
+    }
+
+    function movePiece(index) {
+      if (selected === null || !legalTargets.includes(index)) return;
+      const movingSide = turn;
+      board[index] = movingSide;
+      board[selected] = "";
+      clearSelection();
+
+      if (!checkWin(movingSide)) {
+        turn = opponent(turn);
+        render();
+      }
+    }
+
+    function handleCell(index) {
+      if (gameOver) return;
+      if (selected !== null && legalTargets.includes(index)) {
+        movePiece(index);
+        return;
+      }
+      selectPiece(index);
+    }
+
+    function cellLabel(cell) {
+      if (cell === "I") return "I";
+      if (cell === "R") return "R";
+      return "";
+    }
+
+    function cellClasses(index) {
+      const cell = board[index];
+      const highlighted = legalTargets.includes(index);
+      const base = "flex aspect-square items-center justify-center rounded text-lg font-black transition focus:outline-none focus:ring-2 focus:ring-lime-200";
+      const darkSquare = (rowOf(index) + colOf(index)) % 2 === 0;
+
+      if (cell === "I") return `${base} bg-stone-100 text-zinc-950 ${selected === index ? "ring-4 ring-lime-300" : ""}`;
+      if (cell === "R") return `${base} bg-rose-400 text-zinc-950 ${selected === index ? "ring-4 ring-lime-300" : ""}`;
+      if (highlighted) return `${base} bg-lime-400 text-zinc-950 hover:bg-lime-300`;
+      return `${base} ${darkSquare ? "bg-zinc-800" : "bg-zinc-700"} hover:bg-zinc-600`;
+    }
+
+    function renderBoard() {
+      boardElement.innerHTML = "";
+      board.forEach((cell, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = cellClasses(index);
+        button.textContent = cellLabel(cell);
+        button.setAttribute("aria-label", `Row ${rowOf(index) + 1}, column ${colOf(index) + 1}`);
+        button.addEventListener("click", () => handleCell(index));
+        boardElement.appendChild(button);
+      });
+    }
+
+    function renderGroups() {
+      ivoryGroupsElement.textContent = groupCount("I");
+      redGroupsElement.textContent = groupCount("R");
+    }
+
+    function renderStatus() {
+      if (gameOver) return;
+      if (!hasAnyMove(turn)) {
+        finishGame(`${sideName(opponent(turn))} wins because ${sideName(turn)} has no legal move.`);
+        return;
+      }
+      statusElement.textContent = `${sideName(turn)} to move. Select one ${sideName(turn)} piece.`;
+    }
+
+    function render() {
+      renderBoard();
+      renderGroups();
+      renderStatus();
+    }
+
+    resetButton.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
