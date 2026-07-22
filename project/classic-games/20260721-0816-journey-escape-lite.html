@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Journey Escape</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-pink-200">Mini Journey Escape</h1>
+        <p class="text-sm text-neutral-400">方向键或 A/D 移动巡演车，避开人群和路障，收集通行证后抵达舞台。</p>
+      </div>
+      <button id="restartButton" class="rounded bg-pink-400 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-pink-200">
+        重新开始
+      </button>
+    </section>
+
+    <section class="grid gap-3 text-sm sm:grid-cols-4">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div class="text-neutral-400">分数</div>
+        <div id="score" class="text-xl font-bold text-pink-200">0</div>
+      </div>
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div class="text-neutral-400">生命</div>
+        <div id="lives" class="text-xl font-bold text-rose-300">3</div>
+      </div>
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div class="text-neutral-400">通行证</div>
+        <div id="passes" class="text-xl font-bold text-cyan-300">0</div>
+      </div>
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">
+        <div class="text-neutral-400">距离舞台</div>
+        <div id="distance" class="text-xl font-bold text-amber-300">100%</div>
+      </div>
+    </section>
+
+    <section class="relative">
+      <canvas id="gameCanvas" width="720" height="520" class="h-auto w-full rounded border border-pink-900 bg-neutral-950 shadow-2xl shadow-pink-950/30"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-4 top-4 hidden rounded border border-pink-700 bg-neutral-950/90 px-4 py-3 text-center text-sm font-semibold text-pink-100"></div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const passesEl = document.getElementById("passes");
+    const distanceEl = document.getElementById("distance");
+    const messageEl = document.getElementById("message");
+    const restartButton = document.getElementById("restartButton");
+    const keys = new Set();
+    const lanes = [170, 270, 370, 470, 570];
+
+    let player;
+    let obstacles;
+    let passes;
+    let sparks;
+    let score;
+    let lives;
+    let passCount;
+    let roadY;
+    let distance;
+    let spawnClock;
+    let gameOver;
+    let animationId;
+
+    function setupGame() {
+      player = { x: lanes[2], y: canvas.height - 70, width: 42, height: 56, speed: 6, invincible: 0 };
+      obstacles = [];
+      passes = [];
+      sparks = [];
+      score = 0;
+      lives = 3;
+      passCount = 0;
+      roadY = 0;
+      distance = 100;
+      spawnClock = 0;
+      gameOver = false;
+      hideMessage();
+      updateHud();
+      cancelAnimationFrame(animationId);
+      gameLoop();
+    }
+
+    function spawnObstacle() {
+      const lane = lanes[Math.floor(Math.random() * lanes.length)];
+      const roll = Math.random();
+      const type = roll < 0.45 ? "crowd" : roll < 0.78 ? "barrier" : "spotlight";
+      obstacles.push({
+        x: lane,
+        y: -40,
+        width: type === "barrier" ? 64 : 42,
+        height: type === "spotlight" ? 34 : 42,
+        speed: 2.4 + (100 - distance) * 0.018 + Math.random() * 0.7,
+        type
+      });
+      if (Math.random() < 0.42) {
+        const passLane = lanes[Math.floor(Math.random() * lanes.length)];
+        passes.push({ x: passLane, y: -90 - Math.random() * 90, radius: 12, speed: 2.7 });
+      }
+    }
+
+    function updatePlayer() {
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) player.x -= player.speed;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) player.x += player.speed;
+      player.x = Math.max(lanes[0], Math.min(lanes[lanes.length - 1], player.x));
+      if (player.invincible > 0) player.invincible -= 1;
+    }
+
+    function updateRoad() {
+      roadY = (roadY + 4) % 80;
+      distance = Math.max(0, distance - 0.045);
+      spawnClock -= 1;
+      if (spawnClock <= 0) {
+        spawnObstacle();
+        spawnClock = Math.max(24, 56 - (100 - distance) * 0.22);
+      }
+      if (distance <= 0 && passCount >= 5 && !gameOver) {
+        gameOver = true;
+        score += 1000;
+        updateHud();
+        showMessage("抵达舞台！乐队安全进场，演出开始。");
+      }
+    }
+
+    function updateObstacles() {
+      obstacles.forEach((obstacle) => {
+        obstacle.y += obstacle.speed;
+        if (!obstacle.hit && rectsOverlap(playerBox(), obstacleBox(obstacle)) && player.invincible <= 0) {
+          obstacle.hit = true;
+          loseLife();
+        }
+      });
+      obstacles = obstacles.filter((obstacle) => obstacle.y < canvas.height + 60 && !obstacle.hit);
+    }
+
+    function updatePasses() {
+      passes.forEach((pass) => {
+        pass.y += pass.speed;
+        const box = { x: pass.x - pass.radius, y: pass.y - pass.radius, width: pass.radius * 2, height: pass.radius * 2 };
+        if (!pass.collected && rectsOverlap(playerBox(), box)) {
+          pass.collected = true;
+          passCount += 1;
+          score += 150;
+          addSparks(pass.x, pass.y, "#67e8f9");
+        }
+      });
+      passes = passes.filter((pass) => pass.y < canvas.height + 40 && !pass.collected);
+    }
+
+    function loseLife() {
+      lives -= 1;
+      player.invincible = 100;
+      addSparks(player.x, player.y, "#fb7185");
+      if (lives <= 0) {
+        gameOver = true;
+        showMessage("巡演车被堵住了。按重新开始再试一次。");
+      } else {
+        showMessage("擦碰了一下，继续赶往舞台。");
+        setTimeout(() => {
+          if (!gameOver) hideMessage();
+        }, 700);
+      }
+    }
+
+    function playerBox() {
+      return { x: player.x - player.width / 2, y: player.y - player.height / 2, width: player.width, height: player.height };
+    }
+
+    function obstacleBox(obstacle) {
+      return { x: obstacle.x - obstacle.width / 2, y: obstacle.y - obstacle.height / 2, width: obstacle.width, height: obstacle.height };
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function addSparks(x, y, color) {
+      for (let i = 0; i < 10; i += 1) {
+        sparks.push({ x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4, life: 24, color });
+      }
+    }
+
+    function updateSparks() {
+      sparks.forEach((spark) => {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.life -= 1;
+      });
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      passesEl.textContent = `${passCount} / 5`;
+      distanceEl.textContent = `${Math.ceil(distance)}%`;
+    }
+
+    function showMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.remove("hidden");
+    }
+
+    function hideMessage() {
+      messageEl.classList.add("hidden");
+    }
+
+    function drawRoad() {
+      ctx.fillStyle = "#0a0a0a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(125, 0, 490, canvas.height);
+      ctx.strokeStyle = "#f9a8d4";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(125, 0, 490, canvas.height);
+      ctx.strokeStyle = "#525252";
+      ctx.lineWidth = 2;
+      lanes.forEach((lane) => {
+        ctx.beginPath();
+        ctx.moveTo(lane, 0);
+        ctx.lineTo(lane, canvas.height);
+        ctx.stroke();
+      });
+      ctx.fillStyle = "#fef3c7";
+      for (let y = -80 + roadY; y < canvas.height; y += 80) {
+        ctx.fillRect(canvas.width / 2 - 6, y, 12, 36);
+      }
+      ctx.fillStyle = "#7c2d12";
+      ctx.fillRect(125, 20, 490, 12);
+      ctx.fillStyle = "#fbbf24";
+      ctx.fillText("STAGE", 332, 32);
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.globalAlpha = player.invincible > 0 && Math.floor(player.invincible / 8) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = "#ec4899";
+      ctx.fillRect(-21, -28, 42, 56);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-14, -19, 28, 13);
+      ctx.fillStyle = "#fef3c7";
+      ctx.fillRect(-16, 17, 10, 8);
+      ctx.fillRect(6, 17, 10, 8);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawObstacles() {
+      obstacles.forEach((obstacle) => {
+        if (obstacle.type === "crowd") {
+          ctx.fillStyle = "#60a5fa";
+          ctx.beginPath();
+          ctx.arc(obstacle.x, obstacle.y, 20, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#fef3c7";
+          ctx.fillRect(obstacle.x - 10, obstacle.y - 6, 20, 8);
+        } else if (obstacle.type === "barrier") {
+          ctx.fillStyle = "#f97316";
+          ctx.fillRect(obstacle.x - 32, obstacle.y - 16, 64, 32);
+          ctx.fillStyle = "#fef3c7";
+          ctx.fillRect(obstacle.x - 26, obstacle.y - 4, 52, 8);
+        } else {
+          ctx.fillStyle = "#facc15";
+          ctx.beginPath();
+          ctx.moveTo(obstacle.x, obstacle.y - 18);
+          ctx.lineTo(obstacle.x + 24, obstacle.y + 16);
+          ctx.lineTo(obstacle.x - 24, obstacle.y + 16);
+          ctx.closePath();
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawPasses() {
+      passes.forEach((pass) => {
+        ctx.fillStyle = "#22d3ee";
+        ctx.beginPath();
+        ctx.arc(pass.x, pass.y, pass.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#082f49";
+        ctx.fillRect(pass.x - 6, pass.y - 3, 12, 6);
+      });
+    }
+
+    function drawSparks() {
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = spark.life / 24;
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawRoad();
+      drawPasses();
+      drawObstacles();
+      drawPlayer();
+      drawSparks();
+    }
+
+    function gameLoop() {
+      if (!gameOver) {
+        updatePlayer();
+        updateRoad();
+        updateObstacles();
+        updatePasses();
+        updateSparks();
+        score += 1;
+        updateHud();
+      }
+      draw();
+      animationId = requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    restartButton.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
