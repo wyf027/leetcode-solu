@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Treblecross</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-4 py-8">
+    <section class="rounded-lg border border-indigo-800 bg-indigo-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-rose-300">Classic Pencil Game</p>
+          <h1 class="text-3xl font-semibold text-white">Mini Treblecross</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-rose-400 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-rose-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_250px]">
+        <div class="rounded-lg border border-indigo-700 bg-indigo-950 p-4">
+          <div id="board" class="grid grid-cols-12 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-indigo-700 bg-indigo-950 p-4">
+          <div class="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p class="text-indigo-300">你</p>
+              <p id="humanCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-indigo-300">AI</p>
+              <p id="aiCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-indigo-300">空位</p>
+              <p id="emptyCount" class="text-2xl font-semibold text-white">12</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-16 rounded-md bg-indigo-900 p-3 text-sm leading-6 text-indigo-100"></p>
+          <div class="mt-4 space-y-2 text-sm text-indigo-200">
+            <p>你和 AI 都在同一条线上放 X。</p>
+            <p>谁的落子让任意连续 3 格都变成 X，谁立刻获胜。</p>
+            <p>绿色提示代表该位置可立即成三。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const length = 12;
+    let boardState = Array(length).fill("");
+    let locked = false;
+    let gameOver = false;
+
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const humanCountEl = document.getElementById("humanCount");
+    const aiCountEl = document.getElementById("aiCount");
+    const emptyCountEl = document.getElementById("emptyCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function emptyCells(state = boardState) {
+      return state.flatMap((piece, index) => piece === "" ? [index] : []);
+    }
+
+    function hasTriple(state = boardState) {
+      for (let index = 0; index <= state.length - 3; index += 1) {
+        if (state[index] && state[index + 1] && state[index + 2]) return true;
+      }
+      return false;
+    }
+
+    function wouldWin(index, state = boardState) {
+      const next = [...state];
+      next[index] = "X";
+      return hasTriple(next);
+    }
+
+    function countOwner(owner) {
+      return boardState.filter((piece) => piece === owner).length;
+    }
+
+    function dangerScore(index) {
+      let score = 0;
+      for (let start = index - 2; start <= index; start += 1) {
+        if (start < 0 || start + 2 >= length) continue;
+        const cells = [start, start + 1, start + 2];
+        const filled = cells.filter((cell) => boardState[cell] !== "").length;
+        if (cells.includes(index)) score += filled;
+      }
+      return score;
+    }
+
+    function chooseAiMove() {
+      const options = emptyCells();
+      const winning = options.find((index) => wouldWin(index));
+      if (winning !== undefined) return winning;
+      return options
+        .map((index) => ({ index, score: dangerScore(index) + (5.5 - Math.abs(5.5 - index)) * 0.1 }))
+        .sort((left, right) => right.score - left.score)[0].index;
+    }
+
+    function placeMark(index, owner) {
+      if (boardState[index] !== "" || gameOver) return;
+      boardState[index] = owner;
+      render();
+      if (hasTriple()) {
+        gameOver = true;
+        locked = true;
+        setMessage(owner === "H" ? "你完成连续三个 X，获胜！" : "AI 完成连续三个 X，点击重开再试。");
+        return;
+      }
+      if (!emptyCells().length) {
+        gameOver = true;
+        locked = true;
+        setMessage("棋盘已满，没有人完成三连，平局。");
+        return;
+      }
+      if (owner === "H") {
+        locked = true;
+        setMessage("AI 思考中...");
+        setTimeout(playComputerTurn, 420);
+      } else {
+        locked = false;
+        setMessage("轮到你选择一个空格。");
+      }
+    }
+
+    function chooseCell(index) {
+      if (locked || gameOver) return;
+      placeMark(index, "H");
+    }
+
+    function playComputerTurn() {
+      if (gameOver) return;
+      placeMark(chooseAiMove(), "A");
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function startGame() {
+      boardState = Array(length).fill("");
+      locked = false;
+      gameOver = false;
+      render();
+      setMessage("选择一个空格放下 X。");
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      boardState.forEach((piece, index) => {
+        const cell = document.createElement("button");
+        const previewWin = piece === "" && wouldWin(index);
+        cell.type = "button";
+        cell.className = [
+          "aspect-square min-h-12 rounded-md border text-2xl font-bold transition",
+          piece === "H" ? "border-cyan-300 bg-cyan-400 text-indigo-950" : "",
+          piece === "A" ? "border-rose-300 bg-rose-400 text-indigo-950" : "",
+          piece === "" ? "border-indigo-700 bg-indigo-900 hover:border-white" : "",
+          previewWin ? "ring-2 ring-emerald-300" : "",
+          locked || gameOver ? "cursor-default" : "cursor-pointer"
+        ].join(" ");
+        cell.textContent = piece ? "X" : previewWin ? "!" : "";
+        cell.setAttribute("aria-label", `cell ${index + 1}`);
+        cell.addEventListener("click", () => chooseCell(index));
+        boardEl.appendChild(cell);
+      });
+      humanCountEl.textContent = countOwner("H");
+      aiCountEl.textContent = countOwner("A");
+      emptyCountEl.textContent = emptyCells().length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
