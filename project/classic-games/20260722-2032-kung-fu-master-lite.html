@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kung-Fu Master 功夫大师</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-amber-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Kung-Fu Master 功夫大师</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">分数</div>
+          <div id="score" class="text-xl font-bold text-amber-300">0</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">生命</div>
+          <div id="lives" class="text-xl font-bold text-emerald-300">3</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">楼层</div>
+          <div id="floor" class="text-xl font-bold text-sky-300">1</div>
+        </div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="520" class="w-full rounded border border-stone-700 bg-stone-900 shadow-2xl shadow-black"></canvas>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-3 text-sm text-stone-300">
+        <p>方向键或 WASD 移动，J/空格出拳，K 踢腿。击退沿走廊逼近的敌人，抵达右侧楼梯进入下一层，完成 3 层获胜。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="punchBtn" class="rounded bg-amber-400 px-4 py-2 font-semibold text-stone-950 hover:bg-amber-300">出拳</button>
+        <button id="kickBtn" class="rounded bg-red-500 px-4 py-2 font-semibold text-white hover:bg-red-400">踢腿</button>
+        <button id="restartBtn" class="rounded bg-stone-700 px-4 py-2 font-semibold text-white hover:bg-stone-600">重开</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const floorEl = document.getElementById("floor");
+    const keys = new Set();
+    const hero = { x: 70, y: 365, w: 36, h: 74, vy: 0, attack: "", attackT: 0, hurtT: 0 };
+    let enemies = [];
+    let sparks = [];
+    let score = 0;
+    let lives = 3;
+    let floor = 1;
+    let spawnT = 0;
+    let state = "play";
+
+    function reset() {
+      hero.x = 70;
+      hero.y = 365;
+      hero.vy = 0;
+      hero.attack = "";
+      hero.attackT = 0;
+      hero.hurtT = 0;
+      enemies = [];
+      sparks = [];
+      score = 0;
+      lives = 3;
+      floor = 1;
+      spawnT = 0;
+      state = "play";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      floorEl.textContent = floor;
+    }
+
+    function strike(type) {
+      if (state !== "play" || hero.attackT > 0 || hero.hurtT > 0) return;
+      hero.attack = type;
+      hero.attackT = type === "kick" ? 20 : 14;
+    }
+
+    function spawnEnemy() {
+      const kind = Math.random() > 0.65 ? "kicker" : "fighter";
+      enemies.push({
+        x: 920,
+        y: 370,
+        w: 34,
+        h: 66,
+        hp: kind === "kicker" ? 2 : 1,
+        kind,
+        swingT: Math.floor(Math.random() * 50),
+        speed: 1.15 + floor * 0.18 + Math.random() * 0.55
+      });
+    }
+
+    function rectsTouch(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function attackBox() {
+      const reach = hero.attack === "kick" ? 58 : 42;
+      return { x: hero.x + hero.w - 4, y: hero.y + 18, w: reach, h: hero.attack === "kick" ? 28 : 22 };
+    }
+
+    function hitEnemy(enemy) {
+      enemy.hp -= hero.attack === "kick" ? 2 : 1;
+      sparks.push({ x: enemy.x + 10, y: enemy.y + 24, t: 18, color: hero.attack === "kick" ? "#f87171" : "#fbbf24" });
+      if (enemy.hp <= 0) {
+        score += enemy.kind === "kicker" ? 180 : 100;
+        enemies = enemies.filter((item) => item !== enemy);
+      }
+      updateHud();
+    }
+
+    function hurtHero() {
+      if (hero.hurtT > 0) return;
+      lives -= 1;
+      hero.hurtT = 48;
+      hero.x = Math.max(35, hero.x - 55);
+      sparks.push({ x: hero.x + 12, y: hero.y + 12, t: 24, color: "#38bdf8" });
+      if (lives <= 0) state = "lost";
+      updateHud();
+    }
+
+    function completeFloor() {
+      floor += 1;
+      if (floor > 3) {
+        state = "won";
+        return;
+      }
+      hero.x = 70;
+      enemies = [];
+      spawnT = 15;
+      updateHud();
+    }
+
+    function update() {
+      if (state !== "play") return;
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w");
+      const down = keys.has("ArrowDown") || keys.has("s");
+      if (left) hero.x -= 4;
+      if (right) hero.x += 4;
+      if (up) hero.y -= 3.2;
+      if (down) hero.y += 3.2;
+      hero.x = Math.max(24, Math.min(810, hero.x));
+      hero.y = Math.max(315, Math.min(396, hero.y));
+      if (hero.attackT > 0) hero.attackT -= 1;
+      if (hero.attackT === 0) hero.attack = "";
+      if (hero.hurtT > 0) hero.hurtT -= 1;
+
+      spawnT -= 1;
+      if (spawnT <= 0) {
+        spawnEnemy();
+        spawnT = Math.max(34, 102 - floor * 18 - score / 90);
+      }
+
+      const box = hero.attack ? attackBox() : null;
+      for (const enemy of [...enemies]) {
+        enemy.x -= enemy.speed;
+        enemy.swingT -= 1;
+        if (enemy.swingT <= 0) enemy.swingT = 55 + Math.floor(Math.random() * 28);
+        if (box && rectsTouch(box, enemy)) hitEnemy(enemy);
+        const enemyBlow = { x: enemy.x - 8, y: enemy.y + 18, w: 24, h: 30 };
+        if (rectsTouch(hero, enemyBlow) && enemy.swingT < 16) hurtHero();
+        if (enemy.x < -60) enemies = enemies.filter((item) => item !== enemy);
+      }
+
+      sparks = sparks.filter((spark) => {
+        spark.t -= 1;
+        return spark.t > 0;
+      });
+
+      if (hero.x > 790) completeFloor();
+    }
+
+    function drawHero() {
+      ctx.save();
+      ctx.translate(hero.x, hero.y);
+      ctx.fillStyle = hero.hurtT % 8 < 4 ? "#f8fafc" : "#facc15";
+      ctx.fillRect(10, 0, 16, 18);
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(6, 18, 26, 32);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(9, 50, 8, 24);
+      ctx.fillRect(23, 50, 8, 24);
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(6, 26);
+      ctx.lineTo(hero.attack === "punch" ? 62 : 35, 25);
+      ctx.moveTo(31, 31);
+      ctx.lineTo(hero.attack === "kick" ? 82 : 43, hero.attack === "kick" ? 47 : 34);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.fillStyle = enemy.kind === "kicker" ? "#ef4444" : "#38bdf8";
+      ctx.fillRect(8, 0, 16, 17);
+      ctx.fillRect(4, 18, 28, 28);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(6, 46, 8, 20);
+      ctx.fillRect(22, 46, 8, 20);
+      ctx.strokeStyle = "#fde68a";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(4, 28);
+      ctx.lineTo(enemy.swingT < 16 ? -16 : 0, 25);
+      ctx.stroke();
+      if (enemy.hp > 1) {
+        ctx.fillStyle = "#fff7ed";
+        ctx.fillRect(10, -8, 12, 3);
+      }
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, "#1c1917");
+      sky.addColorStop(1, "#0c0a09");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#292524";
+      ctx.fillRect(0, 260, 900, 190);
+      for (let i = 0; i < 9; i += 1) {
+        ctx.fillStyle = i % 2 ? "#44403c" : "#57534e";
+        ctx.fillRect(i * 100, 278, 76, 118);
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(i * 100 + 18, 302, 14, 22);
+        ctx.fillRect(i * 100 + 44, 302, 14, 22);
+      }
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(0, 430, 900, 42);
+      ctx.fillStyle = "#fbbf24";
+      ctx.fillRect(822, 312, 42, 120);
+      ctx.fillStyle = "#451a03";
+      for (let i = 0; i < 5; i += 1) ctx.fillRect(822, 332 + i * 20, 42, 5);
+
+      drawHero();
+      enemies.forEach(drawEnemy);
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = spark.t / 18;
+        ctx.fillStyle = spark.color;
+        ctx.beginPath();
+        ctx.arc(spark.x, spark.y, 18 - spark.t / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+
+      if (hero.attack) {
+        const box = attackBox();
+        ctx.strokeStyle = hero.attack === "kick" ? "#f87171" : "#fbbf24";
+        ctx.strokeRect(box.x, box.y, box.w, box.h);
+      }
+
+      if (state !== "play") {
+        ctx.fillStyle = "rgba(12,10,9,0.78)";
+        ctx.fillRect(0, 0, 900, 520);
+        ctx.fillStyle = state === "won" ? "#86efac" : "#fca5a5";
+        ctx.font = "bold 52px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state === "won" ? "通关!" : "失败", 450, 235);
+        ctx.fillStyle = "#f5f5f4";
+        ctx.font = "22px sans-serif";
+        ctx.fillText("按 R 或点击重开再试", 450, 282);
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+      if (event.key === " " || event.key.toLowerCase() === "j") strike("punch");
+      if (event.key.toLowerCase() === "k") strike("kick");
+      if (event.key.toLowerCase() === "r") reset();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    document.getElementById("punchBtn").addEventListener("click", () => strike("punch"));
+    document.getElementById("kickBtn").addEventListener("click", () => strike("kick"));
+    document.getElementById("restartBtn").addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
