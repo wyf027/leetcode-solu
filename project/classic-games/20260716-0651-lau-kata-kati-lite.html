@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Lau Kata Kati</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-amber-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Lau Kata Kati</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-amber-300 px-4 py-2 font-semibold text-zinc-950 transition hover:bg-amber-200">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_270px]">
+        <div class="relative aspect-square w-full rounded-lg border border-zinc-700 bg-zinc-950">
+          <svg id="lines" class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true"></svg>
+          <div id="board" class="absolute inset-0"></div>
+        </div>
+
+        <aside class="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-zinc-900 p-3">
+              <p class="text-xs text-zinc-400">金方吃子</p>
+              <p id="goldScore" class="text-2xl font-bold text-amber-300">0</p>
+            </div>
+            <div class="rounded-md bg-zinc-900 p-3">
+              <p class="text-xs text-zinc-400">青方吃子</p>
+              <p id="tealScore" class="text-2xl font-bold text-teal-300">0</p>
+            </div>
+          </div>
+          <p id="turnText" class="mt-4 rounded-md bg-zinc-900 p-3 text-sm leading-6 text-zinc-200"></p>
+          <p class="mt-4 text-sm leading-6 text-zinc-400">选择己方棋子，沿棋盘连线走到相邻空点；如果相邻点是对方棋子且同方向下一点为空，可以跳过去并吃掉它。</p>
+          <p class="mt-3 text-sm leading-6 text-zinc-400">先吃到 5 子，或让对方无合法走法的一方获胜。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const points = Array.from({ length: size * size }, (_, index) => ({
+      row: Math.floor(index / size),
+      col: index % size,
+      x: 10 + (index % size) * 20,
+      y: 10 + Math.floor(index / size) * 20
+    }));
+
+    const directions = [
+      [0, 1],
+      [1, 0],
+      [1, 1],
+      [1, -1]
+    ];
+
+    const neighbors = Array.from({ length: points.length }, () => new Set());
+    const jumps = new Map();
+
+    points.forEach((point, index) => {
+      directions.forEach(([dr, dc]) => {
+        const next = findPoint(point.row + dr, point.col + dc);
+        const jump = findPoint(point.row + dr * 2, point.col + dc * 2);
+        if (next !== null) {
+          neighbors[index].add(next);
+          neighbors[next].add(index);
+        }
+        if (next !== null && jump !== null) {
+          addJump(index, next, jump);
+          addJump(jump, next, index);
+        }
+      });
+    });
+
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const goldScore = document.getElementById("goldScore");
+    const tealScore = document.getElementById("tealScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function findPoint(row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return null;
+      return row * size + col;
+    }
+
+    function addJump(from, over, to) {
+      if (!jumps.has(from)) jumps.set(from, []);
+      jumps.get(from).push({ over, to });
+    }
+
+    function startGame() {
+      board = points.map((point) => {
+        if (point.row < 2) return "teal";
+        if (point.row > 2) return "gold";
+        return null;
+      });
+      board[10] = "gold";
+      board[14] = "teal";
+      board[12] = null;
+      turn = "gold";
+      selected = null;
+      captures = { gold: 0, teal: 0 };
+      winner = null;
+      render();
+    }
+
+    function drawLines() {
+      linesEl.innerHTML = "";
+      const pairs = new Set();
+      neighbors.forEach((set, from) => {
+        set.forEach((to) => pairs.add([Math.min(from, to), Math.max(from, to)].join("-")));
+      });
+      pairs.forEach((pair) => {
+        const [from, to] = pair.split("-").map(Number);
+        const a = points[from];
+        const b = points[to];
+        const segment = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        segment.setAttribute("x1", a.x);
+        segment.setAttribute("y1", a.y);
+        segment.setAttribute("x2", b.x);
+        segment.setAttribute("y2", b.y);
+        segment.setAttribute("stroke", "#3f3f46");
+        segment.setAttribute("stroke-width", "1.4");
+        segment.setAttribute("stroke-linecap", "round");
+        linesEl.appendChild(segment);
+      });
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const piece = board[index];
+        const target = selected !== null && isLegalMove(selected, index);
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.setAttribute("aria-label", `point ${index + 1}`);
+        cell.className = [
+          "absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition sm:h-12 sm:w-12",
+          piece === "gold" ? "border-amber-100 bg-amber-400 text-zinc-950 shadow-lg shadow-amber-950/60" : "",
+          piece === "teal" ? "border-teal-100 bg-teal-500 text-white shadow-lg shadow-teal-950/60" : "",
+          !piece ? "border-zinc-600 bg-zinc-800 text-zinc-500" : "",
+          selected === index ? "ring-4 ring-white" : "",
+          target ? "border-emerald-100 bg-emerald-400 text-zinc-950" : ""
+        ].join(" ");
+        cell.style.left = `${point.x}%`;
+        cell.style.top = `${point.y}%`;
+        cell.textContent = piece ? (piece === "gold" ? "金" : "青") : "";
+        cell.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(cell);
+      });
+
+      goldScore.textContent = captures.gold;
+      tealScore.textContent = captures.teal;
+      turnText.textContent = winner
+        ? `${winner === "gold" ? "金方" : "青方"}获胜。`
+        : `${turn === "gold" ? "金方" : "青方"}行动：选择棋子后移动到高亮空点。`;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (selected === null || !isLegalMove(selected, index)) return;
+      movePiece(selected, index);
+      selected = null;
+      updateWinner();
+      if (!winner) turn = turn === "gold" ? "teal" : "gold";
+      render();
+    }
+
+    function isLegalMove(from, to) {
+      if (board[from] !== turn || board[to]) return false;
+      if (neighbors[from].has(to)) return true;
+      return getCapture(from, to) !== null;
+    }
+
+    function getCapture(from, to) {
+      const capture = (jumps.get(from) || []).find((item) => item.to === to);
+      if (!capture) return null;
+      const rival = turn === "gold" ? "teal" : "gold";
+      return board[capture.over] === rival ? capture : null;
+    }
+
+    function movePiece(from, to) {
+      const capture = getCapture(from, to);
+      board[to] = board[from];
+      board[from] = null;
+      if (capture) {
+        board[capture.over] = null;
+        captures[turn] += 1;
+      }
+    }
+
+    function updateWinner() {
+      const rival = turn === "gold" ? "teal" : "gold";
+      if (captures[turn] >= 5 || !hasMove(rival)) {
+        winner = turn;
+      }
+    }
+
+    function hasMove(player) {
+      const saved = turn;
+      turn = player;
+      const movable = board.some((piece, from) => piece === player && points.some((_, to) => isLegalMove(from, to)));
+      turn = saved;
+      return movable;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    drawLines();
+    startGame();
+  </script>
+</body>
+</html>
