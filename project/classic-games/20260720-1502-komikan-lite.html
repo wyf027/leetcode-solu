@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Komikan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8">
+    <header class="flex flex-col justify-between gap-3 border-b border-slate-800 pb-4 md:flex-row md:items-end">
+      <div>
+        <p class="text-sm uppercase tracking-[0.28em] text-lime-300">Classic Hunt Game</p>
+        <h1 class="mt-2 text-3xl font-semibold">Mini Komikan</h1>
+      </div>
+      <button id="resetBtn" class="rounded border border-lime-300 px-4 py-2 text-sm font-semibold text-lime-100 hover:bg-lime-300 hover:text-slate-950">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="relative aspect-square w-full max-w-[620px] justify-self-center rounded border border-slate-800 bg-slate-900 shadow-2xl shadow-black/30">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+          <g id="lines" stroke="#94a3b8" stroke-width="1" stroke-linecap="round"></g>
+        </svg>
+        <div id="board" class="absolute inset-0"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-slate-400">当前回合</p>
+          <p id="turnText" class="mt-2 text-xl font-semibold text-lime-200"></p>
+          <p id="message" class="mt-3 min-h-12 text-sm leading-6 text-slate-300"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">犬群</p>
+            <p id="dogText" class="mt-1 text-2xl font-semibold text-sky-200"></p>
+          </div>
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">已捕获</p>
+            <p id="capturedText" class="mt-1 text-2xl font-semibold text-orange-200"></p>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+          <p class="font-semibold text-slate-100">规则</p>
+          <p class="mt-2">犬群沿线移动到相邻空点，目标是困住美洲狮。</p>
+          <p class="mt-2">美洲狮可以沿线移动，也可以跳过相邻犬落到空点并吃掉它。</p>
+          <p class="mt-2">美洲狮吃掉 5 只犬获胜；犬群让美洲狮无路可走获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const points = Array.from({ length: 25 }, (_, index) => ({
+      x: 12 + (index % size) * 19,
+      y: 12 + Math.floor(index / size) * 19
+    }));
+
+    const edges = [];
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size - 1; col += 1) edges.push([row * size + col, row * size + col + 1]);
+    }
+    for (let col = 0; col < size; col += 1) {
+      for (let row = 0; row < size - 1; row += 1) edges.push([row * size + col, (row + 1) * size + col]);
+    }
+    for (let row = 0; row < size - 1; row += 1) {
+      for (let col = 0; col < size - 1; col += 1) {
+        if ((row + col) % 2 === 0) {
+          edges.push([row * size + col, (row + 1) * size + col + 1]);
+          edges.push([row * size + col + 1, (row + 1) * size + col]);
+        }
+      }
+    }
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const messageEl = document.getElementById("message");
+    const dogText = document.getElementById("dogText");
+    const capturedText = document.getElementById("capturedText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board;
+    let turn;
+    let selected;
+    let captured;
+    let winner;
+
+    function resetGame() {
+      board = Array(25).fill("");
+      [0, 1, 2, 3, 4, 5, 9, 10, 14, 20, 21, 24].forEach((index) => {
+        board[index] = "D";
+      });
+      board[12] = "P";
+      turn = "D";
+      selected = null;
+      captured = 0;
+      winner = "";
+      setMessage("犬群先手：选择一只犬移动到相邻空点。");
+      render();
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function indexAt(row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return -1;
+      return row * size + col;
+    }
+
+    function neighbors(index) {
+      return edges
+        .filter(([a, b]) => a === index || b === index)
+        .map(([a, b]) => (a === index ? b : a));
+    }
+
+    function directionBetween(a, b) {
+      return [Math.sign(rowOf(b) - rowOf(a)), Math.sign(colOf(b) - colOf(a))];
+    }
+
+    function dogMoves(from) {
+      return neighbors(from).filter((to) => !board[to]).map((to) => ({ from, to, capture: null }));
+    }
+
+    function pumaMoves() {
+      const from = board.indexOf("P");
+      if (from < 0) return [];
+      const moves = [];
+      neighbors(from).forEach((near) => {
+        if (!board[near]) {
+          moves.push({ from, to: near, capture: null });
+          return;
+        }
+        if (board[near] !== "D") return;
+        const [dr, dc] = directionBetween(from, near);
+        const landing = indexAt(rowOf(from) + dr * 2, colOf(from) + dc * 2);
+        if (landing >= 0 && !board[landing] && neighbors(near).includes(landing)) {
+          moves.push({ from, to: landing, capture: near });
+        }
+      });
+      return moves;
+    }
+
+    function allDogMoves() {
+      return board.flatMap((piece, index) => piece === "D" ? dogMoves(index) : []);
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+
+      if (selected === null) {
+        const needed = turn === "D" ? "D" : "P";
+        if (board[index] !== needed) {
+          setMessage(turn === "D" ? "请选择一只犬。" : "请先选择美洲狮。");
+          return;
+        }
+        selected = index;
+        setMessage(turn === "D" ? "选择相邻空点移动犬。" : "选择相邻空点移动，或跳过犬完成捕获。");
+        render();
+        return;
+      }
+
+      if (board[index] === board[selected]) {
+        selected = index;
+        setMessage("已切换棋子，选择目标点。");
+        render();
+        return;
+      }
+
+      const moves = turn === "D" ? dogMoves(selected) : pumaMoves();
+      const move = moves.find((item) => item.to === index);
+      if (!move) {
+        setMessage(turn === "D" ? "犬只能沿线移动到相邻空点。" : "美洲狮只能沿线移动，或跳过犬落到空点。");
+        return;
+      }
+
+      board[move.to] = board[move.from];
+      board[move.from] = "";
+      if (move.capture !== null) {
+        board[move.capture] = "";
+        captured += 1;
+      }
+      finishTurn();
+    }
+
+    function finishTurn() {
+      if (captured >= 5) {
+        winner = "P";
+        selected = null;
+        setMessage("美洲狮捕获 5 只犬，获胜。");
+        render();
+        return;
+      }
+      if (pumaMoves().length === 0) {
+        winner = "D";
+        selected = null;
+        setMessage("美洲狮没有合法走法，犬群获胜。");
+        render();
+        return;
+      }
+      if (allDogMoves().length === 0) {
+        winner = "P";
+        selected = null;
+        setMessage("犬群没有可移动棋子，美洲狮获胜。");
+        render();
+        return;
+      }
+
+      turn = turn === "D" ? "P" : "D";
+      selected = null;
+      setMessage(turn === "D" ? "犬群回合：移动一只犬。" : "美洲狮回合：移动或跳吃。");
+      render();
+    }
+
+    function renderLines() {
+      linesEl.innerHTML = "";
+      edges.forEach(([a, b]) => {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", points[a].x);
+        line.setAttribute("y1", points[a].y);
+        line.setAttribute("x2", points[b].x);
+        line.setAttribute("y2", points[b].y);
+        linesEl.appendChild(line);
+      });
+    }
+
+    function render() {
+      renderLines();
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const piece = board[index];
+        const button = document.createElement("button");
+        const active = selected === index;
+        button.type = "button";
+        button.className = [
+          "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold shadow transition",
+          piece === "P" ? "border-orange-100 bg-orange-500 text-white" : "",
+          piece === "D" ? "border-sky-100 bg-sky-500 text-white" : "",
+          !piece ? "border-slate-600 bg-slate-800 text-slate-500 hover:border-lime-300 hover:bg-slate-700" : "",
+          active ? "ring-4 ring-lime-300" : ""
+        ].join(" ");
+        button.style.left = `${point.x}%`;
+        button.style.top = `${point.y}%`;
+        button.textContent = piece || index + 1;
+        button.setAttribute("aria-label", `point ${index + 1}`);
+        button.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(button);
+      });
+
+      turnText.textContent = winner ? (winner === "P" ? "美洲狮获胜" : "犬群获胜") : (turn === "D" ? "犬群" : "美洲狮");
+      dogText.textContent = board.filter((piece) => piece === "D").length;
+      capturedText.textContent = `${captured}/5`;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
