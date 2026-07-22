@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gale</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic connection game</p>
+        <h1 class="text-3xl font-bold">Mini Gale</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-lime-200">
+        New game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-4 shadow-lg">
+        <div class="mb-3 flex justify-between text-xs font-semibold uppercase tracking-wide text-lime-300">
+          <span>North</span>
+          <span>South</span>
+        </div>
+        <div id="board" class="mx-auto grid max-w-[620px] gap-1"></div>
+        <div class="mt-3 flex justify-between text-xs font-semibold uppercase tracking-wide text-sky-300">
+          <span>West</span>
+          <span>East</span>
+        </div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4 shadow-lg">
+          <p class="text-xs font-semibold uppercase tracking-wide text-neutral-500">Turn</p>
+          <p id="turnText" class="mt-1 text-2xl font-bold">North-South</p>
+          <p id="statusText" class="mt-3 min-h-16 text-sm leading-6 text-neutral-300"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-neutral-500">Green lines</p>
+            <p id="greenCount" class="mt-1 text-2xl font-bold text-lime-300">0</p>
+          </div>
+          <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-neutral-500">Blue lines</p>
+            <p id="blueCount" class="mt-1 text-2xl font-bold text-sky-300">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-neutral-800 bg-neutral-900 p-4 text-sm leading-6 text-neutral-300 shadow-lg">
+          Green draws vertical links and tries to connect north to south. Blue draws horizontal links and tries to connect west to east. Click an empty link slot to claim it.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const nodes = 5;
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const greenCount = document.getElementById("greenCount");
+    const blueCount = document.getElementById("blueCount");
+
+    let verticalEdges = new Set();
+    let horizontalEdges = new Set();
+    let turn = "G";
+    let gameOver = false;
+
+    function startGame() {
+      verticalEdges = new Set();
+      horizontalEdges = new Set();
+      turn = "G";
+      gameOver = false;
+      statusText.textContent = "Green starts by claiming a vertical link.";
+      render();
+    }
+
+    function nodeId(row, col) {
+      return `${row},${col}`;
+    }
+
+    function edgeKey(row, col) {
+      return `${row},${col}`;
+    }
+
+    function playerName(player) {
+      return player === "G" ? "Green north-south" : "Blue west-east";
+    }
+
+    function neighbors(row, col, player) {
+      const out = [];
+      if (player === "G") {
+        if (row > 0 && verticalEdges.has(edgeKey(row - 1, col))) out.push([row - 1, col]);
+        if (row < nodes - 1 && verticalEdges.has(edgeKey(row, col))) out.push([row + 1, col]);
+      } else {
+        if (col > 0 && horizontalEdges.has(edgeKey(row, col - 1))) out.push([row, col - 1]);
+        if (col < nodes - 1 && horizontalEdges.has(edgeKey(row, col))) out.push([row, col + 1]);
+      }
+      return out;
+    }
+
+    function isConnected(player) {
+      const queue = [];
+      const seen = new Set();
+
+      if (player === "G") {
+        for (let col = 0; col < nodes; col += 1) queue.push([0, col]);
+      } else {
+        for (let row = 0; row < nodes; row += 1) queue.push([row, 0]);
+      }
+
+      while (queue.length) {
+        const [row, col] = queue.shift();
+        const id = nodeId(row, col);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (player === "G" && row === nodes - 1) return true;
+        if (player === "B" && col === nodes - 1) return true;
+        neighbors(row, col, player).forEach((next) => queue.push(next));
+      }
+      return false;
+    }
+
+    function claimEdge(kind, row, col) {
+      if (gameOver) return;
+      if (kind === "v" && turn !== "G") return;
+      if (kind === "h" && turn !== "B") return;
+      const store = kind === "v" ? verticalEdges : horizontalEdges;
+      const key = edgeKey(row, col);
+      if (store.has(key)) return;
+
+      store.add(key);
+      if (isConnected(turn)) {
+        gameOver = true;
+        statusText.textContent = `${playerName(turn)} wins with a continuous path.`;
+      } else {
+        turn = turn === "G" ? "B" : "G";
+        statusText.textContent = `${playerName(turn)} to draw.`;
+      }
+      render();
+    }
+
+    function renderNode() {
+      const dot = document.createElement("div");
+      dot.className = "mx-auto h-5 w-5 rounded-full border-2 border-neutral-200 bg-neutral-950 shadow";
+      return dot;
+    }
+
+    function renderVertical(row, col) {
+      const claimed = verticalEdges.has(edgeKey(row, col));
+      const edge = document.createElement("button");
+      edge.type = "button";
+      edge.className = [
+        "mx-auto h-14 w-5 rounded-full border transition",
+        claimed ? "border-lime-200 bg-lime-400" : "border-neutral-700 bg-neutral-800 hover:bg-lime-900",
+        turn === "G" && !gameOver && !claimed ? "cursor-pointer" : "cursor-default"
+      ].join(" ");
+      edge.setAttribute("aria-label", `Vertical link ${row + 1}, ${col + 1}`);
+      edge.addEventListener("click", () => claimEdge("v", row, col));
+      return edge;
+    }
+
+    function renderHorizontal(row, col) {
+      const claimed = horizontalEdges.has(edgeKey(row, col));
+      const edge = document.createElement("button");
+      edge.type = "button";
+      edge.className = [
+        "h-5 w-14 rounded-full border transition",
+        claimed ? "border-sky-200 bg-sky-400" : "border-neutral-700 bg-neutral-800 hover:bg-sky-900",
+        turn === "B" && !gameOver && !claimed ? "cursor-pointer" : "cursor-default"
+      ].join(" ");
+      edge.setAttribute("aria-label", `Horizontal link ${row + 1}, ${col + 1}`);
+      edge.addEventListener("click", () => claimEdge("h", row, col));
+      return edge;
+    }
+
+    function renderSpacer() {
+      const spacer = document.createElement("div");
+      spacer.className = "h-5 w-5";
+      return spacer;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      boardEl.style.gridTemplateColumns = `repeat(${nodes * 2 - 1}, minmax(0, 1fr))`;
+
+      for (let row = 0; row < nodes * 2 - 1; row += 1) {
+        for (let col = 0; col < nodes * 2 - 1; col += 1) {
+          if (row % 2 === 0 && col % 2 === 0) {
+            boardEl.appendChild(renderNode());
+          } else if (row % 2 === 0 && col % 2 === 1) {
+            boardEl.appendChild(renderHorizontal(row / 2, (col - 1) / 2));
+          } else if (row % 2 === 1 && col % 2 === 0) {
+            boardEl.appendChild(renderVertical((row - 1) / 2, col / 2));
+          } else {
+            boardEl.appendChild(renderSpacer());
+          }
+        }
+      }
+
+      turnText.textContent = gameOver ? "Game over" : playerName(turn);
+      greenCount.textContent = verticalEdges.size;
+      blueCount.textContent = horizontalEdges.size;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
