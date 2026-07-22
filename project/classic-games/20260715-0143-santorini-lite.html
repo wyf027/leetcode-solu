@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Santorini</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-sky-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-amber-200">Mini Santorini</h1>
+        <p class="mt-1 text-sm text-sky-300">移动工人后建造楼层；先登上 3 层者获胜。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-sky-700 bg-sky-900 px-3 py-2">
+          <div class="text-sky-400">当前</div>
+          <div id="turn" class="text-lg font-bold text-amber-200">White</div>
+        </div>
+        <div class="rounded border border-sky-700 bg-sky-900 px-3 py-2">
+          <div class="text-sky-400">阶段</div>
+          <div id="phase" class="text-lg font-bold">移动</div>
+        </div>
+        <div class="rounded border border-sky-700 bg-sky-900 px-3 py-2">
+          <div class="text-sky-400">回合</div>
+          <div id="round" class="text-lg font-bold">1</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[620px] grid-cols-5 gap-2 rounded bg-sky-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-sky-800 bg-sky-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-sky-300">状态</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-sky-100">选择己方工人，移动到相邻可达格。</p>
+          <button id="reset" class="mt-4 w-full rounded bg-amber-300 px-4 py-2 font-semibold text-sky-950 hover:bg-amber-200">重新开局</button>
+        </div>
+        <div class="rounded border border-sky-800 bg-sky-900 p-4 text-sm leading-6 text-sky-200">
+          <div class="font-semibold text-sky-50">规则</div>
+          <div class="mt-2">每步最多上升 1 层。</div>
+          <div>4 层是穹顶，不能进入。</div>
+          <div>移动后必须在相邻格建造。</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById('board');
+    const turnEl = document.getElementById('turn');
+    const phaseEl = document.getElementById('phase');
+    const roundEl = document.getElementById('round');
+    const msgEl = document.getElementById('message');
+    const resetBtn = document.getElementById('reset');
+
+    let levels;
+    let workers;
+    let current;
+    let selected;
+    let phase;
+    let round;
+    let gameOver;
+
+    function resetGame() {
+      levels = Array.from({ length: size }, () => Array(size).fill(0));
+      workers = [
+        { id: 'W1', player: 'W', row: 4, col: 1 },
+        { id: 'W2', player: 'W', row: 4, col: 3 },
+        { id: 'B1', player: 'B', row: 0, col: 1 },
+        { id: 'B2', player: 'B', row: 0, col: 3 }
+      ];
+      current = 'W';
+      selected = null;
+      phase = 'move';
+      round = 1;
+      gameOver = false;
+      msgEl.textContent = '选择己方工人，移动到相邻可达格。';
+      render();
+    }
+
+    function playerName(mark) {
+      return mark === 'W' ? 'White' : 'Black';
+    }
+
+    function workerAt(row, col) {
+      return workers.find((worker) => worker.row === row && worker.col === col);
+    }
+
+    function adjacent(a, b) {
+      return Math.max(Math.abs(a.row - b.row), Math.abs(a.col - b.col)) === 1;
+    }
+
+    function canMove(worker, row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return false;
+      if (workerAt(row, col) || levels[row][col] >= 4) return false;
+      if (!adjacent(worker, { row, col })) return false;
+      return levels[row][col] <= levels[worker.row][worker.col] + 1;
+    }
+
+    function canBuild(from, row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return false;
+      if (workerAt(row, col) || levels[row][col] >= 4) return false;
+      return adjacent(from, { row, col });
+    }
+
+    function hasMove(player) {
+      return workers.some((worker) => {
+        if (worker.player !== player) return false;
+        for (let row = worker.row - 1; row <= worker.row + 1; row += 1) {
+          for (let col = worker.col - 1; col <= worker.col + 1; col += 1) {
+            if (canMove(worker, row, col)) return true;
+          }
+        }
+        return false;
+      });
+    }
+
+    function render() {
+      turnEl.textContent = playerName(current);
+      phaseEl.textContent = phase === 'move' ? '移动' : '建造';
+      roundEl.textContent = round;
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const worker = workerAt(row, col);
+          const active = selected && selected.row === row && selected.col === col;
+          const level = levels[row][col];
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.innerHTML = `<span class="block text-xs">${level === 4 ? 'D' : level}</span><span class="block text-2xl">${worker ? (worker.player === 'W' ? '♙' : '♟') : ''}</span>`;
+          btn.className = [
+            'aspect-square rounded border font-black transition',
+            level === 0 ? 'bg-sky-800' : '',
+            level === 1 ? 'bg-sky-700' : '',
+            level === 2 ? 'bg-sky-600' : '',
+            level === 3 ? 'bg-amber-300 text-sky-950' : '',
+            level === 4 ? 'bg-slate-200 text-sky-950' : '',
+            worker?.player === 'W' ? 'border-white text-white' : '',
+            worker?.player === 'B' ? 'border-slate-950 text-slate-950' : '',
+            !worker ? 'border-sky-600 hover:border-amber-200' : '',
+            active ? 'outline outline-4 outline-amber-200' : ''
+          ].join(' ');
+          btn.addEventListener('click', () => handleCell(row, col));
+          boardEl.appendChild(btn);
+        }
+      }
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (phase === 'move') {
+        const worker = workerAt(row, col);
+        if (worker?.player === current) {
+          selected = worker;
+          msgEl.textContent = '已选择工人，点击相邻可达格移动。';
+          render();
+          return;
+        }
+        if (!selected) {
+          msgEl.textContent = '请先选择己方工人。';
+          return;
+        }
+        if (!canMove(selected, row, col)) {
+          msgEl.textContent = '只能移动到相邻空格，且最多上升 1 层。';
+          return;
+        }
+        selected.row = row;
+        selected.col = col;
+        if (levels[row][col] === 3) {
+          gameOver = true;
+          msgEl.textContent = `${playerName(current)} 登上 3 层，赢得本局。`;
+        } else {
+          phase = 'build';
+          msgEl.textContent = '移动完成，请在该工人相邻格建造。';
+        }
+        render();
+        return;
+      }
+
+      if (!canBuild(selected, row, col)) {
+        msgEl.textContent = '只能在刚移动工人的相邻空格建造。';
+        return;
+      }
+      levels[row][col] += 1;
+      current = current === 'W' ? 'B' : 'W';
+      selected = null;
+      phase = 'move';
+      if (current === 'W') round += 1;
+      if (!hasMove(current)) {
+        gameOver = true;
+        msgEl.textContent = `${playerName(current)} 无法移动，${playerName(current === 'W' ? 'B' : 'W')} 获胜。`;
+      } else {
+        msgEl.textContent = `轮到 ${playerName(current)}。`;
+      }
+      render();
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
