@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tigers and Goats</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center">
+    <section class="flex-1">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Tigers and Goats</h1>
+          <p id="status" class="mt-1 text-sm text-emerald-200">Goats place first. Trap both tigers to win.</p>
+        </div>
+        <button id="reset" class="rounded-md bg-orange-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-orange-200">Reset</button>
+      </div>
+      <div class="rounded-lg border border-emerald-700 bg-emerald-900 p-3">
+        <svg id="board" viewBox="0 0 420 420" class="aspect-square w-full" role="img" aria-label="Tigers and Goats board"></svg>
+      </div>
+    </section>
+
+    <aside class="w-full rounded-lg border border-emerald-700 bg-emerald-900 p-4 md:w-72">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-md bg-emerald-800 p-3">
+          <div class="text-emerald-200">Goats placed</div>
+          <div id="placed" class="mt-1 text-2xl font-semibold">0 / 8</div>
+        </div>
+        <div class="rounded-md bg-emerald-800 p-3">
+          <div class="text-emerald-200">Captured</div>
+          <div id="captured" class="mt-1 text-2xl font-semibold">0 / 4</div>
+        </div>
+      </div>
+      <div class="mt-4 space-y-2 text-sm text-emerald-200">
+        <p>Goats place eight pieces, then slide along connected lines.</p>
+        <p>Tigers slide one point or jump over a goat to capture.</p>
+        <p>Tigers win with four captures; goats win by leaving no tiger move.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const svg = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const placedEl = document.getElementById("placed");
+    const capturedEl = document.getElementById("captured");
+    const resetBtn = document.getElementById("reset");
+
+    const points = [
+      [70, 70], [210, 70], [350, 70],
+      [70, 210], [210, 210], [350, 210],
+      [70, 350], [210, 350], [350, 350]
+    ];
+    const lines = [
+      [0, 1], [1, 2], [3, 4], [4, 5], [6, 7], [7, 8],
+      [0, 3], [3, 6], [1, 4], [4, 7], [2, 5], [5, 8],
+      [0, 4], [4, 8], [2, 4], [4, 6]
+    ];
+    const jumps = [
+      [0, 1, 2], [2, 1, 0], [0, 3, 6], [6, 3, 0], [2, 5, 8], [8, 5, 2],
+      [6, 7, 8], [8, 7, 6], [0, 4, 8], [8, 4, 0], [2, 4, 6], [6, 4, 2],
+      [1, 4, 7], [7, 4, 1], [3, 4, 5], [5, 4, 3]
+    ];
+    const neighbors = points.map(() => new Set());
+    lines.forEach(([a, b]) => {
+      neighbors[a].add(b);
+      neighbors[b].add(a);
+    });
+
+    let board;
+    let turn;
+    let selected;
+    let goatsPlaced;
+    let goatsCaptured;
+    let gameOver;
+
+    function startGame() {
+      board = Array(points.length).fill(null);
+      board[0] = "tiger";
+      board[8] = "tiger";
+      turn = "goat";
+      selected = null;
+      goatsPlaced = 0;
+      goatsCaptured = 0;
+      gameOver = false;
+      setStatus("Goat turn: place a goat on an empty point.");
+      render();
+    }
+
+    function render() {
+      svg.innerHTML = "";
+      lines.forEach(([a, b]) => drawLine(points[a], points[b]));
+      points.forEach(([x, y], index) => {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        node.setAttribute("cx", x);
+        node.setAttribute("cy", y);
+        node.setAttribute("r", selected === index ? 18 : 13);
+        node.setAttribute("fill", selected === index ? "#fdba74" : "#047857");
+        node.setAttribute("stroke", "#a7f3d0");
+        node.setAttribute("stroke-width", "2");
+        node.classList.add("cursor-pointer");
+        node.addEventListener("click", () => handlePoint(index));
+        svg.appendChild(node);
+        if (board[index]) drawPiece(x, y, board[index]);
+      });
+      placedEl.textContent = `${goatsPlaced} / 8`;
+      capturedEl.textContent = `${goatsCaptured} / 4`;
+    }
+
+    function drawLine(from, to) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", from[0]);
+      line.setAttribute("y1", from[1]);
+      line.setAttribute("x2", to[0]);
+      line.setAttribute("y2", to[1]);
+      line.setAttribute("stroke", "#34d399");
+      line.setAttribute("stroke-width", "5");
+      line.setAttribute("stroke-linecap", "round");
+      svg.appendChild(line);
+    }
+
+    function drawPiece(x, y, kind) {
+      const piece = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      piece.setAttribute("cx", x);
+      piece.setAttribute("cy", y);
+      piece.setAttribute("r", kind === "tiger" ? 23 : 17);
+      piece.setAttribute("fill", kind === "tiger" ? "#f97316" : "#f8fafc");
+      piece.setAttribute("stroke", kind === "tiger" ? "#fed7aa" : "#38bdf8");
+      piece.setAttribute("stroke-width", "4");
+      piece.classList.add("pointer-events-none");
+      svg.appendChild(piece);
+    }
+
+    function handlePoint(index) {
+      if (gameOver) return;
+      if (turn === "goat") playGoat(index);
+      else playTiger(index);
+      render();
+      checkWinner();
+    }
+
+    function playGoat(index) {
+      if (goatsPlaced < 8) {
+        if (board[index]) return;
+        board[index] = "goat";
+        goatsPlaced++;
+        turn = "tiger";
+        setStatus("Tiger turn: select a tiger.");
+        return;
+      }
+      if (selected === null) {
+        if (board[index] === "goat") selected = index;
+        return;
+      }
+      if (board[index] || !neighbors[selected].has(index)) {
+        selected = board[index] === "goat" ? index : null;
+        return;
+      }
+      board[selected] = null;
+      board[index] = "goat";
+      selected = null;
+      turn = "tiger";
+      setStatus("Tiger turn: select a tiger.");
+    }
+
+    function playTiger(index) {
+      if (selected === null) {
+        if (board[index] === "tiger") selected = index;
+        return;
+      }
+      if (board[index] === "tiger") {
+        selected = index;
+        return;
+      }
+      if (!board[index] && neighbors[selected].has(index)) {
+        board[selected] = null;
+        board[index] = "tiger";
+        selected = null;
+        turn = "goat";
+        setStatus(goatsPlaced < 8 ? "Goat turn: place a goat." : "Goat turn: slide a goat.");
+        return;
+      }
+      const jump = jumps.find(([a, middle, c]) => a === selected && c === index && board[middle] === "goat" && !board[c]);
+      if (!jump) return;
+      board[selected] = null;
+      board[jump[1]] = null;
+      board[index] = "tiger";
+      goatsCaptured++;
+      selected = null;
+      turn = "goat";
+      setStatus("Goat turn: block the tigers.");
+    }
+
+    function tigerMoves() {
+      const moves = [];
+      board.forEach((piece, from) => {
+        if (piece !== "tiger") return;
+        [...neighbors[from]].forEach((to) => {
+          if (!board[to]) moves.push(to);
+        });
+        jumps.forEach(([a, middle, c]) => {
+          if (a === from && board[middle] === "goat" && !board[c]) moves.push(c);
+        });
+      });
+      return moves;
+    }
+
+    function checkWinner() {
+      if (goatsCaptured >= 4) {
+        gameOver = true;
+        setStatus("Tigers win by capturing four goats.");
+        return;
+      }
+      if (turn === "tiger" && tigerMoves().length === 0) {
+        gameOver = true;
+        setStatus("Goats win by trapping both tigers.");
+      }
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
