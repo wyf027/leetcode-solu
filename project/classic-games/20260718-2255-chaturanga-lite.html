@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Chaturanga</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:items-center md:justify-center">
+    <section class="w-full max-w-xl">
+      <div class="mb-4 flex items-end justify-between gap-3">
+        <div>
+          <p class="text-sm uppercase tracking-[0.24em] text-emerald-300">Classic Games</p>
+          <h1 class="text-3xl font-bold text-white">Mini Chaturanga</h1>
+        </div>
+        <button id="reset" class="rounded bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-300">Reset</button>
+      </div>
+
+      <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2 rounded bg-slate-900 p-3 shadow-2xl shadow-black/40"></div>
+    </section>
+
+    <aside class="w-full max-w-sm space-y-4">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <h2 class="mb-2 text-lg font-bold text-emerald-200">Status</h2>
+        <p id="status" class="min-h-12 text-sm leading-6 text-slate-200"></p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Gold</p>
+          <p id="goldCount" class="mt-1 text-2xl font-bold text-amber-300">0</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Indigo</p>
+          <p id="indigoCount" class="mt-1 text-2xl font-bold text-indigo-300">0</p>
+        </div>
+      </div>
+
+      <div class="rounded border border-slate-700 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+        <h2 class="mb-2 text-lg font-bold text-emerald-200">Rules</h2>
+        <p>Capture the rival raja or advance a soldier to the far rank.</p>
+        <p class="mt-2">Raja steps one square, ratha slides straight, ashva jumps in an L, gaja leaps two diagonals, and soldiers step forward or capture diagonally.</p>
+        <p class="mt-2">This compact 5x5 board keeps the old piece identities while making a fast browser-friendly duel.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const goldCountEl = document.getElementById("goldCount");
+    const indigoCountEl = document.getElementById("indigoCount");
+    const resetButton = document.getElementById("reset");
+    const labels = {
+      gK: "R",
+      gR: "T",
+      gH: "A",
+      gE: "G",
+      gS: "S",
+      iK: "R",
+      iR: "T",
+      iH: "A",
+      iE: "G",
+      iS: "S"
+    };
+    const names = {
+      K: "Raja",
+      R: "Ratha",
+      H: "Ashva",
+      E: "Gaja",
+      S: "Soldier"
+    };
+
+    let board = [];
+    let turn = "g";
+    let selected = null;
+    let moves = [];
+    let gameOver = false;
+
+    function makePiece(side, type) {
+      return { side, type };
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      board[0][0] = makePiece("i", "R");
+      board[0][1] = makePiece("i", "H");
+      board[0][2] = makePiece("i", "K");
+      board[0][3] = makePiece("i", "E");
+      board[1][1] = makePiece("i", "S");
+      board[1][3] = makePiece("i", "S");
+      board[3][1] = makePiece("g", "S");
+      board[3][3] = makePiece("g", "S");
+      board[4][1] = makePiece("g", "E");
+      board[4][2] = makePiece("g", "K");
+      board[4][3] = makePiece("g", "H");
+      board[4][4] = makePiece("g", "R");
+      turn = "g";
+      selected = null;
+      moves = [];
+      gameOver = false;
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceAt(row, col) {
+      return board[row][col];
+    }
+
+    function canLand(row, col, side) {
+      return inBounds(row, col) && (!pieceAt(row, col) || pieceAt(row, col).side !== side);
+    }
+
+    function addStepMoves(row, col, side, dirs) {
+      return dirs
+        .map(([dr, dc]) => ({ row: row + dr, col: col + dc }))
+        .filter((move) => canLand(move.row, move.col, side));
+    }
+
+    function rathaMoves(row, col, side) {
+      const result = [];
+      [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([dr, dc]) => {
+        let nextRow = row + dr;
+        let nextCol = col + dc;
+        while (inBounds(nextRow, nextCol)) {
+          const target = pieceAt(nextRow, nextCol);
+          if (!target) {
+            result.push({ row: nextRow, col: nextCol });
+          } else {
+            if (target.side !== side) result.push({ row: nextRow, col: nextCol });
+            break;
+          }
+          nextRow += dr;
+          nextCol += dc;
+        }
+      });
+      return result;
+    }
+
+    function soldierMoves(row, col, side) {
+      const forward = side === "g" ? -1 : 1;
+      return [
+        { row: row + forward, col, captureOnly: false },
+        { row: row + forward, col: col - 1, captureOnly: true },
+        { row: row + forward, col: col + 1, captureOnly: true }
+      ].filter((move) => {
+        if (!inBounds(move.row, move.col)) return false;
+        const target = pieceAt(move.row, move.col);
+        if (move.captureOnly) return target && target.side !== side;
+        return !target;
+      });
+    }
+
+    function legalMoves(row, col) {
+      const piece = pieceAt(row, col);
+      if (!piece) return [];
+      if (piece.type === "K") {
+        return addStepMoves(row, col, piece.side, [
+          [-1, -1], [-1, 0], [-1, 1],
+          [0, -1], [0, 1],
+          [1, -1], [1, 0], [1, 1]
+        ]);
+      }
+      if (piece.type === "R") return rathaMoves(row, col, piece.side);
+      if (piece.type === "H") {
+        return addStepMoves(row, col, piece.side, [
+          [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+          [1, -2], [1, 2], [2, -1], [2, 1]
+        ]);
+      }
+      if (piece.type === "E") {
+        return addStepMoves(row, col, piece.side, [[-2, -2], [-2, 2], [2, -2], [2, 2]]);
+      }
+      if (piece.type === "S") return soldierMoves(row, col, piece.side);
+      return [];
+    }
+
+    function allMovesFor(side) {
+      const result = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const piece = pieceAt(row, col);
+          if (piece && piece.side === side) {
+            legalMoves(row, col).forEach((move) => result.push({ from: { row, col }, move }));
+          }
+        }
+      }
+      return result;
+    }
+
+    function countPieces(side) {
+      return board.flat().filter((piece) => piece && piece.side === side).length;
+    }
+
+    function hasRaja(side) {
+      return board.flat().some((piece) => piece && piece.side === side && piece.type === "K");
+    }
+
+    function soldierReached(side) {
+      const targetRow = side === "g" ? 0 : size - 1;
+      return board[targetRow].some((piece) => piece && piece.side === side && piece.type === "S");
+    }
+
+    function opponent(side) {
+      return side === "g" ? "i" : "g";
+    }
+
+    function sideName(side) {
+      return side === "g" ? "Gold" : "Indigo";
+    }
+
+    function finishGame(message) {
+      gameOver = true;
+      selected = null;
+      moves = [];
+      statusEl.textContent = message;
+    }
+
+    function checkGame() {
+      if (!hasRaja("g")) {
+        finishGame("Indigo wins by capturing the gold raja.");
+        return true;
+      }
+      if (!hasRaja("i")) {
+        finishGame("Gold wins by capturing the indigo raja.");
+        return true;
+      }
+      if (soldierReached("g")) {
+        finishGame("Gold wins by promoting a soldier on the far rank.");
+        return true;
+      }
+      if (soldierReached("i")) {
+        finishGame("Indigo wins by promoting a soldier on the far rank.");
+        return true;
+      }
+      if (allMovesFor(turn).length === 0) {
+        finishGame(`${sideName(turn)} has no legal move. ${sideName(opponent(turn))} wins.`);
+        return true;
+      }
+      return false;
+    }
+
+    function selectCell(row, col) {
+      if (gameOver) return;
+      const piece = pieceAt(row, col);
+      if (!piece || piece.side !== turn) {
+        selected = null;
+        moves = [];
+        render();
+        return;
+      }
+      selected = { row, col };
+      moves = legalMoves(row, col);
+      render();
+    }
+
+    function applyMove(row, col) {
+      if (!selected || gameOver) return;
+      const move = moves.find((item) => item.row === row && item.col === col);
+      if (!move) return;
+      const piece = pieceAt(selected.row, selected.col);
+      board[selected.row][selected.col] = null;
+      board[row][col] = piece;
+      selected = null;
+      moves = [];
+      turn = opponent(turn);
+      render();
+      if (!checkGame()) renderStatus();
+    }
+
+    function handleCell(row, col) {
+      if (moves.some((move) => move.row === row && move.col === col)) {
+        applyMove(row, col);
+        return;
+      }
+      selectCell(row, col);
+    }
+
+    function cellClasses(row, col) {
+      const isSelected = selected && selected.row === row && selected.col === col;
+      const isMove = moves.some((move) => move.row === row && move.col === col);
+      const classes = [
+        "relative",
+        "flex",
+        "aspect-square",
+        "items-center",
+        "justify-center",
+        "rounded",
+        "border",
+        "text-2xl",
+        "font-black",
+        "transition"
+      ];
+      classes.push((row + col) % 2 === 0 ? "border-slate-700 bg-slate-800" : "border-slate-600 bg-slate-700");
+      if (isSelected) classes.push("ring-4 ring-emerald-300");
+      if (isMove) classes.push("cursor-pointer bg-emerald-900 ring-2 ring-emerald-400");
+      if (!gameOver && !isMove) classes.push("hover:bg-slate-600");
+      return classes.join(" ");
+    }
+
+    function renderPiece(piece) {
+      if (!piece) return "";
+      const color = piece.side === "g"
+        ? "bg-amber-300 text-amber-950"
+        : "bg-indigo-300 text-indigo-950";
+      const title = names[piece.type];
+      return `<span title="${title}" class="flex h-11 w-11 items-center justify-center rounded-full ${color} shadow">${labels[piece.side + piece.type]}</span>`;
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(row, col);
+          button.innerHTML = renderPiece(pieceAt(row, col));
+          button.setAttribute("aria-label", `Row ${row + 1}, column ${col + 1}`);
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function renderStatus() {
+      if (gameOver) return;
+      const hint = selected
+        ? `${sideName(turn)}: choose a highlighted destination.`
+        : `${sideName(turn)} to move. Select a piece.`;
+      statusEl.textContent = hint;
+    }
+
+    function renderCounts() {
+      goldCountEl.textContent = countPieces("g");
+      indigoCountEl.textContent = countPieces("i");
+    }
+
+    function render() {
+      renderBoard();
+      renderCounts();
+      renderStatus();
+    }
+
+    resetButton.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
