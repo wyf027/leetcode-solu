@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Maze War</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
+      <header class="flex flex-col gap-3 border-b border-stone-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Game</p>
+          <h1 class="mt-1 text-3xl font-bold sm:text-4xl">Mini Maze War</h1>
+        </div>
+        <button
+          id="reset"
+          class="rounded-md bg-lime-300 px-4 py-2 text-sm font-bold text-stone-950 transition hover:bg-lime-200"
+          type="button"
+        >
+          重新开始
+        </button>
+      </header>
+
+      <section class="grid gap-3 sm:grid-cols-4">
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">命中</p>
+          <p id="score" class="mt-2 text-2xl font-bold text-lime-200">0</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">弹药</p>
+          <p id="ammo" class="mt-2 text-2xl font-bold">1</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">敌机距离</p>
+          <p id="range" class="mt-2 text-2xl font-bold">0</p>
+        </div>
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">状态</p>
+          <p id="status" class="mt-2 text-lg font-semibold text-emerald-200">巡航中</p>
+        </div>
+      </section>
+
+      <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <canvas id="maze" class="aspect-square w-full rounded-md bg-black"></canvas>
+        </div>
+
+        <aside class="rounded-md border border-stone-800 bg-stone-900 p-4">
+          <h2 class="text-xl font-bold">驾驶</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-stone-300">
+            方向键移动，空格沿当前方向发射。击中巡逻敌机 3 次获胜。
+          </p>
+          <div class="mt-4 border-t border-stone-800 pt-4 text-sm leading-6 text-stone-400">
+            <p>规则：绿色战机在迷宫中移动，红色敌机会巡逻追近。子弹碰到墙会消失；敌机碰到你则失败。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("maze");
+      const context = canvas.getContext("2d");
+      const map = [
+        "#############",
+        "#.....#.....#",
+        "#.###.#.###.#",
+        "#.#.......#.#",
+        "#.#.#####.#.#",
+        "#...#...#...#",
+        "###.#.#.#.###",
+        "#...#...#...#",
+        "#.#.#####.#.#",
+        "#.#.......#.#",
+        "#.###.#.###.#",
+        "#.....#.....#",
+        "#############",
+      ];
+      const size = 13;
+      const keys = new Set();
+      const elements = {
+        score: document.getElementById("score"),
+        ammo: document.getElementById("ammo"),
+        range: document.getElementById("range"),
+        status: document.getElementById("status"),
+        message: document.getElementById("message"),
+        reset: document.getElementById("reset"),
+      };
+
+      let player;
+      let enemy;
+      let shot;
+      let score;
+      let ended;
+      let lastMove;
+      let lastEnemy;
+      let animationId;
+
+      function setupGame() {
+        resizeCanvas();
+        player = { row: 11, col: 1, dir: { row: 0, col: 1 } };
+        enemy = { row: 1, col: 11, dir: { row: 0, col: -1 } };
+        shot = null;
+        score = 0;
+        ended = false;
+        lastMove = 0;
+        lastEnemy = 0;
+        elements.message.textContent = "方向键移动，空格沿当前方向发射。击中巡逻敌机 3 次获胜。";
+        cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(loop);
+      }
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        const width = Math.max(520, Math.floor(rect.width * devicePixelRatio));
+        canvas.width = width;
+        canvas.height = width;
+        context.setTransform(width / size, 0, 0, width / size, 0, 0);
+      }
+
+      function isWall(row, col) {
+        return map[row]?.[col] !== ".";
+      }
+
+      function sameCell(a, b) {
+        return a && b && a.row === b.row && a.col === b.col;
+      }
+
+      function moveUnit(unit, dir) {
+        const next = { row: unit.row + dir.row, col: unit.col + dir.col };
+        if (!isWall(next.row, next.col)) {
+          unit.row = next.row;
+          unit.col = next.col;
+          unit.dir = dir;
+        }
+      }
+
+      function handlePlayer(time) {
+        if (time - lastMove < 105) return;
+        const moves = [
+          ["ArrowUp", { row: -1, col: 0 }],
+          ["ArrowDown", { row: 1, col: 0 }],
+          ["ArrowLeft", { row: 0, col: -1 }],
+          ["ArrowRight", { row: 0, col: 1 }],
+        ];
+        const move = moves.find(([key]) => keys.has(key));
+        if (move) {
+          moveUnit(player, move[1]);
+          lastMove = time;
+        }
+      }
+
+      function fireShot() {
+        if (ended || shot) return;
+        shot = {
+          row: player.row,
+          col: player.col,
+          dir: { ...player.dir },
+        };
+      }
+
+      function updateShot() {
+        if (!shot) return;
+        const next = { row: shot.row + shot.dir.row, col: shot.col + shot.dir.col };
+        if (isWall(next.row, next.col)) {
+          shot = null;
+          return;
+        }
+        shot.row = next.row;
+        shot.col = next.col;
+        if (sameCell(shot, enemy)) {
+          score += 1;
+          shot = null;
+          enemy.row = 1;
+          enemy.col = 11;
+          elements.message.textContent = `命中敌机，第 ${score} 次。`;
+          if (score >= 3) {
+            ended = true;
+            elements.message.textContent = "敌机被击退三次，你赢了。";
+          }
+        }
+      }
+
+      function updateEnemy(time) {
+        if (time - lastEnemy < 230) return;
+        lastEnemy = time;
+        const options = [
+          { row: -1, col: 0 },
+          { row: 1, col: 0 },
+          { row: 0, col: -1 },
+          { row: 0, col: 1 },
+        ].filter((dir) => !isWall(enemy.row + dir.row, enemy.col + dir.col));
+        options.sort((a, b) => {
+          const da = Math.abs(enemy.row + a.row - player.row) + Math.abs(enemy.col + a.col - player.col);
+          const db = Math.abs(enemy.row + b.row - player.row) + Math.abs(enemy.col + b.col - player.col);
+          return da - db;
+        });
+        const choice = Math.random() < 0.72 ? options[0] : options[Math.floor(Math.random() * options.length)];
+        moveUnit(enemy, choice);
+      }
+
+      function checkCrash() {
+        if (sameCell(player, enemy)) {
+          ended = true;
+          elements.message.textContent = "敌机撞上了你，游戏结束。";
+        }
+      }
+
+      function drawCell(row, col, color) {
+        context.fillStyle = color;
+        context.fillRect(col + 0.08, row + 0.08, 0.84, 0.84);
+      }
+
+      function drawUnit(unit, color, label) {
+        context.fillStyle = color;
+        context.beginPath();
+        context.arc(unit.col + 0.5, unit.row + 0.5, 0.34, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = "#0c0a09";
+        context.font = "0.42px sans-serif";
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.fillText(label, unit.col + 0.5, unit.row + 0.52);
+      }
+
+      function draw() {
+        context.fillStyle = "#050505";
+        context.fillRect(0, 0, size, size);
+        for (let row = 0; row < size; row += 1) {
+          for (let col = 0; col < size; col += 1) {
+            drawCell(row, col, map[row][col] === "#" ? "#292524" : "#0f172a");
+          }
+        }
+        if (shot) drawUnit(shot, "#fde047", "");
+        drawUnit(enemy, "#fb7185", "E");
+        drawUnit(player, "#a3e635", "P");
+        const range = Math.abs(player.row - enemy.row) + Math.abs(player.col - enemy.col);
+        elements.score.textContent = String(score);
+        elements.ammo.textContent = shot ? "0" : "1";
+        elements.range.textContent = String(range);
+        elements.status.textContent = ended ? (score >= 3 ? "胜利" : "失败") : "巡航中";
+      }
+
+      function loop(time) {
+        if (!ended) {
+          handlePlayer(time);
+          updateEnemy(time);
+          updateShot();
+          checkCrash();
+        }
+        draw();
+        animationId = requestAnimationFrame(loop);
+      }
+
+      window.addEventListener("keydown", (event) => {
+        keys.add(event.key);
+        if (event.key === " ") {
+          event.preventDefault();
+          fireShot();
+        }
+        if (event.key.startsWith("Arrow")) event.preventDefault();
+      });
+      window.addEventListener("keyup", (event) => keys.delete(event.key));
+      window.addEventListener("resize", resizeCanvas);
+      elements.reset.addEventListener("click", setupGame);
+      setupGame();
+    </script>
+  </body>
+</html>
