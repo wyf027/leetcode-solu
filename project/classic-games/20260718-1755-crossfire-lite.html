@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Crossfire</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-800 pb-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-wide">Mini Crossfire</h1>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-400">
+          5x5 推球对抗。己方球可滑到空格，也可把相邻敌球沿直线推出棋盘。
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 text-sm font-semibold text-zinc-950 shadow hover:bg-lime-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900/80 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-3">
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-zinc-500">当前回合</div>
+          <div id="turnText" class="mt-2 text-xl font-semibold text-lime-200"></div>
+          <div id="statusText" class="mt-2 min-h-16 text-sm leading-6 text-zinc-300"></div>
+        </div>
+
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div class="text-xs uppercase tracking-[0.2em] text-zinc-500">推出数量</div>
+          <div id="scoreText" class="mt-3 space-y-2 text-sm"></div>
+        </div>
+
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+          <div class="text-xs uppercase tracking-[0.2em] text-zinc-500">规则</div>
+          <p class="mt-3">点击己方球，再点击高亮目标。空格目标是滑动；敌球目标会尝试沿同方向推挤。</p>
+          <p class="mt-2">把敌球推出棋盘得 1 分，先得到 3 分获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const scoreText = document.getElementById("scoreText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    const players = {
+      green: { name: "Green", piece: "bg-lime-300", text: "text-lime-200" },
+      violet: { name: "Violet", piece: "bg-violet-300", text: "text-violet-200" },
+    };
+
+    let board;
+    let turn;
+    let selected;
+    let legalTargets;
+    let pushedOut;
+    let winner;
+    let message;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      board[0][1] = "violet";
+      board[0][2] = "violet";
+      board[0][3] = "violet";
+      board[1][2] = "violet";
+      board[3][2] = "green";
+      board[4][1] = "green";
+      board[4][2] = "green";
+      board[4][3] = "green";
+      turn = "green";
+      selected = null;
+      legalTargets = [];
+      pushedOut = { green: 0, violet: 0 };
+      winner = null;
+      message = "选择一颗己方球。";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "green" ? "violet" : "green";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function cellKey(row, col) {
+      return `${row},${col}`;
+    }
+
+    function sameTarget(target, row, col) {
+      return target.row === row && target.col === col;
+    }
+
+    function targetSet() {
+      return new Set(legalTargets.map((target) => cellKey(target.row, target.col)));
+    }
+
+    function legalMoves(row, col) {
+      if (winner || board[row][col] !== turn) return [];
+      const moves = [];
+      dirs.forEach(([dr, dc]) => {
+        const nr = row + dr;
+        const nc = col + dc;
+        if (!inBounds(nr, nc)) return;
+        const target = board[nr][nc];
+        if (!target) {
+          moves.push({ row: nr, col: nc, dr, dc, type: "slide" });
+          return;
+        }
+        if (target !== turn && canPush(nr, nc, dr, dc)) {
+          moves.push({ row: nr, col: nc, dr, dc, type: "push" });
+        }
+      });
+      return moves;
+    }
+
+    function canPush(row, col, dr, dc) {
+      let enemyCount = 0;
+      let r = row;
+      let c = col;
+      while (inBounds(r, c) && board[r][c] === opponent(turn)) {
+        enemyCount += 1;
+        r += dr;
+        c += dc;
+      }
+      if (enemyCount === 0 || enemyCount > 2) return false;
+      return !inBounds(r, c) || board[r][c] === null;
+    }
+
+    function applyMove(target) {
+      const from = selected;
+      const player = board[from.row][from.col];
+      if (target.type === "slide") {
+        board[target.row][target.col] = player;
+        board[from.row][from.col] = null;
+        message = `${players[player].name} 滑动一格。`;
+      } else {
+        applyPush(from, target);
+      }
+      selected = null;
+      legalTargets = [];
+      checkGame(player);
+      if (!winner) {
+        turn = opponent(turn);
+        message += ` 轮到 ${players[turn].name}。`;
+      }
+      render();
+    }
+
+    function applyPush(from, target) {
+      const player = board[from.row][from.col];
+      const line = [];
+      let r = target.row;
+      let c = target.col;
+      while (inBounds(r, c) && board[r][c] === opponent(player)) {
+        line.push({ row: r, col: c });
+        r += target.dr;
+        c += target.dc;
+      }
+      let scored = false;
+      if (!inBounds(r, c)) {
+        const last = line.pop();
+        board[last.row][last.col] = null;
+        pushedOut[player] += 1;
+        scored = true;
+      }
+      for (let i = line.length - 1; i >= 0; i -= 1) {
+        const cell = line[i];
+        board[cell.row + target.dr][cell.col + target.dc] = board[cell.row][cell.col];
+      }
+      board[target.row][target.col] = player;
+      board[from.row][from.col] = null;
+      message = scored
+        ? `${players[player].name} 推出一颗敌球。`
+        : `${players[player].name} 推动敌球。`;
+    }
+
+    function checkGame(player) {
+      if (pushedOut[player] >= 3) {
+        winner = player;
+        message = `${players[player].name} 推出 3 颗敌球，获胜。`;
+        return;
+      }
+      if (!board.flat().includes(opponent(player))) {
+        winner = player;
+        message = `${players[player].name} 清空对手，获胜。`;
+      }
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+      const target = legalTargets.find((item) => sameTarget(item, row, col));
+      if (selected && target) {
+        applyMove(target);
+        return;
+      }
+      if (board[row][col] === turn) {
+        selected = { row, col };
+        legalTargets = legalMoves(row, col);
+        message = legalTargets.length
+          ? `${players[turn].name} 选择了一颗球。`
+          : "这颗球暂时不能移动。";
+      } else {
+        selected = null;
+        legalTargets = [];
+        message = "请选择当前回合的己方球。";
+      }
+      render();
+    }
+
+    function renderScores() {
+      scoreText.innerHTML = ["green", "violet"]
+        .map(
+          (player) => `
+            <div class="flex items-center justify-between rounded-md bg-zinc-950/60 px-3 py-2">
+              <span class="font-semibold ${players[player].text}">${players[player].name}</span>
+              <span>${pushedOut[player]} / 3</span>
+            </div>
+          `,
+        )
+        .join("");
+    }
+
+    function renderBoard() {
+      const targets = targetSet();
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const owner = board[row][col];
+          const isSelected = selected?.row === row && selected?.col === col;
+          const isTarget = targets.has(cellKey(row, col));
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = [
+            "relative flex aspect-square items-center justify-center rounded-md border transition",
+            (row + col) % 2 === 0 ? "border-zinc-700 bg-zinc-800" : "border-zinc-800 bg-zinc-700",
+            isSelected ? "ring-4 ring-lime-200" : "",
+            isTarget ? "outline outline-2 outline-cyan-200" : "",
+            !winner ? "hover:border-lime-200" : "cursor-default",
+          ].join(" ");
+          if (owner) {
+            cell.innerHTML = `<span class="h-12 w-12 rounded-full ${players[owner].piece} shadow-lg"></span>`;
+          } else if (isTarget) {
+            cell.innerHTML = `<span class="h-3 w-3 rounded-full bg-cyan-200"></span>`;
+          }
+          cell.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function render() {
+      renderBoard();
+      renderScores();
+      turnText.textContent = winner ? `${players[winner].name} 胜利` : players[turn].name;
+      turnText.className = `mt-2 text-xl font-semibold ${winner ? players[winner].text : players[turn].text}`;
+      statusText.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
