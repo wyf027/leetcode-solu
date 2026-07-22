@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Squava</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl shadow-black/30">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-emerald-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Squava</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-neutral-300">
+            双方轮流在 4x4 棋盘落子。先连成四子获胜，但如果自己形成任意 2x2 方块，会立即输掉本局。
+          </p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-emerald-300 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-emerald-200">
+          重新开始
+        </button>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-neutral-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-white">玩家 A</p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-neutral-400">已落子</p>
+            <p id="moveLabel" class="mt-1 text-2xl font-bold text-white">0 / 16</p>
+          </div>
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p id="status" class="text-sm leading-6 text-neutral-200">选择任意空格落子。四连能赢，2x2 会输。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-100">玩家 A：绿子</div>
+            <div class="rounded-md border border-fuchsia-500/40 bg-fuchsia-500/10 p-2 text-fuchsia-100">玩家 B：紫子</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnLabel = document.getElementById('turnLabel');
+    const moveLabel = document.getElementById('moveLabel');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const size = 4;
+    const players = [
+      { mark: 'A', name: '玩家 A', text: 'text-emerald-100', bg: 'bg-emerald-500/25', border: 'border-emerald-300' },
+      { mark: 'B', name: '玩家 B', text: 'text-fuchsia-100', bg: 'bg-fuchsia-500/25', border: 'border-fuchsia-300' }
+    ];
+
+    let board = Array(size * size).fill('');
+    let player = 0;
+    let ended = false;
+    let highlight = [];
+
+    function startGame() {
+      board = Array(size * size).fill('');
+      player = 0;
+      ended = false;
+      highlight = [];
+      statusEl.textContent = '选择任意空格落子。四连能赢，2x2 会输。';
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      board.forEach((cell, index) => {
+        const button = document.createElement('button');
+        const owner = players.find(item => item.mark === cell);
+        const active = highlight.includes(index);
+        button.className = [
+          'flex aspect-square items-center justify-center rounded-md border text-3xl font-black transition sm:text-5xl',
+          owner ? `${owner.bg} ${owner.text} ${owner.border}` : 'border-neutral-700 bg-neutral-800 text-neutral-300',
+          active ? 'ring-4 ring-yellow-300' : '',
+          !cell && !ended ? 'hover:border-emerald-300 hover:bg-neutral-700' : 'cursor-default'
+        ].join(' ');
+        button.textContent = cell;
+        button.disabled = ended || Boolean(cell);
+        button.setAttribute('aria-label', cell ? `${cell} at ${index + 1}` : `空格 ${index + 1}`);
+        button.addEventListener('click', () => handleCell(index));
+        boardEl.appendChild(button);
+      });
+
+      turnLabel.textContent = ended ? '本局结束' : players[player].name;
+      moveLabel.textContent = `${board.filter(Boolean).length} / ${board.length}`;
+    }
+
+    function handleCell(index) {
+      if (ended || board[index]) {
+        return;
+      }
+
+      const mark = players[player].mark;
+      board[index] = mark;
+      const block = findSquare(mark);
+      const line = findLine(mark);
+
+      if (block) {
+        ended = true;
+        highlight = block;
+        const winner = players[1 - player].name;
+        statusEl.textContent = `${players[player].name} 形成 2x2 方块，${winner} 获胜。`;
+      } else if (line) {
+        ended = true;
+        highlight = line;
+        statusEl.textContent = `${players[player].name} 连成四子，赢得本局。`;
+      } else if (board.every(Boolean)) {
+        ended = true;
+        statusEl.textContent = '棋盘已满且无人胜出，本局平局。';
+      } else {
+        player = 1 - player;
+        statusEl.textContent = `轮到 ${players[player].name}。`;
+      }
+
+      render();
+    }
+
+    function findSquare(mark) {
+      for (let row = 0; row < size - 1; row += 1) {
+        for (let col = 0; col < size - 1; col += 1) {
+          const cells = [idx(row, col), idx(row, col + 1), idx(row + 1, col), idx(row + 1, col + 1)];
+          if (cells.every(cell => board[cell] === mark)) {
+            return cells;
+          }
+        }
+      }
+      return null;
+    }
+
+    function findLine(mark) {
+      const lines = [];
+      for (let i = 0; i < size; i += 1) {
+        lines.push([idx(i, 0), idx(i, 1), idx(i, 2), idx(i, 3)]);
+        lines.push([idx(0, i), idx(1, i), idx(2, i), idx(3, i)]);
+      }
+      lines.push([idx(0, 0), idx(1, 1), idx(2, 2), idx(3, 3)]);
+      lines.push([idx(0, 3), idx(1, 2), idx(2, 1), idx(3, 0)]);
+      return lines.find(line => line.every(cell => board[cell] === mark)) || null;
+    }
+
+    function idx(row, col) {
+      return row * size + col;
+    }
+
+    resetBtn.addEventListener('click', startGame);
+    startGame();
+  </script>
+</body>
+</html>
