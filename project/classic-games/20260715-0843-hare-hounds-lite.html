@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Hare and Hounds</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Hare and Hounds</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[1fr_280px]">
+      <div class="rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-xl">
+        <div id="board" class="relative mx-auto aspect-[5/3] w-full max-w-2xl select-none rounded border border-stone-700 bg-stone-950">
+          <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 60" aria-hidden="true">
+            <g id="lines" stroke="#78716c" stroke-width="0.9"></g>
+          </svg>
+          <div id="nodes"></div>
+        </div>
+      </div>
+
+      <aside class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-stone-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-amber-200">猎犬</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded border border-stone-700 bg-stone-950 p-3">
+              <p class="text-stone-400">猎犬步数</p>
+              <p id="houndMoves" class="mt-1 text-xl font-bold">0</p>
+            </div>
+            <div class="rounded border border-stone-700 bg-stone-950 p-3">
+              <p class="text-stone-400">目标</p>
+              <p class="mt-1 text-xl font-bold">30</p>
+            </div>
+          </div>
+          <p id="message" class="rounded border border-stone-700 bg-stone-950 p-3 text-sm leading-6 text-stone-200">猎犬先手。选中棋子后点击相邻空点移动。</p>
+          <div class="space-y-2 text-sm leading-6 text-stone-300">
+            <p>猎犬只能向右或横向沿线移动，不能后退。</p>
+            <p>兔子可沿线向任意空点移动。兔子越过所有猎犬，或撑过 30 次猎犬移动即获胜。</p>
+            <p>猎犬堵死兔子的全部合法移动即获胜。</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 8, y: 30 },
+      { x: 24, y: 12 },
+      { x: 24, y: 48 },
+      { x: 40, y: 30 },
+      { x: 50, y: 12 },
+      { x: 50, y: 30 },
+      { x: 50, y: 48 },
+      { x: 66, y: 12 },
+      { x: 66, y: 30 },
+      { x: 66, y: 48 },
+      { x: 86, y: 30 }
+    ];
+
+    const edges = [
+      [0, 1], [0, 2], [0, 3],
+      [1, 3], [1, 4],
+      [2, 3], [2, 6],
+      [3, 4], [3, 5], [3, 6],
+      [4, 5], [4, 7],
+      [5, 6], [5, 8],
+      [6, 9],
+      [7, 8], [7, 10],
+      [8, 9], [8, 10],
+      [9, 10]
+    ];
+
+    const adjacency = points.map(() => []);
+    edges.forEach(([a, b]) => {
+      adjacency[a].push(b);
+      adjacency[b].push(a);
+    });
+
+    const board = document.getElementById("board");
+    const lines = document.getElementById("lines");
+    const nodes = document.getElementById("nodes");
+    const turnLabel = document.getElementById("turnLabel");
+    const houndMoves = document.getElementById("houndMoves");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let state;
+
+    function resetGame() {
+      state = {
+        hounds: [0, 1, 2],
+        hare: 10,
+        turn: "hounds",
+        selected: null,
+        houndMoveCount: 0,
+        winner: null
+      };
+      drawLines();
+      render();
+    }
+
+    function drawLines() {
+      lines.innerHTML = edges.map(([a, b]) => {
+        const start = points[a];
+        const end = points[b];
+        return `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}"></line>`;
+      }).join("");
+    }
+
+    function pieceAt(index) {
+      if (state.hare === index) return "hare";
+      if (state.hounds.includes(index)) return "hound";
+      return null;
+    }
+
+    function isEmpty(index) {
+      return pieceAt(index) === null;
+    }
+
+    function legalMovesFrom(index) {
+      const piece = pieceAt(index);
+      if (!piece) return [];
+      return adjacency[index].filter((target) => {
+        if (!isEmpty(target)) return false;
+        if (piece === "hare") return true;
+        return points[target].x >= points[index].x;
+      });
+    }
+
+    function legalMovesForTurn(turn) {
+      if (turn === "hare") return legalMovesFrom(state.hare).map((to) => [state.hare, to]);
+      return state.hounds.flatMap((from) => legalMovesFrom(from).map((to) => [from, to]));
+    }
+
+    function selectPoint(index) {
+      if (state.winner) return;
+      const piece = pieceAt(index);
+      if (state.selected === null) {
+        if ((state.turn === "hare" && piece === "hare") || (state.turn === "hounds" && piece === "hound")) {
+          state.selected = index;
+          message.textContent = "选择一个相邻空点完成移动。";
+          render();
+        }
+        return;
+      }
+
+      if (state.selected === index) {
+        state.selected = null;
+        message.textContent = "已取消选择。";
+        render();
+        return;
+      }
+
+      const options = legalMovesFrom(state.selected);
+      if (options.includes(index)) {
+        movePiece(state.selected, index);
+        return;
+      }
+
+      if ((state.turn === "hare" && piece === "hare") || (state.turn === "hounds" && piece === "hound")) {
+        state.selected = index;
+        message.textContent = "已切换选择。";
+        render();
+      }
+    }
+
+    function movePiece(from, to) {
+      if (state.turn === "hare") {
+        state.hare = to;
+        state.turn = "hounds";
+      } else {
+        const slot = state.hounds.indexOf(from);
+        state.hounds[slot] = to;
+        state.houndMoveCount += 1;
+        state.turn = "hare";
+      }
+      state.selected = null;
+      checkWinner();
+      render();
+    }
+
+    function checkWinner() {
+      const leftmostHound = Math.min(...state.hounds.map((index) => points[index].x));
+      if (points[state.hare].x <= leftmostHound) {
+        state.winner = "兔子";
+        message.textContent = "兔子越过了所有猎犬，兔子获胜。";
+        return;
+      }
+      if (state.houndMoveCount >= 30) {
+        state.winner = "兔子";
+        message.textContent = "兔子撑过 30 次猎犬移动，兔子获胜。";
+        return;
+      }
+      if (legalMovesFrom(state.hare).length === 0) {
+        state.winner = "猎犬";
+        message.textContent = "猎犬堵死了兔子的所有路线，猎犬获胜。";
+        return;
+      }
+      if (legalMovesForTurn(state.turn).length === 0) {
+        state.winner = state.turn === "hare" ? "猎犬" : "兔子";
+        message.textContent = `${state.winner}获胜。`;
+        return;
+      }
+      message.textContent = state.turn === "hounds" ? "猎犬回合：只能向右或横向推进。" : "兔子回合：寻找缝隙向左突围。";
+    }
+
+    function render() {
+      turnLabel.textContent = state.winner ? `${state.winner}获胜` : (state.turn === "hounds" ? "猎犬" : "兔子");
+      houndMoves.textContent = String(state.houndMoveCount);
+
+      const selectedMoves = state.selected === null ? [] : legalMovesFrom(state.selected);
+      nodes.innerHTML = points.map((point, index) => {
+        const piece = pieceAt(index);
+        const selected = state.selected === index;
+        const legal = selectedMoves.includes(index);
+        const base = "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-black shadow transition focus:outline-none focus:ring-2 focus:ring-amber-200";
+        const style = `left:${point.x}%;top:${point.y}%`;
+        let look = "border-stone-600 bg-stone-800 text-stone-300 hover:bg-stone-700";
+        let label = "";
+        if (piece === "hound") {
+          look = "border-sky-200 bg-sky-500 text-white hover:bg-sky-400";
+          label = "H";
+        }
+        if (piece === "hare") {
+          look = "border-amber-200 bg-amber-400 text-stone-950 hover:bg-amber-300";
+          label = "R";
+        }
+        if (selected) look += " ring-4 ring-white/70";
+        if (legal) look = "border-emerald-200 bg-emerald-500 text-white hover:bg-emerald-400";
+        return `<button type="button" class="${base} ${look}" style="${style}" aria-label="point ${index}" data-index="${index}">${label}</button>`;
+      }).join("");
+
+      nodes.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => selectPoint(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
