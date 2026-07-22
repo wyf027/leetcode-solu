@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pylos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal">Mini Pylos</h1>
+        <p class="text-sm text-neutral-300">轮流在有支撑的位置放球，谁放上塔顶谁获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-orange-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+        <div class="mx-auto flex aspect-square w-full max-w-[620px] flex-col justify-center gap-4 rounded bg-stone-200 p-4">
+          <div id="board" class="space-y-4"></div>
+        </div>
+      </div>
+
+      <aside class="flex flex-col gap-3 rounded border border-neutral-700 bg-neutral-900 p-4">
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="rounded bg-neutral-800 p-3">
+            <div class="text-xs text-neutral-400">当前回合</div>
+            <div id="turn" class="text-xl font-bold text-orange-300">白方</div>
+          </div>
+          <div class="rounded bg-neutral-800 p-3">
+            <div class="text-xs text-neutral-400">已放</div>
+            <div id="placed" class="text-2xl font-bold text-sky-300">0</div>
+          </div>
+        </div>
+
+        <div class="rounded bg-neutral-800 p-3 text-sm leading-6">
+          <div class="flex justify-between"><span>白方余球</span><span id="whiteLeft">15</span></div>
+          <div class="flex justify-between"><span>黑方余球</span><span id="blackLeft">15</span></div>
+          <div class="flex justify-between"><span>最高层</span><span id="topLayer">1</span></div>
+        </div>
+
+        <p id="message" class="min-h-24 rounded bg-neutral-800 p-3 text-sm leading-6 text-neutral-200">底层任意空位可放；上层位置必须由下一层的 4 个球支撑。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const placedEl = document.getElementById("placed");
+    const whiteLeftEl = document.getElementById("whiteLeft");
+    const blackLeftEl = document.getElementById("blackLeft");
+    const topLayerEl = document.getElementById("topLayer");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const layers = [4, 3, 2, 1];
+    let board = [];
+    let current = "W";
+    let reserves = { W: 15, B: 15 };
+    let gameOver = false;
+
+    function resetGame() {
+      board = layers.map((size) => Array.from({ length: size }, () => Array(size).fill(null)));
+      current = "W";
+      reserves = { W: 15, B: 15 };
+      gameOver = false;
+      messageEl.textContent = "底层任意空位可放；上层位置必须由下一层的 4 个球支撑。";
+      renderBoard();
+      updateHud();
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      board.forEach((layer, level) => {
+        const section = document.createElement("section");
+        section.className = "flex flex-col items-center gap-2";
+        const label = document.createElement("div");
+        label.className = "text-xs font-semibold text-stone-600";
+        label.textContent = `第 ${level + 1} 层`;
+        section.appendChild(label);
+        layer.forEach((row, r) => {
+          const line = document.createElement("div");
+          line.className = "flex justify-center gap-2";
+          row.forEach((value, c) => {
+            const cell = document.createElement("button");
+            const legal = isLegal(level, r, c);
+            cell.className = cellClass(value, legal);
+            cell.textContent = value ? value : "";
+            cell.setAttribute("aria-label", `level ${level + 1} row ${r + 1} col ${c + 1}`);
+            cell.addEventListener("click", () => placeBall(level, r, c));
+            line.appendChild(cell);
+          });
+          section.appendChild(line);
+        });
+        boardEl.appendChild(section);
+      });
+    }
+
+    function cellClass(value, legal) {
+      const base = "flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold shadow";
+      if (value === "W") return `${base} border-stone-500 bg-white text-neutral-900`;
+      if (value === "B") return `${base} border-neutral-950 bg-neutral-900 text-white`;
+      if (legal && !gameOver) return `${base} border-orange-600 bg-orange-200 text-orange-900 hover:bg-orange-100`;
+      return `${base} border-stone-400 bg-stone-300 text-stone-500`;
+    }
+
+    function isLegal(level, row, col) {
+      if (gameOver || board[level][row][col]) return false;
+      if (level === 0) return true;
+      const below = board[level - 1];
+      return below[row][col]
+        && below[row + 1][col]
+        && below[row][col + 1]
+        && below[row + 1][col + 1];
+    }
+
+    function placeBall(level, row, col) {
+      if (!isLegal(level, row, col)) {
+        messageEl.textContent = "这个位置还没有足够支撑，或者已经被占用。";
+        return;
+      }
+      board[level][row][col] = current;
+      reserves[current] -= 1;
+      if (level === layers.length - 1) {
+        gameOver = true;
+        messageEl.textContent = `${current === "W" ? "白方" : "黑方"} 放上塔顶，获胜。`;
+      } else {
+        const layerName = `第 ${level + 1} 层`;
+        messageEl.textContent = `${current === "W" ? "白方" : "黑方"} 在 ${layerName} 放下一球。`;
+        current = current === "W" ? "B" : "W";
+      }
+      renderBoard();
+      updateHud();
+    }
+
+    function updateHud() {
+      turnEl.textContent = gameOver ? "结束" : current === "W" ? "白方" : "黑方";
+      turnEl.className = current === "W" ? "text-xl font-bold text-white" : "text-xl font-bold text-neutral-300";
+      placedEl.textContent = board.flat(2).filter(Boolean).length;
+      whiteLeftEl.textContent = reserves.W;
+      blackLeftEl.textContent = reserves.B;
+      topLayerEl.textContent = highestOccupiedLayer();
+    }
+
+    function highestOccupiedLayer() {
+      for (let level = board.length - 1; level >= 0; level -= 1) {
+        if (board[level].flat().some(Boolean)) return level + 1;
+      }
+      return 1;
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
