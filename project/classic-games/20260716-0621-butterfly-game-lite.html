@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Butterfly Game</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-5 px-4 py-8">
+    <section class="w-full rounded-lg border border-slate-800 bg-slate-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-cyan-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Butterfly Game</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-cyan-400 px-4 py-2 font-semibold text-slate-950 transition hover:bg-cyan-300">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_260px]">
+        <div class="relative aspect-[11/8] w-full rounded-lg border border-slate-700 bg-slate-950">
+          <svg id="lines" class="absolute inset-0 h-full w-full" viewBox="0 0 100 70" aria-hidden="true"></svg>
+          <div id="board" class="absolute inset-0"></div>
+        </div>
+
+        <aside class="rounded-lg border border-slate-800 bg-slate-950 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-slate-900 p-3">
+              <p class="text-xs text-slate-400">红方吃子</p>
+              <p id="redScore" class="text-2xl font-bold text-rose-300">0</p>
+            </div>
+            <div class="rounded-md bg-slate-900 p-3">
+              <p class="text-xs text-slate-400">蓝方吃子</p>
+              <p id="blueScore" class="text-2xl font-bold text-sky-300">0</p>
+            </div>
+          </div>
+          <p id="turnText" class="mt-4 rounded-md bg-slate-900 p-3 text-sm leading-6 text-slate-200"></p>
+          <p class="mt-4 text-sm leading-6 text-slate-400">选中己方棋子后，移动到相邻空点；若中间是对方棋子且落点为空，可跳过并吃掉它。率先吃掉 4 子，或让对方无路可走即获胜。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 10, y: 10 }, { x: 30, y: 10 }, { x: 50, y: 10 }, { x: 70, y: 10 }, { x: 90, y: 10 },
+      { x: 50, y: 35 },
+      { x: 10, y: 60 }, { x: 30, y: 60 }, { x: 50, y: 60 }, { x: 70, y: 60 }, { x: 90, y: 60 }
+    ];
+
+    const lines = [
+      [0, 1, 2, 3, 4],
+      [6, 7, 8, 9, 10],
+      [0, 5, 10],
+      [1, 5, 9],
+      [2, 5, 8],
+      [3, 5, 7],
+      [4, 5, 6]
+    ];
+
+    const neighbors = Array.from({ length: points.length }, () => new Set());
+    const jumps = new Map();
+
+    lines.forEach((line) => {
+      for (let i = 0; i < line.length - 1; i++) {
+        neighbors[line[i]].add(line[i + 1]);
+        neighbors[line[i + 1]].add(line[i]);
+      }
+      for (let i = 0; i < line.length - 2; i++) {
+        addJump(line[i], line[i + 1], line[i + 2]);
+        addJump(line[i + 2], line[i + 1], line[i]);
+      }
+    });
+
+    function addJump(from, over, to) {
+      if (!jumps.has(from)) jumps.set(from, []);
+      jumps.get(from).push({ over, to });
+    }
+
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const redScore = document.getElementById("redScore");
+    const blueScore = document.getElementById("blueScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function startGame() {
+      board = ["red", "red", null, "red", "red", null, "blue", "blue", null, "blue", "blue"];
+      turn = "red";
+      selected = null;
+      captures = { red: 0, blue: 0 };
+      winner = null;
+      render();
+    }
+
+    function drawLines() {
+      linesEl.innerHTML = "";
+      lines.forEach((line) => {
+        for (let i = 0; i < line.length - 1; i++) {
+          const a = points[line[i]];
+          const b = points[line[i + 1]];
+          const segment = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          segment.setAttribute("x1", a.x);
+          segment.setAttribute("y1", a.y);
+          segment.setAttribute("x2", b.x);
+          segment.setAttribute("y2", b.y);
+          segment.setAttribute("stroke", "#334155");
+          segment.setAttribute("stroke-width", "1.5");
+          segment.setAttribute("stroke-linecap", "round");
+          linesEl.appendChild(segment);
+        }
+      });
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const cell = document.createElement("button");
+        const piece = board[index];
+        const canMoveHere = selected !== null && isLegalMove(selected, index);
+        cell.type = "button";
+        cell.setAttribute("aria-label", `point ${index + 1}`);
+        cell.className = [
+          "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition",
+          piece === "red" ? "border-rose-200 bg-rose-500 text-white shadow-lg shadow-rose-950/60" : "",
+          piece === "blue" ? "border-sky-200 bg-sky-500 text-white shadow-lg shadow-sky-950/60" : "",
+          !piece ? "border-slate-500 bg-slate-800 text-slate-400" : "",
+          selected === index ? "ring-4 ring-amber-300" : "",
+          canMoveHere ? "border-emerald-200 bg-emerald-500 text-slate-950" : ""
+        ].join(" ");
+        cell.style.left = `${point.x}%`;
+        cell.style.top = `${point.y}%`;
+        cell.textContent = piece ? (piece === "red" ? "红" : "蓝") : "";
+        cell.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(cell);
+      });
+
+      redScore.textContent = captures.red;
+      blueScore.textContent = captures.blue;
+      if (winner) {
+        turnText.textContent = `${winner === "red" ? "红方" : "蓝方"}获胜，点击重新开始再来一局。`;
+      } else {
+        turnText.textContent = `${turn === "red" ? "红方" : "蓝方"}行动：选择棋子，然后走到高亮空点。`;
+      }
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (selected === null || !isLegalMove(selected, index)) return;
+      makeMove(selected, index);
+      selected = null;
+      checkWinner();
+      if (!winner) turn = turn === "red" ? "blue" : "red";
+      render();
+    }
+
+    function isLegalMove(from, to) {
+      if (board[to] || board[from] !== turn) return false;
+      if (neighbors[from].has(to)) return true;
+      return getJump(from, to) !== null;
+    }
+
+    function getJump(from, to) {
+      const jump = (jumps.get(from) || []).find((item) => item.to === to);
+      if (!jump) return null;
+      const opponent = turn === "red" ? "blue" : "red";
+      return board[jump.over] === opponent ? jump : null;
+    }
+
+    function makeMove(from, to) {
+      const jump = getJump(from, to);
+      board[to] = board[from];
+      board[from] = null;
+      if (jump) {
+        board[jump.over] = null;
+        captures[turn] += 1;
+      }
+    }
+
+    function checkWinner() {
+      const opponent = turn === "red" ? "blue" : "red";
+      if (captures[turn] >= 4 || !hasMove(opponent)) {
+        winner = turn;
+      }
+    }
+
+    function hasMove(player) {
+      const oldTurn = turn;
+      turn = player;
+      const result = board.some((piece, index) => piece === player && points.some((_, to) => isLegalMove(index, to)));
+      turn = oldTurn;
+      return result;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    drawLines();
+    startGame();
+  </script>
+</body>
+</html>
