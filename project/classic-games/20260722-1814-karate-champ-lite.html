@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Karate Champ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100 antialiased">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-5">
+      <header class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-red-300">
+            Classic Games
+          </p>
+          <h1 class="text-3xl font-bold md:text-4xl">Mini Karate Champ</h1>
+          <p class="mt-2 max-w-2xl text-sm text-neutral-400">
+            看准对手防守空档，选择上段、中段或下段攻击，先得 5 分获胜。
+          </p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2">
+            <p class="text-xs text-neutral-400">Player</p>
+            <p id="player-score" class="text-2xl font-bold text-sky-200">0</p>
+          </div>
+          <div class="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2">
+            <p class="text-xs text-neutral-400">Round</p>
+            <p id="round-label" class="text-2xl font-bold text-amber-200">1</p>
+          </div>
+          <div class="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2">
+            <p class="text-xs text-neutral-400">Opponent</p>
+            <p id="opponent-score" class="text-2xl font-bold text-red-200">0</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-3 shadow-xl shadow-black/30">
+          <canvas
+            id="game"
+            width="760"
+            height="500"
+            class="block w-full rounded-md bg-gradient-to-b from-slate-950 via-neutral-950 to-stone-900"
+          ></canvas>
+        </div>
+
+        <aside class="grid content-start gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <div class="grid gap-2">
+            <button
+              data-move="high"
+              class="move-btn h-12 rounded-md bg-sky-400 px-3 font-bold text-neutral-950 hover:bg-sky-300"
+            >
+              W / ↑ 上段
+            </button>
+            <button
+              data-move="middle"
+              class="move-btn h-12 rounded-md bg-amber-400 px-3 font-bold text-neutral-950 hover:bg-amber-300"
+            >
+              S / Space 中段
+            </button>
+            <button
+              data-move="low"
+              class="move-btn h-12 rounded-md bg-emerald-400 px-3 font-bold text-neutral-950 hover:bg-emerald-300"
+            >
+              X / ↓ 下段
+            </button>
+          </div>
+
+          <button
+            id="restart"
+            class="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm font-semibold hover:border-red-300 hover:text-red-200"
+          >
+            重新开始
+          </button>
+
+          <div class="rounded-md border border-neutral-700 bg-neutral-950 p-3">
+            <p class="text-xs font-semibold uppercase tracking-wide text-neutral-400">Timer</p>
+            <div class="mt-2 h-3 overflow-hidden rounded-full bg-neutral-800">
+              <div id="timer-bar" class="h-full rounded-full bg-red-400"></div>
+            </div>
+          </div>
+
+          <p id="message" class="min-h-20 rounded-md bg-neutral-950 p-3 text-sm text-neutral-300">
+            对手会露出一个防守空档，攻击对应位置即可得分。
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.querySelector("#game");
+      const ctx = canvas.getContext("2d");
+      const playerScoreEl = document.querySelector("#player-score");
+      const opponentScoreEl = document.querySelector("#opponent-score");
+      const roundLabel = document.querySelector("#round-label");
+      const timerBar = document.querySelector("#timer-bar");
+      const messageEl = document.querySelector("#message");
+      const restartBtn = document.querySelector("#restart");
+      const moveButtons = [...document.querySelectorAll(".move-btn")];
+
+      const moves = {
+        high: { label: "上段", color: "#38bdf8", y: 170 },
+        middle: { label: "中段", color: "#fbbf24", y: 250 },
+        low: { label: "下段", color: "#34d399", y: 330 },
+      };
+      const moveKeys = Object.keys(moves);
+      const state = {
+        playerScore: 0,
+        opponentScore: 0,
+        round: 1,
+        timer: 100,
+        opening: "middle",
+        playerMove: null,
+        opponentMove: null,
+        flash: 0,
+        paused: false,
+        done: false,
+        lastTime: 0,
+      };
+
+      const randomMove = () => moveKeys[Math.floor(Math.random() * moveKeys.length)];
+
+      const setMessage = (text) => {
+        messageEl.textContent = text;
+      };
+
+      const updateHud = () => {
+        playerScoreEl.textContent = state.playerScore;
+        opponentScoreEl.textContent = state.opponentScore;
+        roundLabel.textContent = state.round;
+        timerBar.style.width = Math.max(0, state.timer) + "%";
+      };
+
+      const nextRound = () => {
+        state.round += 1;
+        state.timer = 100;
+        state.opening = randomMove();
+        state.playerMove = null;
+        state.opponentMove = null;
+        state.flash = 0;
+        state.paused = false;
+        setMessage("第 " + state.round + " 回合：寻找" + moves[state.opening].label + "空档。");
+        updateHud();
+      };
+
+      const reset = () => {
+        state.playerScore = 0;
+        state.opponentScore = 0;
+        state.round = 1;
+        state.timer = 100;
+        state.opening = randomMove();
+        state.playerMove = null;
+        state.opponentMove = null;
+        state.flash = 0;
+        state.paused = false;
+        state.done = false;
+        setMessage("对手露出" + moves[state.opening].label + "空档，抓准时机。");
+        updateHud();
+      };
+
+      const finishMatch = (winner) => {
+        state.done = true;
+        state.paused = true;
+        setMessage(winner === "player" ? "胜利！你先拿到 5 分。" : "落败，对手先拿到 5 分。");
+      };
+
+      const resolveMove = (move) => {
+        if (state.paused || state.done) {
+          if (state.done) reset();
+          return;
+        }
+
+        state.playerMove = move;
+        state.opponentMove = randomMove();
+        state.flash = 18;
+        state.paused = true;
+
+        if (move === state.opening) {
+          state.playerScore += 1;
+          setMessage("命中" + moves[move].label + "！得 1 分。");
+        } else if (state.opponentMove === move) {
+          setMessage("被对手格挡，双方无分。");
+        } else {
+          state.opponentScore += 1;
+          setMessage("判断失误，对手反击得分。");
+        }
+
+        updateHud();
+        if (state.playerScore >= 5) {
+          finishMatch("player");
+          return;
+        }
+        if (state.opponentScore >= 5) {
+          finishMatch("opponent");
+          return;
+        }
+        window.setTimeout(nextRound, 850);
+      };
+
+      const timeoutRound = () => {
+        if (state.paused || state.done) return;
+        state.opponentScore += 1;
+        state.paused = true;
+        state.playerMove = null;
+        state.opponentMove = state.opening;
+        state.flash = 18;
+        setMessage("出招太慢，对手抢先得分。");
+        updateHud();
+        if (state.opponentScore >= 5) finishMatch("opponent");
+        else window.setTimeout(nextRound, 850);
+      };
+
+      const drawFloor = () => {
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#1c1917";
+        ctx.fillRect(0, 374, canvas.width, 126);
+        ctx.strokeStyle = "#78716c";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(100, 374, 560, 52);
+        ctx.fillStyle = "#7f1d1d";
+        ctx.fillRect(102, 376, 556, 6);
+      };
+
+      const drawFighter = (x, flip, gi, move, isOpponent) => {
+        const dir = flip ? -1 : 1;
+        ctx.save();
+        ctx.translate(x, 332);
+        ctx.scale(dir, 1);
+        ctx.strokeStyle = gi;
+        ctx.lineWidth = 13;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(0, -95);
+        ctx.lineTo(0, -35);
+        ctx.moveTo(0, -36);
+        ctx.lineTo(-28, 0);
+        ctx.moveTo(0, -36);
+        ctx.lineTo(30, 0);
+        ctx.stroke();
+
+        ctx.fillStyle = "#fed7aa";
+        ctx.beginPath();
+        ctx.arc(0, -118, 20, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = move ? moves[move].color : gi;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.moveTo(0, -82);
+        if (move === "high") ctx.lineTo(70, -120);
+        else if (move === "middle") ctx.lineTo(78, -78);
+        else if (move === "low") ctx.lineTo(72, -20);
+        else ctx.lineTo(42, -74);
+        ctx.moveTo(0, -78);
+        ctx.lineTo(-34, -62);
+        ctx.stroke();
+
+        ctx.fillStyle = isOpponent ? "#ef4444" : "#38bdf8";
+        ctx.fillRect(-22, -69, 44, 8);
+        ctx.restore();
+      };
+
+      const drawOpenings = () => {
+        moveKeys.forEach((move) => {
+          const item = moves[move];
+          ctx.fillStyle = move === state.opening ? item.color : "rgba(214, 211, 209, 0.22)";
+          ctx.beginPath();
+          ctx.arc(canvas.width / 2, item.y, move === state.opening ? 14 : 8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#e7e5e4";
+          ctx.font = "14px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(item.label, canvas.width / 2, item.y - 22);
+        });
+      };
+
+      const drawOverlay = () => {
+        if (!state.done) return;
+        ctx.fillStyle = "rgba(10, 10, 10, 0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fee2e2";
+        ctx.font = "bold 36px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state.playerScore > state.opponentScore ? "You Win" : "Try Again", canvas.width / 2, 220);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("按任意出招键重新开始", canvas.width / 2, 260);
+      };
+
+      const draw = () => {
+        drawFloor();
+        drawOpenings();
+        drawFighter(230, false, "#f5f5f4", state.playerMove, false);
+        drawFighter(530, true, "#d6d3d1", state.opponentMove, true);
+        if (state.flash > 0) {
+          ctx.fillStyle = "rgba(250, 204, 21, 0.18)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          state.flash -= 1;
+        }
+        drawOverlay();
+      };
+
+      const tick = (time) => {
+        const delta = Math.min(40, time - (state.lastTime || time));
+        state.lastTime = time;
+        if (!state.paused && !state.done) {
+          state.timer -= delta * 0.055;
+          if (state.timer <= 0) timeoutRound();
+          updateHud();
+        }
+        draw();
+        requestAnimationFrame(tick);
+      };
+
+      moveButtons.forEach((button) => {
+        button.addEventListener("click", () => resolveMove(button.dataset.move));
+      });
+      restartBtn.addEventListener("click", reset);
+      document.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (key === "w" || event.key === "ArrowUp") resolveMove("high");
+        if (key === "s" || key === " ") resolveMove("middle");
+        if (key === "x" || event.key === "ArrowDown") resolveMove("low");
+      });
+
+      reset();
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>
