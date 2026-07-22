@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Juno First</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      touch-action: manipulation;
+    }
+    canvas {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-400/30 pb-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-cyan-200">Mini Juno First</h1>
+        <p class="text-sm text-slate-400">Strafe through deep space, shoot the raiders, and use warp before the lane collapses.</p>
+      </div>
+      <button id="restartBtn" class="rounded bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200">
+        Restart
+      </button>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_230px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3 shadow-2xl shadow-cyan-950/40">
+        <canvas id="gameCanvas" width="720" height="540" class="aspect-[4/3] w-full rounded bg-black"></canvas>
+      </div>
+
+      <aside class="grid content-start gap-3 text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-slate-500">Score</div>
+              <div id="score" class="text-xl font-bold text-cyan-200">0</div>
+            </div>
+            <div>
+              <div class="text-slate-500">Wave</div>
+              <div id="wave" class="text-xl font-bold text-amber-200">1</div>
+            </div>
+            <div>
+              <div class="text-slate-500">Lives</div>
+              <div id="lives" class="text-xl font-bold text-rose-200">3</div>
+            </div>
+            <div>
+              <div class="text-slate-500">Warp</div>
+              <div id="warp" class="text-xl font-bold text-emerald-200">100%</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-700 bg-slate-900 p-4 leading-6 text-slate-300">
+          <p><span class="font-semibold text-slate-100">Move:</span> Arrow keys or WASD</p>
+          <p><span class="font-semibold text-slate-100">Fire:</span> Space or J</p>
+          <p><span class="font-semibold text-slate-100">Warp:</span> Shift or K</p>
+          <p><span class="font-semibold text-slate-100">Restart:</span> Enter</p>
+        </div>
+
+        <div id="status" class="rounded border border-cyan-500/40 bg-cyan-950/30 p-4 text-cyan-100">
+          Clear the first wave.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const waveEl = document.getElementById("wave");
+    const livesEl = document.getElementById("lives");
+    const warpEl = document.getElementById("warp");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const keys = new Set();
+    const stars = [];
+    const shots = [];
+    const enemies = [];
+    const sparks = [];
+    let player;
+    let score;
+    let lives;
+    let wave;
+    let warpCharge;
+    let fireCooldown;
+    let spawnCooldown;
+    let state;
+    let lastTime;
+
+    function setupGame() {
+      player = {
+        x: canvas.width / 2,
+        y: canvas.height - 82,
+        radius: 13,
+        invincible: 0
+      };
+      score = 0;
+      lives = 3;
+      wave = 1;
+      warpCharge = 100;
+      fireCooldown = 0;
+      spawnCooldown = 0;
+      state = "playing";
+      lastTime = performance.now();
+      shots.length = 0;
+      enemies.length = 0;
+      sparks.length = 0;
+      stars.length = 0;
+
+      for (let i = 0; i < 100; i += 1) {
+        stars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          z: Math.random() * 1.8 + 0.2
+        });
+      }
+
+      spawnWave();
+      updateHud();
+      statusEl.textContent = "Clear the first wave.";
+    }
+
+    function spawnWave() {
+      const count = Math.min(4 + wave, 11);
+      for (let i = 0; i < count; i += 1) {
+        spawnEnemy(-i * 58 - 30);
+      }
+    }
+
+    function spawnEnemy(offsetY = -40) {
+      const lane = Math.floor(Math.random() * 9);
+      const center = canvas.width / 2;
+      const spread = 52 + Math.min(wave * 5, 60);
+      enemies.push({
+        x: center + (lane - 4) * spread,
+        y: offsetY,
+        baseX: center + (lane - 4) * spread,
+        radius: 14,
+        speed: 58 + wave * 8 + Math.random() * 26,
+        drift: Math.random() * 2 - 1,
+        wobble: Math.random() * 6,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    function fireShot() {
+      if (fireCooldown > 0 || state !== "playing") {
+        return;
+      }
+      shots.push({ x: player.x, y: player.y - 15, vy: -420, life: 1.4 });
+      fireCooldown = 0.18;
+    }
+
+    function warpJump() {
+      if (warpCharge < 100 || state !== "playing") {
+        return;
+      }
+      const direction = keys.has("ArrowLeft") || keys.has("a") ? -1 : keys.has("ArrowRight") || keys.has("d") ? 1 : 0;
+      player.x = clamp(player.x + direction * 150, 28, canvas.width - 28);
+      player.y = clamp(player.y - 28, canvas.height * 0.55, canvas.height - 42);
+      player.invincible = 1.1;
+      warpCharge = 0;
+      burst(player.x, player.y, "#67e8f9", 18);
+      statusEl.textContent = "Warp jump armed again after recharge.";
+    }
+
+    function updatePlayer(dt) {
+      const speed = 260;
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+      if (dx !== 0 && dy !== 0) {
+        dx *= 0.707;
+        dy *= 0.707;
+      }
+      player.x = clamp(player.x + dx * speed * dt, 26, canvas.width - 26);
+      player.y = clamp(player.y + dy * speed * dt, canvas.height * 0.52, canvas.height - 38);
+      player.invincible = Math.max(0, player.invincible - dt);
+      fireCooldown = Math.max(0, fireCooldown - dt);
+      warpCharge = Math.min(100, warpCharge + dt * 24);
+    }
+
+    function updateShots(dt) {
+      for (let i = shots.length - 1; i >= 0; i -= 1) {
+        shots[i].y += shots[i].vy * dt;
+        shots[i].life -= dt;
+        if (shots[i].y < -20 || shots[i].life <= 0) {
+          shots.splice(i, 1);
+        }
+      }
+    }
+
+    function updateEnemies(dt) {
+      spawnCooldown -= dt;
+      if (spawnCooldown <= 0 && enemies.length < Math.min(5 + wave, 12)) {
+        spawnEnemy();
+        spawnCooldown = Math.max(0.55, 1.35 - wave * 0.07);
+      }
+
+      for (let i = enemies.length - 1; i >= 0; i -= 1) {
+        const enemy = enemies[i];
+        enemy.phase += dt * (2.1 + wave * 0.12);
+        enemy.y += enemy.speed * dt;
+        enemy.x = enemy.baseX + Math.sin(enemy.phase) * (28 + enemy.wobble * 6) + enemy.drift * enemy.y * 0.12;
+        if (enemy.y > canvas.height + 26) {
+          enemies.splice(i, 1);
+          loseLife();
+        }
+      }
+
+      if (enemies.length === 0 && state === "playing") {
+        wave += 1;
+        spawnWave();
+        statusEl.textContent = "Wave " + wave + " entering the sector.";
+      }
+    }
+
+    function checkCollisions() {
+      for (let i = enemies.length - 1; i >= 0; i -= 1) {
+        const enemy = enemies[i];
+        for (let j = shots.length - 1; j >= 0; j -= 1) {
+          if (distance(enemy, shots[j]) < enemy.radius + 6) {
+            enemies.splice(i, 1);
+            shots.splice(j, 1);
+            score += 80 + wave * 12;
+            burst(enemy.x, enemy.y, "#fbbf24", 14);
+            updateHud();
+            break;
+          }
+        }
+      }
+
+      if (player.invincible > 0) {
+        return;
+      }
+
+      for (let i = enemies.length - 1; i >= 0; i -= 1) {
+        if (distance(player, enemies[i]) < player.radius + enemies[i].radius) {
+          const hit = enemies.splice(i, 1)[0];
+          burst(hit.x, hit.y, "#fb7185", 18);
+          loseLife();
+          break;
+        }
+      }
+    }
+
+    function loseLife() {
+      if (state !== "playing") {
+        return;
+      }
+      lives -= 1;
+      player.invincible = 1.8;
+      player.x = canvas.width / 2;
+      player.y = canvas.height - 82;
+      updateHud();
+      if (lives <= 0) {
+        state = "over";
+        statusEl.textContent = "Sector lost. Press Enter or Restart.";
+      } else {
+        statusEl.textContent = "Hull hit. Reposition while shields flicker.";
+      }
+    }
+
+    function updateSparks(dt) {
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.life -= dt;
+        if (spark.life <= 0) {
+          sparks.splice(i, 1);
+        }
+      }
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 50 + Math.random() * 150;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.25 + Math.random() * 0.4,
+          color
+        });
+      }
+    }
+
+    function drawStarfield(dt) {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(34,211,238,0.28)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 9; i += 1) {
+        const x = canvas.width / 2 + (i - 4) * 58;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2 + (i - 4) * 18, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+
+      for (const star of stars) {
+        star.y += (80 + wave * 8) * star.z * dt;
+        if (star.y > canvas.height) {
+          star.x = Math.random() * canvas.width;
+          star.y = -4;
+          star.z = Math.random() * 1.8 + 0.2;
+        }
+        ctx.fillStyle = "rgba(226,232,240," + (0.35 + star.z * 0.25) + ")";
+        ctx.fillRect(star.x, star.y, star.z * 2, star.z * 2);
+      }
+    }
+
+    function drawPlayer() {
+      const flash = player.invincible > 0 && Math.floor(player.invincible * 12) % 2 === 0;
+      if (flash) {
+        return;
+      }
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = "#22d3ee";
+      ctx.beginPath();
+      ctx.moveTo(0, -18);
+      ctx.lineTo(18, 16);
+      ctx.lineTo(0, 8);
+      ctx.lineTo(-18, 16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-4, -5, 8, 12);
+      ctx.restore();
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        const scale = 0.72 + enemy.y / canvas.height * 0.55;
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.scale(scale, scale);
+        ctx.fillStyle = "#f43f5e";
+        ctx.beginPath();
+        ctx.moveTo(0, 18);
+        ctx.lineTo(18, -10);
+        ctx.lineTo(5, -3);
+        ctx.lineTo(0, -18);
+        ctx.lineTo(-5, -3);
+        ctx.lineTo(-18, -10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#fef08a";
+        ctx.fillRect(-4, 1, 8, 8);
+        ctx.restore();
+      }
+    }
+
+    function drawShots() {
+      ctx.fillStyle = "#a7f3d0";
+      for (const shot of shots) {
+        ctx.fillRect(shot.x - 2, shot.y - 12, 4, 16);
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 2.2);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state !== "over") {
+        return;
+      }
+      ctx.fillStyle = "rgba(2,6,23,0.72)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#e0f2fe";
+      ctx.textAlign = "center";
+      ctx.font = "700 38px system-ui";
+      ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 18);
+      ctx.font = "500 18px system-ui";
+      ctx.fillText("Press Enter to relaunch", canvas.width / 2, canvas.height / 2 + 22);
+      ctx.textAlign = "left";
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      waveEl.textContent = wave;
+      livesEl.textContent = lives;
+      warpEl.textContent = Math.floor(warpCharge) + "%";
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+      drawStarfield(dt);
+      if (state === "playing") {
+        updatePlayer(dt);
+        updateShots(dt);
+        updateEnemies(dt);
+        updateSparks(dt);
+        checkCollisions();
+        if (keys.has(" ") || keys.has("j")) {
+          fireShot();
+        }
+      } else {
+        updateSparks(dt);
+      }
+      drawShots();
+      drawEnemies();
+      drawPlayer();
+      drawSparks();
+      drawOverlay();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === " " || key === "j") {
+        fireShot();
+      }
+      if (key === "Shift" || key === "k") {
+        warpJump();
+      }
+      if (key === "Enter") {
+        setupGame();
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    restartBtn.addEventListener("click", setupGame);
+
+    setupGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
