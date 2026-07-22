@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Score Four</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-4 py-8">
+    <section class="rounded-lg border border-sky-800 bg-sky-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-orange-300">Classic 3D Four-in-a-row</p>
+          <h1 class="text-3xl font-semibold text-white">Mini Score Four</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-orange-400 px-4 py-2 text-sm font-semibold text-sky-950 hover:bg-orange-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_250px]">
+        <div class="rounded-lg border border-sky-700 bg-sky-950 p-4">
+          <div id="board" class="mx-auto grid max-w-md grid-cols-4 gap-3"></div>
+        </div>
+        <aside class="rounded-lg border border-sky-700 bg-sky-950 p-4">
+          <div class="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p class="text-sky-300">你</p>
+              <p id="humanCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-sky-300">AI</p>
+              <p id="aiCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-sky-300">空列位</p>
+              <p id="openCount" class="text-2xl font-semibold text-white">16</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-16 rounded-md bg-sky-900 p-3 text-sm leading-6 text-sky-100"></p>
+          <div class="mt-4 space-y-2 text-sm text-sky-200">
+            <p>点击 4x4 底盘中的一列放入蓝色棋子。</p>
+            <p>棋子会叠在该列当前最高层。</p>
+            <p>任意方向形成 4 连即可获胜。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const totalCells = size * size * size;
+    let boardState = Array(totalCells).fill("");
+    let locked = false;
+    let gameOver = false;
+    let lines = [];
+
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const humanCountEl = document.getElementById("humanCount");
+    const aiCountEl = document.getElementById("aiCount");
+    const openCountEl = document.getElementById("openCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function indexOf(x, y, z) {
+      return z * size * size + y * size + x;
+    }
+
+    function inside(x, y, z) {
+      return x >= 0 && x < size && y >= 0 && y < size && z >= 0 && z < size;
+    }
+
+    function buildLines() {
+      const dirs = [];
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dz = -1; dz <= 1; dz += 1) {
+            if (dx || dy || dz) dirs.push([dx, dy, dz]);
+          }
+        }
+      }
+      const seen = new Set();
+      const result = [];
+      for (let x = 0; x < size; x += 1) {
+        for (let y = 0; y < size; y += 1) {
+          for (let z = 0; z < size; z += 1) {
+            dirs.forEach(([dx, dy, dz]) => {
+              const cells = [];
+              for (let step = 0; step < size; step += 1) {
+                const nx = x + dx * step;
+                const ny = y + dy * step;
+                const nz = z + dz * step;
+                if (inside(nx, ny, nz)) cells.push(indexOf(nx, ny, nz));
+              }
+              if (cells.length === size) {
+                const key = [...cells].sort((a, b) => a - b).join("-");
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  result.push(cells);
+                }
+              }
+            });
+          }
+        }
+      }
+      return result;
+    }
+
+    function topIndex(x, y, state = boardState) {
+      for (let z = 0; z < size; z += 1) {
+        const index = indexOf(x, y, z);
+        if (state[index] === "") return index;
+      }
+      return -1;
+    }
+
+    function legalMoves(state = boardState) {
+      const moves = [];
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const index = topIndex(x, y, state);
+          if (index >= 0) moves.push({ x, y, index });
+        }
+      }
+      return moves;
+    }
+
+    function winner(state = boardState) {
+      for (const line of lines) {
+        const first = state[line[0]];
+        if (first && line.every((cell) => state[cell] === first)) return first;
+      }
+      return "";
+    }
+
+    function scoreMove(move, player) {
+      const next = [...boardState];
+      next[move.index] = player;
+      if (winner(next) === player) return 1000;
+      const enemy = player === "H" ? "A" : "H";
+      let score = 0;
+      lines.forEach((line) => {
+        if (!line.includes(move.index)) return;
+        const mine = line.filter((cell) => next[cell] === player).length;
+        const theirs = line.filter((cell) => next[cell] === enemy).length;
+        if (!theirs) score += mine * mine;
+        if (!mine) score += theirs * 2;
+      });
+      return score;
+    }
+
+    function chooseAiMove() {
+      return legalMoves()
+        .map((move) => ({ move, score: scoreMove(move, "A") + scoreMove(move, "H") * 0.8 }))
+        .sort((left, right) => right.score - left.score)[0].move;
+    }
+
+    function placePiece(move, player) {
+      boardState[move.index] = player;
+      render();
+      const won = winner();
+      if (won) {
+        gameOver = true;
+        locked = true;
+        setMessage(won === "H" ? "你完成 4 连，获胜！" : "AI 完成 4 连，点击重开再试。");
+        return;
+      }
+      if (!legalMoves().length) {
+        gameOver = true;
+        locked = true;
+        setMessage("棋盘已满，平局。");
+        return;
+      }
+      if (player === "H") {
+        locked = true;
+        setMessage("AI 思考中...");
+        setTimeout(playComputerTurn, 450);
+      } else {
+        locked = false;
+        setMessage("轮到你选择一个底盘列。");
+      }
+    }
+
+    function chooseColumn(x, y) {
+      if (locked || gameOver) return;
+      const index = topIndex(x, y);
+      if (index < 0) {
+        setMessage("这一列已经满了，换一列。");
+        return;
+      }
+      placePiece({ x, y, index }, "H");
+    }
+
+    function playComputerTurn() {
+      if (gameOver) return;
+      placePiece(chooseAiMove(), "A");
+    }
+
+    function countPieces(player) {
+      return boardState.filter((piece) => piece === player).length;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function startGame() {
+      boardState = Array(totalCells).fill("");
+      locked = false;
+      gameOver = false;
+      lines = buildLines();
+      render();
+      setMessage("选择一个底盘列放入蓝色棋子。");
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const stack = [];
+          for (let z = size - 1; z >= 0; z -= 1) stack.push(boardState[indexOf(x, y, z)]);
+          const cell = document.createElement("button");
+          const open = topIndex(x, y) >= 0;
+          cell.type = "button";
+          cell.className = [
+            "min-h-24 rounded-md border p-2 text-left transition",
+            open ? "border-sky-700 bg-sky-900 hover:border-white" : "border-sky-800 bg-sky-950 opacity-70",
+            locked || gameOver ? "cursor-default" : "cursor-pointer"
+          ].join(" ");
+          cell.innerHTML = stack.map((piece) => {
+            if (piece === "H") return '<span class="inline-block h-5 w-5 rounded-full bg-cyan-300"></span>';
+            if (piece === "A") return '<span class="inline-block h-5 w-5 rounded-full bg-orange-300"></span>';
+            return '<span class="inline-block h-5 w-5 rounded-full border border-sky-700"></span>';
+          }).join(" ");
+          cell.setAttribute("aria-label", `column ${x + 1},${y + 1}`);
+          cell.addEventListener("click", () => chooseColumn(x, y));
+          boardEl.appendChild(cell);
+        }
+      }
+      humanCountEl.textContent = countPieces("H");
+      aiCountEl.textContent = countPieces("A");
+      openCountEl.textContent = legalMoves().length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
