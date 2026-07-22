@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bear and Dogs</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-amber-950 text-amber-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-amber-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-lime-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Bear and Dogs</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-lime-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-amber-800 bg-amber-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-amber-800 bg-amber-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-amber-300">当前阵营</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="statusText" class="min-h-20 text-sm leading-6 text-amber-100"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-lime-400/40 bg-lime-400/10 p-3">
+            <p class="text-xs text-lime-200">猎犬剩余</p>
+            <p id="dogsText" class="text-2xl font-bold text-lime-300">0</p>
+          </div>
+          <div class="rounded border border-orange-400/40 bg-orange-400/10 p-3">
+            <p class="text-xs text-orange-200">熊吃掉</p>
+            <p id="capturesText" class="text-2xl font-bold text-orange-300">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-amber-800 bg-amber-900 p-4 text-sm leading-6 text-amber-100">
+          <p>熊可以移动到相邻空格，也可以跳过相邻猎犬完成吃子。</p>
+          <p class="mt-2">猎犬只能移动相邻一步，目标是围住熊；熊吃掉 4 只猎犬获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnBadge = document.getElementById("turnBadge");
+    const statusText = document.getElementById("statusText");
+    const dogsText = document.getElementById("dogsText");
+    const capturesText = document.getElementById("capturesText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const sides = {
+      B: { label: "熊", badge: "bg-orange-300 text-amber-950", piece: "bg-orange-400" },
+      D: { label: "猎犬", badge: "bg-lime-300 text-amber-950", piece: "bg-lime-300" }
+    };
+    const dirs = [
+      [-1, 0], [1, 0], [0, -1], [0, 1],
+      [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      board[2][2] = "B";
+      [[0, 1], [0, 3], [1, 0], [1, 4], [3, 0], [3, 4], [4, 1], [4, 3]].forEach(([row, col]) => {
+        board[row][col] = "D";
+      });
+      turn = "B";
+      selected = null;
+      captures = 0;
+      winner = "";
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function findBear() {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === "B") return { row, col };
+        }
+      }
+      return null;
+    }
+
+    function simpleMoves(row, col) {
+      return dirs.map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+        .filter((to) => inBounds(to.row, to.col) && !board[to.row][to.col]);
+    }
+
+    function bearJumps(row, col) {
+      return dirs.map(([dRow, dCol]) => {
+        const mid = { row: row + dRow, col: col + dCol };
+        const land = { row: row + dRow * 2, col: col + dCol * 2 };
+        return { mid, land };
+      }).filter(({ mid, land }) => (
+        inBounds(mid.row, mid.col) &&
+        inBounds(land.row, land.col) &&
+        board[mid.row][mid.col] === "D" &&
+        !board[land.row][land.col]
+      ));
+    }
+
+    function legalMoves(row, col) {
+      if (board[row][col] === "B") {
+        return [
+          ...simpleMoves(row, col).map((to) => ({ to })),
+          ...bearJumps(row, col).map(({ mid, land }) => ({ to: land, capture: mid }))
+        ];
+      }
+      return simpleMoves(row, col).map((to) => ({ to }));
+    }
+
+    function countDogs() {
+      return board.flat().filter((cell) => cell === "D").length;
+    }
+
+    function checkWinner() {
+      const bear = findBear();
+      if (captures >= 4 || countDogs() <= 4) {
+        winner = "B";
+      } else if (bear && legalMoves(bear.row, bear.col).length === 0) {
+        winner = "D";
+      }
+    }
+
+    function finishTurn() {
+      selected = null;
+      checkWinner();
+      if (!winner) turn = turn === "B" ? "D" : "B";
+      render();
+    }
+
+    function movePiece(from, move) {
+      const piece = board[from.row][from.col];
+      board[move.to.row][move.to.col] = piece;
+      board[from.row][from.col] = "";
+      if (move.capture) {
+        board[move.capture.row][move.capture.col] = "";
+        captures += 1;
+      }
+      finishTurn();
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+      if (selected) {
+        if (selected.row === row && selected.col === col) {
+          selected = null;
+          render();
+          return;
+        }
+        const move = legalMoves(selected.row, selected.col).find(({ to }) => to.row === row && to.col === col);
+        if (move) movePiece(selected, move);
+        return;
+      }
+      if (board[row][col] === turn && legalMoves(row, col).length > 0) {
+        selected = { row, col };
+        render();
+      }
+    }
+
+    function targets() {
+      return selected ? legalMoves(selected.row, selected.col).map((move) => move.to) : [];
+    }
+
+    function statusMessage() {
+      if (winner === "B") return "熊突破围猎，获得胜利。";
+      if (winner === "D") return "猎犬围住熊，获得胜利。";
+      if (selected) return `${sides[turn].label}已选中，点击高亮空格移动。`;
+      return `${sides[turn].label}行动，选择一枚可移动棋子。`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      const targetCells = targets();
+      turnBadge.textContent = winner ? sides[winner].label : sides[turn].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${sides[winner || turn].badge}`;
+      statusText.textContent = statusMessage();
+      dogsText.textContent = countDogs();
+      capturesText.textContent = captures;
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const piece = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          const target = targetCells.some((to) => to.row === row && to.col === col);
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          cell.className = [
+            "flex aspect-square items-center justify-center rounded border transition",
+            "border-amber-800 bg-amber-950",
+            active ? "border-orange-200 bg-orange-300/20" : "",
+            target ? "border-lime-200 bg-lime-300/20" : "",
+            !winner ? "hover:border-lime-200" : "opacity-80"
+          ].join(" ");
+          cell.addEventListener("click", () => handleCell(row, col));
+
+          const marker = document.createElement("span");
+          marker.className = piece
+            ? `block h-3/5 w-3/5 rounded-full shadow ${sides[piece].piece}`
+            : "block h-2 w-2 rounded-full bg-amber-700";
+          cell.appendChild(marker);
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
