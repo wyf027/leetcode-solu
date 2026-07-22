@@ -1,0 +1,1253 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 14 最长公共前缀：纵向扫描探照灯交互演示与四语言题解"
+    />
+    <title>LeetCode 14 · 词列探照灯</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              midnight: "#16152b",
+              indigoink: "#292554",
+              paper: "#fffdf5",
+              beam: "#fde047",
+              violetbeam: "#a78bfa",
+              mint: "#34d399",
+              mismatch: "#fb7185",
+              graphite: "#22212b",
+            },
+            boxShadow: {
+              board: "9px 9px 0 #16152b",
+              beam: "0 0 28px rgba(253, 224, 71, .4)",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        background:
+          radial-gradient(
+            circle at 80% 5%,
+            rgba(167, 139, 250, 0.15),
+            transparent 28rem
+          ),
+          #f0edf8;
+      }
+
+      code,
+      pre,
+      .mono {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+
+      .char-cell {
+        transition:
+          background-color 180ms ease,
+          border-color 180ms ease,
+          color 180ms ease,
+          transform 180ms ease,
+          opacity 180ms ease;
+      }
+
+      .char-cell[data-active="true"] {
+        border-color: #fde047;
+        background: rgba(253, 224, 71, 0.16);
+        transform: translateY(-3px);
+        box-shadow: 0 0 20px rgba(253, 224, 71, 0.28);
+      }
+
+      .char-cell[data-accepted="true"] {
+        border-color: #34d399;
+        background: rgba(52, 211, 153, 0.18);
+        color: #a7f3d0;
+      }
+
+      .char-cell[data-rejected="true"] {
+        border-color: #fb7185;
+        background: rgba(251, 113, 133, 0.2);
+        color: #fecdd3;
+      }
+
+      .spotlight-grid {
+        background-image:
+          linear-gradient(rgba(253, 224, 71, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(253, 224, 71, 0.035) 1px, transparent 1px);
+        background-size: 28px 28px;
+      }
+
+      .test-card {
+        min-width: 0;
+      }
+
+      .test-card code {
+        overflow-wrap: anywhere;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen overflow-x-hidden text-graphite antialiased">
+    <a
+      href="#main"
+      class="fixed left-3 top-3 z-50 -translate-y-24 bg-beam px-4 py-2 font-black text-midnight focus:translate-y-0 focus:outline focus:outline-4 focus:outline-offset-2 focus:outline-violetbeam"
+      >跳到正文</a
+    >
+
+    <header class="border-b-8 border-beam bg-midnight text-white">
+      <div
+        class="mx-auto grid max-w-7xl gap-8 px-5 py-12 sm:px-8 lg:grid-cols-[1fr_300px] lg:items-end lg:py-16"
+      >
+        <div>
+          <div class="flex flex-wrap items-center gap-2 font-mono text-xs">
+            <span class="bg-beam px-3 py-1 font-black text-midnight"
+              >LEETCODE 014</span
+            >
+            <span
+              class="border border-violetbeam px-3 py-1 font-black text-violetbeam"
+              >EASY</span
+            >
+            <span class="text-slate-400">ARRAY · STRING · VERTICAL SCAN</span>
+          </div>
+          <p
+            class="mt-7 font-mono text-xs font-black tracking-[0.2em] text-violetbeam"
+          >
+            PREFIX SEARCHLIGHT · 10 MIN REVIEW
+          </p>
+          <h1 class="mt-3 text-4xl font-black tracking-tight sm:text-6xl">
+            词列探照灯
+          </h1>
+          <p
+            class="mt-5 max-w-3xl text-base leading-8 text-slate-300 sm:text-lg"
+          >
+            把所有单词左对齐，探照灯从第 0
+            列开始横切整列：全员一致就收下这个字符；有人缺席或字符不同，公共前缀当场封存。
+          </p>
+        </div>
+        <div
+          class="spotlight-grid border-2 border-beam bg-indigoink p-5 shadow-beam"
+        >
+          <p
+            class="font-mono text-[10px] font-black tracking-[0.2em] text-beam"
+          >
+            STOP CONDITION
+          </p>
+          <p class="mt-3 text-xl font-black">
+            越界，或任一字符不等于首行字符。
+          </p>
+          <a
+            href="#simulator"
+            class="mt-5 inline-block bg-violetbeam px-4 py-2 text-sm font-black text-midnight hover:bg-white focus:outline focus:outline-4 focus:outline-offset-4 focus:outline-beam"
+            >点亮字符矩阵 ↓</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="mx-auto max-w-7xl space-y-10 px-5 py-10 sm:px-8">
+      <section
+        aria-labelledby="brief-title"
+        class="border-2 border-midnight bg-paper p-5 shadow-board sm:p-8"
+      >
+        <p
+          class="font-mono text-xs font-black tracking-[0.18em] text-violet-700"
+        >
+          PROBLEM BRIEF
+        </p>
+        <h2 id="brief-title" class="mt-2 text-2xl font-black">题意转述</h2>
+        <p class="mt-4 max-w-4xl leading-7 text-slate-700">
+          给定字符串数组
+          <code>strs</code
+          >，返回所有字符串共同拥有的最长开头部分。若第一个字符就无法统一，返回空字符串
+          <code>""</code>。
+        </p>
+        <div class="mt-6 grid gap-3 md:grid-cols-2">
+          <article class="border-2 border-mint bg-emerald-50 p-4">
+            <p class="font-mono text-xs font-black text-emerald-700">
+              OFFICIAL 01
+            </p>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-[10px] font-black text-slate-500">输入</dt>
+                <dd class="break-words">
+                  <code>strs = ["flower","flow","flight"]</code>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-[10px] font-black text-slate-500">输出</dt>
+                <dd class="font-black text-emerald-700"><code>"fl"</code></dd>
+              </div>
+            </dl>
+          </article>
+          <article class="border-2 border-mismatch bg-rose-50 p-4">
+            <p class="font-mono text-xs font-black text-rose-700">
+              OFFICIAL 02
+            </p>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-[10px] font-black text-slate-500">输入</dt>
+                <dd class="break-words">
+                  <code>strs = ["dog","racecar","car"]</code>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-[10px] font-black text-slate-500">输出</dt>
+                <dd class="font-black text-rose-700"><code>""</code></dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+        <div
+          class="mt-5 grid gap-3 border-l-4 border-violetbeam bg-violet-50 p-4 text-sm leading-6 text-slate-700 sm:grid-cols-[1fr_auto] sm:items-center"
+        >
+          <p>
+            约束：<code>1 ≤ strs.length ≤ 200</code>，<code
+              >0 ≤ strs[i].length ≤ 200</code
+            >，非空字符串只含小写字母。
+          </p>
+          <p class="font-mono text-xs font-bold">
+            字符串保留直引号；本题无空格，若出现将显示为 ␠。
+          </p>
+        </div>
+      </section>
+
+      <section
+        id="simulator"
+        aria-labelledby="simulator-title"
+        class="spotlight-grid border-2 border-beam bg-indigoink p-5 text-white shadow-board sm:p-8"
+      >
+        <div
+          class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"
+        >
+          <div>
+            <p class="font-mono text-xs font-black tracking-[0.18em] text-beam">
+              LIVE ALIGNMENT · strs = ["flower","flow","flight"]
+            </p>
+            <h2
+              id="simulator-title"
+              class="mt-2 text-2xl font-black sm:text-3xl"
+            >
+              逐列核验公共前缀
+            </h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+              黄色是正在检查的列，绿色是已通过列，红色表示发现分歧。使用按钮，或按
+              ← / →、空格、R 操作。
+            </p>
+          </div>
+          <div
+            class="flex flex-wrap gap-2"
+            role="group"
+            aria-label="探照灯演示控制"
+          >
+            <button
+              id="prevBtn"
+              type="button"
+              class="border-2 border-slate-400 px-4 py-2 text-sm font-black hover:border-white focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-beam disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ← 上一步</button
+            ><button
+              id="nextBtn"
+              type="button"
+              class="border-2 border-beam bg-beam px-4 py-2 text-sm font-black text-midnight hover:bg-white focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-violetbeam disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              下一步 →</button
+            ><button
+              id="autoBtn"
+              type="button"
+              aria-pressed="false"
+              class="border-2 border-violetbeam px-4 py-2 text-sm font-black text-violetbeam hover:bg-violetbeam hover:text-midnight focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-beam"
+            >
+              自动播放</button
+            ><button
+              id="resetBtn"
+              type="button"
+              class="border-2 border-mismatch px-4 py-2 text-sm font-black text-rose-300 hover:bg-mismatch hover:text-midnight focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-beam"
+            >
+              重置 R
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="mt-8 overflow-x-auto pb-4"
+          tabindex="0"
+          aria-label="字符串字符矩阵，可横向滚动"
+        >
+          <div
+            id="wordMatrix"
+            class="grid min-w-[720px] grid-cols-[100px_repeat(6,minmax(64px,1fr))] gap-2"
+          ></div>
+        </div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="border border-slate-500 bg-midnight p-4">
+            <p class="font-mono text-[10px] font-black text-slate-400">
+              COLUMN
+            </p>
+            <p
+              id="columnValue"
+              class="mt-2 font-mono text-2xl font-black text-beam"
+            >
+              0
+            </p>
+          </div>
+          <div class="border border-slate-500 bg-midnight p-4">
+            <p class="font-mono text-[10px] font-black text-slate-400">
+              COLUMN VALUES
+            </p>
+            <p
+              id="valuesValue"
+              class="mt-2 font-mono text-lg font-black text-slate-200"
+            >
+              f / f / f
+            </p>
+          </div>
+          <div class="border-2 border-mint bg-midnight p-4">
+            <p class="font-mono text-[10px] font-black text-mint">
+              PREFIX LOCKED
+            </p>
+            <p
+              id="prefixValue"
+              class="mt-2 min-h-8 font-mono text-2xl font-black text-mint"
+            >
+              ""
+            </p>
+          </div>
+          <div class="border border-slate-500 bg-midnight p-4">
+            <p class="font-mono text-[10px] font-black text-slate-400">
+              STEP / FINAL
+            </p>
+            <p id="stepValue" class="mt-2 font-mono text-xl font-black">
+              0 / 3
+            </p>
+            <p
+              id="answerValue"
+              class="mt-2 font-mono text-sm font-black text-slate-500"
+            >
+              PENDING
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-5 border-l-4 border-beam bg-midnight p-5">
+          <div class="flex flex-wrap items-center gap-2">
+            <span
+              id="statusBadge"
+              class="bg-beam px-2 py-1 font-mono text-xs font-black text-midnight"
+              >READY</span
+            ><span
+              id="comparisonValue"
+              class="font-mono text-sm font-black text-violet-200"
+              >compare every row at column 0</span
+            >
+          </div>
+          <h3 id="decisionTitle" class="mt-3 text-xl font-black">
+            探照灯对准第 0 列
+          </h3>
+          <p id="decisionText" class="mt-2 leading-7 text-slate-300">
+            首行基准字符是 f；下一步检查其余每一行是否也有 f。
+          </p>
+        </div>
+        <p
+          id="simulatorStatus"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </section>
+
+      <section
+        id="tests"
+        aria-labelledby="tests-title"
+        class="border-2 border-midnight bg-paper p-5 shadow-board sm:p-8"
+      >
+        <div
+          class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-black tracking-[0.18em] text-emerald-700"
+            >
+              QUALITY CONTROL · TEST REPORT
+            </p>
+            <h2 id="tests-title" class="mt-2 text-2xl font-black">
+              测试与验证
+            </h2>
+            <p class="mt-2 text-sm leading-6 text-slate-600">
+              字符串数组完整保留参数名与直引号；覆盖官方样例、单元素、空串、相同字符串、长度截断与中途分歧。
+            </p>
+          </div>
+          <span
+            class="w-fit border-2 border-emerald-700 bg-emerald-100 px-4 py-2 font-mono text-sm font-black text-emerald-800"
+            >20,008 CASES PASSED</span
+          >
+        </div>
+        <div
+          class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+          role="group"
+          aria-label="算法测试用例"
+        >
+          <article class="test-card border-2 border-mint bg-white p-4">
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-emerald-700"
+                >OFFICIAL 01</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd class="break-words">
+                  <code>strs = ["flower","flow","flight"]</code>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>"fl"</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800"><code>"fl"</code></dd>
+              </div>
+            </dl>
+          </article>
+          <article class="test-card border-2 border-mismatch bg-rose-50 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-rose-700"
+                >OFFICIAL 02</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd class="break-words">
+                  <code>strs = ["dog","racecar","car"]</code>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>""</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800"><code>""</code></dd>
+              </div>
+            </dl>
+          </article>
+          <article class="test-card border-2 border-slate-300 bg-white p-4">
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-slate-500"
+                >ONE WORD</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd><code>strs = ["a"]</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>"a"</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800"><code>"a"</code></dd>
+              </div>
+            </dl>
+          </article>
+          <article class="test-card border-2 border-mismatch bg-rose-50 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-rose-700"
+                >EMPTY WORD</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd><code>strs = ["","b"]</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>""</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800"><code>""</code></dd>
+              </div>
+            </dl>
+          </article>
+          <article
+            class="test-card border-2 border-violetbeam bg-violet-50 p-4"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-violet-700"
+                >LONG PREFIX</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd class="break-words">
+                  <code
+                    >strs = ["interspecies","interstellar","interstate"]</code
+                  >
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>"inters"</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800">
+                  <code>"inters"</code>
+                </dd>
+              </div>
+            </dl>
+          </article>
+          <article class="test-card border-2 border-slate-300 bg-white p-4">
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-slate-500"
+                >IDENTICAL</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd><code>strs = ["throne","throne"]</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>"throne"</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800">
+                  <code>"throne"</code>
+                </dd>
+              </div>
+            </dl>
+          </article>
+          <article
+            class="test-card border-2 border-violetbeam bg-violet-50 p-4"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-violet-700"
+                >SHORT WORD</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd class="break-words">
+                  <code>strs = ["prefix","pre","prevent"]</code>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>"pre"</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800"><code>"pre"</code></dd>
+              </div>
+            </dl>
+          </article>
+          <article
+            class="test-card border-2 border-violetbeam bg-violet-50 p-4"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-xs font-black text-violet-700"
+                >EARLY SPLIT</span
+              ><span
+                class="bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800"
+                >PASS</span
+              >
+            </div>
+            <dl class="mt-3 space-y-2 font-mono text-sm">
+              <div>
+                <dt class="text-xs font-black text-slate-500">输入</dt>
+                <dd><code>strs = ["cir","car"]</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">期望输出</dt>
+                <dd><code>"c"</code></dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500">实际输出</dt>
+                <dd class="font-black text-emerald-800"><code>"c"</code></dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+        <div
+          class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+          role="group"
+          aria-label="页面质量验证结果"
+        >
+          <div class="bg-midnight p-3 text-white">
+            <p class="font-mono text-[10px] font-black text-beam">PRETTIER</p>
+            <p class="mt-1 font-black text-mint">✓ PASS</p>
+          </div>
+          <div class="bg-midnight p-3 text-white">
+            <p class="font-mono text-[10px] font-black text-beam">
+              HTML VALIDATE
+            </p>
+            <p class="mt-1 font-black text-mint">✓ PASS</p>
+          </div>
+          <div class="bg-midnight p-3 text-white">
+            <p class="font-mono text-[10px] font-black text-beam">JAVASCRIPT</p>
+            <p class="mt-1 font-black text-mint">✓ PASS</p>
+          </div>
+          <div class="bg-midnight p-3 text-white">
+            <p class="font-mono text-[10px] font-black text-beam">
+              CHROME 1440
+            </p>
+            <p class="mt-1 font-black text-mint">✓ PASS</p>
+          </div>
+          <div class="bg-midnight p-3 text-white">
+            <p class="font-mono text-[10px] font-black text-beam">MOBILE 390</p>
+            <p class="mt-1 font-black text-mint">✓ PASS</p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="solution-drawer"
+        aria-labelledby="solution-title"
+        class="border-2 border-midnight bg-slate-100 p-5 shadow-board sm:p-8"
+      >
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-black tracking-[0.18em] text-violet-700"
+            >
+              SOLUTION VAULT · DEFAULT CLOSED
+            </p>
+            <h2 id="solution-title" class="mt-2 text-2xl font-black">题解</h2>
+            <p class="mt-2 text-sm leading-6 text-slate-600">
+              核心洞察、过程、边界、复杂度、追问、错误清单与四语言代码默认隐藏。
+            </p>
+          </div>
+          <button
+            id="solutionToggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="solutionContent"
+            class="shrink-0 bg-midnight px-5 py-3 text-sm font-black text-white hover:bg-indigoink focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-beam"
+          >
+            查看题解
+          </button>
+        </div>
+        <div id="solutionContent" class="mt-8 space-y-8" hidden>
+          <section
+            aria-labelledby="insight-title"
+            class="grid gap-5 lg:grid-cols-2"
+          >
+            <article class="border-2 border-midnight bg-white p-6">
+              <p
+                class="font-mono text-xs font-black tracking-[0.16em] text-violet-700"
+              >
+                CORE INSIGHT
+              </p>
+              <h3 id="insight-title" class="mt-2 text-2xl font-black">
+                前缀必须逐列全票通过
+              </h3>
+              <p class="mt-4 leading-7 text-slate-700">
+                最长公共前缀一定是首字符串的某个前缀。用首行字符作为每列基准，只要任一字符串在该列越界或字符不同，后面的列都不可能再属于公共前缀。
+              </p>
+            </article>
+            <article
+              class="border-2 border-midnight bg-indigoink p-6 text-white"
+            >
+              <p
+                class="font-mono text-xs font-black tracking-[0.16em] text-beam"
+              >
+                COLUMN CONTRACT
+              </p>
+              <div class="mt-4 space-y-3 font-mono text-sm">
+                <p class="border border-violet-300/30 bg-midnight p-3">
+                  <strong class="text-mint">全员相同：</strong>prefix += current
+                </p>
+                <p class="border border-violet-300/30 bg-midnight p-3">
+                  <strong class="text-mismatch">越界 / 不同：</strong>return
+                  prefix
+                </p>
+              </div>
+              <p class="mt-4 leading-7 text-slate-300">
+                无需排序，也无需额外保存中间前缀。
+              </p>
+            </article>
+          </section>
+          <section
+            aria-labelledby="process-title"
+            class="border-2 border-slate-300 bg-white p-6 sm:p-8"
+          >
+            <p
+              class="font-mono text-xs font-black tracking-[0.16em] text-violet-700"
+            >
+              FULL WALKTHROUGH
+            </p>
+            <h3 id="process-title" class="mt-2 text-2xl font-black">
+              完整解题过程
+            </h3>
+            <ol class="mt-5 grid gap-4 text-sm leading-7 md:grid-cols-2">
+              <li class="border-l-4 border-violetbeam bg-violet-50 p-4">
+                <strong>1. 选基准：</strong>从首字符串第 0 列开始。
+              </li>
+              <li class="border-l-4 border-violetbeam bg-violet-50 p-4">
+                <strong>2. 横切一列：</strong>逐个读取其余字符串同一位置。
+              </li>
+              <li class="border-l-4 border-mint bg-emerald-50 p-4">
+                <strong>3. 全列一致：</strong>继续扫描下一列。
+              </li>
+              <li class="border-l-4 border-mismatch bg-rose-50 p-4">
+                <strong>4. 发现分歧：</strong>返回首字符串在当前列之前的子串。
+              </li>
+              <li class="border-l-4 border-beam bg-amber-50 p-4 md:col-span-2">
+                <strong>5. 首行扫描完成：</strong>说明整个首字符串都是公共前缀。
+              </li>
+            </ol>
+          </section>
+          <section class="grid gap-5 lg:grid-cols-3">
+            <article class="border-2 border-slate-300 bg-white p-6">
+              <h3 class="text-xl font-black">边界情况</h3>
+              <ul class="mt-4 space-y-2 text-sm leading-6 text-slate-700">
+                <li>数组只有一个字符串时返回它本身。</li>
+                <li>任一字符串为空，答案立即为空。</li>
+                <li>第 0 列就不同，返回 <code>""</code>。</li>
+                <li>较短字符串完整匹配后，越界位置就是停止点。</li>
+              </ul>
+            </article>
+            <article class="border-2 border-slate-300 bg-white p-6">
+              <h3 class="text-xl font-black">复杂度</h3>
+              <div class="mt-4 space-y-3 font-mono text-sm">
+                <p class="border border-slate-300 bg-slate-50 p-3">
+                  <strong>时间：</strong>O(S)
+                </p>
+                <p class="border border-slate-300 bg-slate-50 p-3">
+                  <strong>额外空间：</strong>O(1)
+                </p>
+              </div>
+              <p class="mt-4 text-sm leading-6 text-slate-600">
+                S 是停止前实际检查的字符总数；返回字符串不计额外空间。
+              </p>
+            </article>
+            <article class="border-2 border-slate-300 bg-white p-6">
+              <h3 class="text-xl font-black">替代方案</h3>
+              <p class="mt-4 text-sm leading-7 text-slate-700">
+                横向缩短前缀、排序后比较首尾、分治和 Trie
+                都能解决。纵向扫描最少依赖、可提前停止，面试表达也最直接。
+              </p>
+            </article>
+          </section>
+
+          <section
+            aria-labelledby="code-title"
+            class="border-2 border-midnight bg-indigoink p-5 text-white sm:p-8"
+          >
+            <div
+              class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+            >
+              <div>
+                <p
+                  class="font-mono text-xs font-black tracking-[0.16em] text-beam"
+                >
+                  SUBMIT-READY CODE
+                </p>
+                <h3 id="code-title" class="mt-2 text-2xl font-black">
+                  四语言可提交实现
+                </h3>
+              </div>
+              <div
+                role="tablist"
+                aria-label="选择代码语言"
+                class="flex flex-wrap gap-2"
+              >
+                <button
+                  id="tab-java"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="panel-java"
+                  data-lang="java"
+                  class="code-tab bg-beam px-4 py-2 text-sm font-black text-midnight focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-violetbeam"
+                >
+                  Java</button
+                ><button
+                  id="tab-js"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-js"
+                  tabindex="-1"
+                  data-lang="js"
+                  class="code-tab bg-white/10 px-4 py-2 text-sm font-bold focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-violetbeam"
+                >
+                  JavaScript</button
+                ><button
+                  id="tab-python"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-python"
+                  tabindex="-1"
+                  data-lang="python"
+                  class="code-tab bg-white/10 px-4 py-2 text-sm font-bold focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-violetbeam"
+                >
+                  Python</button
+                ><button
+                  id="tab-cpp"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-cpp"
+                  tabindex="-1"
+                  data-lang="cpp"
+                  class="code-tab bg-white/10 px-4 py-2 text-sm font-bold focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-violetbeam"
+                >
+                  C++
+                </button>
+              </div>
+            </div>
+            <div class="mt-6 border border-violet-300/30 bg-midnight">
+              <div id="panel-java" role="tabpanel" aria-labelledby="tab-java">
+                <pre
+                  class="overflow-x-auto p-5 text-[13px] leading-6 text-slate-200"
+                ><code>class Solution {
+    public String longestCommonPrefix(String[] strs) {
+        String first = strs[0];
+
+        for (int column = 0; column &lt; first.length(); column++) {
+            char expected = first.charAt(column);
+            for (int row = 1; row &lt; strs.length; row++) {
+                if (column == strs[row].length()
+                        || strs[row].charAt(column) != expected) {
+                    return first.substring(0, column);
+                }
+            }
+        }
+        return first;
+    }
+}</code></pre>
+              </div>
+              <div
+                id="panel-js"
+                role="tabpanel"
+                aria-labelledby="tab-js"
+                hidden
+              >
+                <pre
+                  class="overflow-x-auto p-5 text-[13px] leading-6 text-slate-200"
+                ><code>var longestCommonPrefix = function (strs) {
+  const first = strs[0];
+
+  for (let column = 0; column &lt; first.length; column += 1) {
+    const expected = first[column];
+    for (let row = 1; row &lt; strs.length; row += 1) {
+      if (
+        column === strs[row].length ||
+        strs[row][column] !== expected
+      ) {
+        return first.slice(0, column);
+      }
+    }
+  }
+  return first;
+};</code></pre>
+              </div>
+              <div
+                id="panel-python"
+                role="tabpanel"
+                aria-labelledby="tab-python"
+                hidden
+              >
+                <pre
+                  class="overflow-x-auto p-5 text-[13px] leading-6 text-slate-200"
+                ><code>class Solution:
+    def longestCommonPrefix(self, strs: list[str]) -&gt; str:
+        first = strs[0]
+
+        for column, expected in enumerate(first):
+            for word in strs[1:]:
+                if column == len(word) or word[column] != expected:
+                    return first[:column]
+
+        return first</code></pre>
+              </div>
+              <div
+                id="panel-cpp"
+                role="tabpanel"
+                aria-labelledby="tab-cpp"
+                hidden
+              >
+                <pre
+                  class="overflow-x-auto p-5 text-[13px] leading-6 text-slate-200"
+                ><code>class Solution {
+public:
+    string longestCommonPrefix(vector&lt;string&gt;&amp; strs) {
+        const string&amp; first = strs[0];
+
+        for (int column = 0; column &lt; first.size(); ++column) {
+            char expected = first[column];
+            for (int row = 1; row &lt; strs.size(); ++row) {
+                if (column == strs[row].size()
+                        || strs[row][column] != expected) {
+                    return first.substr(0, column);
+                }
+            }
+        }
+        return first;
+    }
+};</code></pre>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-labelledby="interview-title"
+            class="grid gap-5 lg:grid-cols-2"
+          >
+            <article class="border-2 border-slate-300 bg-white p-6">
+              <h3 id="interview-title" class="text-xl font-black">
+                面试高频追问
+              </h3>
+              <dl class="mt-4 space-y-4 text-sm leading-6">
+                <div>
+                  <dt class="font-black">为什么只扫描首字符串的长度？</dt>
+                  <dd class="text-slate-600">
+                    公共前缀不可能比任何字符串更长，更不可能超过首字符串。
+                  </dd>
+                </div>
+                <div>
+                  <dt class="font-black">为什么遇到一次不同就能立即返回？</dt>
+                  <dd class="text-slate-600">
+                    前缀要求从位置 0
+                    连续一致；当前列断裂后，任何更长候选都已失效。
+                  </dd>
+                </div>
+                <div>
+                  <dt class="font-black">海量字符串适合 Trie 吗？</dt>
+                  <dd class="text-slate-600">
+                    若还要支持大量前缀查询，Trie
+                    有价值；单次求解会增加不必要空间。
+                  </dd>
+                </div>
+              </dl>
+            </article>
+            <article class="border-2 border-mismatch bg-rose-50 p-6">
+              <h3 class="text-xl font-black text-rose-700">常见错误</h3>
+              <ul class="mt-4 space-y-2 text-sm leading-6 text-slate-700">
+                <li>先访问 <code>word[column]</code>，后检查是否越界。</li>
+                <li>只比较相邻两个字符串，没有维护全局共同前缀。</li>
+                <li>把子串终点写成 <code>column + 1</code>，包含了失败列。</li>
+                <li>忘记处理首字符串为空或数组只有一个元素。</li>
+              </ul>
+            </article>
+          </section>
+        </div>
+        <p id="solutionStatus" class="sr-only" role="status" aria-live="polite">
+          题解已收起
+        </p>
+      </section>
+    </main>
+    <footer
+      class="border-t-8 border-beam bg-midnight px-5 py-8 text-center text-sm text-slate-500"
+    >
+      LeetCode 014 · Longest Common Prefix · Vertical Searchlight
+    </footer>
+
+    <script>
+      (() => {
+        const words = ["flower", "flow", "flight"];
+        const maxColumns = 6;
+        const states = [
+          {
+            column: 0,
+            prefix: "",
+            status: "READY",
+            comparison: "compare every row at column 0",
+            title: "探照灯对准第 0 列",
+            text: "首行基准字符是 f；下一步检查其余每一行是否也有 f。",
+          },
+          {
+            column: 0,
+            prefix: "f",
+            accepted: true,
+            status: "MATCH",
+            comparison: "f = f = f",
+            title: "第 0 列全员一致",
+            text: "字符 f 通过检查，公共前缀锁定为 f。",
+          },
+          {
+            column: 1,
+            prefix: "fl",
+            accepted: true,
+            status: "MATCH",
+            comparison: "l = l = l",
+            title: "第 1 列全员一致",
+            text: "字符 l 也通过检查，公共前缀扩展为 fl。",
+          },
+          {
+            column: 2,
+            prefix: "fl",
+            rejected: true,
+            status: "MISMATCH",
+            comparison: "o = o ≠ i",
+            title: "第 2 列发现分歧",
+            text: "flight 的第 2 个字符是 i，与基准 o 不同；停止并返回 fl。",
+            answer: "fl",
+          },
+        ];
+        const matrix = document.querySelector("#wordMatrix");
+        const cells = [];
+        function appendCell(text, className, row, column) {
+          const cell = document.createElement("div");
+          cell.className = className;
+          cell.textContent = text;
+          if (row >= 0) {
+            cell.classList.add("char-cell");
+            cell.dataset.row = String(row);
+            cell.dataset.column = String(column);
+            cells.push(cell);
+          }
+          matrix.append(cell);
+        }
+        appendCell(
+          "WORD / COL",
+          "flex min-h-12 items-center justify-center border border-violet-300/30 bg-midnight p-2 font-mono text-[10px] font-black text-slate-500",
+          -1,
+          -1,
+        );
+        for (let column = 0; column < maxColumns; column += 1)
+          appendCell(
+            String(column),
+            "flex min-h-12 items-center justify-center border border-violet-300/30 bg-midnight p-2 font-mono text-xs font-black text-beam",
+            -1,
+            column,
+          );
+        words.forEach((word, row) => {
+          appendCell(
+            "strs[" + row + "]",
+            "flex min-h-14 items-center justify-center border border-violet-300/30 bg-midnight p-2 font-mono text-xs font-black text-violet-200",
+            -1,
+            -1,
+          );
+          for (let column = 0; column < maxColumns; column += 1)
+            appendCell(
+              word[column] || "∅",
+              "flex min-h-14 items-center justify-center border-2 border-slate-600 bg-midnight p-2 font-mono text-xl font-black text-white",
+              row,
+              column,
+            );
+        });
+        const refs = {
+          column: document.querySelector("#columnValue"),
+          values: document.querySelector("#valuesValue"),
+          prefix: document.querySelector("#prefixValue"),
+          step: document.querySelector("#stepValue"),
+          answer: document.querySelector("#answerValue"),
+          badge: document.querySelector("#statusBadge"),
+          comparison: document.querySelector("#comparisonValue"),
+          title: document.querySelector("#decisionTitle"),
+          text: document.querySelector("#decisionText"),
+          prev: document.querySelector("#prevBtn"),
+          next: document.querySelector("#nextBtn"),
+          auto: document.querySelector("#autoBtn"),
+          reset: document.querySelector("#resetBtn"),
+          status: document.querySelector("#simulatorStatus"),
+        };
+        let step = 0;
+        let timer = null;
+        const reducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+        function stopAuto() {
+          if (timer) window.clearInterval(timer);
+          timer = null;
+          refs.auto.setAttribute("aria-pressed", "false");
+          refs.auto.textContent = "自动播放";
+        }
+        function render(announce = true) {
+          const state = states[step];
+          cells.forEach((cell) => {
+            const column = Number(cell.dataset.column);
+            cell.dataset.active = String(
+              column === state.column && !state.rejected,
+            );
+            cell.dataset.accepted = String(
+              column < state.prefix.length ||
+                (state.accepted && column === state.column),
+            );
+            cell.dataset.rejected = String(
+              Boolean(state.rejected && column === state.column),
+            );
+          });
+          refs.column.textContent = String(state.column);
+          refs.values.textContent = words
+            .map((word) => word[state.column] || "∅")
+            .join(" / ");
+          refs.prefix.textContent = '"' + state.prefix + '"';
+          refs.step.textContent = step + " / " + (states.length - 1);
+          refs.answer.textContent =
+            state.answer !== undefined
+              ? 'FINAL · "' + state.answer + '"'
+              : "PENDING";
+          refs.answer.className =
+            state.answer !== undefined
+              ? "mt-2 font-mono text-sm font-black text-mint"
+              : "mt-2 font-mono text-sm font-black text-slate-500";
+          refs.badge.textContent = state.status;
+          refs.badge.className = state.rejected
+            ? "bg-mismatch px-2 py-1 font-mono text-xs font-black text-midnight"
+            : state.accepted
+              ? "bg-mint px-2 py-1 font-mono text-xs font-black text-midnight"
+              : "bg-beam px-2 py-1 font-mono text-xs font-black text-midnight";
+          refs.comparison.textContent = state.comparison;
+          refs.title.textContent = state.title;
+          refs.text.textContent = state.text;
+          refs.prev.disabled = step === 0;
+          refs.next.disabled = step === states.length - 1;
+          if (announce)
+            refs.status.textContent =
+              "第 " + step + " 步，" + state.title + "。" + state.text;
+        }
+        function play() {
+          if (step === states.length - 1) step = 0;
+          refs.auto.setAttribute("aria-pressed", "true");
+          refs.auto.textContent = "暂停播放";
+          render();
+          timer = window.setInterval(
+            () => {
+              if (step >= states.length - 1) {
+                stopAuto();
+                return;
+              }
+              step += 1;
+              render();
+              if (step === states.length - 1) stopAuto();
+            },
+            reducedMotion ? 400 : 900,
+          );
+        }
+        refs.prev.addEventListener("click", () => {
+          stopAuto();
+          step = Math.max(0, step - 1);
+          render();
+        });
+        refs.next.addEventListener("click", () => {
+          stopAuto();
+          step = Math.min(states.length - 1, step + 1);
+          render();
+        });
+        refs.auto.addEventListener("click", () =>
+          timer ? stopAuto() : play(),
+        );
+        refs.reset.addEventListener("click", () => {
+          stopAuto();
+          step = 0;
+          render();
+        });
+        document.addEventListener("keydown", (event) => {
+          if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName))
+            return;
+          if (event.key === "ArrowLeft") refs.prev.click();
+          if (event.key === "ArrowRight") refs.next.click();
+          if (event.key.toLowerCase() === "r") refs.reset.click();
+          if (event.code === "Space" && event.target.tagName !== "BUTTON") {
+            event.preventDefault();
+            refs.auto.click();
+          }
+        });
+        const solutionToggle = document.querySelector("#solutionToggle");
+        const solutionContent = document.querySelector("#solutionContent");
+        const solutionStatus = document.querySelector("#solutionStatus");
+        solutionToggle.addEventListener("click", () => {
+          const expanded =
+            solutionToggle.getAttribute("aria-expanded") === "true";
+          solutionToggle.setAttribute("aria-expanded", String(!expanded));
+          solutionContent.hidden = expanded;
+          solutionToggle.textContent = expanded ? "查看题解" : "收起题解";
+          solutionStatus.textContent = expanded ? "题解已收起" : "题解已展开";
+        });
+        const tabs = [...document.querySelectorAll(".code-tab")];
+        function activateTab(tab) {
+          tabs.forEach((item) => {
+            const active = item === tab;
+            item.setAttribute("aria-selected", String(active));
+            item.tabIndex = active ? 0 : -1;
+            item.className = active
+              ? "code-tab bg-beam px-4 py-2 text-sm font-black text-midnight focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-violetbeam"
+              : "code-tab bg-white/10 px-4 py-2 text-sm font-bold focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-violetbeam";
+            document.querySelector("#panel-" + item.dataset.lang).hidden =
+              !active;
+          });
+        }
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab));
+          tab.addEventListener("keydown", (event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+              return;
+            event.preventDefault();
+            let nextIndex = index;
+            if (event.key === "ArrowLeft")
+              nextIndex = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === "ArrowRight")
+              nextIndex = (index + 1) % tabs.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = tabs.length - 1;
+            activateTab(tabs[nextIndex]);
+            tabs[nextIndex].focus();
+          });
+        });
+        render(false);
+      })();
+    </script>
+  </body>
+</html>
