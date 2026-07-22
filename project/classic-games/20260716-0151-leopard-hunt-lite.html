@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Leopard Hunt</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-lime-300">Classic Mini Game</p>
+        <h1 class="text-3xl font-bold">Mini Leopard Hunt</h1>
+      </div>
+      <button id="resetBtn" class="rounded-md bg-lime-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-lime-300">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div class="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded-md bg-zinc-800 p-3">
+            <p class="text-xs text-zinc-400">猎犬待放</p>
+            <p id="dogsLeft" class="text-2xl font-bold text-sky-300">10</p>
+          </div>
+          <div class="rounded-md bg-zinc-800 p-3">
+            <p class="text-xs text-zinc-400">已捕获</p>
+            <p id="captured" class="text-2xl font-bold text-amber-300">0</p>
+          </div>
+        </div>
+        <div class="mt-4 rounded-md bg-zinc-800 p-3">
+          <p class="text-xs text-zinc-400">当前回合</p>
+          <p id="turnText" class="mt-1 text-lg font-semibold">猎犬落子</p>
+        </div>
+        <div class="mt-4 rounded-md bg-zinc-800 p-3">
+          <p id="statusText" class="text-sm leading-6 text-zinc-200">猎犬先放满 10 枚。豹可以移动或跳吃相邻猎犬；豹捕获 4 枚获胜，猎犬困住豹获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const resetBtn = document.getElementById("resetBtn");
+    const dogsLeftEl = document.getElementById("dogsLeft");
+    const capturedEl = document.getElementById("captured");
+    const turnTextEl = document.getElementById("turnText");
+    const statusTextEl = document.getElementById("statusText");
+    const size = 5;
+    const totalDogs = 10;
+    const leopardGoal = 4;
+    let cells;
+    let turn;
+    let dogsLeft;
+    let captured;
+    let selected;
+    let gameOver;
+
+    function indexOf(row, col) {
+      return row * size + col;
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function allowsDiagonal(row, col, nextRow, nextCol) {
+      if (Math.abs(row - nextRow) !== Math.abs(col - nextCol)) return true;
+      return (row + col) % 2 === 0 && (nextRow + nextCol) % 2 === 0;
+    }
+
+    function neighbors(index) {
+      const row = rowOf(index);
+      const col = colOf(index);
+      const result = [];
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (!dr && !dc) continue;
+          const nr = row + dr;
+          const nc = col + dc;
+          if (inside(nr, nc) && allowsDiagonal(row, col, nr, nc)) result.push(indexOf(nr, nc));
+        }
+      }
+      return result;
+    }
+
+    function leopardMoves() {
+      const leopard = cells.indexOf("L");
+      const moves = [];
+      for (const near of neighbors(leopard)) {
+        if (!cells[near]) moves.push({ to: near });
+        if (cells[near] === "D") {
+          const jumpRow = rowOf(near) + (rowOf(near) - rowOf(leopard));
+          const jumpCol = colOf(near) + (colOf(near) - colOf(leopard));
+          if (inside(jumpRow, jumpCol) && allowsDiagonal(rowOf(near), colOf(near), jumpRow, jumpCol)) {
+            const landing = indexOf(jumpRow, jumpCol);
+            if (!cells[landing]) moves.push({ to: landing, capture: near });
+          }
+        }
+      }
+      return moves;
+    }
+
+    function dogMoves(index) {
+      return neighbors(index).filter((target) => !cells[target]);
+    }
+
+    function resetGame() {
+      cells = Array(size * size).fill("");
+      cells[indexOf(2, 2)] = "L";
+      turn = "D";
+      dogsLeft = totalDogs;
+      captured = 0;
+      selected = null;
+      gameOver = false;
+      render("猎犬落子：点击空位放置猎犬。");
+    }
+
+    function endGame(message) {
+      gameOver = true;
+      selected = null;
+      render(message);
+    }
+
+    function checkWin() {
+      if (captured >= leopardGoal) {
+        endGame("豹捕获 4 枚猎犬，豹获胜。");
+        return true;
+      }
+      if (dogsLeft === 0 && leopardMoves().length === 0) {
+        endGame("豹没有合法移动，猎犬获胜。");
+        return true;
+      }
+      return false;
+    }
+
+    function switchTurn() {
+      turn = turn === "D" ? "L" : "D";
+      selected = null;
+      if (!checkWin()) render(turn === "D" ? "猎犬行动：放置或移动猎犬。" : "豹行动：移动或跳吃猎犬。");
+    }
+
+    function handleDog(index) {
+      if (dogsLeft > 0) {
+        if (cells[index]) return render("请选择空位放置猎犬。");
+        cells[index] = "D";
+        dogsLeft--;
+        switchTurn();
+        return;
+      }
+      if (selected === null) {
+        if (cells[index] === "D") {
+          selected = index;
+          render("选择一个相邻空点移动猎犬。");
+        }
+        return;
+      }
+      if (selected === index) {
+        selected = null;
+        render("已取消选择。");
+        return;
+      }
+      if (dogMoves(selected).includes(index)) {
+        cells[index] = "D";
+        cells[selected] = "";
+        switchTurn();
+      } else if (cells[index] === "D") {
+        selected = index;
+        render("已切换猎犬。");
+      } else {
+        render("猎犬只能移动到相邻空点。");
+      }
+    }
+
+    function handleLeopard(index) {
+      const leopard = cells.indexOf("L");
+      if (selected === null) {
+        if (index === leopard) {
+          selected = index;
+          render("选择豹的目标点。");
+        }
+        return;
+      }
+      if (index === leopard) {
+        selected = null;
+        render("已取消选择。");
+        return;
+      }
+      const move = leopardMoves().find((item) => item.to === index);
+      if (!move) return render("豹只能移动到空邻点，或跳过相邻猎犬。");
+      cells[leopard] = "";
+      if (move.capture !== undefined) {
+        cells[move.capture] = "";
+        captured++;
+      }
+      cells[index] = "L";
+      switchTurn();
+    }
+
+    function handleCell(index) {
+      if (gameOver) return;
+      if (turn === "D") handleDog(index);
+      else handleLeopard(index);
+    }
+
+    function render(message) {
+      dogsLeftEl.textContent = dogsLeft;
+      capturedEl.textContent = captured;
+      turnTextEl.textContent = gameOver ? "游戏结束" : turn === "D" ? "猎犬回合" : "豹回合";
+      statusTextEl.textContent = message;
+      boardEl.innerHTML = "";
+      cells.forEach((piece, index) => {
+        const row = rowOf(index);
+        const col = colOf(index);
+        const button = document.createElement("button");
+        const active = selected === index;
+        button.className = [
+          "flex aspect-square items-center justify-center rounded-md border text-2xl font-black transition",
+          (row + col) % 2 === 0 ? "border-zinc-600 bg-zinc-800" : "border-zinc-700 bg-zinc-900",
+          active ? "ring-2 ring-lime-300" : "hover:brightness-125",
+          piece === "L" ? "text-amber-300" : piece === "D" ? "text-sky-300" : "text-zinc-600"
+        ].join(" ");
+        button.setAttribute("aria-label", "row " + (row + 1) + " column " + (col + 1));
+        button.textContent = piece === "L" ? "豹" : piece === "D" ? "犬" : "·";
+        button.addEventListener("click", () => handleCell(index));
+        boardEl.appendChild(button);
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
