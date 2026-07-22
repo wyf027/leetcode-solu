@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Space Fury</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-fuchsia-300">Mini Space Fury</h1>
+        <p class="text-sm text-slate-400">Rotate, thrust, and clear the arena before the swarm closes in.</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-xs uppercase text-slate-500">Score</div>
+          <div id="score" class="font-mono text-lg text-fuchsia-200">0</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-xs uppercase text-slate-500">Wave</div>
+          <div id="wave" class="font-mono text-lg text-cyan-200">1</div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 px-3 py-2">
+          <div class="text-xs uppercase text-slate-500">Hull</div>
+          <div id="hull" class="font-mono text-lg text-emerald-200">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <div class="rounded border border-slate-800 bg-black p-3 shadow-2xl">
+        <canvas id="game" width="720" height="520" class="block h-auto w-full rounded bg-slate-950"></canvas>
+      </div>
+
+      <aside class="space-y-3 rounded border border-slate-800 bg-slate-900 p-4">
+        <div>
+          <h2 class="text-sm font-semibold uppercase text-slate-400">Controls</h2>
+          <dl class="mt-2 space-y-2 text-sm text-slate-300">
+            <div class="flex justify-between gap-3">
+              <dt>Rotate</dt>
+              <dd class="font-mono text-fuchsia-200">Left / Right</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt>Thrust</dt>
+              <dd class="font-mono text-fuchsia-200">Up</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt>Fire</dt>
+              <dd class="font-mono text-fuchsia-200">Space</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt>Restart</dt>
+              <dd class="font-mono text-fuchsia-200">R</dd>
+            </div>
+          </dl>
+        </div>
+        <button id="restart" class="w-full rounded bg-fuchsia-400 px-4 py-2 font-semibold text-slate-950 hover:bg-fuchsia-300">
+          Restart
+        </button>
+        <p id="message" class="min-h-20 rounded border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
+          Survive the arena. Enemy drones split, chase, and drift toward your ship.
+        </p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const waveEl = document.getElementById('wave');
+    const hullEl = document.getElementById('hull');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restart');
+
+    const keys = new Set();
+    const stars = Array.from({ length: 90 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 1.6 + 0.4,
+      a: Math.random() * 0.6 + 0.25
+    }));
+
+    let ship;
+    let shots;
+    let drones;
+    let sparks;
+    let score;
+    let wave;
+    let hull;
+    let state;
+    let cooldown;
+    let lastTime;
+    let invulnerable;
+
+    function reset() {
+      ship = {
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        vx: 0,
+        vy: 0,
+        angle: -Math.PI / 2,
+        radius: 14
+      };
+      shots = [];
+      drones = [];
+      sparks = [];
+      score = 0;
+      wave = 1;
+      hull = 3;
+      cooldown = 0;
+      invulnerable = 1.2;
+      state = 'playing';
+      spawnWave();
+      updateHud();
+      messageEl.textContent = 'Survive the arena. Enemy drones split, chase, and drift toward your ship.';
+    }
+
+    function updateHud() {
+      scoreEl.textContent = String(score);
+      waveEl.textContent = String(wave);
+      hullEl.textContent = String(hull);
+    }
+
+    function wrap(entity) {
+      if (entity.x < -24) entity.x = canvas.width + 24;
+      if (entity.x > canvas.width + 24) entity.x = -24;
+      if (entity.y < -24) entity.y = canvas.height + 24;
+      if (entity.y > canvas.height + 24) entity.y = -24;
+    }
+
+    function spawnWave() {
+      const count = Math.min(4 + wave, 9);
+      for (let i = 0; i < count; i++) {
+        const edge = Math.floor(Math.random() * 4);
+        const x = edge === 0 ? 30 : edge === 1 ? canvas.width - 30 : Math.random() * canvas.width;
+        const y = edge === 2 ? 30 : edge === 3 ? canvas.height - 30 : Math.random() * canvas.height;
+        const angle = Math.atan2(canvas.height / 2 - y, canvas.width / 2 - x) + (Math.random() - 0.5);
+        drones.push({
+          x,
+          y,
+          vx: Math.cos(angle) * (34 + wave * 4),
+          vy: Math.sin(angle) * (34 + wave * 4),
+          radius: 18,
+          hp: 2,
+          pulse: Math.random() * Math.PI * 2
+        });
+      }
+    }
+
+    function fire() {
+      if (cooldown > 0 || state !== 'playing') return;
+      cooldown = 0.18;
+      shots.push({
+        x: ship.x + Math.cos(ship.angle) * 18,
+        y: ship.y + Math.sin(ship.angle) * 18,
+        vx: ship.vx + Math.cos(ship.angle) * 430,
+        vy: ship.vy + Math.sin(ship.angle) * 430,
+        life: 0.95
+      });
+    }
+
+    function burst(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 160 + 50;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: Math.random() * 0.45 + 0.25,
+          color
+        });
+      }
+    }
+
+    function updateShip(dt) {
+      if (keys.has('ArrowLeft')) ship.angle -= 4.2 * dt;
+      if (keys.has('ArrowRight')) ship.angle += 4.2 * dt;
+      if (keys.has('ArrowUp')) {
+        ship.vx += Math.cos(ship.angle) * 220 * dt;
+        ship.vy += Math.sin(ship.angle) * 220 * dt;
+      }
+
+      ship.vx *= 0.992;
+      ship.vy *= 0.992;
+      ship.x += ship.vx * dt;
+      ship.y += ship.vy * dt;
+      wrap(ship);
+      cooldown = Math.max(0, cooldown - dt);
+      invulnerable = Math.max(0, invulnerable - dt);
+    }
+
+    function updateShots(dt) {
+      for (const shot of shots) {
+        shot.x += shot.vx * dt;
+        shot.y += shot.vy * dt;
+        shot.life -= dt;
+        wrap(shot);
+      }
+      shots = shots.filter((shot) => shot.life > 0);
+    }
+
+    function updateDrones(dt) {
+      for (const drone of drones) {
+        const chase = Math.atan2(ship.y - drone.y, ship.x - drone.x);
+        drone.vx += Math.cos(chase) * (10 + wave * 2) * dt;
+        drone.vy += Math.sin(chase) * (10 + wave * 2) * dt;
+        const speed = Math.hypot(drone.vx, drone.vy);
+        const maxSpeed = 95 + wave * 9;
+        if (speed > maxSpeed) {
+          drone.vx = drone.vx / speed * maxSpeed;
+          drone.vy = drone.vy / speed * maxSpeed;
+        }
+        drone.x += drone.vx * dt;
+        drone.y += drone.vy * dt;
+        drone.pulse += dt * 5;
+        wrap(drone);
+      }
+    }
+
+    function updateSparks(dt) {
+      for (const spark of sparks) {
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.vx *= 0.96;
+        spark.vy *= 0.96;
+        spark.life -= dt;
+      }
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function splitDrone(drone) {
+      if (drone.radius <= 12) return;
+      for (let i = 0; i < 2; i++) {
+        const angle = Math.atan2(drone.vy, drone.vx) + (i === 0 ? 1.5 : -1.5);
+        drones.push({
+          x: drone.x,
+          y: drone.y,
+          vx: Math.cos(angle) * 95,
+          vy: Math.sin(angle) * 95,
+          radius: 11,
+          hp: 1,
+          pulse: Math.random() * Math.PI * 2
+        });
+      }
+    }
+
+    function checkHits() {
+      for (let i = drones.length - 1; i >= 0; i--) {
+        const drone = drones[i];
+        for (let j = shots.length - 1; j >= 0; j--) {
+          const shot = shots[j];
+          if (Math.hypot(shot.x - drone.x, shot.y - drone.y) < drone.radius + 4) {
+            shots.splice(j, 1);
+            drone.hp -= 1;
+            burst(shot.x, shot.y, '#67e8f9', 5);
+            if (drone.hp <= 0) {
+              drones.splice(i, 1);
+              score += drone.radius > 12 ? 90 : 140;
+              burst(drone.x, drone.y, '#e879f9', 16);
+              splitDrone(drone);
+            }
+            break;
+          }
+        }
+      }
+
+      if (drones.length === 0 && state === 'playing') {
+        wave += 1;
+        score += 250;
+        messageEl.textContent = `Wave ${wave}. The formation is faster now.`;
+        spawnWave();
+      }
+    }
+
+    function checkCrash() {
+      if (invulnerable > 0) return;
+      for (const drone of drones) {
+        if (Math.hypot(ship.x - drone.x, ship.y - drone.y) < ship.radius + drone.radius - 3) {
+          hull -= 1;
+          invulnerable = 1.4;
+          burst(ship.x, ship.y, '#f97316', 22);
+          ship.x = canvas.width / 2;
+          ship.y = canvas.height / 2;
+          ship.vx = 0;
+          ship.vy = 0;
+          ship.angle = -Math.PI / 2;
+          if (hull <= 0) {
+            state = 'over';
+            messageEl.textContent = 'Hull lost. Press R or Restart to launch again.';
+          } else {
+            messageEl.textContent = 'Direct hit. Re-center and keep firing.';
+          }
+          updateHud();
+          break;
+        }
+      }
+    }
+
+    function update(dt) {
+      if (state !== 'playing') return;
+      updateShip(dt);
+      updateShots(dt);
+      updateDrones(dt);
+      updateSparks(dt);
+      checkHits();
+      checkCrash();
+      updateHud();
+    }
+
+    function drawStars() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const star of stars) {
+        ctx.globalAlpha = star.a;
+        ctx.fillStyle = '#e0f2fe';
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.rotate(ship.angle);
+      ctx.globalAlpha = invulnerable > 0 && Math.floor(invulnerable * 12) % 2 === 0 ? 0.45 : 1;
+      ctx.strokeStyle = '#f0abfc';
+      ctx.fillStyle = '#a21caf';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(18, 0);
+      ctx.lineTo(-12, -11);
+      ctx.lineTo(-7, 0);
+      ctx.lineTo(-12, 11);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (keys.has('ArrowUp')) {
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.moveTo(-12, -6);
+        ctx.lineTo(-25 - Math.random() * 8, 0);
+        ctx.lineTo(-12, 6);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawShots() {
+      ctx.fillStyle = '#67e8f9';
+      for (const shot of shots) {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawDrones() {
+      for (const drone of drones) {
+        const glow = Math.sin(drone.pulse) * 3;
+        ctx.strokeStyle = drone.radius > 12 ? '#f97316' : '#fb7185';
+        ctx.fillStyle = drone.radius > 12 ? '#7c2d12' : '#881337';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = Math.PI * 2 / 6 * i + drone.pulse * 0.4;
+          const radius = drone.radius + (i % 2 ? glow : -glow);
+          const x = drone.x + Math.cos(angle) * radius;
+          const y = drone.y + Math.sin(angle) * radius;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life * 2);
+        ctx.fillStyle = spark.color;
+        ctx.beginPath();
+        ctx.arc(spark.x, spark.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state !== 'over') return;
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.76)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#f0abfc';
+      ctx.font = 'bold 34px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('SPACE FURY ENDS', canvas.width / 2, canvas.height / 2 - 8);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '16px system-ui';
+      ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 28);
+    }
+
+    function draw() {
+      drawStars();
+      drawShots();
+      drawDrones();
+      drawSparks();
+      drawShip();
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.05, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Space'].includes(event.code)) {
+        event.preventDefault();
+      }
+      keys.add(event.code);
+      if (event.code === 'Space') fire();
+      if (event.code === 'KeyR') reset();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.code);
+    });
+
+    restartBtn.addEventListener('click', reset);
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
