@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Sim</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-950 text-gray-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-gray-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-fuchsia-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Sim</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-400 px-4 py-2 text-sm font-bold text-gray-950 hover:bg-fuchsia-300 focus:outline-none focus:ring-2 focus:ring-fuchsia-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[1fr_280px]">
+      <div class="rounded-lg border border-gray-800 bg-gray-900 p-4 shadow-xl">
+        <div id="board" class="relative mx-auto aspect-square w-full max-w-xl select-none rounded border border-gray-700 bg-gray-950">
+          <svg id="svg" class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-label="Sim board"></svg>
+        </div>
+      </div>
+
+      <aside class="rounded-lg border border-gray-800 bg-gray-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-fuchsia-200">红方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded border border-gray-700 bg-gray-950 p-3">
+              <p class="text-gray-400">已连边</p>
+              <p id="edgeCount" class="mt-1 text-xl font-bold">0 / 15</p>
+            </div>
+            <div class="rounded border border-gray-700 bg-gray-950 p-3">
+              <p class="text-gray-400">目标</p>
+              <p class="mt-1 text-xl font-bold">避开三角</p>
+            </div>
+          </div>
+          <p id="message" class="rounded border border-gray-700 bg-gray-950 p-3 text-sm leading-6 text-gray-200">红方先手。点击任意灰色边进行连线。</p>
+          <div class="space-y-2 text-sm leading-6 text-gray-300">
+            <p>两名玩家轮流给 6 个点之间的空边染上自己的颜色。</p>
+            <p>如果一次连线后形成自己的同色三角形，该玩家立即失败。</p>
+            <p>灰色边可点击；已染色的边不能再改。</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const vertices = [
+      { x: 50, y: 10 },
+      { x: 85, y: 30 },
+      { x: 85, y: 70 },
+      { x: 50, y: 90 },
+      { x: 15, y: 70 },
+      { x: 15, y: 30 }
+    ];
+
+    const pairs = [];
+    for (let a = 0; a < vertices.length; a += 1) {
+      for (let b = a + 1; b < vertices.length; b += 1) {
+        pairs.push([a, b]);
+      }
+    }
+
+    const triangles = [];
+    for (let a = 0; a < vertices.length; a += 1) {
+      for (let b = a + 1; b < vertices.length; b += 1) {
+        for (let c = b + 1; c < vertices.length; c += 1) {
+          triangles.push([a, b, c]);
+        }
+      }
+    }
+
+    const svg = document.getElementById("svg");
+    const turnLabel = document.getElementById("turnLabel");
+    const edgeCount = document.getElementById("edgeCount");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let state;
+
+    function edgeKey(a, b) {
+      return [Math.min(a, b), Math.max(a, b)].join("-");
+    }
+
+    function playerName(player) {
+      return player === "red" ? "红方" : "蓝方";
+    }
+
+    function opponent(player) {
+      return player === "red" ? "blue" : "red";
+    }
+
+    function resetGame() {
+      state = {
+        edges: {},
+        turn: "red",
+        loser: null,
+        winningTriangle: null
+      };
+      render();
+    }
+
+    function chooseEdge(a, b) {
+      const key = edgeKey(a, b);
+      if (state.loser || state.edges[key]) return;
+      state.edges[key] = state.turn;
+      const triangle = findTriangle(state.turn);
+      if (triangle) {
+        state.loser = state.turn;
+        state.winningTriangle = triangle;
+        message.textContent = `${playerName(state.turn)}形成了同色三角形，${playerName(opponent(state.turn))}获胜。`;
+      } else {
+        state.turn = opponent(state.turn);
+        message.textContent = `${playerName(state.turn)}回合。`;
+      }
+      render();
+    }
+
+    function findTriangle(player) {
+      return triangles.find(([a, b, c]) => {
+        return state.edges[edgeKey(a, b)] === player &&
+          state.edges[edgeKey(a, c)] === player &&
+          state.edges[edgeKey(b, c)] === player;
+      }) || null;
+    }
+
+    function triangleEdgeSet() {
+      if (!state.winningTriangle) return new Set();
+      const [a, b, c] = state.winningTriangle;
+      return new Set([edgeKey(a, b), edgeKey(a, c), edgeKey(b, c)]);
+    }
+
+    function render() {
+      const used = Object.keys(state.edges).length;
+      const winner = state.loser ? opponent(state.loser) : null;
+      turnLabel.textContent = winner ? `${playerName(winner)}获胜` : playerName(state.turn);
+      edgeCount.textContent = `${used} / ${pairs.length}`;
+      const highlighted = triangleEdgeSet();
+
+      const edgeMarkup = pairs.map(([a, b]) => {
+        const key = edgeKey(a, b);
+        const owner = state.edges[key];
+        const start = vertices[a];
+        const end = vertices[b];
+        let stroke = "#4b5563";
+        let width = 2.4;
+        if (owner === "red") stroke = "#f43f5e";
+        if (owner === "blue") stroke = "#38bdf8";
+        if (highlighted.has(key)) width = 5;
+        const disabled = state.loser || owner ? "pointer-events-none" : "cursor-pointer";
+        return `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" class="${disabled}" data-a="${a}" data-b="${b}"></line>`;
+      }).join("");
+
+      const vertexMarkup = vertices.map((point, index) => {
+        return `<g><circle cx="${point.x}" cy="${point.y}" r="4.6" fill="#111827" stroke="#e5e7eb" stroke-width="1.2"></circle><text x="${point.x}" y="${point.y + 1.7}" text-anchor="middle" font-size="4.5" fill="#f9fafb" font-weight="700">${index + 1}</text></g>`;
+      }).join("");
+
+      svg.innerHTML = `<rect x="0" y="0" width="100" height="100" fill="transparent"></rect>${edgeMarkup}${vertexMarkup}`;
+      svg.querySelectorAll("line[data-a]").forEach((line) => {
+        line.addEventListener("click", () => chooseEdge(Number(line.dataset.a), Number(line.dataset.b)));
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
