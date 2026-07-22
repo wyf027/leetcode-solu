@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Havannah</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-300">classic games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Havannah</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-fuchsia-200">New game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="mx-auto flex max-w-[34rem] flex-col items-center gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">Turn</div>
+            <div id="turnLabel" class="mt-1 text-lg font-bold text-white">Magenta</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">Moves</div>
+            <div id="moveCount" class="mt-1 text-lg font-bold text-white">0</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">Magenta</div>
+            <div id="magentaScore" class="mt-1 text-lg font-bold text-fuchsia-300">0</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">Amber</div>
+            <div id="amberScore" class="mt-1 text-lg font-bold text-amber-300">0</div>
+          </div>
+        </div>
+        <div id="message" class="mt-4 rounded border border-zinc-700 bg-zinc-800 p-3 text-sm font-semibold text-zinc-100"></div>
+        <div class="mt-4 rounded bg-zinc-950 p-3 text-sm leading-6 text-zinc-300">
+          Place one stone per turn. In this compact Havannah variant, the first player whose connected group touches any two marked corners wins.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const moveCountEl = document.getElementById("moveCount");
+    const magentaScore = document.getElementById("magentaScore");
+    const amberScore = document.getElementById("amberScore");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const players = {
+      M: { name: "Magenta", color: "bg-fuchsia-300 text-zinc-950" },
+      A: { name: "Amber", color: "bg-amber-300 text-zinc-950" }
+    };
+
+    const rows = [
+      [[0, -2], [1, -2], [2, -2]],
+      [[-1, -1], [0, -1], [1, -1], [2, -1]],
+      [[-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0]],
+      [[-2, 1], [-1, 1], [0, 1], [1, 1]],
+      [[-2, 2], [-1, 2], [0, 2]]
+    ];
+    const points = rows.flat().map(([q, r], index) => ({ q, r, index }));
+    const corners = new Set(["0,-2", "2,-2", "-2,0", "2,0", "-2,2", "0,2"]);
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+
+    let board;
+    let turn;
+    let winner;
+    let moves;
+
+    function startGame() {
+      board = Array(points.length).fill(null);
+      turn = "M";
+      winner = null;
+      moves = 0;
+      setMessage("Magenta places the first stone.");
+      render();
+    }
+
+    function keyOf(point) {
+      return `${point.q},${point.r}`;
+    }
+
+    function indexAt(q, r) {
+      const point = points.find((cell) => cell.q === q && cell.r === r);
+      return point ? point.index : -1;
+    }
+
+    function neighborIndexes(index) {
+      const point = points[index];
+      return directions
+        .map(([dq, dr]) => indexAt(point.q + dq, point.r + dr))
+        .filter((next) => next >= 0);
+    }
+
+    function connectedGroup(start, player) {
+      const seen = new Set([start]);
+      const queue = [start];
+      while (queue.length) {
+        const current = queue.shift();
+        for (const next of neighborIndexes(current)) {
+          if (board[next] === player && !seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      return [...seen];
+    }
+
+    function touchedCorners(group) {
+      return new Set(group.map((index) => keyOf(points[index])).filter((key) => corners.has(key)));
+    }
+
+    function checkWin(index, player) {
+      const group = connectedGroup(index, player);
+      return touchedCorners(group).size >= 2;
+    }
+
+    function switchTurn() {
+      turn = turn === "M" ? "A" : "M";
+      setMessage(`${players[turn].name} places a stone.`);
+    }
+
+    function placeStone(index) {
+      if (winner || board[index]) return;
+      board[index] = turn;
+      moves += 1;
+      if (checkWin(index, turn)) {
+        winner = turn;
+        setMessage(`${players[turn].name} wins by connecting two corners.`);
+      } else if (moves === board.length) {
+        winner = "draw";
+        setMessage("Draw game. The board is full.");
+      } else {
+        switchTurn();
+      }
+      render();
+    }
+
+    function counts() {
+      return board.reduce((score, cell) => {
+        if (cell) score[cell] += 1;
+        return score;
+      }, { M: 0, A: 0 });
+    }
+
+    function renderPoint(point) {
+      const value = board[point.index];
+      const button = document.createElement("button");
+      const isCorner = corners.has(keyOf(point));
+      button.className = [
+        "flex h-14 w-14 items-center justify-center border border-zinc-700 bg-zinc-800 text-lg font-black transition hover:border-fuchsia-300",
+        "rounded-[1.25rem]",
+        isCorner ? "ring-2 ring-zinc-500" : ""
+      ].join(" ");
+      button.setAttribute("aria-label", `Point ${point.index + 1}`);
+      button.addEventListener("click", () => placeStone(point.index));
+      if (value) {
+        const stone = document.createElement("span");
+        stone.className = `flex h-10 w-10 items-center justify-center rounded-full shadow ${players[value].color}`;
+        stone.textContent = value;
+        button.appendChild(stone);
+      } else {
+        const dot = document.createElement("span");
+        dot.className = isCorner ? "h-3 w-3 rounded-full bg-zinc-400" : "h-2 w-2 rounded-full bg-zinc-600";
+        button.appendChild(dot);
+      }
+      return button;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function render() {
+      boardEl.replaceChildren(...rows.map((row) => {
+        const line = document.createElement("div");
+        line.className = "flex gap-2";
+        line.replaceChildren(...row.map(([q, r]) => renderPoint(points[indexAt(q, r)])));
+        return line;
+      }));
+      const score = counts();
+      turnLabel.textContent = winner ? (winner === "draw" ? "Draw" : `${players[winner].name} wins`) : players[turn].name;
+      moveCountEl.textContent = moves;
+      magentaScore.textContent = score.M;
+      amberScore.textContent = score.A;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
