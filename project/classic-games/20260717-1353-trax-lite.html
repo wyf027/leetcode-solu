@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Trax</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-red-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Trax</h1>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="resetBtn" class="rounded bg-red-400 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-red-300">新局</button>
+        <button id="checkBtn" class="rounded bg-white px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-zinc-200">检查</button>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-4">
+        <div class="mb-3 flex flex-col gap-2 text-sm text-zinc-300 sm:flex-row sm:items-center sm:justify-between">
+          <span>目标：放满 7 张指定砖，让白线从左侧入口贯通到右侧出口，且所有相邻边颜色一致。</span>
+          <span id="score" class="font-semibold text-red-200">步数 0</span>
+        </div>
+        <div id="board" class="grid grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-zinc-700 bg-zinc-900 p-4">
+        <h2 class="mb-3 text-lg font-bold">砖块</h2>
+        <div id="tray" class="grid grid-cols-2 gap-2"></div>
+        <p id="message" class="mt-4 min-h-16 rounded bg-zinc-800 p-3 text-sm text-zinc-200">选择一块砖放入高亮格。点击棋盘上的砖可旋转，切换直线与弯线方向。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const directions = ["N", "E", "S", "W"];
+    const opposite = { N: "S", E: "W", S: "N", W: "E" };
+    const delta = { N: [-1, 0], E: [0, 1], S: [1, 0], W: [0, -1] };
+    const slots = [6, 7, 10, 11, 12, 13, 14];
+    const tileDefs = [
+      { id: "A", type: "straight", rotation: 0 },
+      { id: "B", type: "curve", rotation: 1 },
+      { id: "C", type: "curve", rotation: 3 },
+      { id: "D", type: "curve", rotation: 0 },
+      { id: "E", type: "curve", rotation: 2 },
+      { id: "F", type: "straight", rotation: 0 },
+      { id: "G", type: "straight", rotation: 0 }
+    ];
+    let board = [];
+    let tray = [];
+    let selectedId = null;
+    let moves = 0;
+
+    function rotateDir(dir, turns) {
+      return directions[(directions.indexOf(dir) + turns + 4) % 4];
+    }
+
+    function connectionsFor(tile, color = "white") {
+      const base = tile.type === "straight"
+        ? { white: ["W", "E"], red: ["N", "S"] }
+        : { white: ["W", "S"], red: ["N", "E"] };
+      return base[color].map((dir) => rotateDir(dir, tile.rotation));
+    }
+
+    function startGame() {
+      board = Array.from({ length: 25 }, () => null);
+      tray = tileDefs.map((tile) => ({ ...tile }));
+      selectedId = null;
+      moves = 0;
+      setMessage("选择一块砖放入高亮格。点击棋盘上的砖可旋转，切换直线与弯线方向。");
+      render();
+    }
+
+    function setMessage(text) {
+      document.getElementById("message").textContent = text;
+    }
+
+    function placeTile(index) {
+      if (!slots.includes(index)) {
+        setMessage("只能在中间一排的高亮格铺砖。");
+        return;
+      }
+      if (board[index]) {
+        rotateTile(index);
+        return;
+      }
+      if (!selectedId) {
+        setMessage("先从右侧选择一块 Trax 砖。");
+        return;
+      }
+      const trayIndex = tray.findIndex((tile) => tile.id === selectedId);
+      if (trayIndex < 0) return;
+      board[index] = tray.splice(trayIndex, 1)[0];
+      selectedId = null;
+      moves += 1;
+      setMessage(hasMatchingEdges() ? "当前相邻边颜色一致，继续完成白线。" : "有相邻边颜色冲突，旋转砖块修正。");
+      render();
+      checkWin(false);
+    }
+
+    function rotateTile(index) {
+      board[index].rotation = (board[index].rotation + 1) % 4;
+      moves += 1;
+      setMessage("已旋转砖块。");
+      render();
+      checkWin(false);
+    }
+
+    function hasMatchingEdges() {
+      return board.every((tile, index) => {
+        if (!tile) return true;
+        const row = Math.floor(index / 5);
+        const col = index % 5;
+        return ["white", "red"].every((color) => connectionsFor(tile, color).every((dir) => {
+          const [dr, dc] = delta[dir];
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (nextRow < 0 || nextRow > 4 || nextCol < 0 || nextCol > 4) return true;
+          const neighbor = board[nextRow * 5 + nextCol];
+          if (!neighbor) return true;
+          return connectionsFor(neighbor, color).includes(opposite[dir]);
+        }));
+      });
+    }
+
+    function tracePath() {
+      const start = board[10];
+      if (!start || !connectionsFor(start).includes("W")) return false;
+      const seen = new Set();
+      const stack = [10];
+      while (stack.length) {
+        const index = stack.pop();
+        if (seen.has(index)) continue;
+        seen.add(index);
+        const tile = board[index];
+        const row = Math.floor(index / 5);
+        const col = index % 5;
+        for (const dir of connectionsFor(tile)) {
+          if (index === 14 && dir === "E") return true;
+          const [dr, dc] = delta[dir];
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (nextRow < 0 || nextRow > 4 || nextCol < 0 || nextCol > 4) continue;
+          const nextIndex = nextRow * 5 + nextCol;
+          const nextTile = board[nextIndex];
+          if (nextTile && connectionsFor(nextTile).includes(opposite[dir])) stack.push(nextIndex);
+        }
+      }
+      return false;
+    }
+
+    function checkWin(showMessage = true) {
+      const complete = tray.length === 0;
+      const connected = tracePath();
+      const matched = hasMatchingEdges();
+      if (complete && connected && matched) {
+        setMessage(`完成！白线已经横穿棋盘，用了 ${moves} 步。`);
+        return true;
+      }
+      if (showMessage) {
+        if (!complete) setMessage("还需要放完所有砖块。");
+        else if (!matched) setMessage("有相邻边颜色不一致。");
+        else setMessage("白线还没有从左侧入口连到右侧出口。");
+      }
+      return false;
+    }
+
+    function pointFor(dir) {
+      if (dir === "N") return [50, 8];
+      if (dir === "E") return [92, 50];
+      if (dir === "S") return [50, 92];
+      return [8, 50];
+    }
+
+    function lineFor(pair, color) {
+      const a = pointFor(pair[0]);
+      const b = pointFor(pair[1]);
+      return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${color}" stroke-width="13" stroke-linecap="round"></line>`;
+    }
+
+    function tileSvg(tile, active) {
+      const white = connectionsFor(tile, "white");
+      const red = connectionsFor(tile, "red");
+      const border = active ? "stroke-red-300" : "stroke-zinc-600";
+      return `
+        <svg viewBox="0 0 100 100" class="h-full w-full">
+          <rect x="6" y="6" width="88" height="88" rx="8" class="fill-zinc-800 ${border}" stroke-width="4"></rect>
+          ${lineFor(red, "rgb(248 113 113)")}
+          ${lineFor(white, "white")}
+          <text x="50" y="57" text-anchor="middle" class="fill-zinc-950 text-[18px] font-bold">${tile.id}</text>
+        </svg>
+      `;
+    }
+
+    function render() {
+      document.getElementById("score").textContent = `步数 ${moves}`;
+      const boardEl = document.getElementById("board");
+      boardEl.innerHTML = "";
+      board.forEach((tile, index) => {
+        const cell = document.createElement("button");
+        const playable = slots.includes(index);
+        cell.className = `aspect-square rounded border p-1 ${playable ? "border-red-300 bg-zinc-950" : "border-zinc-800 bg-zinc-900"} hover:border-white`;
+        cell.innerHTML = tile ? tileSvg(tile, false) : `<span class="text-xs ${playable ? "text-red-200" : "text-zinc-700"}">${playable ? "铺砖" : ""}</span>`;
+        cell.addEventListener("click", () => placeTile(index));
+        boardEl.appendChild(cell);
+      });
+
+      const trayEl = document.getElementById("tray");
+      trayEl.innerHTML = "";
+      tray.forEach((tile) => {
+        const active = selectedId === tile.id;
+        const button = document.createElement("button");
+        button.className = `aspect-square rounded border p-1 ${active ? "border-red-300 bg-zinc-800" : "border-zinc-700 bg-zinc-950"} hover:border-white`;
+        button.innerHTML = tileSvg(tile, active);
+        button.addEventListener("click", () => {
+          selectedId = tile.id;
+          setMessage(`已选择 ${tile.id} 砖，点击中间一排的空格放置。`);
+          render();
+        });
+        trayEl.appendChild(button);
+      });
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", startGame);
+    document.getElementById("checkBtn").addEventListener("click", () => checkWin(true));
+    startGame();
+  </script>
+</body>
+</html>
