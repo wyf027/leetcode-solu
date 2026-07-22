@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Congo Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.28em] text-yellow-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Congo</h1>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-emerald-100">
+          A compact river-board duel. Guard your Lion, leap with Monkeys, and push Pawns across the jungle.
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded bg-yellow-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-yellow-200">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-emerald-700 bg-emerald-900 p-3 shadow-2xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 overflow-hidden rounded border border-emerald-700"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-emerald-700 bg-emerald-900 p-4">
+          <div class="text-xs uppercase tracking-[0.22em] text-emerald-200">Turn</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold text-yellow-200"></div>
+          <div id="statusText" class="mt-3 min-h-16 text-sm leading-6 text-emerald-100"></div>
+        </div>
+
+        <div class="rounded border border-emerald-700 bg-emerald-900 p-4">
+          <div class="text-xs uppercase tracking-[0.22em] text-emerald-200">Captured</div>
+          <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-emerald-800 p-3">
+              <div class="font-semibold text-orange-200">Sun</div>
+              <div id="sunCaptures" class="mt-1 text-2xl font-bold">0</div>
+            </div>
+            <div class="rounded bg-emerald-800 p-3">
+              <div class="font-semibold text-sky-200">Rain</div>
+              <div id="rainCaptures" class="mt-1 text-2xl font-bold">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-emerald-700 bg-emerald-900 p-4 text-sm leading-6 text-emerald-100">
+          <div class="mb-2 font-semibold text-stone-100">Pieces</div>
+          <p><span class="font-semibold text-yellow-200">L</span> Lion: one square any direction; wins by crossing the river.</p>
+          <p><span class="font-semibold text-yellow-200">M</span> Monkey: diagonal move or jump-capture.</p>
+          <p><span class="font-semibold text-yellow-200">P</span> Pawn: forward one, diagonal capture.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const riverRow = 2;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const sunCaptures = document.getElementById("sunCaptures");
+    const rainCaptures = document.getElementById("rainCaptures");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const names = { s: "Sun", r: "Rain" };
+    const pieceNames = { L: "Lion", M: "Monkey", P: "Pawn" };
+    let board;
+    let turn;
+    let selected;
+    let moves;
+    let captures;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      const setup = [
+        ["rM", "rP", "rL", "rP", "rM"],
+        [null, null, "rP", null, null],
+        [null, null, null, null, null],
+        [null, null, "sP", null, null],
+        ["sM", "sP", "sL", "sP", "sM"]
+      ];
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          board[row][col] = setup[row][col] ? makePiece(setup[row][col]) : null;
+        }
+      }
+      turn = "s";
+      selected = null;
+      moves = [];
+      captures = { s: 0, r: 0 };
+      winner = null;
+      render();
+    }
+
+    function makePiece(code) {
+      return { side: code[0], type: code[1] };
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function opponent(side) {
+      return side === "s" ? "r" : "s";
+    }
+
+    function addStep(list, piece, row, col, dr, dc) {
+      const nr = row + dr;
+      const nc = col + dc;
+      if (!inBounds(nr, nc)) return;
+      const target = board[nr][nc];
+      if (!target || target.side !== piece.side) {
+        list.push({ row: nr, col: nc, capture: Boolean(target) });
+      }
+    }
+
+    function addMonkeyJump(list, piece, row, col, dr, dc) {
+      const midRow = row + dr;
+      const midCol = col + dc;
+      const endRow = row + dr * 2;
+      const endCol = col + dc * 2;
+      if (!inBounds(endRow, endCol)) return;
+      const middle = board[midRow][midCol];
+      const target = board[endRow][endCol];
+      if (middle?.side === opponent(piece.side) && !target) {
+        list.push({ row: endRow, col: endCol, capture: true, jumped: { row: midRow, col: midCol } });
+      }
+    }
+
+    function legalMoves(row, col) {
+      const piece = board[row][col];
+      if (!piece || winner) return [];
+      const list = [];
+      if (piece.type === "L") {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr || dc) addStep(list, piece, row, col, dr, dc);
+          }
+        }
+      }
+      if (piece.type === "M") {
+        [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([dr, dc]) => {
+          addStep(list, piece, row, col, dr, dc);
+          addMonkeyJump(list, piece, row, col, dr, dc);
+        });
+      }
+      if (piece.type === "P") {
+        const dir = piece.side === "s" ? -1 : 1;
+        const forward = row + dir;
+        if (inBounds(forward, col) && !board[forward][col]) list.push({ row: forward, col, capture: false });
+        for (const dc of [-1, 1]) {
+          const targetCol = col + dc;
+          if (inBounds(forward, targetCol) && board[forward][targetCol]?.side === opponent(piece.side)) {
+            list.push({ row: forward, col: targetCol, capture: true });
+          }
+        }
+      }
+      return list;
+    }
+
+    function allMoves(side) {
+      const list = [];
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          if (board[row][col]?.side === side) list.push(...legalMoves(row, col));
+        }
+      }
+      return list;
+    }
+
+    function hasLion(side) {
+      return board.some((row) => row.some((piece) => piece?.side === side && piece.type === "L"));
+    }
+
+    function applyMove(toRow, toCol) {
+      if (!selected || winner) return;
+      const allowed = moves.find((move) => move.row === toRow && move.col === toCol);
+      if (!allowed) return;
+      const piece = board[selected.row][selected.col];
+      const target = board[toRow][toCol];
+      if (target) captures[piece.side] += target.type === "L" ? 3 : 1;
+      if (allowed.jumped) {
+        board[allowed.jumped.row][allowed.jumped.col] = null;
+        captures[piece.side] += 1;
+      }
+      board[toRow][toCol] = piece;
+      board[selected.row][selected.col] = null;
+      selected = null;
+      moves = [];
+      checkGame(piece, target, toRow);
+      if (!winner) turn = opponent(turn);
+      render();
+    }
+
+    function checkGame(piece, capturedPiece, row) {
+      if (capturedPiece?.type === "L" || !hasLion(opponent(piece.side))) {
+        winner = piece.side;
+        return;
+      }
+      if (piece.type === "L" && ((piece.side === "s" && row < riverRow) || (piece.side === "r" && row > riverRow))) {
+        winner = piece.side;
+        return;
+      }
+      if (allMoves(opponent(piece.side)).length === 0) winner = piece.side;
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+      const piece = board[row][col];
+      if (selected && moves.some((move) => move.row === row && move.col === col)) {
+        applyMove(row, col);
+        return;
+      }
+      if (piece?.side === turn) {
+        selected = { row, col };
+        moves = legalMoves(row, col);
+      } else {
+        selected = null;
+        moves = [];
+      }
+      render();
+    }
+
+    function squareClasses(row, col) {
+      const isRiver = row === riverRow;
+      const isSelected = selected?.row === row && selected?.col === col;
+      const move = moves.find((item) => item.row === row && item.col === col);
+      if (isSelected) return "bg-yellow-300 text-emerald-950 ring-4 ring-yellow-100";
+      if (move?.capture) return "bg-red-500 text-white ring-4 ring-red-200";
+      if (move) return "bg-lime-500 text-emerald-950 ring-4 ring-lime-200";
+      return isRiver ? "bg-cyan-800" : (row + col) % 2 ? "bg-emerald-800" : "bg-emerald-700";
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const piece = board[row][col];
+          const cell = document.createElement("button");
+          cell.className = `relative flex aspect-square items-center justify-center border border-emerald-950 text-2xl font-black transition hover:brightness-110 ${squareClasses(row, col)}`;
+          cell.setAttribute("aria-label", `${row + 1},${col + 1}`);
+          cell.addEventListener("click", () => handleCell(row, col));
+          if (piece) {
+            const chip = document.createElement("span");
+            chip.className = `flex h-14 w-14 items-center justify-center rounded-full border-2 shadow ${piece.side === "s" ? "border-orange-100 bg-orange-300 text-orange-950" : "border-sky-100 bg-sky-300 text-sky-950"}`;
+            chip.textContent = piece.type;
+            chip.title = `${names[piece.side]} ${pieceNames[piece.type]}`;
+            cell.appendChild(chip);
+          } else if (moves.some((move) => move.row === row && move.col === col)) {
+            const dot = document.createElement("span");
+            dot.className = "h-3 w-3 rounded-full bg-white/80";
+            cell.appendChild(dot);
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function renderStatus() {
+      turnText.textContent = winner ? `${names[winner]} wins` : `${names[turn]} to move`;
+      sunCaptures.textContent = captures.s;
+      rainCaptures.textContent = captures.r;
+      if (winner) {
+        statusText.textContent = `${names[winner]} captured the Lion, crossed the river, or left the rival with no move.`;
+      } else if (selected) {
+        const piece = board[selected.row][selected.col];
+        statusText.textContent = `${names[turn]} selected ${pieceNames[piece.type]}. Legal destinations are highlighted.`;
+      } else {
+        statusText.textContent = "Select one of your pieces. The blue row is the river; a Lion wins after crossing it.";
+      }
+    }
+
+    function render() {
+      renderBoard();
+      renderStatus();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
