@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Wizard of Wor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-amber-200">Mini Wizard of Wor</h1>
+        <p class="text-sm text-zinc-400">方向键或 WASD 移动，空格发射；在迷宫里清掉所有怪物。</p>
+      </div>
+      <button id="restartButton" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-zinc-950 transition hover:bg-amber-200">
+        重新开始
+      </button>
+    </section>
+
+    <section class="grid gap-3 text-sm sm:grid-cols-4">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-zinc-400">分数</div>
+        <div id="score" class="text-xl font-bold text-amber-200">0</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-zinc-400">生命</div>
+        <div id="lives" class="text-xl font-bold text-rose-300">3</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-zinc-400">关卡</div>
+        <div id="level" class="text-xl font-bold text-cyan-300">1</div>
+      </div>
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div class="text-zinc-400">剩余怪物</div>
+        <div id="monstersLeft" class="text-xl font-bold text-violet-300">0</div>
+      </div>
+    </section>
+
+    <section class="relative">
+      <canvas id="gameCanvas" width="720" height="520" class="h-auto w-full rounded border border-amber-900 bg-zinc-950 shadow-2xl shadow-amber-950/30"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-4 top-4 hidden rounded border border-amber-700 bg-zinc-950/90 px-4 py-3 text-center text-sm font-semibold text-amber-100"></div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const restartButton = document.getElementById("restartButton");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const levelEl = document.getElementById("level");
+    const monstersLeftEl = document.getElementById("monstersLeft");
+    const messageEl = document.getElementById("message");
+
+    const tile = 40;
+    const maze = [
+      "##################",
+      "#....#......#....#",
+      "#.##.#.####.#.##.#",
+      "#................#",
+      "###.###.##.###.###",
+      "#......#..#......#",
+      "#.####.#..#.####.#",
+      "#................#",
+      "#.##.########.##.#",
+      "#....#......#....#",
+      "##################"
+    ];
+    const rows = maze.length;
+    const cols = maze[0].length;
+    const offsetX = (canvas.width - cols * tile) / 2;
+    const offsetY = (canvas.height - rows * tile) / 2;
+    const keys = new Set();
+
+    let player;
+    let monsters;
+    let bolts;
+    let sparks;
+    let score;
+    let lives;
+    let level;
+    let lastFire;
+    let levelClearing;
+    let gameOver;
+    let animationId;
+
+    function setupGame() {
+      score = 0;
+      lives = 3;
+      level = 1;
+      lastFire = 0;
+      levelClearing = false;
+      gameOver = false;
+      sparks = [];
+      startLevel();
+      hideMessage();
+      cancelAnimationFrame(animationId);
+      gameLoop();
+    }
+
+    function startLevel() {
+      player = { x: 1.5 * tile + offsetX, y: 9.5 * tile + offsetY, dirX: 1, dirY: 0, speed: 3.1 };
+      bolts = [];
+      sparks = [];
+      levelClearing = false;
+      spawnMonsters();
+      updateHud();
+    }
+
+    function spawnMonsters() {
+      const starts = [
+        [16, 1],
+        [1, 1],
+        [16, 9],
+        [8, 3],
+        [9, 7],
+        [4, 5]
+      ];
+      const count = Math.min(3 + level, starts.length);
+      monsters = starts.slice(0, count).map(([c, r], index) => ({
+        x: (c + 0.5) * tile + offsetX,
+        y: (r + 0.5) * tile + offsetY,
+        dirX: index % 2 === 0 ? -1 : 1,
+        dirY: 0,
+        speed: 1.25 + level * 0.12 + index * 0.03,
+        color: index % 2 === 0 ? "#a78bfa" : "#fb7185"
+      }));
+    }
+
+    function tileAtPixel(x, y) {
+      const c = Math.floor((x - offsetX) / tile);
+      const r = Math.floor((y - offsetY) / tile);
+      if (r < 0 || r >= rows || c < 0 || c >= cols) return "#";
+      return maze[r][c];
+    }
+
+    function canMoveTo(x, y, radius = 13) {
+      return (
+        tileAtPixel(x - radius, y - radius) !== "#" &&
+        tileAtPixel(x + radius, y - radius) !== "#" &&
+        tileAtPixel(x - radius, y + radius) !== "#" &&
+        tileAtPixel(x + radius, y + radius) !== "#"
+      );
+    }
+
+    function moveEntity(entity, dx, dy, speed) {
+      const nextX = entity.x + dx * speed;
+      const nextY = entity.y + dy * speed;
+      if (canMoveTo(nextX, entity.y)) entity.x = nextX;
+      if (canMoveTo(entity.x, nextY)) entity.y = nextY;
+    }
+
+    function updatePlayer(now) {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("KeyW")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("KeyS")) dy += 1;
+      if (dx !== 0 || dy !== 0) {
+        const length = Math.hypot(dx, dy);
+        dx /= length;
+        dy /= length;
+        player.dirX = Math.abs(dx) > Math.abs(dy) ? Math.sign(dx) : 0;
+        player.dirY = Math.abs(dy) >= Math.abs(dx) ? Math.sign(dy) : 0;
+        moveEntity(player, dx, dy, player.speed);
+      }
+      if (keys.has("Space")) fireBolt(now);
+    }
+
+    function fireBolt(now) {
+      if (now - lastFire < 230) return;
+      const dirX = player.dirX || 1;
+      const dirY = player.dirY;
+      bolts.push({ x: player.x + dirX * 16, y: player.y + dirY * 16, dirX, dirY, speed: 7 });
+      lastFire = now;
+    }
+
+    function chooseMonsterDirection(monster) {
+      const options = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1]
+      ].filter(([dx, dy]) => canMoveTo(monster.x + dx * tile * 0.55, monster.y + dy * tile * 0.55));
+      options.sort((a, b) => {
+        const da = Math.hypot(player.x - (monster.x + a[0] * tile), player.y - (monster.y + a[1] * tile));
+        const db = Math.hypot(player.x - (monster.x + b[0] * tile), player.y - (monster.y + b[1] * tile));
+        return da - db;
+      });
+      const choice = Math.random() < 0.72 ? options[0] : options[Math.floor(Math.random() * options.length)];
+      if (choice) {
+        monster.dirX = choice[0];
+        monster.dirY = choice[1];
+      }
+    }
+
+    function updateMonsters() {
+      monsters.forEach((monster) => {
+        const c = Math.round((monster.x - offsetX) / tile - 0.5);
+        const r = Math.round((monster.y - offsetY) / tile - 0.5);
+        const centered = Math.abs(monster.x - ((c + 0.5) * tile + offsetX)) < 2 && Math.abs(monster.y - ((r + 0.5) * tile + offsetY)) < 2;
+        if (centered && Math.random() < 0.16) chooseMonsterDirection(monster);
+        if (!canMoveTo(monster.x + monster.dirX * 15, monster.y + monster.dirY * 15)) chooseMonsterDirection(monster);
+        moveEntity(monster, monster.dirX, monster.dirY, monster.speed);
+        if (Math.hypot(monster.x - player.x, monster.y - player.y) < 25) loseLife();
+      });
+    }
+
+    function updateBolts() {
+      bolts.forEach((bolt) => {
+        bolt.x += bolt.dirX * bolt.speed;
+        bolt.y += bolt.dirY * bolt.speed;
+        if (!canMoveTo(bolt.x, bolt.y, 4)) bolt.dead = true;
+        monsters.forEach((monster) => {
+          if (!bolt.dead && Math.hypot(bolt.x - monster.x, bolt.y - monster.y) < 20) {
+            bolt.dead = true;
+            monster.dead = true;
+            score += 100 + level * 25;
+            addSparks(monster.x, monster.y, monster.color);
+          }
+        });
+      });
+      bolts = bolts.filter((bolt) => !bolt.dead);
+      monsters = monsters.filter((monster) => !monster.dead);
+      if (monsters.length === 0 && !gameOver && !levelClearing) {
+        levelClearing = true;
+        level += 1;
+        showMessage("迷宫清空，进入下一关。");
+        setTimeout(() => {
+          if (!gameOver) {
+            hideMessage();
+            startLevel();
+          }
+        }, 800);
+      }
+    }
+
+    function loseLife() {
+      lives -= 1;
+      addSparks(player.x, player.y, "#fbbf24");
+      if (lives <= 0) {
+        gameOver = true;
+        showMessage("被怪物抓住了。按重新开始再试一次。");
+      } else {
+        showMessage("损失一条生命，继续追击。");
+        player.x = 1.5 * tile + offsetX;
+        player.y = 9.5 * tile + offsetY;
+      }
+      updateHud();
+    }
+
+    function addSparks(x, y, color) {
+      for (let i = 0; i < 12; i += 1) {
+        sparks.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 4,
+          vy: (Math.random() - 0.5) * 4,
+          life: 24,
+          color
+        });
+      }
+    }
+
+    function updateSparks() {
+      sparks.forEach((spark) => {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.life -= 1;
+      });
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      levelEl.textContent = level;
+      monstersLeftEl.textContent = monsters.length;
+    }
+
+    function showMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.remove("hidden");
+    }
+
+    function hideMessage() {
+      messageEl.classList.add("hidden");
+    }
+
+    function drawMaze() {
+      ctx.fillStyle = "#09090b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let r = 0; r < rows; r += 1) {
+        for (let c = 0; c < cols; c += 1) {
+          const x = offsetX + c * tile;
+          const y = offsetY + r * tile;
+          if (maze[r][c] === "#") {
+            ctx.fillStyle = "#3f3f46";
+            ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
+            ctx.strokeStyle = "#f59e0b";
+            ctx.strokeRect(x + 7, y + 7, tile - 14, tile - 14);
+          } else {
+            ctx.fillStyle = "#18181b";
+            ctx.fillRect(x, y, tile, tile);
+          }
+        }
+      }
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = "#fbbf24";
+      ctx.beginPath();
+      ctx.arc(0, 0, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(player.dirX * 7 - 3, player.dirY * 7 - 3, 6, 6);
+      ctx.restore();
+    }
+
+    function drawMonsters() {
+      monsters.forEach((monster) => {
+        ctx.fillStyle = monster.color;
+        ctx.beginPath();
+        ctx.arc(monster.x, monster.y, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fafafa";
+        ctx.fillRect(monster.x - 8, monster.y - 5, 5, 5);
+        ctx.fillRect(monster.x + 3, monster.y - 5, 5, 5);
+      });
+    }
+
+    function drawBolts() {
+      ctx.fillStyle = "#67e8f9";
+      bolts.forEach((bolt) => {
+        ctx.beginPath();
+        ctx.arc(bolt.x, bolt.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawSparks() {
+      sparks.forEach((spark) => {
+        ctx.globalAlpha = spark.life / 24;
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 3, 3);
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawMaze();
+      drawBolts();
+      drawPlayer();
+      drawMonsters();
+      drawSparks();
+    }
+
+    function gameLoop(now = 0) {
+      if (!gameOver) {
+        updatePlayer(now);
+        updateMonsters();
+        updateBolts();
+        updateSparks();
+        updateHud();
+      }
+      draw();
+      animationId = requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyA", "KeyD", "KeyW", "KeyS", "Space"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    restartButton.addEventListener("click", setupGame);
+    setupGame();
+  </script>
+</body>
+</html>
