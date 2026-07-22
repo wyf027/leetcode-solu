@@ -50,9 +50,49 @@
             return response.text();
           })
           .then((html) => {
+            const inertHTML = html.replace(
+              /<script(\s|>)/gi,
+              '<script type="application/x-preview-script"$1',
+            );
             document.open();
-            document.write(html);
+            document.write(inertHTML);
             document.close();
+
+            const pendingScripts = [
+              ...document.querySelectorAll(
+                'script[type="application/x-preview-script"]',
+              ),
+            ];
+            return pendingScripts.reduce(
+              (chain, pendingScript) =>
+                chain.then(
+                  () =>
+                    new Promise((resolve) => {
+                      const liveScript = document.createElement("script");
+                      [...pendingScript.attributes].forEach(
+                        ({ name, value }) => {
+                          if (name !== "type")
+                            liveScript.setAttribute(name, value);
+                        },
+                      );
+
+                      if (pendingScript.src) {
+                        liveScript.addEventListener("load", resolve, {
+                          once: true,
+                        });
+                        liveScript.addEventListener("error", resolve, {
+                          once: true,
+                        });
+                      } else {
+                        liveScript.textContent = pendingScript.textContent;
+                      }
+
+                      pendingScript.replaceWith(liveScript);
+                      if (!pendingScript.src) resolve();
+                    }),
+                ),
+              Promise.resolve(),
+            );
           })
           .catch(showPreviewError);
       })();
