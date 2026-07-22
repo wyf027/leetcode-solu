@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Gradius 宇宙巡航机</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-400/30 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-emerald-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Gradius 宇宙巡航机</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="border border-emerald-400/30 bg-emerald-950/40 px-3 py-2">
+          <div class="text-emerald-200">分数</div>
+          <div id="score" class="text-xl font-bold">0</div>
+        </div>
+        <div class="border border-emerald-400/30 bg-emerald-950/40 px-3 py-2">
+          <div class="text-emerald-200">护盾</div>
+          <div id="shield" class="text-xl font-bold">3</div>
+        </div>
+        <div class="border border-emerald-400/30 bg-emerald-950/40 px-3 py-2">
+          <div class="text-emerald-200">胶囊</div>
+          <div id="capsules" class="text-xl font-bold">0</div>
+        </div>
+        <div class="border border-emerald-400/30 bg-emerald-950/40 px-3 py-2">
+          <div class="text-emerald-200">子机</div>
+          <div id="options" class="text-xl font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="760" height="480" class="h-auto w-full border border-emerald-400/40 bg-black"></canvas>
+      <aside class="space-y-3 text-sm text-zinc-300">
+        <div class="border border-zinc-700 bg-zinc-900/80 p-3">
+          <h2 class="mb-2 font-semibold text-emerald-200">操作</h2>
+          <p>方向键 / WASD：移动</p>
+          <p>空格：射击</p>
+          <p>E：消耗 3 个胶囊激活子机</p>
+          <p>R：重新开始</p>
+        </div>
+        <div class="border border-zinc-700 bg-zinc-900/80 p-3">
+          <h2 class="mb-2 font-semibold text-emerald-200">目标</h2>
+          <p>收集红色胶囊增强火力，击破 18 架敌机并摧毁核心即可通关。</p>
+        </div>
+        <button id="restart" class="w-full border border-emerald-300 bg-emerald-400 px-4 py-2 font-bold text-zinc-950 hover:bg-emerald-200">
+          重新开始
+        </button>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const shieldEl = document.getElementById("shield");
+    const capsulesEl = document.getElementById("capsules");
+    const optionsEl = document.getElementById("options");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const player = { x: 78, y: 230, w: 42, h: 22, shield: 3, fire: 0, invuln: 0, capsules: 0, options: 0 };
+    let stars = [];
+    let bullets = [];
+    let enemies = [];
+    let enemyShots = [];
+    let capsules = [];
+    let core = null;
+    let score = 0;
+    let kills = 0;
+    let spawnTimer = 0;
+    let coreTimer = 0;
+    let state = "playing";
+    let frame = 0;
+    let lastTime = 0;
+
+    function resetGame() {
+      player.x = 78;
+      player.y = 230;
+      player.shield = 3;
+      player.fire = 0;
+      player.invuln = 0;
+      player.capsules = 0;
+      player.options = 0;
+      bullets = [];
+      enemies = [];
+      enemyShots = [];
+      capsules = [];
+      core = null;
+      score = 0;
+      kills = 0;
+      spawnTimer = 20;
+      coreTimer = 0;
+      frame = 0;
+      state = "playing";
+      stars = Array.from({ length: 100 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        s: 0.5 + Math.random() * 1.8,
+      }));
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      shieldEl.textContent = player.shield;
+      capsulesEl.textContent = player.capsules;
+      optionsEl.textContent = player.options;
+    }
+
+    function hit(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function fireShot() {
+      if (player.fire > 0) return;
+      bullets.push({ x: player.x + player.w, y: player.y + 7, w: 18, h: 5, vx: 9, power: 1 });
+      for (let i = 0; i < player.options; i += 1) {
+        const oy = player.y + 30 + i * 28;
+        bullets.push({ x: player.x + 16, y: oy, w: 16, h: 4, vx: 8, power: 1 });
+      }
+      player.fire = Math.max(5, 12 - player.options * 2);
+    }
+
+    function spawnEnemy() {
+      const high = Math.random() < 0.5;
+      enemies.push({
+        x: canvas.width + 30,
+        y: high ? 60 + Math.random() * 150 : 250 + Math.random() * 130,
+        w: 34,
+        h: 22,
+        vx: -2.4 - Math.random() * 1.6,
+        hp: kills > 10 ? 2 : 1,
+        wave: Math.random() * Math.PI * 2,
+        fire: 55 + Math.random() * 65,
+      });
+    }
+
+    function spawnCore() {
+      core = { x: canvas.width + 60, y: 155, w: 84, h: 150, hp: 18, fire: 40, open: 0 };
+    }
+
+    function hurtPlayer() {
+      if (player.invuln > 0 || state !== "playing") return;
+      player.shield -= 1;
+      player.invuln = 80;
+      player.options = Math.max(0, player.options - 1);
+      if (player.shield <= 0) state = "lost";
+      updateHud();
+    }
+
+    function activateOption() {
+      if (player.capsules >= 3 && player.options < 2) {
+        player.capsules -= 3;
+        player.options += 1;
+        updateHud();
+      }
+    }
+
+    function update() {
+      if (state !== "playing") return;
+      frame += 1;
+      const speed = 4.2;
+      if (keys.has("ArrowUp") || keys.has("w")) player.y -= speed;
+      if (keys.has("ArrowDown") || keys.has("s")) player.y += speed;
+      if (keys.has("ArrowLeft") || keys.has("a")) player.x -= speed;
+      if (keys.has("ArrowRight") || keys.has("d")) player.x += speed;
+      if (keys.has(" ")) fireShot();
+      player.x = Math.max(12, Math.min(canvas.width - player.w - 18, player.x));
+      player.y = Math.max(18, Math.min(canvas.height - player.h - 18, player.y));
+      player.fire = Math.max(0, player.fire - 1);
+      player.invuln = Math.max(0, player.invuln - 1);
+
+      stars.forEach((star) => {
+        star.x -= star.s;
+        if (star.x < 0) {
+          star.x = canvas.width;
+          star.y = Math.random() * canvas.height;
+        }
+      });
+
+      if (!core) {
+        spawnTimer -= 1;
+        if (spawnTimer <= 0 && kills < 18) {
+          spawnEnemy();
+          spawnTimer = Math.max(28, 68 - kills);
+        }
+        if (kills >= 18) {
+          coreTimer += 1;
+          if (coreTimer > 70) spawnCore();
+        }
+      }
+
+      bullets.forEach((bullet) => (bullet.x += bullet.vx));
+      bullets = bullets.filter((bullet) => bullet.x < canvas.width + 50);
+      enemyShots.forEach((shot) => {
+        shot.x += shot.vx;
+        shot.y += shot.vy;
+      });
+      enemyShots = enemyShots.filter((shot) => shot.x > -40 && shot.y > -40 && shot.y < canvas.height + 40);
+
+      enemies.forEach((enemy) => {
+        enemy.x += enemy.vx;
+        enemy.wave += 0.05;
+        enemy.y += Math.sin(enemy.wave) * 1.8;
+        enemy.fire -= 1;
+        if (enemy.fire <= 0) {
+          enemyShots.push({ x: enemy.x, y: enemy.y + 10, w: 10, h: 4, vx: -4.5, vy: Math.sin(enemy.wave) * 1.5 });
+          enemy.fire = 75 + Math.random() * 60;
+        }
+      });
+      enemies = enemies.filter((enemy) => enemy.x > -70 && enemy.hp > 0);
+
+      capsules.forEach((cap) => {
+        cap.x -= 2.2;
+        cap.y += Math.sin((frame + cap.phase) / 12) * 0.8;
+      });
+      capsules = capsules.filter((cap) => cap.x > -30);
+
+      if (core) {
+        core.x = Math.max(610, core.x - 1.4);
+        core.open = Math.sin(frame / 18);
+        core.fire -= 1;
+        if (core.fire <= 0) {
+          enemyShots.push({ x: core.x + 14, y: core.y + 45, w: 12, h: 5, vx: -4.8, vy: -1.2 });
+          enemyShots.push({ x: core.x + 14, y: core.y + 75, w: 12, h: 5, vx: -5.2, vy: 0 });
+          enemyShots.push({ x: core.x + 14, y: core.y + 105, w: 12, h: 5, vx: -4.8, vy: 1.2 });
+          core.fire = 45;
+        }
+      }
+
+      bullets.forEach((bullet) => {
+        enemies.forEach((enemy) => {
+          if (hit(bullet, enemy)) {
+            bullet.x = canvas.width + 100;
+            enemy.hp -= bullet.power;
+            if (enemy.hp <= 0) {
+              score += 100;
+              kills += 1;
+              if (Math.random() < 0.55) capsules.push({ x: enemy.x + 10, y: enemy.y + 8, w: 15, h: 15, phase: Math.random() * 30 });
+            }
+          }
+        });
+        if (core && hit(bullet, { x: core.x + 10, y: core.y + 48, w: 38, h: 54 })) {
+          bullet.x = canvas.width + 100;
+          core.hp -= bullet.power;
+          score += 20;
+          if (core.hp <= 0) {
+            score += 1200;
+            state = "won";
+          }
+        }
+      });
+
+      const shipBox = { x: player.x + 4, y: player.y + 3, w: player.w - 8, h: player.h - 6 };
+      enemies.forEach((enemy) => hit(shipBox, enemy) && hurtPlayer());
+      enemyShots.forEach((shot) => {
+        if (hit(shipBox, shot)) {
+          shot.x = -100;
+          hurtPlayer();
+        }
+      });
+      capsules.forEach((cap) => {
+        if (hit(shipBox, cap)) {
+          cap.x = -100;
+          player.capsules += 1;
+          score += 50;
+        }
+      });
+      updateHud();
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.globalAlpha = player.invuln > 0 && Math.floor(player.invuln / 5) % 2 === 0 ? 0.4 : 1;
+      ctx.fillStyle = "#34d399";
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y + player.h / 2);
+      ctx.lineTo(player.x + 18, player.y);
+      ctx.lineTo(player.x + player.w, player.y + 8);
+      ctx.lineTo(player.x + player.w, player.y + player.h - 8);
+      ctx.lineTo(player.x + 18, player.y + player.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(player.x + 18, player.y + 7, 12, 7);
+      ctx.fillStyle = "#a7f3d0";
+      for (let i = 0; i < player.options; i += 1) {
+        ctx.beginPath();
+        ctx.arc(player.x + 2, player.y + 36 + i * 28, 7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.fillStyle = enemy.hp > 1 ? "#f97316" : "#ef4444";
+      ctx.fillRect(enemy.x + 8, enemy.y + 4, enemy.w - 8, enemy.h - 8);
+      ctx.fillStyle = "#fef3c7";
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y + enemy.h / 2);
+      ctx.lineTo(enemy.x + 14, enemy.y);
+      ctx.lineTo(enemy.x + 14, enemy.y + enemy.h);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawCore() {
+      if (!core) return;
+      ctx.fillStyle = "#3f3f46";
+      ctx.fillRect(core.x, core.y, core.w, core.h);
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(core.x + 12, core.y + 18, core.w - 24, core.h - 36);
+      ctx.fillStyle = core.open > 0 ? "#fb7185" : "#7f1d1d";
+      ctx.beginPath();
+      ctx.arc(core.x + 30, core.y + 75, 26, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fda4af";
+      ctx.fillRect(core.x + 12, core.y + 12, Math.max(0, core.hp) * 3, 6);
+    }
+
+    function drawOverlay() {
+      if (state === "playing") return;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = state === "won" ? "#86efac" : "#f87171";
+      ctx.font = "bold 34px sans-serif";
+      ctx.fillText(state === "won" ? "核心摧毁" : "护盾归零", canvas.width / 2, 220);
+      ctx.fillStyle = "#e4e4e7";
+      ctx.font = "18px sans-serif";
+      ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 256);
+      ctx.textAlign = "left";
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#d9f99d";
+      stars.forEach((star) => ctx.fillRect(star.x, star.y, star.s, star.s));
+      ctx.fillStyle = "#111827";
+      for (let x = (frame * -1.5) % 80; x < canvas.width; x += 80) {
+        ctx.fillRect(x, 0, 36, 28);
+        ctx.fillRect(x + 20, canvas.height - 34, 44, 34);
+      }
+      bullets.forEach((bullet) => {
+        ctx.fillStyle = "#fde047";
+        ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+      });
+      enemies.forEach(drawEnemy);
+      capsules.forEach((cap) => {
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(cap.x + 7, cap.y + 7, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fee2e2";
+        ctx.fillRect(cap.x + 4, cap.y + 6, 7, 2);
+      });
+      drawCore();
+      enemyShots.forEach((shot) => {
+        ctx.fillStyle = "#fb7185";
+        ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
+      });
+      drawShip();
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "14px sans-serif";
+      ctx.fillText(core ? `核心 HP ${Math.max(0, core.hp)}` : `敌机 ${kills}/18`, 16, 24);
+      drawOverlay();
+    }
+
+    function loop(time) {
+      if (time - lastTime > 16) {
+        update();
+        draw();
+        lastTime = time;
+      }
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.toLowerCase();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "w", "a", "s", "d", "e"].includes(event.key) || ["w", "a", "s", "d", "e"].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key);
+      keys.add(key);
+      if (key === "e") activateOption();
+      if (key === "r") resetGame();
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
