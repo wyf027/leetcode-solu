@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Atoll Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-cyan-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.28em] text-cyan-200">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Atoll</h1>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-cyan-100">
+          Claim reefs around the island. Connect your chains to reef gates and control more atoll routes when the board fills.
+        </p>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-200 px-4 py-2 text-sm font-semibold text-cyan-950 hover:bg-cyan-100">
+        New Game
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-cyan-700 bg-cyan-900 p-3 shadow-2xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 overflow-hidden rounded border border-cyan-700"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-cyan-700 bg-cyan-900 p-4">
+          <div class="text-xs uppercase tracking-[0.22em] text-cyan-200">Turn</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold text-cyan-50"></div>
+          <div id="statusText" class="mt-3 min-h-16 text-sm leading-6 text-cyan-100"></div>
+        </div>
+
+        <div class="rounded border border-cyan-700 bg-cyan-900 p-4">
+          <div class="text-xs uppercase tracking-[0.22em] text-cyan-200">Gate Score</div>
+          <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-cyan-800 p-3">
+              <div class="font-semibold text-rose-200">Coral</div>
+              <div id="coralScore" class="mt-1 text-2xl font-bold">0</div>
+            </div>
+            <div class="rounded bg-cyan-800 p-3">
+              <div class="font-semibold text-violet-200">Shell</div>
+              <div id="shellScore" class="mt-1 text-2xl font-bold">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-cyan-700 bg-cyan-900 p-4 text-sm leading-6 text-cyan-100">
+          <div class="mb-2 font-semibold text-slate-100">Rules</div>
+          <p>Place one marker on an empty reef. The center island is blocked.</p>
+          <p class="mt-2">A chain scores for each edge gate it touches. The four corners count as bonus reefs.</p>
+          <p class="mt-2">When all reefs are claimed, higher gate score wins.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+    const statusText = document.getElementById("statusText");
+    const coralScore = document.getElementById("coralScore");
+    const shellScore = document.getElementById("shellScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const names = { c: "Coral", s: "Shell" };
+    const center = "2,2";
+    const gates = new Map([
+      ["0,2", "north"],
+      ["2,4", "east"],
+      ["4,2", "south"],
+      ["2,0", "west"]
+    ]);
+    const corners = new Set(["0,0", "0,4", "4,0", "4,4"]);
+
+    let board;
+    let turn;
+    let winner;
+    let lastMove;
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function opponent(side) {
+      return side === "c" ? "s" : "c";
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(null));
+      turn = "c";
+      winner = null;
+      lastMove = null;
+      render();
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function neighbors(row, col) {
+      return [[1, 0], [-1, 0], [0, 1], [0, -1]]
+        .map(([dr, dc]) => ({ row: row + dr, col: col + dc }))
+        .filter((cell) => inBounds(cell.row, cell.col));
+    }
+
+    function emptyCells() {
+      const list = [];
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          if (key(row, col) !== center && !board[row][col]) list.push({ row, col });
+        }
+      }
+      return list;
+    }
+
+    function groupFrom(row, col) {
+      const side = board[row][col];
+      if (!side) return [];
+      const seen = new Set([key(row, col)]);
+      const queue = [{ row, col }];
+      const group = [];
+      while (queue.length) {
+        const cell = queue.shift();
+        group.push(cell);
+        for (const next of neighbors(cell.row, cell.col)) {
+          const nextKey = key(next.row, next.col);
+          if (!seen.has(nextKey) && board[next.row][next.col] === side) {
+            seen.add(nextKey);
+            queue.push(next);
+          }
+        }
+      }
+      return group;
+    }
+
+    function scoreGroup(group) {
+      const touchedGates = new Set();
+      let cornerBonus = 0;
+      for (const cell of group) {
+        const cellKey = key(cell.row, cell.col);
+        if (gates.has(cellKey)) touchedGates.add(gates.get(cellKey));
+        if (corners.has(cellKey)) cornerBonus += 1;
+      }
+      return touchedGates.size * 3 + cornerBonus;
+    }
+
+    function scoreBoard() {
+      const score = { c: 0, s: 0 };
+      const seen = new Set();
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const side = board[row][col];
+          const cellKey = key(row, col);
+          if (!side || seen.has(cellKey)) continue;
+          const group = groupFrom(row, col);
+          group.forEach((cell) => seen.add(key(cell.row, cell.col)));
+          score[side] += scoreGroup(group);
+        }
+      }
+      return score;
+    }
+
+    function finishGame() {
+      const score = scoreBoard();
+      if (score.c === score.s) {
+        winner = "draw";
+      } else {
+        winner = score.c > score.s ? "c" : "s";
+      }
+    }
+
+    function placeReef(row, col) {
+      const cellKey = key(row, col);
+      if (winner || cellKey === center || board[row][col]) return;
+      board[row][col] = turn;
+      lastMove = { row, col };
+      if (emptyCells().length === 0) {
+        finishGame();
+      } else {
+        turn = opponent(turn);
+      }
+      render();
+    }
+
+    function cellClasses(row, col) {
+      const cellKey = key(row, col);
+      const side = board[row][col];
+      const recent = lastMove?.row === row && lastMove?.col === col;
+      if (cellKey === center) return "bg-yellow-200 text-yellow-950";
+      if (side === "c") return "bg-rose-300 text-rose-950";
+      if (side === "s") return "bg-violet-300 text-violet-950";
+      if (recent) return "bg-cyan-300 text-cyan-950";
+      if (gates.has(cellKey)) return "bg-cyan-700 text-cyan-100 hover:bg-cyan-600";
+      if (corners.has(cellKey)) return "bg-cyan-800 text-cyan-100 hover:bg-cyan-700";
+      return "bg-cyan-950 text-cyan-200 hover:bg-cyan-800";
+    }
+
+    function cellLabel(row, col) {
+      const cellKey = key(row, col);
+      const side = board[row][col];
+      if (side) return names[side][0];
+      if (cellKey === center) return "I";
+      if (gates.has(cellKey)) return "G";
+      if (corners.has(cellKey)) return "+";
+      return "";
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const button = document.createElement("button");
+          button.className = `flex aspect-square items-center justify-center border border-cyan-800 text-2xl font-black transition ${cellClasses(row, col)}`;
+          button.setAttribute("aria-label", `${row + 1},${col + 1}`);
+          button.addEventListener("click", () => placeReef(row, col));
+          button.textContent = cellLabel(row, col);
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function renderStatus() {
+      const score = scoreBoard();
+      coralScore.textContent = score.c;
+      shellScore.textContent = score.s;
+      if (winner === "draw") {
+        turnText.textContent = "Draw";
+        statusText.textContent = "Both players connected the same gate value.";
+      } else if (winner) {
+        turnText.textContent = `${names[winner]} wins`;
+        statusText.textContent = `${names[winner]} controls the stronger reef chains.`;
+      } else {
+        turnText.textContent = `${names[turn]} to place`;
+        statusText.textContent = `${emptyCells().length} reefs remain. Gates score 3 each; corner reefs add 1.`;
+      }
+    }
+
+    function render() {
+      renderBoard();
+      renderStatus();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
