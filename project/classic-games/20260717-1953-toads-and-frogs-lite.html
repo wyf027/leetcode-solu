@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Toads and Frogs</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-3xl flex-col justify-center gap-6 px-4 py-8">
+    <section class="rounded-lg border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-emerald-300">Classic Puzzle</p>
+          <h1 class="text-3xl font-semibold text-white">Mini Toads and Frogs</h1>
+        </div>
+        <div class="flex gap-2">
+          <button id="undoBtn" class="rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:bg-slate-700">撤回</button>
+          <button id="resetBtn" class="rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">重开</button>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div class="rounded-lg border border-slate-700 bg-slate-950 p-4">
+          <div id="board" class="grid grid-cols-7 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-slate-700 bg-slate-950 p-4">
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p class="text-slate-400">步数</p>
+              <p id="moveCount" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-slate-400">最优</p>
+              <p class="text-2xl font-semibold text-white">15</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-12 rounded-md bg-slate-900 p-3 text-sm leading-6 text-slate-200"></p>
+          <div class="mt-4 space-y-2 text-sm text-slate-300">
+            <p>🐸 只能向右移动或跳过一只癞蛤蟆。</p>
+            <p>🐰 只能向左移动或跳过一只青蛙。</p>
+            <p>目标是让两边完全交换位置。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const startState = ["T", "T", "T", "", "F", "F", "F"];
+    const targetState = ["F", "F", "F", "", "T", "T", "T"];
+    let boardState = [...startState];
+    let history = [];
+    let moves = 0;
+    let selected = null;
+    let finished = false;
+
+    const boardEl = document.getElementById("board");
+    const moveCountEl = document.getElementById("moveCount");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const undoBtn = document.getElementById("undoBtn");
+
+    function pieceLabel(piece) {
+      if (piece === "T") return "🐸";
+      if (piece === "F") return "🐰";
+      return "";
+    }
+
+    function isTarget() {
+      return boardState.every((piece, index) => piece === targetState[index]);
+    }
+
+    function legalMoves(index, state = boardState) {
+      const piece = state[index];
+      if (!piece) return [];
+      const direction = piece === "T" ? 1 : -1;
+      const slide = index + direction;
+      const jump = index + direction * 2;
+      const moves = [];
+      if (state[slide] === "") moves.push(slide);
+      if (state[jump] === "" && state[index + direction]) moves.push(jump);
+      return moves.filter((target) => target >= 0 && target < state.length);
+    }
+
+    function allMoves(state = boardState) {
+      return state.flatMap((piece, index) => piece ? legalMoves(index, state).map((target) => [index, target]) : []);
+    }
+
+    function movePiece(from, to) {
+      if (finished || !legalMoves(from).includes(to)) return;
+      history.push([...boardState]);
+      boardState[to] = boardState[from];
+      boardState[from] = "";
+      selected = null;
+      moves += 1;
+      checkWin();
+      render();
+    }
+
+    function selectCell(index) {
+      if (finished) return;
+      if (selected === null) {
+        if (boardState[index] && legalMoves(index).length) selected = index;
+      } else if (selected === index) {
+        selected = null;
+      } else if (legalMoves(selected).includes(index)) {
+        movePiece(selected, index);
+        return;
+      } else if (boardState[index] && legalMoves(index).length) {
+        selected = index;
+      } else {
+        selected = null;
+      }
+      render();
+    }
+
+    function checkWin() {
+      if (isTarget()) {
+        finished = true;
+        messageEl.textContent = moves === 15 ? "完美完成，15 步正好是最短解。" : "完成交换！可以挑战 15 步最优解。";
+        return;
+      }
+      if (!allMoves().length) {
+        finished = true;
+        messageEl.textContent = "没有合法移动了，重开再试。";
+      }
+    }
+
+    function undoMove() {
+      if (!history.length) return;
+      boardState = history.pop();
+      moves = Math.max(0, moves - 1);
+      selected = null;
+      finished = false;
+      render();
+    }
+
+    function startGame() {
+      boardState = [...startState];
+      history = [];
+      moves = 0;
+      selected = null;
+      finished = false;
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      const legalTargets = selected === null ? [] : legalMoves(selected);
+      boardState.forEach((piece, index) => {
+        const cell = document.createElement("button");
+        const isSelected = selected === index;
+        const isLegal = legalTargets.includes(index);
+        cell.type = "button";
+        cell.className = [
+          "aspect-square rounded-md border text-3xl transition",
+          piece ? "bg-slate-800 hover:bg-slate-700" : "bg-slate-900",
+          isSelected ? "border-emerald-300 ring-2 ring-emerald-300" : "border-slate-700",
+          isLegal ? "border-amber-300 bg-amber-300/20" : "",
+          finished ? "cursor-default" : "cursor-pointer"
+        ].join(" ");
+        cell.textContent = pieceLabel(piece);
+        cell.setAttribute("aria-label", piece ? `${piece} at ${index + 1}` : `empty ${index + 1}`);
+        cell.addEventListener("click", () => selectCell(index));
+        boardEl.appendChild(cell);
+      });
+      moveCountEl.textContent = moves;
+      if (!finished) {
+        messageEl.textContent = selected === null ? "选择一枚可以移动的棋子。" : "选择高亮空格完成移动。";
+      }
+      undoBtn.disabled = history.length === 0;
+      undoBtn.classList.toggle("opacity-40", history.length === 0);
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    undoBtn.addEventListener("click", undoMove);
+    startGame();
+  </script>
+</body>
+</html>
