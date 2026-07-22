@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Neutreeko</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-fuchsia-950 text-fuchsia-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center">
+    <section class="flex-1">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Neutreeko</h1>
+          <p id="status" class="mt-1 text-sm text-fuchsia-200">Amber moves first. Slide to make three in a row.</p>
+        </div>
+        <button id="reset" class="rounded-md bg-amber-300 px-4 py-2 text-sm font-semibold text-fuchsia-950 hover:bg-amber-200">Reset</button>
+      </div>
+      <div class="rounded-lg border border-fuchsia-700 bg-fuchsia-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+    </section>
+
+    <aside class="w-full rounded-lg border border-fuchsia-700 bg-fuchsia-900 p-4 md:w-72">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-md bg-fuchsia-800 p-3">
+          <div class="text-fuchsia-200">Amber</div>
+          <div class="mt-1 text-2xl font-semibold">3</div>
+        </div>
+        <div class="rounded-md bg-fuchsia-800 p-3">
+          <div class="text-fuchsia-200">Violet</div>
+          <div class="mt-1 text-2xl font-semibold">3</div>
+        </div>
+      </div>
+      <div class="mt-4 space-y-2 text-sm text-fuchsia-200">
+        <p>Select one of your pieces, then pick a direction.</p>
+        <p>The piece slides in a straight line until blocked or at the edge.</p>
+        <p>First side with three pieces in a straight row wins.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const resetBtn = document.getElementById("reset");
+    const dirs = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1], [0, 1],
+      [1, -1], [1, 0], [1, 1]
+    ];
+
+    let board;
+    let turn;
+    let selected;
+    let gameOver;
+
+    function startGame() {
+      board = Array.from({ length: 5 }, () => Array(5).fill(null));
+      [[0, 1], [1, 3], [3, 0]].forEach(([r, c]) => board[r][c] = "amber");
+      [[1, 1], [3, 3], [4, 2]].forEach(([r, c]) => board[r][c] = "violet");
+      turn = "amber";
+      selected = null;
+      gameOver = false;
+      setStatus("Amber turn: select a piece.");
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < 5; row++) {
+        for (let col = 0; col < 5; col++) {
+          const tile = document.createElement("button");
+          const active = selected && selected.row === row && selected.col === col;
+          tile.className = "relative rounded-md border border-fuchsia-700 bg-fuchsia-800 transition hover:bg-fuchsia-700";
+          tile.style.aspectRatio = "1";
+          if (active) tile.classList.add("outline", "outline-4", "outline-amber-300");
+          tile.addEventListener("click", () => handleCell(row, col));
+          if (board[row][col]) tile.appendChild(pieceNode(board[row][col]));
+          boardEl.appendChild(tile);
+        }
+      }
+    }
+
+    function pieceNode(side) {
+      const piece = document.createElement("div");
+      piece.className = `absolute inset-2 rounded-full shadow ${side === "amber" ? "bg-amber-300" : "bg-violet-300"}`;
+      return piece;
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (!selected) {
+        if (board[row][col] === turn) {
+          selected = { row, col };
+          setStatus(`${label(turn)}: choose a line to slide.`);
+          render();
+        }
+        return;
+      }
+      if (board[row][col] === turn) {
+        selected = { row, col };
+        render();
+        return;
+      }
+      const move = findSlide(selected, row, col);
+      if (!move) return;
+      board[move.row][move.col] = turn;
+      board[selected.row][selected.col] = null;
+      selected = null;
+      if (checkWinner(turn)) {
+        gameOver = true;
+        setStatus(`${label(turn)} wins with three in a row.`);
+        render();
+        return;
+      }
+      turn = turn === "amber" ? "violet" : "amber";
+      setStatus(`${label(turn)} turn: select a piece.`);
+      render();
+    }
+
+    function findSlide(from, row, col) {
+      if (board[row][col]) return null;
+      const dir = dirs.find(([dr, dc]) => {
+        const rowDelta = row - from.row;
+        const colDelta = col - from.col;
+        return (dr === 0 || rowDelta % dr === 0) &&
+          (dc === 0 || colDelta % dc === 0) &&
+          Math.sign(rowDelta) === dr &&
+          Math.sign(colDelta) === dc &&
+          (dr === 0 || dc === 0 || Math.abs(rowDelta) === Math.abs(colDelta));
+      });
+      if (!dir) return null;
+      let current = { row: from.row, col: from.col };
+      while (true) {
+        const next = { row: current.row + dir[0], col: current.col + dir[1] };
+        if (next.row < 0 || next.row > 4 || next.col < 0 || next.col > 4 || board[next.row][next.col]) break;
+        current = next;
+      }
+      return current.row === row && current.col === col ? current : null;
+    }
+
+    function checkWinner(side) {
+      const pieces = [];
+      board.forEach((row, r) => row.forEach((piece, c) => {
+        if (piece === side) pieces.push([r, c]);
+      }));
+      return [[0, 1], [1, 0], [1, 1], [1, -1]].some(([dr, dc]) => pieces.some(([r, c]) => {
+        return hasPiece(side, r + dr, c + dc) && hasPiece(side, r + dr * 2, c + dc * 2);
+      }));
+    }
+
+    function hasPiece(side, row, col) {
+      return row >= 0 && row < 5 && col >= 0 && col < 5 && board[row][col] === side;
+    }
+
+    function label(side) {
+      return side === "amber" ? "Amber" : "Violet";
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
