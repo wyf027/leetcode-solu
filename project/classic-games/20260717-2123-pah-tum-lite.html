@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Pah Tum</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-4 py-8">
+    <section class="rounded-lg border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/30">
+      <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-fuchsia-300">Classic Alignment</p>
+          <h1 class="text-3xl font-semibold text-white">Mini Pah Tum</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-fuchsia-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-fuchsia-300">重开</button>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[1fr_250px]">
+        <div class="rounded-lg border border-slate-700 bg-slate-950 p-4">
+          <div id="board" class="mx-auto grid max-w-md grid-cols-5 gap-2"></div>
+        </div>
+        <aside class="rounded-lg border border-slate-700 bg-slate-950 p-4">
+          <div class="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p class="text-slate-400">你</p>
+              <p id="humanScore" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-slate-400">AI</p>
+              <p id="aiScore" class="text-2xl font-semibold text-white">0</p>
+            </div>
+            <div>
+              <p class="text-slate-400">空位</p>
+              <p id="emptyCount" class="text-2xl font-semibold text-white">25</p>
+            </div>
+          </div>
+          <p id="message" class="mt-4 min-h-16 rounded-md bg-slate-900 p-3 text-sm leading-6 text-slate-200"></p>
+          <div class="mt-4 space-y-2 text-sm text-slate-300">
+            <p>你执蓝子，AI 执粉子。</p>
+            <p>轮流在空格落子。</p>
+            <p>每形成一条新的横、竖、斜三连得 1 分。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const totalCells = size * size;
+    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+    let boardState = Array(totalCells).fill("");
+    let scores = { H: 0, A: 0 };
+    let claimedLines = new Set();
+    let locked = false;
+    let gameOver = false;
+
+    const boardEl = document.getElementById("board");
+    const messageEl = document.getElementById("message");
+    const humanScoreEl = document.getElementById("humanScore");
+    const aiScoreEl = document.getElementById("aiScore");
+    const emptyCountEl = document.getElementById("emptyCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function indexOf(row, col) {
+      return row * size + col;
+    }
+
+    function pointOf(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function inside(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function lineKey(cells) {
+      return cells.join("-");
+    }
+
+    function linesThrough(index) {
+      const [row, col] = pointOf(index);
+      const lines = [];
+      directions.forEach(([dr, dc]) => {
+        for (let offset = -2; offset <= 0; offset += 1) {
+          const cells = [];
+          for (let step = 0; step < 3; step += 1) {
+            const nextRow = row + (offset + step) * dr;
+            const nextCol = col + (offset + step) * dc;
+            if (inside(nextRow, nextCol)) cells.push(indexOf(nextRow, nextCol));
+          }
+          if (cells.length === 3 && cells.includes(index)) lines.push(cells);
+        }
+      });
+      return lines;
+    }
+
+    function scorePlacement(index, player, state = boardState, claimed = claimedLines) {
+      return linesThrough(index).filter((cells) => {
+        const key = lineKey(cells);
+        return !claimed.has(key) && cells.every((cell) => cell === index || state[cell] === player);
+      }).length;
+    }
+
+    function emptyCells(state = boardState) {
+      return state.flatMap((piece, index) => piece === "" ? [index] : []);
+    }
+
+    function chooseAiMove() {
+      const options = emptyCells();
+      return options
+        .map((index) => {
+          const attack = scorePlacement(index, "A");
+          const block = scorePlacement(index, "H");
+          const [row, col] = pointOf(index);
+          const centerBonus = 4 - Math.abs(2 - row) - Math.abs(2 - col);
+          return { index, value: attack * 20 + block * 12 + centerBonus };
+        })
+        .sort((a, b) => b.value - a.value)[0].index;
+    }
+
+    function placePiece(index, player) {
+      if (boardState[index] !== "" || gameOver) return;
+      boardState[index] = player;
+      const gained = scorePlacement(index, player);
+      linesThrough(index).forEach((cells) => {
+        if (cells.every((cell) => boardState[cell] === player)) claimedLines.add(lineKey(cells));
+      });
+      scores[player] += gained;
+      render();
+      if (!emptyCells().length) {
+        finishGame();
+        return;
+      }
+      if (player === "H") {
+        locked = true;
+        setMessage(gained ? `你得到 ${gained} 分，AI 思考中...` : "AI 思考中...");
+        setTimeout(() => {
+          placePiece(chooseAiMove(), "A");
+          locked = false;
+          if (!gameOver) setMessage("轮到你选择空格落子。");
+          render();
+        }, 450);
+      } else if (gained) {
+        setMessage(`AI 得到 ${gained} 分，轮到你。`);
+      }
+    }
+
+    function chooseCell(index) {
+      if (locked || gameOver) return;
+      placePiece(index, "H");
+    }
+
+    function finishGame() {
+      gameOver = true;
+      locked = true;
+      if (scores.H > scores.A) setMessage("棋盘已满，你获胜！");
+      else if (scores.H < scores.A) setMessage("棋盘已满，AI 获胜。");
+      else setMessage("棋盘已满，平局。");
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function startGame() {
+      boardState = Array(totalCells).fill("");
+      scores = { H: 0, A: 0 };
+      claimedLines = new Set();
+      locked = false;
+      gameOver = false;
+      render();
+      setMessage("选择任意空格落下蓝子。");
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      boardState.forEach((piece, index) => {
+        const cell = document.createElement("button");
+        const preview = piece === "" && !locked && !gameOver ? scorePlacement(index, "H") : 0;
+        cell.type = "button";
+        cell.className = [
+          "aspect-square rounded-md border text-3xl font-bold transition",
+          piece === "H" ? "border-cyan-300 bg-cyan-400 text-slate-950" : "",
+          piece === "A" ? "border-fuchsia-300 bg-fuchsia-400 text-slate-950" : "",
+          piece === "" ? "border-slate-700 bg-slate-900 hover:border-white" : "",
+          preview ? "ring-2 ring-emerald-300" : "",
+          locked || gameOver ? "cursor-default" : "cursor-pointer"
+        ].join(" ");
+        cell.textContent = piece ? "●" : preview ? `+${preview}` : "";
+        cell.setAttribute("aria-label", `cell ${index + 1}`);
+        cell.addEventListener("click", () => chooseCell(index));
+        boardEl.appendChild(cell);
+      });
+      humanScoreEl.textContent = scores.H;
+      aiScoreEl.textContent = scores.A;
+      emptyCountEl.textContent = emptyCells().length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
