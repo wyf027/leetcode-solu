@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Focus</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-fuchsia-300">Classic abstract</p>
+        <h1 class="text-3xl font-black text-white">Mini Focus</h1>
+        <p class="mt-1 max-w-2xl text-sm text-slate-300">Move a stack as far as its height, stack pieces, and score opponent pieces that spill past five.</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-fuchsia-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-fuchsia-200">Reset</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div id="board" class="grid grid-cols-4 gap-2"></div>
+      </div>
+      <aside class="flex flex-col gap-3">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm font-semibold text-slate-400">Status</p>
+          <p id="statusText" class="mt-2 text-xl font-black text-white">Select a pink-topped stack.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-xs font-semibold uppercase text-slate-500">Pink</p>
+            <p id="pinkScore" class="mt-1 text-2xl font-black text-fuchsia-300">0</p>
+          </div>
+          <div class="rounded border border-slate-800 bg-slate-900 p-4">
+            <p class="text-xs font-semibold uppercase text-slate-500">Cyan</p>
+            <p id="cyanScore" class="mt-1 text-2xl font-black text-cyan-300">0</p>
+          </div>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
+          <p class="font-bold text-white">Rules</p>
+          <p class="mt-2">Only the top piece controls a stack. Move the whole stack 1 to its height squares orthogonally. Stacks above five drop bottom pieces into the scorer's pile.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const maxStack = 5;
+    const targetScore = 6;
+    const boardEl = document.getElementById("board");
+    const statusText = document.getElementById("statusText");
+    const pinkScore = document.getElementById("pinkScore");
+    const cyanScore = document.getElementById("cyanScore");
+    const resetBtn = document.getElementById("resetBtn");
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let board = [];
+    let selected = null;
+    let targets = [];
+    let turn = "P";
+    let scores = { P: 0, C: 0 };
+    let gameOver = false;
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function freshBoard() {
+      return Array.from({ length: size }, (_, row) =>
+        Array.from({ length: size }, (_, col) => [(row + col) % 2 === 0 ? "P" : "C"])
+      );
+    }
+
+    function topOf(row, col) {
+      const stack = board[row][col];
+      return stack.length ? stack[stack.length - 1] : "";
+    }
+
+    function legalMoves(row, col, player = turn) {
+      const stack = board[row][col];
+      if (!stack.length || topOf(row, col) !== player || gameOver) return [];
+      const moves = [];
+      const maxDistance = Math.min(stack.length, size - 1);
+      for (const [dr, dc] of dirs) {
+        for (let distance = 1; distance <= maxDistance; distance += 1) {
+          const nextRow = row + dr * distance;
+          const nextCol = col + dc * distance;
+          if (inBounds(nextRow, nextCol)) {
+            moves.push({ row: nextRow, col: nextCol });
+          }
+        }
+      }
+      return moves;
+    }
+
+    function allMovesFor(player) {
+      const moves = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          for (const move of legalMoves(row, col, player)) {
+            moves.push({ fromRow: row, fromCol: col, ...move });
+          }
+        }
+      }
+      return moves;
+    }
+
+    function scoreOverflow(stack, scorer) {
+      while (stack.length > maxStack) {
+        const dropped = stack.shift();
+        if (dropped !== scorer) {
+          scores[scorer] += 1;
+        }
+      }
+    }
+
+    function moveStack(fromRow, fromCol, toRow, toCol) {
+      const moving = board[fromRow][fromCol];
+      const destination = board[toRow][toCol];
+      board[toRow][toCol] = destination.concat(moving);
+      board[fromRow][fromCol] = [];
+      scoreOverflow(board[toRow][toCol], turn);
+      selected = null;
+      targets = [];
+      checkGame();
+      if (!gameOver) {
+        turn = turn === "P" ? "C" : "P";
+        statusText.textContent = turn === "P" ? "Select a pink-topped stack." : "Cyan is thinking.";
+      }
+      render();
+      if (!gameOver && turn === "C") {
+        window.setTimeout(playComputerTurn, 350);
+      }
+    }
+
+    function chooseAiMove() {
+      const moves = allMovesFor("C");
+      if (!moves.length) return null;
+      moves.sort((a, b) => {
+        const gainA = board[a.row][a.col].filter((piece) => piece === "P").length;
+        const gainB = board[b.row][b.col].filter((piece) => piece === "P").length;
+        return gainB - gainA;
+      });
+      return moves[0];
+    }
+
+    function playComputerTurn() {
+      const move = chooseAiMove();
+      if (!move) {
+        gameOver = true;
+        statusText.textContent = "Pink wins. Cyan has no move.";
+        render();
+        return;
+      }
+      moveStack(move.fromRow, move.fromCol, move.row, move.col);
+    }
+
+    function checkGame() {
+      if (scores.P >= targetScore || scores.C >= targetScore) {
+        gameOver = true;
+        statusText.textContent = scores.P > scores.C ? "Pink wins by captures." : "Cyan wins by captures.";
+        return;
+      }
+      const pinkMoves = allMovesFor("P").length;
+      const cyanMoves = allMovesFor("C").length;
+      if (!pinkMoves || !cyanMoves) {
+        gameOver = true;
+        statusText.textContent = pinkMoves > cyanMoves ? "Pink wins on mobility." : "Cyan wins on mobility.";
+      }
+    }
+
+    function handleCell(row, col) {
+      if (gameOver || turn !== "P") return;
+      const target = targets.find((move) => move.row === row && move.col === col);
+      if (selected && target) {
+        moveStack(selected.row, selected.col, row, col);
+        return;
+      }
+      if (topOf(row, col) === "P") {
+        selected = { row, col };
+        targets = legalMoves(row, col);
+        statusText.textContent = targets.length ? "Choose a destination." : "That stack has no move.";
+      } else {
+        selected = null;
+        targets = [];
+        statusText.textContent = "Select a pink-topped stack.";
+      }
+      render();
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const stack = board[row][col];
+          const top = topOf(row, col);
+          const isSelected = selected && selected.row === row && selected.col === col;
+          const isTarget = targets.some((move) => move.row === row && move.col === col);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.setAttribute("aria-label", `row ${row + 1}, column ${col + 1}`);
+          button.className = [
+            "aspect-square rounded border p-2 text-center transition focus:outline-none focus:ring-2 focus:ring-white",
+            (row + col) % 2 === 0 ? "border-slate-700 bg-slate-800" : "border-slate-700 bg-slate-700",
+            isSelected ? "ring-2 ring-white" : "",
+            isTarget ? "border-fuchsia-200 bg-slate-600" : "",
+            "hover:bg-slate-600"
+          ].join(" ");
+          const topClass = top === "P" ? "text-fuchsia-300" : "text-cyan-300";
+          button.innerHTML = stack.length
+            ? `<span class="block text-2xl font-black ${topClass}">${top}</span><span class="text-xs text-slate-300">${stack.join("")}</span>`
+            : '<span class="text-sm text-slate-500">empty</span>';
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function render() {
+      pinkScore.textContent = String(scores.P);
+      cyanScore.textContent = String(scores.C);
+      renderBoard();
+    }
+
+    function resetGame() {
+      board = freshBoard();
+      selected = null;
+      targets = [];
+      turn = "P";
+      scores = { P: 0, C: 0 };
+      gameOver = false;
+      statusText.textContent = "Select a pink-topped stack.";
+      render();
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
