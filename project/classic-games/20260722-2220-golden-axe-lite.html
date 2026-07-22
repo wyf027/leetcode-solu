@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Golden Axe 黄金斧</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-amber-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Golden Axe 黄金斧</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-neutral-700 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-400">分数</div>
+          <div id="score" class="text-xl font-bold text-amber-300">0</div>
+        </div>
+        <div class="rounded border border-neutral-700 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-400">体力</div>
+          <div id="health" class="text-xl font-bold text-emerald-300">100</div>
+        </div>
+        <div class="rounded border border-neutral-700 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-400">魔法</div>
+          <div id="magic" class="text-xl font-bold text-violet-300">3</div>
+        </div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="520" class="w-full rounded border border-neutral-700 bg-neutral-900 shadow-2xl shadow-black"></canvas>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto]">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-3 text-sm text-neutral-300">
+        <p>方向键或 WASD 移动，J/空格挥斧，K 释放魔法。击败 16 名荒野敌人即可获胜。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="axeBtn" class="rounded bg-amber-400 px-4 py-2 font-semibold text-neutral-950 hover:bg-amber-300">挥斧</button>
+        <button id="magicBtn" class="rounded bg-violet-500 px-4 py-2 font-semibold text-white hover:bg-violet-400">魔法</button>
+        <button id="restartBtn" class="rounded bg-neutral-700 px-4 py-2 font-semibold text-white hover:bg-neutral-600">重开</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const healthEl = document.getElementById("health");
+    const magicEl = document.getElementById("magic");
+    const keys = new Set();
+    const hero = { x: 120, y: 355, w: 42, h: 74, facing: 1, attackT: 0, hurtT: 0, magicT: 0 };
+    let score = 0;
+    let health = 100;
+    let magic = 3;
+    let defeated = 0;
+    let spawnT = 0;
+    let enemies = [];
+    let sparks = [];
+    let state = "play";
+
+    function reset() {
+      hero.x = 120;
+      hero.y = 355;
+      hero.facing = 1;
+      hero.attackT = 0;
+      hero.hurtT = 0;
+      hero.magicT = 0;
+      score = 0;
+      health = 100;
+      magic = 3;
+      defeated = 0;
+      spawnT = 20;
+      enemies = [];
+      sparks = [];
+      state = "play";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      healthEl.textContent = Math.max(0, Math.ceil(health));
+      magicEl.textContent = magic;
+    }
+
+    function spawnEnemy() {
+      if (defeated + enemies.length >= 16) return;
+      const brute = Math.random() > 0.68;
+      enemies.push({
+        x: Math.random() > 0.5 ? 930 : -70,
+        y: 322 + Math.floor(Math.random() * 85),
+        w: brute ? 44 : 36,
+        h: brute ? 74 : 62,
+        hp: brute ? 3 : 2,
+        kind: brute ? "brute" : "raider",
+        swingT: 40 + Math.floor(Math.random() * 50),
+        hurtT: 0,
+        speed: brute ? 1.2 : 1.7
+      });
+    }
+
+    function rectsTouch(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function axeBox() {
+      return {
+        x: hero.facing > 0 ? hero.x + hero.w - 5 : hero.x - 62,
+        y: hero.y + 16,
+        w: 68,
+        h: 42
+      };
+    }
+
+    function swingAxe() {
+      if (state !== "play" || hero.attackT > 0 || hero.hurtT > 0) return;
+      hero.attackT = 18;
+    }
+
+    function castMagic() {
+      if (state !== "play" || magic <= 0 || hero.magicT > 0) return;
+      magic -= 1;
+      hero.magicT = 48;
+      sparks.push({ x: 450, y: 250, t: 42, color: "#a78bfa", size: 120 });
+      for (const enemy of [...enemies]) damageEnemy(enemy, 2, 0);
+      updateHud();
+    }
+
+    function damageEnemy(enemy, amount, knock) {
+      enemy.hp -= amount;
+      enemy.hurtT = 18;
+      enemy.x += hero.facing * knock;
+      sparks.push({ x: enemy.x + enemy.w / 2, y: enemy.y + 22, t: 18, color: amount > 1 ? "#c084fc" : "#fbbf24", size: 28 });
+      if (enemy.hp <= 0) {
+        defeated += 1;
+        score += enemy.kind === "brute" ? 240 : 140;
+        enemies = enemies.filter((item) => item !== enemy);
+        if (defeated >= 16) state = "won";
+      }
+      updateHud();
+    }
+
+    function damageHero() {
+      if (hero.hurtT > 0 || hero.magicT > 0) return;
+      health -= 10;
+      hero.hurtT = 42;
+      hero.x -= hero.facing * 34;
+      sparks.push({ x: hero.x + hero.w / 2, y: hero.y + 22, t: 24, color: "#38bdf8", size: 34 });
+      if (health <= 0) state = "lost";
+      updateHud();
+    }
+
+    function updateHero() {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w");
+      const down = keys.has("ArrowDown") || keys.has("s");
+      if (hero.hurtT <= 0) {
+        if (left) {
+          hero.x -= 4.2;
+          hero.facing = -1;
+        }
+        if (right) {
+          hero.x += 4.2;
+          hero.facing = 1;
+        }
+        if (up) hero.y -= 3.1;
+        if (down) hero.y += 3.1;
+      }
+      hero.x = Math.max(24, Math.min(835, hero.x));
+      hero.y = Math.max(306, Math.min(405, hero.y));
+      if (hero.attackT > 0) hero.attackT -= 1;
+      if (hero.hurtT > 0) hero.hurtT -= 1;
+      if (hero.magicT > 0) hero.magicT -= 1;
+    }
+
+    function updateEnemies() {
+      const box = hero.attackT > 7 ? axeBox() : null;
+      for (const enemy of [...enemies]) {
+        const dx = hero.x - enemy.x;
+        const dy = hero.y - enemy.y;
+        enemy.facing = dx > 0 ? 1 : -1;
+        if (enemy.hurtT > 0) enemy.hurtT -= 1;
+        if (enemy.hurtT <= 0) {
+          if (Math.abs(dx) > 48) enemy.x += Math.sign(dx) * enemy.speed;
+          if (Math.abs(dy) > 8) enemy.y += Math.sign(dy) * enemy.speed * 0.65;
+        }
+        enemy.y = Math.max(305, Math.min(408, enemy.y));
+        if (box && rectsTouch(box, enemy)) damageEnemy(enemy, 1, 28);
+        enemy.swingT -= 1;
+        if (enemy.swingT <= 0) {
+          const hit = { x: enemy.facing > 0 ? enemy.x + enemy.w - 4 : enemy.x - 30, y: enemy.y + 24, w: 34, h: 28 };
+          if (rectsTouch(hero, hit)) damageHero();
+          enemy.swingT = 48 + Math.floor(Math.random() * 42);
+        }
+      }
+    }
+
+    function update() {
+      if (state !== "play") return;
+      updateHero();
+      updateEnemies();
+      spawnT -= 1;
+      if (spawnT <= 0) {
+        spawnEnemy();
+        spawnT = Math.max(38, 86 - defeated * 2 - Math.random() * 22);
+      }
+      sparks = sparks.filter((spark) => {
+        spark.t -= 1;
+        return spark.t > 0;
+      });
+    }
+
+    function drawGround() {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#171717");
+      bg.addColorStop(0.48, "#292524");
+      bg.addColorStop(1, "#0a0a0a");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#44403c";
+      ctx.fillRect(0, 250, 900, 118);
+      for (let x = 0; x < 940; x += 115) {
+        ctx.fillStyle = "#57534e";
+        ctx.fillRect(x, 206, 70, 56);
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(x + 20, 226, 16, 22);
+        ctx.fillRect(x + 44, 226, 16, 22);
+      }
+      ctx.fillStyle = "#14532d";
+      ctx.fillRect(0, 365, 900, 96);
+      ctx.fillStyle = "#713f12";
+      ctx.fillRect(0, 426, 900, 48);
+      ctx.strokeStyle = "#d97706";
+      ctx.lineWidth = 3;
+      for (let x = 0; x < 900; x += 80) {
+        ctx.beginPath();
+        ctx.moveTo(x, 404);
+        ctx.lineTo(x + 42, 395);
+        ctx.stroke();
+      }
+    }
+
+    function drawHero() {
+      ctx.save();
+      ctx.translate(hero.x + hero.w / 2, hero.y);
+      ctx.scale(hero.facing, 1);
+      ctx.globalAlpha = hero.hurtT > 0 && hero.hurtT % 8 < 4 ? 0.45 : 1;
+      ctx.fillStyle = "#fde68a";
+      ctx.fillRect(-11, 0, 22, 18);
+      ctx.fillStyle = "#2563eb";
+      ctx.fillRect(-18, 18, 36, 35);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-16, 53, 10, 21);
+      ctx.fillRect(7, 53, 10, 21);
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(14, 26);
+      ctx.lineTo(hero.attackT > 7 ? 56 : 34, hero.attackT > 7 ? 16 : 33);
+      ctx.moveTo(-14, 28);
+      ctx.lineTo(-31, 38);
+      ctx.stroke();
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(hero.attackT > 7 ? 54 : 32, hero.attackT > 7 ? 16 : 33);
+      ctx.lineTo(hero.attackT > 7 ? 78 : 45, hero.attackT > 7 ? 42 : 48);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x + enemy.w / 2, enemy.y);
+      ctx.scale(enemy.facing, 1);
+      ctx.globalAlpha = enemy.hurtT > 0 && enemy.hurtT % 8 < 4 ? 0.5 : 1;
+      ctx.fillStyle = enemy.kind === "brute" ? "#7c2d12" : "#991b1b";
+      ctx.fillRect(-enemy.w / 2 + 5, 0, enemy.w - 10, 17);
+      ctx.fillRect(-enemy.w / 2, 17, enemy.w, enemy.h - 21);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-enemy.w / 2 + 3, enemy.h - 10, 11, 10);
+      ctx.fillRect(enemy.w / 2 - 14, enemy.h - 10, 11, 10);
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(enemy.w / 2 - 5, 28);
+      ctx.lineTo(enemy.swingT < 16 ? enemy.w / 2 + 26 : enemy.w / 2 + 9, enemy.swingT < 16 ? 23 : 38);
+      ctx.stroke();
+      ctx.fillStyle = "#fef3c7";
+      for (let i = 0; i < enemy.hp; i += 1) ctx.fillRect(-enemy.w / 2 + 5 + i * 10, -8, 7, 3);
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGround();
+      [...enemies, hero].sort((a, b) => a.y - b.y).forEach((actor) => actor === hero ? drawHero() : drawEnemy(actor));
+      if (hero.attackT > 7) {
+        const box = axeBox();
+        ctx.strokeStyle = "#fbbf24";
+        ctx.strokeRect(box.x, box.y, box.w, box.h);
+      }
+      for (const spark of sparks) {
+        ctx.globalAlpha = spark.t / 42;
+        ctx.fillStyle = spark.color;
+        ctx.beginPath();
+        ctx.arc(spark.x, spark.y, spark.size * (1 - spark.t / 60), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = "#f5f5f4";
+      ctx.font = "16px sans-serif";
+      ctx.fillText(`击败 ${defeated}/16`, 28, 36);
+      if (state !== "play") {
+        ctx.fillStyle = "rgba(10,10,10,0.78)";
+        ctx.fillRect(0, 0, 900, 520);
+        ctx.fillStyle = state === "won" ? "#86efac" : "#fca5a5";
+        ctx.font = "bold 52px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state === "won" ? "夺回黄金斧!" : "倒下了", 450, 235);
+        ctx.fillStyle = "#f5f5f4";
+        ctx.font = "22px sans-serif";
+        ctx.fillText("按 R 或点击重开", 450, 282);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+      if (event.key === " " || event.key.toLowerCase() === "j") swingAxe();
+      if (event.key.toLowerCase() === "k") castMagic();
+      if (event.key.toLowerCase() === "r") reset();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    document.getElementById("axeBtn").addEventListener("click", swingAxe);
+    document.getElementById("magicBtn").addEventListener("click", castMagic);
+    document.getElementById("restartBtn").addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
