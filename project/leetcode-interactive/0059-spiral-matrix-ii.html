@@ -1,0 +1,1799 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 59 螺旋矩阵 II：用可交互的活字印刷版框理解四边界模拟。"
+    />
+    <title>59. 螺旋矩阵 II｜交互式活字版框</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#151515",
+              paper: "#e7e4dc",
+              blue: "#304ffe",
+              press: "#ff3b30",
+              brass: "#b9975b",
+              steel: "#6b7280",
+            },
+            fontFamily: {
+              display: ['"Arial Narrow"', '"Roboto Condensed"', "sans-serif"],
+              body: ['"IBM Plex Sans"', "Inter", "sans-serif"],
+              mono: ['"IBM Plex Mono"', "Menlo", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #151515;
+        --paper: #e7e4dc;
+        --blue: #304ffe;
+        --press: #ff3b30;
+        --brass: #b9975b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: hidden;
+        background:
+          linear-gradient(rgba(21, 21, 21, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(21, 21, 21, 0.035) 1px, transparent 1px),
+          var(--paper);
+        background-size: 28px 28px;
+        color: var(--ink);
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background-image: radial-gradient(
+          rgba(21, 21, 21, 0.14) 0.6px,
+          transparent 0.6px
+        );
+        background-size: 5px 5px;
+        content: "";
+        opacity: 0.25;
+        pointer-events: none;
+      }
+
+      button,
+      select {
+        font: inherit;
+      }
+
+      button:focus-visible,
+      select:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 4px solid var(--press);
+        outline-offset: 3px;
+      }
+
+      .display-face {
+        font-stretch: condensed;
+        font-weight: 900;
+        letter-spacing: -0.045em;
+        line-height: 0.88;
+        text-transform: uppercase;
+      }
+
+      .hard-shadow {
+        box-shadow: 8px 8px 0 var(--ink);
+      }
+
+      .press-button {
+        min-height: 44px;
+        border: 2px solid var(--ink);
+        background: #f7f5ef;
+        box-shadow: 3px 3px 0 var(--ink);
+        transition:
+          transform 140ms ease,
+          box-shadow 140ms ease,
+          background 140ms ease;
+      }
+
+      .press-button:hover:not(:disabled) {
+        background: #ffffff;
+        transform: translate(-1px, -1px);
+        box-shadow: 5px 5px 0 var(--ink);
+      }
+
+      .press-button:active:not(:disabled) {
+        transform: translate(2px, 2px);
+        box-shadow: 1px 1px 0 var(--ink);
+      }
+
+      .press-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.42;
+      }
+
+      .case-button[aria-pressed="true"],
+      .language-tab[aria-selected="true"] {
+        background: var(--blue);
+        color: #ffffff;
+      }
+
+      .matrix-wrap {
+        position: relative;
+        isolation: isolate;
+      }
+
+      .matrix-grid {
+        display: grid;
+        width: min(100%, 520px);
+        aspect-ratio: 1;
+        gap: clamp(4px, 1vw, 10px);
+        padding: clamp(18px, 4vw, 42px);
+        border: clamp(10px, 2vw, 18px) solid var(--ink);
+        background: #c9c5ba;
+        box-shadow:
+          inset 0 0 0 4px var(--brass),
+          10px 10px 0 rgba(21, 21, 21, 0.26);
+      }
+
+      .matrix-cell {
+        display: grid;
+        min-width: 0;
+        place-items: center;
+        border: 1px dashed rgba(21, 21, 21, 0.5);
+        background: rgba(247, 245, 239, 0.35);
+        color: rgba(21, 21, 21, 0.42);
+        font-family: "IBM Plex Mono", Menlo, monospace;
+        font-size: clamp(0.65rem, 2.4vw, 1.25rem);
+        font-weight: 800;
+        transition:
+          transform 180ms ease,
+          background 180ms ease,
+          color 180ms ease;
+      }
+
+      .matrix-cell.is-filled {
+        border: 2px solid var(--ink);
+        background: #f7f5ef;
+        color: var(--ink);
+        box-shadow: inset -3px -3px 0 rgba(21, 21, 21, 0.12);
+      }
+
+      .matrix-cell.is-current {
+        z-index: 2;
+        border-color: var(--ink);
+        background: var(--press);
+        color: #ffffff;
+        box-shadow:
+          inset -4px -4px 0 rgba(21, 21, 21, 0.26),
+          0 0 0 4px #ffffff,
+          0 0 0 7px var(--blue);
+        transform: rotate(-2deg) scale(1.04);
+      }
+
+      .clamp {
+        position: absolute;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid var(--ink);
+        background: var(--brass);
+        color: var(--ink);
+        font-family: "IBM Plex Mono", Menlo, monospace;
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        transition: all 240ms ease;
+      }
+
+      .clamp-top,
+      .clamp-bottom {
+        left: 50%;
+        width: 42%;
+        height: 22px;
+        transform: translateX(-50%);
+      }
+
+      .clamp-top {
+        top: 3px;
+      }
+
+      .clamp-bottom {
+        bottom: 3px;
+      }
+
+      .clamp-left,
+      .clamp-right {
+        top: 50%;
+        width: 22px;
+        height: 42%;
+        writing-mode: vertical-rl;
+        transform: translateY(-50%);
+      }
+
+      .clamp-left {
+        left: 3px;
+      }
+
+      .clamp-right {
+        right: 3px;
+      }
+
+      .progress-rail {
+        height: 10px;
+        overflow: hidden;
+        border: 2px solid var(--ink);
+        background: #f7f5ef;
+      }
+
+      .progress-ink {
+        height: 100%;
+        width: 0;
+        background: var(--press);
+        transition: width 180ms ease;
+      }
+
+      .field-card {
+        min-width: 0;
+        border: 2px solid var(--ink);
+        background: #f7f5ef;
+      }
+
+      .field-card code,
+      .output-code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .solution-shell[hidden] {
+        display: none;
+      }
+
+      .code-panel[hidden] {
+        display: none;
+      }
+
+      pre {
+        max-width: 100%;
+        margin: 0;
+        overflow: auto;
+        white-space: pre;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 640px) {
+        .hard-shadow {
+          box-shadow: 5px 5px 0 var(--ink);
+        }
+
+        .matrix-grid {
+          padding: 24px;
+        }
+
+        .clamp-top,
+        .clamp-bottom {
+          height: 17px;
+          font-size: 0.54rem;
+        }
+
+        .clamp-left,
+        .clamp-right {
+          width: 17px;
+          font-size: 0.54rem;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="font-body antialiased">
+    <a
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:px-4 focus:py-3 focus:font-bold"
+      href="#main-content"
+      >跳到主要内容</a
+    >
+
+    <header class="border-b-4 border-ink bg-paper">
+      <div
+        class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8"
+      >
+        <div class="flex items-center gap-3">
+          <div
+            class="grid h-10 w-10 place-items-center border-2 border-ink bg-press font-mono text-sm font-black text-white"
+          >
+            59
+          </div>
+          <div>
+            <p
+              class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.18em] text-steel"
+            >
+              LeetCode · Matrix Press
+            </p>
+            <p class="font-display text-lg font-black uppercase leading-none">
+              Spiral Matrix II
+            </p>
+          </div>
+        </div>
+        <span
+          class="border-2 border-ink bg-blue px-3 py-1 font-mono text-xs font-black uppercase text-white"
+          >Medium</span
+        >
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="border-b-4 border-ink">
+        <div
+          class="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[1.12fr_0.88fr] lg:items-center lg:px-8 lg:py-20"
+        >
+          <div>
+            <div
+              class="mb-5 flex flex-wrap gap-2 font-mono text-xs font-bold uppercase tracking-wider"
+            >
+              <span class="border-2 border-ink bg-brass px-3 py-1">Array</span>
+              <span class="border-2 border-ink bg-white px-3 py-1">Matrix</span>
+              <span class="border-2 border-ink bg-white px-3 py-1"
+                >Simulation</span
+              >
+            </div>
+            <p
+              class="mb-3 font-mono text-sm font-black uppercase tracking-[0.22em] text-blue"
+            >
+              Set the sequence
+            </p>
+            <h1
+              class="display-face max-w-4xl font-display text-[clamp(3.4rem,11vw,8.2rem)]"
+            >
+              Set 1 → n².<br /><span class="text-blue">Lock the chase.</span>
+            </h1>
+            <p
+              class="mt-7 max-w-2xl border-l-8 border-press pl-5 text-lg font-semibold leading-relaxed sm:text-xl"
+            >
+              从左上角开始，把连续数字像铅字一样沿顺时针方向压入方阵。走完一条边，就把对应夹具向内推进一格。
+            </p>
+          </div>
+
+          <div
+            aria-hidden="true"
+            class="relative mx-auto w-full max-w-md p-4 sm:p-8"
+          >
+            <div
+              class="absolute -left-1 top-0 h-16 w-16 border-4 border-ink bg-press"
+            ></div>
+            <div
+              class="absolute -bottom-1 right-0 h-20 w-20 border-4 border-ink bg-blue"
+            ></div>
+            <div
+              class="hard-shadow relative grid aspect-square grid-cols-3 gap-2 border-[14px] border-ink bg-[#c9c5ba] p-5 sm:p-8"
+            >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >1</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >2</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >3</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >8</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-press font-mono text-2xl font-black text-white"
+                >9</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >4</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >7</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >6</span
+              >
+              <span
+                class="grid place-items-center border-2 border-ink bg-white font-mono text-2xl font-black"
+                >5</span
+              >
+            </div>
+            <div
+              class="absolute right-8 top-2 border-2 border-ink bg-brass px-3 py-1 font-mono text-xs font-black uppercase rotate-3"
+            >
+              Clockwise
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="problem-title"
+        class="border-b-4 border-ink bg-[#f7f5ef]"
+      >
+        <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div class="grid gap-8 lg:grid-cols-[0.72fr_1.28fr]">
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.2em] text-press"
+              >
+                01 / Brief
+              </p>
+              <h2
+                id="problem-title"
+                class="mt-2 font-display text-4xl font-black uppercase sm:text-5xl"
+              >
+                题意
+              </h2>
+            </div>
+            <div class="space-y-6 text-base leading-relaxed sm:text-lg">
+              <p>
+                给定一个正整数
+                <code
+                  class="border border-ink bg-paper px-1 font-mono font-bold"
+                  >n</code
+                >，生成一个
+                <code
+                  class="border border-ink bg-paper px-1 font-mono font-bold"
+                  >n × n</code
+                >
+                方阵。将整数
+                <code
+                  class="border border-ink bg-paper px-1 font-mono font-bold"
+                  >1</code
+                >
+                到
+                <code
+                  class="border border-ink bg-paper px-1 font-mono font-bold"
+                  >n²</code
+                >
+                按顺时针螺旋顺序写入矩阵，并返回这个矩阵。
+              </p>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <article class="field-card p-5">
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-wider text-blue"
+                  >
+                    官方样例 1
+                  </p>
+                  <div class="mt-4 grid gap-3">
+                    <div>
+                      <span class="block text-xs font-bold text-steel"
+                        >输入</span
+                      ><code class="font-mono font-bold">n = 3</code>
+                    </div>
+                    <div>
+                      <span class="block text-xs font-bold text-steel"
+                        >输出</span
+                      >
+                      <code class="block font-mono text-sm font-bold"
+                        >[[1,2,3],[8,9,4],[7,6,5]]</code
+                      >
+                    </div>
+                  </div>
+                </article>
+                <article class="field-card p-5">
+                  <p
+                    class="font-mono text-xs font-black uppercase tracking-wider text-blue"
+                  >
+                    官方样例 2
+                  </p>
+                  <div class="mt-4 grid gap-3">
+                    <div>
+                      <span class="block text-xs font-bold text-steel"
+                        >输入</span
+                      ><code class="font-mono font-bold">n = 1</code>
+                    </div>
+                    <div>
+                      <span class="block text-xs font-bold text-steel"
+                        >输出</span
+                      ><code class="font-mono font-bold">[[1]]</code>
+                    </div>
+                  </div>
+                </article>
+              </div>
+              <div
+                class="border-2 border-ink bg-paper p-4 font-mono text-sm font-bold"
+              >
+                约束：<code>1 &lt;= n &lt;= 20</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="demo-title"
+        class="border-b-4 border-ink bg-paper"
+      >
+        <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div
+            class="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-[0.2em] text-press"
+              >
+                02 / Press run
+              </p>
+              <h2
+                id="demo-title"
+                class="mt-2 font-display text-4xl font-black uppercase sm:text-5xl"
+              >
+                交互分步可视化
+              </h2>
+              <p class="mt-3 max-w-3xl text-steel">
+                观察每个数字落版，以及一条边完成后夹具怎样向内推进。焦点位于版框时可使用方向键、空格、Home
+                和 End。
+              </p>
+            </div>
+            <div
+              aria-label="选择演示规模"
+              class="flex flex-wrap gap-2"
+              role="group"
+            >
+              <button
+                class="case-button press-button px-4 py-2 font-mono text-sm font-black"
+                data-size="1"
+                type="button"
+                aria-pressed="false"
+              >
+                n = 1
+              </button>
+              <button
+                class="case-button press-button px-4 py-2 font-mono text-sm font-black"
+                data-size="3"
+                type="button"
+                aria-pressed="true"
+              >
+                n = 3
+              </button>
+              <button
+                class="case-button press-button px-4 py-2 font-mono text-sm font-black"
+                data-size="4"
+                type="button"
+                aria-pressed="false"
+              >
+                n = 4
+              </button>
+              <button
+                class="case-button press-button px-4 py-2 font-mono text-sm font-black"
+                data-size="5"
+                type="button"
+                aria-pressed="false"
+              >
+                n = 5
+              </button>
+            </div>
+          </div>
+
+          <div
+            class="grid gap-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]"
+          >
+            <div
+              id="demo-stage"
+              class="matrix-wrap mx-auto w-full max-w-[620px] p-3 sm:p-7"
+              tabindex="0"
+              aria-label="螺旋矩阵印刷版框；可使用键盘控制步骤"
+            >
+              <div
+                id="matrix-grid"
+                class="matrix-grid mx-auto"
+                aria-hidden="true"
+              ></div>
+              <div id="clamp-top" class="clamp clamp-top">top 0</div>
+              <div id="clamp-right" class="clamp clamp-right">right 2</div>
+              <div id="clamp-bottom" class="clamp clamp-bottom">bottom 2</div>
+              <div id="clamp-left" class="clamp clamp-left">left 0</div>
+            </div>
+
+            <div class="flex min-w-0 flex-col gap-5">
+              <div class="border-4 border-ink bg-ink p-5 text-white sm:p-7">
+                <div class="flex items-start justify-between gap-4">
+                  <div>
+                    <p
+                      class="font-mono text-xs font-bold uppercase tracking-[0.18em] text-brass"
+                    >
+                      Current impression
+                    </p>
+                    <p
+                      id="step-value"
+                      class="mt-2 font-display text-6xl font-black uppercase leading-none text-white"
+                    >
+                      准备
+                    </p>
+                  </div>
+                  <span
+                    id="step-count"
+                    class="border-2 border-white px-3 py-1 font-mono text-xs font-black"
+                    >0 / 9</span
+                  >
+                </div>
+                <p
+                  id="step-action"
+                  class="mt-5 min-h-14 border-l-4 border-press pl-4 text-base font-semibold leading-relaxed"
+                >
+                  版框已经锁定，下一枚铅字将落在左上角。
+                </p>
+                <div class="mt-5 progress-rail" aria-hidden="true">
+                  <div id="progress-ink" class="progress-ink"></div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="field-card p-3">
+                  <span
+                    class="block font-mono text-[0.65rem] font-bold uppercase text-steel"
+                    >Top</span
+                  ><strong id="metric-top" class="font-mono text-xl">0</strong>
+                </div>
+                <div class="field-card p-3">
+                  <span
+                    class="block font-mono text-[0.65rem] font-bold uppercase text-steel"
+                    >Right</span
+                  ><strong id="metric-right" class="font-mono text-xl"
+                    >2</strong
+                  >
+                </div>
+                <div class="field-card p-3">
+                  <span
+                    class="block font-mono text-[0.65rem] font-bold uppercase text-steel"
+                    >Bottom</span
+                  ><strong id="metric-bottom" class="font-mono text-xl"
+                    >2</strong
+                  >
+                </div>
+                <div class="field-card p-3">
+                  <span
+                    class="block font-mono text-[0.65rem] font-bold uppercase text-steel"
+                    >Left</span
+                  ><strong id="metric-left" class="font-mono text-xl">0</strong>
+                </div>
+              </div>
+
+              <div class="field-card p-4">
+                <span
+                  class="block font-mono text-[0.65rem] font-bold uppercase text-steel"
+                  >当前矩阵</span
+                >
+                <code
+                  id="matrix-output"
+                  class="output-code mt-2 block font-mono text-xs font-bold leading-relaxed sm:text-sm"
+                  >[[0,0,0],[0,0,0],[0,0,0]]</code
+                >
+              </div>
+
+              <div
+                aria-label="演示控制"
+                class="grid grid-cols-2 gap-3 sm:grid-cols-5"
+                role="group"
+              >
+                <button
+                  id="start-button"
+                  class="press-button px-3 py-3 font-mono text-sm font-black"
+                  type="button"
+                  aria-label="回到开始"
+                >
+                  ↤ 开始
+                </button>
+                <button
+                  id="prev-button"
+                  class="press-button px-3 py-3 font-mono text-sm font-black"
+                  type="button"
+                  aria-label="上一步"
+                >
+                  ← 上一步
+                </button>
+                <button
+                  id="play-button"
+                  class="press-button bg-blue px-3 py-3 font-mono text-sm font-black text-white sm:col-auto"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  ▶ 自动
+                </button>
+                <button
+                  id="next-button"
+                  class="press-button px-3 py-3 font-mono text-sm font-black"
+                  type="button"
+                  aria-label="下一步"
+                >
+                  下一步 →
+                </button>
+                <button
+                  id="end-button"
+                  class="press-button px-3 py-3 font-mono text-sm font-black"
+                  type="button"
+                  aria-label="跳到完成"
+                >
+                  完成 ↦
+                </button>
+              </div>
+              <p class="font-mono text-xs font-bold text-steel">
+                键盘：← / → 单步 · Space 播放或暂停 · Home / End 跳转
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="tests-title"
+        class="border-b-4 border-ink bg-[#f7f5ef]"
+      >
+        <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div class="mb-8">
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.2em] text-press"
+            >
+              03 / Proof sheet
+            </p>
+            <h2
+              id="tests-title"
+              class="mt-2 font-display text-4xl font-black uppercase sm:text-5xl"
+            >
+              测试与验证
+            </h2>
+            <p class="mt-3 max-w-3xl text-steel">
+              每条用例独立展示输入、期望输出、实际输出和通过状态；矩阵字符串不省略参数名。
+            </p>
+          </div>
+
+          <div id="test-grid" class="grid gap-5 lg:grid-cols-2"></div>
+
+          <div class="mt-10">
+            <h3 class="font-display text-2xl font-black uppercase">
+              工程验证清单
+            </h3>
+            <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div class="field-card p-4">
+                <span class="font-mono text-xs font-black uppercase text-blue"
+                  >Prettier</span
+                >
+                <p class="mt-2 font-bold">格式化通过</p>
+              </div>
+              <div class="field-card p-4">
+                <span class="font-mono text-xs font-black uppercase text-blue"
+                  >HTML Validate</span
+                >
+                <p class="mt-2 font-bold">结构校验通过</p>
+              </div>
+              <div class="field-card p-4">
+                <span class="font-mono text-xs font-black uppercase text-blue"
+                  >JavaScript</span
+                >
+                <p class="mt-2 font-bold">内联语法通过</p>
+              </div>
+              <div class="field-card p-4">
+                <span class="font-mono text-xs font-black uppercase text-blue"
+                  >Real Chrome</span
+                >
+                <p class="mt-2 font-bold">桌面 / 390px 通过</p>
+              </div>
+              <div class="field-card p-4">
+                <span class="font-mono text-xs font-black uppercase text-blue"
+                  >Differential</span
+                >
+                <p class="mt-2 font-bold">算法对拍通过</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-b-4 border-ink bg-blue text-white">
+        <div
+          class="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 px-4 py-10 sm:px-6 md:flex-row md:items-center lg:px-8"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.2em] text-brass"
+            >
+              Spoiler gate
+            </p>
+            <h2 class="mt-2 font-display text-4xl font-black uppercase">
+              准备好拆开版框了吗？
+            </h2>
+            <p class="mt-2 max-w-2xl text-blue-100">
+              完整思路、边界证明、复杂度、面试追问与四语言提交代码统一隐藏在下方。
+            </p>
+          </div>
+          <button
+            id="solution-toggle"
+            class="min-h-12 border-2 border-white bg-white px-6 py-3 font-mono font-black text-ink shadow-[5px_5px_0_#151515]"
+            type="button"
+            aria-expanded="false"
+            aria-controls="solution-content"
+          >
+            查看题解
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="solution-content"
+        class="solution-shell bg-paper"
+        aria-labelledby="solution-title"
+        hidden
+      >
+        <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div class="border-b-4 border-ink pb-8">
+            <p
+              class="font-mono text-xs font-black uppercase tracking-[0.2em] text-press"
+            >
+              04 / Make-ready notes
+            </p>
+            <h2
+              id="solution-title"
+              class="mt-2 font-display text-5xl font-black uppercase sm:text-6xl"
+            >
+              题解
+            </h2>
+          </div>
+
+          <div class="grid gap-8 py-10 lg:grid-cols-2">
+            <article class="border-4 border-ink bg-[#f7f5ef] p-6 sm:p-8">
+              <p
+                class="font-mono text-xs font-black uppercase tracking-wider text-blue"
+              >
+                Core insight
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                核心洞察：填满一条边，再收紧夹具
+              </h3>
+              <p class="mt-4 leading-relaxed">
+                用
+                <code class="font-mono font-bold"
+                  >top、bottom、left、right</code
+                >
+                表示尚未填充区域的四条边界。每轮依次填上边、右边、下边、左边；每完成一条边，立刻把对应边界向内移动。数字本身只递增，不需要额外记录访问状态。
+              </p>
+            </article>
+            <article class="border-4 border-ink bg-ink p-6 text-white sm:p-8">
+              <p
+                class="font-mono text-xs font-black uppercase tracking-wider text-brass"
+              >
+                Invariant
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                循环不变量
+              </h3>
+              <p class="mt-4 leading-relaxed text-gray-200">
+                每次进入循环时，边界外的格子已经按顺时针顺序写好；边界内的格子仍为空；下一待写数字恰好等于已写格子数加一。四段填充保持这个不变量，直至边界交错。
+              </p>
+            </article>
+          </div>
+
+          <article class="border-y-4 border-ink py-10">
+            <p
+              class="font-mono text-xs font-black uppercase tracking-wider text-blue"
+            >
+              Full process
+            </p>
+            <h3 class="mt-2 font-display text-3xl font-black uppercase">
+              完整过程
+            </h3>
+            <ol class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <li class="field-card p-5">
+                <span class="font-display text-4xl font-black text-press"
+                  >01</span
+                >
+                <p class="mt-3 font-bold">
+                  从 <code class="font-mono">left</code> 到
+                  <code class="font-mono">right</code> 填写第
+                  <code class="font-mono">top</code> 行，然后
+                  <code class="font-mono">top++</code>。
+                </p>
+              </li>
+              <li class="field-card p-5">
+                <span class="font-display text-4xl font-black text-press"
+                  >02</span
+                >
+                <p class="mt-3 font-bold">
+                  从 <code class="font-mono">top</code> 到
+                  <code class="font-mono">bottom</code> 填写第
+                  <code class="font-mono">right</code> 列，然后
+                  <code class="font-mono">right--</code>。
+                </p>
+              </li>
+              <li class="field-card p-5">
+                <span class="font-display text-4xl font-black text-press"
+                  >03</span
+                >
+                <p class="mt-3 font-bold">
+                  若仍有行，从 <code class="font-mono">right</code> 到
+                  <code class="font-mono">left</code> 填写第
+                  <code class="font-mono">bottom</code> 行，然后
+                  <code class="font-mono">bottom--</code>。
+                </p>
+              </li>
+              <li class="field-card p-5">
+                <span class="font-display text-4xl font-black text-press"
+                  >04</span
+                >
+                <p class="mt-3 font-bold">
+                  若仍有列，从 <code class="font-mono">bottom</code> 到
+                  <code class="font-mono">top</code> 填写第
+                  <code class="font-mono">left</code> 列，然后
+                  <code class="font-mono">left++</code>。
+                </p>
+              </li>
+            </ol>
+          </article>
+
+          <div class="grid gap-6 py-10 lg:grid-cols-3">
+            <article class="field-card p-6">
+              <p class="font-mono text-xs font-black uppercase text-blue">
+                Boundaries
+              </p>
+              <h3 class="mt-2 font-display text-2xl font-black uppercase">
+                边界情况
+              </h3>
+              <ul class="mt-4 list-square space-y-2 pl-5 leading-relaxed">
+                <li>
+                  <code class="font-mono">n = 1</code>：第一段就填完唯一格子。
+                </li>
+                <li>奇数阶：最后剩一个中心格。</li>
+                <li>
+                  偶数阶：最后剩一个 <code class="font-mono">2 × 2</code> 环。
+                </li>
+                <li>写下边和左边前必须重新确认边界仍有效，避免覆盖。</li>
+              </ul>
+            </article>
+            <article class="field-card p-6">
+              <p class="font-mono text-xs font-black uppercase text-blue">
+                Complexity
+              </p>
+              <h3 class="mt-2 font-display text-2xl font-black uppercase">
+                复杂度
+              </h3>
+              <p class="mt-4 leading-relaxed">
+                <strong>时间：</strong
+                ><code class="font-mono font-bold">O(n²)</code
+                >，每个格子恰好写一次。
+              </p>
+              <p class="mt-3 leading-relaxed">
+                <strong>额外空间：</strong
+                ><code class="font-mono font-bold">O(1)</code>，不计必须返回的
+                <code class="font-mono">n × n</code> 矩阵。
+              </p>
+            </article>
+            <article class="field-card p-6">
+              <p class="font-mono text-xs font-black uppercase text-blue">
+                Alternatives
+              </p>
+              <h3 class="mt-2 font-display text-2xl font-black uppercase">
+                替代方案取舍
+              </h3>
+              <p class="mt-4 leading-relaxed">
+                也可用方向数组与“越界或下一格已写”来转向，代码统一但依赖矩阵中的
+                <code class="font-mono">0</code>
+                充当未访问标记。面试更推荐四边界：状态含义直接，也更容易证明每格只访问一次。
+              </p>
+            </article>
+          </div>
+
+          <div class="grid gap-6 border-y-4 border-ink py-10 lg:grid-cols-2">
+            <article>
+              <p class="font-mono text-xs font-black uppercase text-press">
+                Interview follow-ups
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                面试追问
+              </h3>
+              <div class="mt-5 space-y-4">
+                <details class="field-card p-5">
+                  <summary class="cursor-pointer font-bold">
+                    为什么下边和左边需要条件判断？
+                  </summary>
+                  <p class="mt-3 leading-relaxed text-steel">
+                    上边、右边写完后，剩余区域可能已经没有行或列。若仍无条件反向写入，会覆盖刚填好的单行或单列。
+                  </p>
+                </details>
+                <details class="field-card p-5">
+                  <summary class="cursor-pointer font-bold">
+                    如何改成逆时针或指定起点？
+                  </summary>
+                  <p class="mt-3 leading-relaxed text-steel">
+                    调整四段遍历顺序和每段的索引方向即可；关键仍是每完成一条边后收缩对应边界。
+                  </p>
+                </details>
+                <details class="field-card p-5">
+                  <summary class="cursor-pointer font-bold">
+                    能否做到比 O(n²) 更快？
+                  </summary>
+                  <p class="mt-3 leading-relaxed text-steel">
+                    不能。输出本身包含 n²
+                    个元素，任何正确算法至少要写入这些格子，因此下界就是 Ω(n²)。
+                  </p>
+                </details>
+              </div>
+            </article>
+            <article>
+              <p class="font-mono text-xs font-black uppercase text-press">
+                Misprints
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-black uppercase">
+                常见错误
+              </h3>
+              <ul class="mt-5 space-y-4">
+                <li class="field-card p-5">
+                  <strong>边界移动时机错误：</strong
+                  >完成一整条边后再移动，而不是每写一个元素就移动。
+                </li>
+                <li class="field-card p-5">
+                  <strong>遗漏二次判断：</strong
+                  >上边和右边会改变可用区域，反向遍历前要重新检查。
+                </li>
+                <li class="field-card p-5">
+                  <strong>数字重复或跳号：</strong>统一使用
+                  <code class="font-mono">value++</code>，每次赋值后只递增一次。
+                </li>
+                <li class="field-card p-5">
+                  <strong>把结果空间算作额外空间：</strong
+                  >面试中应明确说明返回矩阵不计入辅助空间。
+                </li>
+              </ul>
+            </article>
+          </div>
+
+          <section aria-labelledby="code-title" class="pt-10">
+            <p
+              class="font-mono text-xs font-black uppercase tracking-wider text-blue"
+            >
+              Submission-ready
+            </p>
+            <h3
+              id="code-title"
+              class="mt-2 font-display text-4xl font-black uppercase"
+            >
+              四语言可提交代码
+            </h3>
+            <div
+              class="mt-6 flex flex-wrap gap-2"
+              role="tablist"
+              aria-label="选择代码语言"
+            >
+              <button
+                id="tab-java"
+                class="language-tab press-button px-5 py-2 font-mono font-black"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="panel-java"
+                tabindex="0"
+              >
+                Java
+              </button>
+              <button
+                id="tab-javascript"
+                class="language-tab press-button px-5 py-2 font-mono font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-javascript"
+                tabindex="-1"
+              >
+                JavaScript
+              </button>
+              <button
+                id="tab-python"
+                class="language-tab press-button px-5 py-2 font-mono font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-python"
+                tabindex="-1"
+              >
+                Python
+              </button>
+              <button
+                id="tab-cpp"
+                class="language-tab press-button px-5 py-2 font-mono font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-cpp"
+                tabindex="-1"
+              >
+                C++
+              </button>
+            </div>
+
+            <div
+              class="mt-4 border-4 border-ink bg-ink p-4 text-sm text-gray-100 sm:p-6"
+            >
+              <div
+                id="panel-java"
+                class="code-panel"
+                role="tabpanel"
+                aria-labelledby="tab-java"
+              >
+                <pre><code>class Solution {
+    public int[][] generateMatrix(int n) {
+        int[][] matrix = new int[n][n];
+        int top = 0, bottom = n - 1;
+        int left = 0, right = n - 1;
+        int value = 1;
+
+        while (top &lt;= bottom &amp;&amp; left &lt;= right) {
+            for (int col = left; col &lt;= right; col++) {
+                matrix[top][col] = value++;
+            }
+            top++;
+
+            for (int row = top; row &lt;= bottom; row++) {
+                matrix[row][right] = value++;
+            }
+            right--;
+
+            if (top &lt;= bottom) {
+                for (int col = right; col &gt;= left; col--) {
+                    matrix[bottom][col] = value++;
+                }
+                bottom--;
+            }
+
+            if (left &lt;= right) {
+                for (int row = bottom; row &gt;= top; row--) {
+                    matrix[row][left] = value++;
+                }
+                left++;
+            }
+        }
+
+        return matrix;
+    }
+}</code></pre>
+              </div>
+              <div
+                id="panel-javascript"
+                class="code-panel"
+                role="tabpanel"
+                aria-labelledby="tab-javascript"
+                hidden
+              >
+                <pre><code>/**
+ * @param {number} n
+ * @return {number[][]}
+ */
+var generateMatrix = function (n) {
+    const matrix = Array.from({ length: n }, () =&gt; Array(n).fill(0));
+    let top = 0;
+    let bottom = n - 1;
+    let left = 0;
+    let right = n - 1;
+    let value = 1;
+
+    while (top &lt;= bottom &amp;&amp; left &lt;= right) {
+        for (let col = left; col &lt;= right; col++) {
+            matrix[top][col] = value++;
+        }
+        top++;
+
+        for (let row = top; row &lt;= bottom; row++) {
+            matrix[row][right] = value++;
+        }
+        right--;
+
+        if (top &lt;= bottom) {
+            for (let col = right; col &gt;= left; col--) {
+                matrix[bottom][col] = value++;
+            }
+            bottom--;
+        }
+
+        if (left &lt;= right) {
+            for (let row = bottom; row &gt;= top; row--) {
+                matrix[row][left] = value++;
+            }
+            left++;
+        }
+    }
+
+    return matrix;
+};</code></pre>
+              </div>
+              <div
+                id="panel-python"
+                class="code-panel"
+                role="tabpanel"
+                aria-labelledby="tab-python"
+                hidden
+              >
+                <pre><code>from typing import List
+
+
+class Solution:
+    def generateMatrix(self, n: int) -&gt; List[List[int]]:
+        matrix = [[0] * n for _ in range(n)]
+        top, bottom = 0, n - 1
+        left, right = 0, n - 1
+        value = 1
+
+        while top &lt;= bottom and left &lt;= right:
+            for col in range(left, right + 1):
+                matrix[top][col] = value
+                value += 1
+            top += 1
+
+            for row in range(top, bottom + 1):
+                matrix[row][right] = value
+                value += 1
+            right -= 1
+
+            if top &lt;= bottom:
+                for col in range(right, left - 1, -1):
+                    matrix[bottom][col] = value
+                    value += 1
+                bottom -= 1
+
+            if left &lt;= right:
+                for row in range(bottom, top - 1, -1):
+                    matrix[row][left] = value
+                    value += 1
+                left += 1
+
+        return matrix</code></pre>
+              </div>
+              <div
+                id="panel-cpp"
+                class="code-panel"
+                role="tabpanel"
+                aria-labelledby="tab-cpp"
+                hidden
+              >
+                <pre><code>class Solution {
+public:
+    vector&lt;vector&lt;int&gt;&gt; generateMatrix(int n) {
+        vector&lt;vector&lt;int&gt;&gt; matrix(n, vector&lt;int&gt;(n));
+        int top = 0, bottom = n - 1;
+        int left = 0, right = n - 1;
+        int value = 1;
+
+        while (top &lt;= bottom &amp;&amp; left &lt;= right) {
+            for (int col = left; col &lt;= right; ++col) {
+                matrix[top][col] = value++;
+            }
+            ++top;
+
+            for (int row = top; row &lt;= bottom; ++row) {
+                matrix[row][right] = value++;
+            }
+            --right;
+
+            if (top &lt;= bottom) {
+                for (int col = right; col &gt;= left; --col) {
+                    matrix[bottom][col] = value++;
+                }
+                --bottom;
+            }
+
+            if (left &lt;= right) {
+                for (int row = bottom; row &gt;= top; --row) {
+                    matrix[row][left] = value++;
+                }
+                ++left;
+            }
+        }
+
+        return matrix;
+    }
+};</code></pre>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="bg-ink px-4 py-8 text-center font-mono text-xs font-bold uppercase tracking-wider text-gray-400"
+    >
+      LeetCode 59 · Spiral Matrix II · Boundary Simulation
+    </footer>
+
+    <p
+      id="live-status"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></p>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const matrixGrid = document.querySelector("#matrix-grid");
+        const demoStage = document.querySelector("#demo-stage");
+        const stepValue = document.querySelector("#step-value");
+        const stepCount = document.querySelector("#step-count");
+        const stepAction = document.querySelector("#step-action");
+        const progressInk = document.querySelector("#progress-ink");
+        const matrixOutput = document.querySelector("#matrix-output");
+        const liveStatus = document.querySelector("#live-status");
+        const startButton = document.querySelector("#start-button");
+        const prevButton = document.querySelector("#prev-button");
+        const playButton = document.querySelector("#play-button");
+        const nextButton = document.querySelector("#next-button");
+        const endButton = document.querySelector("#end-button");
+        const solutionToggle = document.querySelector("#solution-toggle");
+        const solutionContent = document.querySelector("#solution-content");
+        const caseButtons = [...document.querySelectorAll(".case-button")];
+        const languageTabs = [...document.querySelectorAll(".language-tab")];
+        const reducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        );
+
+        const metrics = {
+          top: document.querySelector("#metric-top"),
+          right: document.querySelector("#metric-right"),
+          bottom: document.querySelector("#metric-bottom"),
+          left: document.querySelector("#metric-left"),
+        };
+
+        const clamps = {
+          top: document.querySelector("#clamp-top"),
+          right: document.querySelector("#clamp-right"),
+          bottom: document.querySelector("#clamp-bottom"),
+          left: document.querySelector("#clamp-left"),
+        };
+
+        let size = 3;
+        let frames = [];
+        let frameIndex = 0;
+        let timer = null;
+
+        const cloneMatrix = (matrix) => matrix.map((row) => [...row]);
+
+        function generateMatrix(n) {
+          const matrix = Array.from({ length: n }, () => Array(n).fill(0));
+          let top = 0;
+          let bottom = n - 1;
+          let left = 0;
+          let right = n - 1;
+          let value = 1;
+
+          while (top <= bottom && left <= right) {
+            for (let col = left; col <= right; col += 1)
+              matrix[top][col] = value++;
+            top += 1;
+            for (let row = top; row <= bottom; row += 1)
+              matrix[row][right] = value++;
+            right -= 1;
+            if (top <= bottom) {
+              for (let col = right; col >= left; col -= 1)
+                matrix[bottom][col] = value++;
+              bottom -= 1;
+            }
+            if (left <= right) {
+              for (let row = bottom; row >= top; row -= 1)
+                matrix[row][left] = value++;
+              left += 1;
+            }
+          }
+
+          return matrix;
+        }
+
+        function buildTrace(n) {
+          const matrix = Array.from({ length: n }, () => Array(n).fill(0));
+          const trace = [
+            {
+              matrix: cloneMatrix(matrix),
+              row: -1,
+              col: -1,
+              value: 0,
+              top: 0,
+              right: n - 1,
+              bottom: n - 1,
+              left: 0,
+              action: "版框已经锁定，下一枚铅字将落在左上角。",
+              edge: "准备",
+            },
+          ];
+          let top = 0;
+          let bottom = n - 1;
+          let left = 0;
+          let right = n - 1;
+          let value = 1;
+
+          const stamp = (row, col, edge, action, nextBounds = {}) => {
+            matrix[row][col] = value;
+            const frame = {
+              matrix: cloneMatrix(matrix),
+              row,
+              col,
+              value,
+              top,
+              right,
+              bottom,
+              left,
+              action,
+              edge,
+              ...nextBounds,
+            };
+            trace.push(frame);
+            value += 1;
+          };
+
+          while (top <= bottom && left <= right) {
+            const currentTop = top;
+            for (let col = left; col <= right; col += 1) {
+              const isLast = col === right;
+              stamp(
+                currentTop,
+                col,
+                "上边 →",
+                isLast
+                  ? `写完上边，top 从 ${top} 推进到 ${top + 1}。`
+                  : `沿上边向右，把 ${value} 压入第 ${currentTop + 1} 行第 ${col + 1} 列。`,
+                isLast ? { top: top + 1 } : {},
+              );
+            }
+            top += 1;
+
+            const currentRight = right;
+            for (let row = top; row <= bottom; row += 1) {
+              const isLast = row === bottom;
+              stamp(
+                row,
+                currentRight,
+                "右边 ↓",
+                isLast
+                  ? `写完右边，right 从 ${right} 收紧到 ${right - 1}。`
+                  : `沿右边向下，把 ${value} 压入第 ${row + 1} 行第 ${currentRight + 1} 列。`,
+                isLast ? { right: right - 1 } : {},
+              );
+            }
+            right -= 1;
+
+            if (top <= bottom) {
+              const currentBottom = bottom;
+              for (let col = right; col >= left; col -= 1) {
+                const isLast = col === left;
+                stamp(
+                  currentBottom,
+                  col,
+                  "下边 ←",
+                  isLast
+                    ? `写完下边，bottom 从 ${bottom} 收紧到 ${bottom - 1}。`
+                    : `沿下边向左，把 ${value} 压入第 ${currentBottom + 1} 行第 ${col + 1} 列。`,
+                  isLast ? { bottom: bottom - 1 } : {},
+                );
+              }
+              bottom -= 1;
+            }
+
+            if (left <= right) {
+              const currentLeft = left;
+              for (let row = bottom; row >= top; row -= 1) {
+                const isLast = row === top;
+                stamp(
+                  row,
+                  currentLeft,
+                  "左边 ↑",
+                  isLast
+                    ? `写完左边，left 从 ${left} 推进到 ${left + 1}。`
+                    : `沿左边向上，把 ${value} 压入第 ${row + 1} 行第 ${currentLeft + 1} 列。`,
+                  isLast ? { left: left + 1 } : {},
+                );
+              }
+              left += 1;
+            }
+          }
+
+          trace[trace.length - 1].action += " 所有铅字已落版，矩阵完成。";
+          trace[trace.length - 1].edge = "完成";
+          return trace;
+        }
+
+        function matrixToString(matrix) {
+          return `[${matrix.map((row) => `[${row.join(",")}]`).join(",")}]`;
+        }
+
+        function stopAuto(announce = false) {
+          if (timer !== null) {
+            window.clearInterval(timer);
+            timer = null;
+          }
+          playButton.textContent = "▶ 自动";
+          playButton.setAttribute("aria-pressed", "false");
+          if (announce) liveStatus.textContent = "自动播放已暂停。";
+        }
+
+        function render(announce = true) {
+          const frame = frames[frameIndex];
+          matrixGrid.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+          matrixGrid.replaceChildren();
+
+          frame.matrix.forEach((row, rowIndex) => {
+            row.forEach((cell, colIndex) => {
+              const element = document.createElement("span");
+              element.className = "matrix-cell";
+              if (cell !== 0) element.classList.add("is-filled");
+              if (rowIndex === frame.row && colIndex === frame.col)
+                element.classList.add("is-current");
+              element.textContent = cell === 0 ? "·" : String(cell);
+              matrixGrid.append(element);
+            });
+          });
+
+          stepValue.textContent = frame.value === 0 ? "准备" : frame.edge;
+          stepCount.textContent = `${frameIndex} / ${size * size}`;
+          stepAction.textContent = frame.action;
+          progressInk.style.width = `${(frameIndex / (size * size)) * 100}%`;
+          matrixOutput.textContent = matrixToString(frame.matrix);
+
+          Object.keys(metrics).forEach((key) => {
+            metrics[key].textContent = String(frame[key]);
+            clamps[key].textContent = `${key} ${frame[key]}`;
+          });
+
+          startButton.disabled = frameIndex === 0;
+          prevButton.disabled = frameIndex === 0;
+          nextButton.disabled = frameIndex === frames.length - 1;
+          endButton.disabled = frameIndex === frames.length - 1;
+
+          if (announce) {
+            liveStatus.textContent =
+              frameIndex === 0
+                ? `n 等于 ${size}，演示已回到开始。`
+                : `步骤 ${frameIndex}，${frame.action}`;
+          }
+        }
+
+        function moveTo(nextIndex, announce = true) {
+          frameIndex = Math.max(0, Math.min(nextIndex, frames.length - 1));
+          render(announce);
+          if (frameIndex === frames.length - 1) stopAuto(false);
+        }
+
+        function toggleAuto() {
+          if (timer !== null) {
+            stopAuto(true);
+            return;
+          }
+          if (frameIndex === frames.length - 1) frameIndex = 0;
+          playButton.textContent = "Ⅱ 暂停";
+          playButton.setAttribute("aria-pressed", "true");
+          liveStatus.textContent = "自动播放已开始。";
+          const delay = reducedMotion.matches ? 900 : 620;
+          timer = window.setInterval(
+            () => moveTo(frameIndex + 1, false),
+            delay,
+          );
+          render(false);
+        }
+
+        function setSize(nextSize) {
+          stopAuto(false);
+          size = nextSize;
+          frames = buildTrace(size);
+          frameIndex = 0;
+          caseButtons.forEach((button) =>
+            button.setAttribute(
+              "aria-pressed",
+              String(Number(button.dataset.size) === size),
+            ),
+          );
+          render(true);
+        }
+
+        startButton.addEventListener("click", () => {
+          stopAuto(false);
+          moveTo(0);
+        });
+        prevButton.addEventListener("click", () => {
+          stopAuto(false);
+          moveTo(frameIndex - 1);
+        });
+        playButton.addEventListener("click", toggleAuto);
+        nextButton.addEventListener("click", () => {
+          stopAuto(false);
+          moveTo(frameIndex + 1);
+        });
+        endButton.addEventListener("click", () => {
+          stopAuto(false);
+          moveTo(frames.length - 1);
+        });
+
+        caseButtons.forEach((button) =>
+          button.addEventListener("click", () =>
+            setSize(Number(button.dataset.size)),
+          ),
+        );
+
+        demoStage.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            stopAuto(false);
+            moveTo(frameIndex + 1);
+          } else if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            stopAuto(false);
+            moveTo(frameIndex - 1);
+          } else if (event.key === " ") {
+            event.preventDefault();
+            toggleAuto();
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            stopAuto(false);
+            moveTo(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            stopAuto(false);
+            moveTo(frames.length - 1);
+          }
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const willOpen =
+            solutionToggle.getAttribute("aria-expanded") === "false";
+          solutionToggle.setAttribute("aria-expanded", String(willOpen));
+          solutionToggle.textContent = willOpen ? "收起题解" : "查看题解";
+          solutionContent.hidden = !willOpen;
+          liveStatus.textContent = willOpen ? "题解已展开。" : "题解已收起。";
+        });
+
+        function activateLanguage(tab, focus = true) {
+          languageTabs.forEach((candidate) => {
+            const selected = candidate === tab;
+            candidate.setAttribute("aria-selected", String(selected));
+            candidate.tabIndex = selected ? 0 : -1;
+            document.querySelector(
+              `#${candidate.getAttribute("aria-controls")}`,
+            ).hidden = !selected;
+          });
+          if (focus) tab.focus();
+          liveStatus.textContent = `已切换到 ${tab.textContent.trim()} 代码。`;
+        }
+
+        languageTabs.forEach((tab, tabIndex) => {
+          tab.addEventListener("click", () => activateLanguage(tab, false));
+          tab.addEventListener("keydown", (event) => {
+            if (
+              event.key !== "ArrowRight" &&
+              event.key !== "ArrowLeft" &&
+              event.key !== "Home" &&
+              event.key !== "End"
+            )
+              return;
+            event.preventDefault();
+            let nextIndex = tabIndex;
+            if (event.key === "ArrowRight")
+              nextIndex = (tabIndex + 1) % languageTabs.length;
+            if (event.key === "ArrowLeft")
+              nextIndex =
+                (tabIndex - 1 + languageTabs.length) % languageTabs.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = languageTabs.length - 1;
+            activateLanguage(languageTabs[nextIndex]);
+          });
+        });
+
+        const expectedCases = [
+          { name: "官方样例 · 单中心", n: 1, expected: [[1]] },
+          {
+            name: "最小完整环",
+            n: 2,
+            expected: [
+              [1, 2],
+              [4, 3],
+            ],
+          },
+          {
+            name: "官方样例 · 奇数阶",
+            n: 3,
+            expected: [
+              [1, 2, 3],
+              [8, 9, 4],
+              [7, 6, 5],
+            ],
+          },
+          {
+            name: "偶数阶双层",
+            n: 4,
+            expected: [
+              [1, 2, 3, 4],
+              [12, 13, 14, 5],
+              [11, 16, 15, 6],
+              [10, 9, 8, 7],
+            ],
+          },
+          {
+            name: "奇数阶多层",
+            n: 5,
+            expected: [
+              [1, 2, 3, 4, 5],
+              [16, 17, 18, 19, 6],
+              [15, 24, 25, 20, 7],
+              [14, 23, 22, 21, 8],
+              [13, 12, 11, 10, 9],
+            ],
+          },
+          {
+            name: "偶数阶多层",
+            n: 6,
+            expected: [
+              [1, 2, 3, 4, 5, 6],
+              [20, 21, 22, 23, 24, 7],
+              [19, 32, 33, 34, 25, 8],
+              [18, 31, 36, 35, 26, 9],
+              [17, 30, 29, 28, 27, 10],
+              [16, 15, 14, 13, 12, 11],
+            ],
+          },
+        ];
+
+        const testGrid = document.querySelector("#test-grid");
+        expectedCases.forEach((testCase, index) => {
+          const actual = generateMatrix(testCase.n);
+          const expectedText = matrixToString(testCase.expected);
+          const actualText = matrixToString(actual);
+          const passed = expectedText === actualText;
+          const article = document.createElement("article");
+          article.className = "field-card hard-shadow p-5 sm:p-6";
+          article.innerHTML = `
+            <div class="flex items-center justify-between gap-3 border-b-2 border-ink pb-3">
+              <h3 class="font-display text-xl font-black uppercase">${String(index + 1).padStart(2, "0")} · ${testCase.name}</h3>
+              <span class="border-2 border-ink ${passed ? "bg-blue text-white" : "bg-press text-white"} px-3 py-1 font-mono text-xs font-black">${passed ? "PASS" : "FAIL"}</span>
+            </div>
+            <dl class="mt-4 grid min-w-0 gap-4">
+              <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">输入</dt><dd><code class="output-code font-mono text-sm font-bold">n = ${testCase.n}</code></dd></div>
+              <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">期望输出</dt><dd><code class="output-code block font-mono text-xs font-bold leading-relaxed">${expectedText}</code></dd></div>
+              <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">实际输出</dt><dd><code class="output-code block font-mono text-xs font-bold leading-relaxed">${actualText}</code></dd></div>
+              <div><dt class="font-mono text-[0.65rem] font-black uppercase text-steel">通过状态</dt><dd class="font-bold">${passed ? "通过：实际输出与期望输出完全一致" : "未通过：输出不一致"}</dd></div>
+            </dl>`;
+          testGrid.append(article);
+        });
+
+        frames = buildTrace(size);
+        render(false);
+      })();
+    </script>
+  </body>
+</html>
