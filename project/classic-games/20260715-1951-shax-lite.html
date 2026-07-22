@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Shax</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6 sm:px-6">
+    <header class="flex flex-col gap-3 border-b border-stone-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-amber-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Shax</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-stone-950 transition hover:bg-amber-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-stone-400">当前玩家</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="phaseText" class="min-h-12 text-sm leading-6 text-stone-200"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-red-500/40 bg-red-500/10 p-3">
+            <p class="text-xs text-red-200">赤方吃子</p>
+            <p id="redCaptures" class="text-2xl font-bold text-red-300">0</p>
+          </div>
+          <div class="rounded border border-sky-500/40 bg-sky-500/10 p-3">
+            <p class="text-xs text-sky-200">蓝方吃子</p>
+            <p id="blueCaptures" class="text-2xl font-bold text-sky-300">0</p>
+          </div>
+        </div>
+
+        <div class="rounded border border-stone-700 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+          <p>轮流放下 4 枚棋子。放完后，每回合移动一枚到相邻空格。</p>
+          <p class="mt-2">任意横、竖或斜向连成 3 枚即可吃掉对手一枚。先吃 3 枚获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnBadge = document.getElementById("turnBadge");
+    const phaseText = document.getElementById("phaseText");
+    const redCapturesEl = document.getElementById("redCaptures");
+    const blueCapturesEl = document.getElementById("blueCaptures");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 4;
+    const totalPieces = 4;
+    const players = {
+      R: { label: "赤方", dot: "bg-red-400", badge: "bg-red-400 text-stone-950" },
+      B: { label: "蓝方", dot: "bg-sky-400", badge: "bg-sky-400 text-stone-950" }
+    };
+
+    let board;
+    let current;
+    let placed;
+    let captures;
+    let selected;
+    let captureMode;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      current = "R";
+      placed = { R: 0, B: 0 };
+      captures = { R: 0, B: 0 };
+      selected = null;
+      captureMode = false;
+      winner = "";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "R" ? "B" : "R";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function linesOfThree() {
+      const lines = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col <= size - 3; col += 1) {
+          lines.push([[row, col], [row, col + 1], [row, col + 2]]);
+        }
+      }
+      for (let col = 0; col < size; col += 1) {
+        for (let row = 0; row <= size - 3; row += 1) {
+          lines.push([[row, col], [row + 1, col], [row + 2, col]]);
+        }
+      }
+      for (let row = 0; row <= size - 3; row += 1) {
+        for (let col = 0; col <= size - 3; col += 1) {
+          lines.push([[row, col], [row + 1, col + 1], [row + 2, col + 2]]);
+        }
+      }
+      for (let row = 0; row <= size - 3; row += 1) {
+        for (let col = 2; col < size; col += 1) {
+          lines.push([[row, col], [row + 1, col - 1], [row + 2, col - 2]]);
+        }
+      }
+      return lines;
+    }
+
+    function madeMill(player) {
+      return linesOfThree().some((line) => line.every(([row, col]) => board[row][col] === player));
+    }
+
+    function countPieces(player) {
+      return board.flat().filter((cell) => cell === player).length;
+    }
+
+    function legalMoves(row, col) {
+      const moves = [];
+      for (let dRow = -1; dRow <= 1; dRow += 1) {
+        for (let dCol = -1; dCol <= 1; dCol += 1) {
+          if (dRow === 0 && dCol === 0) continue;
+          const nextRow = row + dRow;
+          const nextCol = col + dCol;
+          if (inBounds(nextRow, nextCol) && !board[nextRow][nextCol]) {
+            moves.push([nextRow, nextCol]);
+          }
+        }
+      }
+      return moves;
+    }
+
+    function hasMove(player) {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === player && legalMoves(row, col).length) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function isAdjacent(from, to) {
+      return Math.abs(from.row - to.row) <= 1 && Math.abs(from.col - to.col) <= 1;
+    }
+
+    function endTurn() {
+      selected = null;
+      captureMode = false;
+      current = opponent(current);
+      checkWinner();
+      render();
+    }
+
+    function checkWinner() {
+      if (captures.R >= 3) winner = "R";
+      if (captures.B >= 3) winner = "B";
+      if (placed.R === totalPieces && placed.B === totalPieces) {
+        if (countPieces("R") === 0 || !hasMove("R")) winner = "B";
+        if (countPieces("B") === 0 || !hasMove("B")) winner = "R";
+      }
+    }
+
+    function capturePiece(row, col) {
+      if (board[row][col] !== opponent(current)) return;
+      board[row][col] = "";
+      captures[current] += 1;
+      endTurn();
+    }
+
+    function selectCell(row, col) {
+      if (winner) return;
+      if (captureMode) {
+        capturePiece(row, col);
+        return;
+      }
+
+      const placementPhase = placed.R < totalPieces || placed.B < totalPieces;
+      if (placementPhase) {
+        if (placed[current] >= totalPieces || board[row][col]) return;
+        board[row][col] = current;
+        placed[current] += 1;
+        if (madeMill(current) && countPieces(opponent(current)) > 0) {
+          captureMode = true;
+          render();
+          return;
+        }
+        endTurn();
+        return;
+      }
+
+      if (selected) {
+        if (selected.row === row && selected.col === col) {
+          selected = null;
+          render();
+          return;
+        }
+        if (!board[row][col] && isAdjacent(selected, { row, col })) {
+          board[row][col] = current;
+          board[selected.row][selected.col] = "";
+          if (madeMill(current) && countPieces(opponent(current)) > 0) {
+            selected = null;
+            captureMode = true;
+            render();
+            return;
+          }
+          endTurn();
+        }
+        return;
+      }
+
+      if (board[row][col] === current && legalMoves(row, col).length) {
+        selected = { row, col };
+        render();
+      }
+    }
+
+    function statusMessage() {
+      if (winner) return `${players[winner].label}获胜，点击重新开始再来一局。`;
+      if (captureMode) return `${players[current].label}连成三枚，请选择一枚对手棋子吃掉。`;
+      if (placed[current] < totalPieces) {
+        return `${players[current].label}放置棋子，剩余 ${totalPieces - placed[current]} 枚。`;
+      }
+      if (selected) return `${players[current].label}移动已选棋子到相邻空格。`;
+      return `${players[current].label}选择一枚可以移动的棋子。`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      turnBadge.textContent = players[current].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${players[current].badge}`;
+      phaseText.textContent = statusMessage();
+      redCapturesEl.textContent = captures.R;
+      blueCapturesEl.textContent = captures.B;
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = document.createElement("button");
+          const value = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          cell.type = "button";
+          cell.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          cell.className = [
+            "relative flex aspect-square items-center justify-center rounded border text-lg transition",
+            active ? "border-amber-300 bg-amber-300/20" : "border-stone-700 bg-stone-800",
+            !winner ? "hover:border-amber-200 hover:bg-stone-700" : "opacity-80"
+          ].join(" ");
+          cell.addEventListener("click", () => selectCell(row, col));
+
+          if (value) {
+            const piece = document.createElement("span");
+            piece.className = `block h-4/6 w-4/6 rounded-full shadow-lg ${players[value].dot}`;
+            cell.appendChild(piece);
+          } else {
+            const point = document.createElement("span");
+            point.className = "block h-2 w-2 rounded-full bg-stone-600";
+            cell.appendChild(point);
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
