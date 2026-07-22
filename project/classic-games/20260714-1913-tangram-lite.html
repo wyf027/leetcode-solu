@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Tangram</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .piece { position: absolute; transform-origin: 50% 50%; cursor: pointer; }
+    .triangle { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+    .square { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
+    .para { clip-path: polygon(24% 0, 100% 0, 76% 100%, 0 100%); }
+  </style>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal">Mini Tangram</h1>
+        <p class="text-sm text-neutral-300">选择七巧板拼块，移动和旋转，让它们贴近淡色目标轮廓。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-teal-300 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-teal-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div class="rounded border border-neutral-700 bg-neutral-900 p-3">
+        <div id="board" class="relative mx-auto aspect-square w-full max-w-[640px] overflow-hidden rounded bg-stone-100"></div>
+      </div>
+
+      <aside class="flex flex-col gap-3 rounded border border-neutral-700 bg-neutral-900 p-4">
+        <div class="rounded bg-neutral-800 p-3 text-center">
+          <div class="text-xs text-neutral-400">完成度</div>
+          <div id="progress" class="text-2xl font-bold text-teal-300">0 / 7</div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <button data-piece="large-a" class="pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs">大三角 A</button>
+          <button data-piece="large-b" class="pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs">大三角 B</button>
+          <button data-piece="medium" class="pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs">中三角</button>
+          <button data-piece="small-a" class="pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs">小三角 A</button>
+          <button data-piece="small-b" class="pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs">小三角 B</button>
+          <button data-piece="square" class="pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs">正方形</button>
+          <button data-piece="para" class="pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs">平行四边</button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div></div>
+          <button id="upBtn" class="rounded bg-sky-300 px-3 py-2 text-sm font-bold text-neutral-950">↑</button>
+          <div></div>
+          <button id="leftBtn" class="rounded bg-sky-300 px-3 py-2 text-sm font-bold text-neutral-950">←</button>
+          <button id="downBtn" class="rounded bg-sky-300 px-3 py-2 text-sm font-bold text-neutral-950">↓</button>
+          <button id="rightBtn" class="rounded bg-sky-300 px-3 py-2 text-sm font-bold text-neutral-950">→</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <button id="rotateLeftBtn" class="rounded bg-violet-300 px-3 py-2 text-sm font-bold text-neutral-950">左转</button>
+          <button id="rotateRightBtn" class="rounded bg-violet-300 px-3 py-2 text-sm font-bold text-neutral-950">右转</button>
+        </div>
+
+        <button id="checkBtn" class="rounded bg-teal-300 px-4 py-3 text-sm font-bold text-neutral-950 hover:bg-teal-200">检查拼图</button>
+        <p id="message" class="min-h-16 rounded bg-neutral-800 p-3 text-sm leading-6 text-neutral-200">点击拼块或按钮选择。接近目标位置和角度时会计入完成。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const board = document.getElementById("board");
+    const progressEl = document.getElementById("progress");
+    const messageEl = document.getElementById("message");
+    const pieceButtons = [...document.querySelectorAll(".pieceBtn")];
+    const controls = {
+      up: document.getElementById("upBtn"),
+      down: document.getElementById("downBtn"),
+      left: document.getElementById("leftBtn"),
+      right: document.getElementById("rightBtn"),
+      rotateLeft: document.getElementById("rotateLeftBtn"),
+      rotateRight: document.getElementById("rotateRightBtn"),
+      check: document.getElementById("checkBtn"),
+      reset: document.getElementById("resetBtn")
+    };
+
+    const pieces = [
+      { id: "large-a", type: "triangle", size: 190, color: "#ef4444", sx: 28, sy: 390, sr: -45, tx: 146, ty: 105, tr: 45 },
+      { id: "large-b", type: "triangle", size: 190, color: "#f97316", sx: 226, sy: 402, sr: 45, tx: 298, ty: 106, tr: -45 },
+      { id: "medium", type: "triangle", size: 138, color: "#eab308", sx: 436, sy: 390, sr: 90, tx: 222, ty: 258, tr: 180 },
+      { id: "small-a", type: "triangle", size: 104, color: "#22c55e", sx: 88, sy: 268, sr: 0, tx: 371, ty: 251, tr: 90 },
+      { id: "small-b", type: "triangle", size: 104, color: "#06b6d4", sx: 452, sy: 272, sr: 180, tx: 112, ty: 292, tr: 0 },
+      { id: "square", type: "square", size: 95, color: "#3b82f6", sx: 260, sy: 282, sr: 45, tx: 252, ty: 361, tr: 45 },
+      { id: "para", type: "para", size: 124, color: "#8b5cf6", sx: 250, sy: 520, sr: 0, tx: 356, ty: 366, tr: 0 }
+    ];
+    let selectedId = "large-a";
+
+    function resetGame() {
+      board.innerHTML = "";
+      drawTargets();
+      pieces.forEach((piece) => {
+        piece.x = piece.sx;
+        piece.y = piece.sy;
+        piece.r = piece.sr;
+        const element = document.createElement("button");
+        element.id = piece.id;
+        element.className = `piece ${piece.type}`;
+        element.style.width = `${piece.size}px`;
+        element.style.height = `${piece.size}px`;
+        element.style.background = piece.color;
+        element.style.border = "3px solid rgba(23,23,23,0.55)";
+        element.setAttribute("aria-label", piece.id);
+        element.addEventListener("click", () => selectPiece(piece.id));
+        board.appendChild(element);
+      });
+      selectedId = "large-a";
+      updatePieces();
+      messageEl.textContent = "点击拼块或按钮选择。接近目标位置和角度时会计入完成。";
+      checkPuzzle();
+    }
+
+    function drawTargets() {
+      pieces.forEach((piece) => {
+        const target = document.createElement("div");
+        target.className = `piece ${piece.type}`;
+        target.style.width = `${piece.size}px`;
+        target.style.height = `${piece.size}px`;
+        target.style.left = `${piece.tx}px`;
+        target.style.top = `${piece.ty}px`;
+        target.style.background = "rgba(20,184,166,0.16)";
+        target.style.outline = "2px dashed rgba(15,118,110,0.5)";
+        target.style.transform = `rotate(${piece.tr}deg)`;
+        board.appendChild(target);
+      });
+    }
+
+    function selectPiece(id) {
+      selectedId = id;
+      updatePieces();
+    }
+
+    function selectedPiece() {
+      return pieces.find((piece) => piece.id === selectedId);
+    }
+
+    function updatePieces() {
+      pieces.forEach((piece) => {
+        const element = document.getElementById(piece.id);
+        element.style.left = `${piece.x}px`;
+        element.style.top = `${piece.y}px`;
+        element.style.transform = `rotate(${piece.r}deg)`;
+        element.style.zIndex = piece.id === selectedId ? 5 : 2;
+        element.style.boxShadow = piece.id === selectedId ? "0 0 0 4px rgba(20,184,166,0.55)" : "none";
+      });
+      pieceButtons.forEach((button) => {
+        const active = button.dataset.piece === selectedId;
+        button.className = active
+          ? "pieceBtn rounded bg-teal-300 px-2 py-2 text-xs font-bold text-neutral-950"
+          : "pieceBtn rounded bg-neutral-800 px-2 py-2 text-xs";
+      });
+    }
+
+    function moveSelected(dx, dy) {
+      const piece = selectedPiece();
+      piece.x = clamp(piece.x + dx, 0, 640 - piece.size);
+      piece.y = clamp(piece.y + dy, 0, 640 - piece.size);
+      updatePieces();
+    }
+
+    function rotateSelected(delta) {
+      const piece = selectedPiece();
+      piece.r = normalizeRotation(piece.r + delta);
+      updatePieces();
+    }
+
+    function checkPuzzle() {
+      let matched = 0;
+      pieces.forEach((piece) => {
+        const closePosition = Math.hypot(piece.x - piece.tx, piece.y - piece.ty) <= 28;
+        const closeRotation = rotationDistance(piece.r, piece.tr) <= 15;
+        if (closePosition && closeRotation) matched += 1;
+      });
+      progressEl.textContent = `${matched} / 7`;
+      if (matched === 7) {
+        messageEl.textContent = "完成七巧板，所有拼块都贴近目标轮廓。";
+      } else {
+        messageEl.textContent = `当前 ${matched} 个拼块就位，继续微调位置和角度。`;
+      }
+    }
+
+    function normalizeRotation(value) {
+      return ((value % 360) + 360) % 360;
+    }
+
+    function rotationDistance(a, b) {
+      const diff = Math.abs(normalizeRotation(a) - normalizeRotation(b));
+      return Math.min(diff, 360 - diff);
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    pieceButtons.forEach((button) => button.addEventListener("click", () => selectPiece(button.dataset.piece)));
+    controls.up.addEventListener("click", () => moveSelected(0, -12));
+    controls.down.addEventListener("click", () => moveSelected(0, 12));
+    controls.left.addEventListener("click", () => moveSelected(-12, 0));
+    controls.right.addEventListener("click", () => moveSelected(12, 0));
+    controls.rotateLeft.addEventListener("click", () => rotateSelected(-15));
+    controls.rotateRight.addEventListener("click", () => rotateSelected(15));
+    controls.check.addEventListener("click", checkPuzzle);
+    controls.reset.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
