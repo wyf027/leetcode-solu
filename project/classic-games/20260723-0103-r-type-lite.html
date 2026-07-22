@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini R-Type 异形战机</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-cyan-400/30 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-cyan-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini R-Type 异形战机</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="border border-cyan-400/30 bg-cyan-950/40 px-3 py-2">
+          <div class="text-cyan-200">分数</div>
+          <div id="score" class="text-xl font-bold">0</div>
+        </div>
+        <div class="border border-cyan-400/30 bg-cyan-950/40 px-3 py-2">
+          <div class="text-cyan-200">护盾</div>
+          <div id="shields" class="text-xl font-bold">3</div>
+        </div>
+        <div class="border border-cyan-400/30 bg-cyan-950/40 px-3 py-2">
+          <div class="text-cyan-200">蓄力</div>
+          <div id="charge" class="text-xl font-bold">0%</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="760" height="480" class="h-auto w-full border border-cyan-400/40 bg-slate-900"></canvas>
+      <aside class="space-y-3 text-sm text-slate-300">
+        <div class="border border-slate-700 bg-slate-900/70 p-3">
+          <h2 class="mb-2 font-semibold text-cyan-200">操作</h2>
+          <p>方向键 / WASD：移动战机</p>
+          <p>空格：普通射击</p>
+          <p>按住 J：蓄力，松开释放光束</p>
+          <p>R：重新开始</p>
+        </div>
+        <div class="border border-slate-700 bg-slate-900/70 p-3">
+          <h2 class="mb-2 font-semibold text-cyan-200">目标</h2>
+          <p>击破 24 架异形机群即可通关。被敌机、子弹或陨石击中会损失护盾。</p>
+        </div>
+        <button id="restart" class="w-full border border-cyan-300 bg-cyan-500 px-4 py-2 font-bold text-slate-950 hover:bg-cyan-300">
+          重新开始
+        </button>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const shieldsEl = document.getElementById("shields");
+    const chargeEl = document.getElementById("charge");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const ship = { x: 80, y: 240, w: 38, h: 24, shields: 3, cooldown: 0, charge: 0, charging: false, invuln: 0 };
+    let bullets = [];
+    let beams = [];
+    let enemies = [];
+    let enemyShots = [];
+    let rocks = [];
+    let stars = [];
+    let score = 0;
+    let kills = 0;
+    let spawnTimer = 0;
+    let rockTimer = 0;
+    let state = "playing";
+    let lastTime = 0;
+
+    function resetGame() {
+      ship.x = 80;
+      ship.y = 240;
+      ship.shields = 3;
+      ship.cooldown = 0;
+      ship.charge = 0;
+      ship.charging = false;
+      ship.invuln = 0;
+      bullets = [];
+      beams = [];
+      enemies = [];
+      enemyShots = [];
+      rocks = [];
+      stars = Array.from({ length: 90 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        s: 0.5 + Math.random() * 1.8,
+      }));
+      score = 0;
+      kills = 0;
+      spawnTimer = 0;
+      rockTimer = 120;
+      state = "playing";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      shieldsEl.textContent = ship.shields;
+      chargeEl.textContent = `${Math.min(100, Math.floor(ship.charge))}%`;
+    }
+
+    function rectsHit(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function shoot() {
+      if (ship.cooldown > 0) return;
+      bullets.push({ x: ship.x + ship.w, y: ship.y + 8, w: 18, h: 5, vx: 9 });
+      ship.cooldown = 12;
+    }
+
+    function releaseBeam() {
+      if (ship.charge < 35) return;
+      const width = 90 + ship.charge * 2.4;
+      beams.push({ x: ship.x + ship.w - 2, y: ship.y + ship.h / 2 - 6, w: width, h: 12, life: 12, power: ship.charge });
+      ship.charge = 0;
+      ship.charging = false;
+    }
+
+    function spawnEnemy() {
+      const y = 60 + Math.random() * (canvas.height - 120);
+      const wave = kills > 12 ? 1.5 : 1;
+      enemies.push({
+        x: canvas.width + 30,
+        y,
+        w: 34,
+        h: 24,
+        hp: kills > 10 ? 2 : 1,
+        vx: -(2.2 + Math.random() * 1.5) * wave,
+        phase: Math.random() * Math.PI * 2,
+        fire: 50 + Math.random() * 80,
+      });
+    }
+
+    function spawnRock() {
+      rocks.push({
+        x: canvas.width + 40,
+        y: 30 + Math.random() * (canvas.height - 60),
+        w: 28 + Math.random() * 24,
+        h: 22 + Math.random() * 24,
+        vx: -(2.5 + Math.random() * 2),
+        spin: Math.random() * 6,
+      });
+    }
+
+    function hurtShip() {
+      if (ship.invuln > 0 || state !== "playing") return;
+      ship.shields -= 1;
+      ship.invuln = 90;
+      if (ship.shields <= 0) state = "lost";
+      updateHud();
+    }
+
+    function update() {
+      if (state !== "playing") return;
+      const speed = ship.charging ? 3.3 : 4.5;
+      if (keys.has("ArrowUp") || keys.has("w")) ship.y -= speed;
+      if (keys.has("ArrowDown") || keys.has("s")) ship.y += speed;
+      if (keys.has("ArrowLeft") || keys.has("a")) ship.x -= speed;
+      if (keys.has("ArrowRight") || keys.has("d")) ship.x += speed;
+      ship.x = Math.max(12, Math.min(canvas.width - ship.w - 20, ship.x));
+      ship.y = Math.max(18, Math.min(canvas.height - ship.h - 18, ship.y));
+
+      if (keys.has(" ")) shoot();
+      if (ship.charging) ship.charge = Math.min(100, ship.charge + 1.2);
+      ship.cooldown = Math.max(0, ship.cooldown - 1);
+      ship.invuln = Math.max(0, ship.invuln - 1);
+
+      stars.forEach((star) => {
+        star.x -= star.s;
+        if (star.x < 0) {
+          star.x = canvas.width;
+          star.y = Math.random() * canvas.height;
+        }
+      });
+
+      spawnTimer -= 1;
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = Math.max(34, 82 - kills * 1.4);
+      }
+      rockTimer -= 1;
+      if (rockTimer <= 0) {
+        spawnRock();
+        rockTimer = 130 + Math.random() * 90;
+      }
+
+      bullets.forEach((b) => (b.x += b.vx));
+      bullets = bullets.filter((b) => b.x < canvas.width + 40);
+      beams.forEach((beam) => (beam.life -= 1));
+      beams = beams.filter((beam) => beam.life > 0);
+
+      enemies.forEach((enemy) => {
+        enemy.x += enemy.vx;
+        enemy.phase += 0.05;
+        enemy.y += Math.sin(enemy.phase) * 1.4;
+        enemy.fire -= 1;
+        if (enemy.fire <= 0) {
+          enemyShots.push({ x: enemy.x, y: enemy.y + enemy.h / 2, w: 10, h: 4, vx: -5.2 });
+          enemy.fire = 70 + Math.random() * 60;
+        }
+      });
+      enemies = enemies.filter((enemy) => enemy.x > -80 && enemy.hp > 0);
+      enemyShots.forEach((shot) => (shot.x += shot.vx));
+      enemyShots = enemyShots.filter((shot) => shot.x > -30);
+      rocks.forEach((rock) => {
+        rock.x += rock.vx;
+        rock.spin += 0.05;
+      });
+      rocks = rocks.filter((rock) => rock.x > -80);
+
+      bullets.forEach((bullet) => {
+        enemies.forEach((enemy) => {
+          if (rectsHit(bullet, enemy)) {
+            bullet.x = canvas.width + 100;
+            enemy.hp -= 1;
+            if (enemy.hp <= 0) {
+              score += 100;
+              kills += 1;
+            }
+          }
+        });
+      });
+      beams.forEach((beam) => {
+        enemies.forEach((enemy) => {
+          if (rectsHit(beam, enemy)) {
+            enemy.hp = 0;
+            score += 130;
+            kills += 1;
+          }
+        });
+        rocks.forEach((rock) => {
+          if (rectsHit(beam, rock)) {
+            rock.x = -100;
+            score += 30;
+          }
+        });
+      });
+
+      const shipBox = { x: ship.x + 4, y: ship.y + 3, w: ship.w - 6, h: ship.h - 6 };
+      enemies.forEach((enemy) => rectsHit(shipBox, enemy) && hurtShip());
+      enemyShots.forEach((shot) => {
+        if (rectsHit(shipBox, shot)) {
+          shot.x = -100;
+          hurtShip();
+        }
+      });
+      rocks.forEach((rock) => rectsHit(shipBox, rock) && hurtShip());
+      if (kills >= 24) state = "won";
+      updateHud();
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.globalAlpha = ship.invuln > 0 && Math.floor(ship.invuln / 6) % 2 === 0 ? 0.35 : 1;
+      ctx.fillStyle = "#22d3ee";
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y + ship.h / 2);
+      ctx.lineTo(ship.x + 22, ship.y);
+      ctx.lineTo(ship.x + ship.w, ship.y + 9);
+      ctx.lineTo(ship.x + ship.w, ship.y + ship.h - 9);
+      ctx.lineTo(ship.x + 22, ship.y + ship.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(ship.x + 18, ship.y + 8, 12, 8);
+      if (ship.charging && state === "playing") {
+        ctx.strokeStyle = "#facc15";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(ship.x + ship.w + 8, ship.y + ship.h / 2, 8 + ship.charge / 12, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.fillStyle = enemy.hp > 1 ? "#fb7185" : "#f97316";
+      ctx.fillRect(enemy.x, enemy.y + 6, enemy.w, 12);
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y + 12);
+      ctx.lineTo(enemy.x + 16, enemy.y);
+      ctx.lineTo(enemy.x + 16, enemy.y + 24);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#7f1d1d";
+      ctx.fillRect(enemy.x + 24, enemy.y + 9, 12, 6);
+    }
+
+    function drawRock(rock) {
+      ctx.save();
+      ctx.translate(rock.x + rock.w / 2, rock.y + rock.h / 2);
+      ctx.rotate(rock.spin);
+      ctx.fillStyle = "#64748b";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rock.w / 2, rock.h / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#94a3b8";
+      ctx.fillRect(-rock.w / 6, -rock.h / 5, rock.w / 4, rock.h / 5);
+      ctx.restore();
+    }
+
+    function drawOverlay() {
+      if (state === "playing") return;
+      ctx.fillStyle = "rgba(2, 6, 23, 0.82)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = state === "won" ? "#67e8f9" : "#fb7185";
+      ctx.font = "bold 34px sans-serif";
+      ctx.fillText(state === "won" ? "任务完成" : "护盾耗尽", canvas.width / 2, 220);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "18px sans-serif";
+      ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 256);
+      ctx.textAlign = "left";
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#bae6fd";
+      stars.forEach((star) => ctx.fillRect(star.x, star.y, star.s, star.s));
+      ctx.strokeStyle = "rgba(34, 211, 238, 0.16)";
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x - 120, canvas.height);
+        ctx.stroke();
+      }
+      bullets.forEach((bullet) => {
+        ctx.fillStyle = "#fef08a";
+        ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+      });
+      beams.forEach((beam) => {
+        ctx.fillStyle = "rgba(250, 204, 21, 0.75)";
+        ctx.fillRect(beam.x, beam.y, beam.w, beam.h);
+        ctx.fillStyle = "rgba(103, 232, 249, 0.8)";
+        ctx.fillRect(beam.x, beam.y + 4, beam.w, 4);
+      });
+      rocks.forEach(drawRock);
+      enemies.forEach(drawEnemy);
+      enemyShots.forEach((shot) => {
+        ctx.fillStyle = "#fb7185";
+        ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
+      });
+      drawShip();
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "14px sans-serif";
+      ctx.fillText(`击破 ${kills}/24`, 16, 24);
+      drawOverlay();
+    }
+
+    function loop(time) {
+      if (time - lastTime > 16) {
+        update();
+        draw();
+        lastTime = time;
+      }
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.toLowerCase();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "w", "a", "s", "d", "j"].includes(event.key) || ["w", "a", "s", "d", "j"].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key);
+      keys.add(key);
+      if (key === "j" && !ship.charging) ship.charging = true;
+      if (key === "r") resetGame();
+    });
+
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.toLowerCase();
+      keys.delete(event.key);
+      keys.delete(key);
+      if (key === "j") releaseBeam();
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
