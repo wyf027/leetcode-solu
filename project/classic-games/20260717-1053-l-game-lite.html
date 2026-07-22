@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini L Game</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-[0.18em] text-lime-300">classic games</p>
+        <h1 class="text-3xl font-bold text-white">Mini L Game</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-300 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-lime-200">New game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[32rem] grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">Turn</div>
+            <div id="turnLabel" class="mt-1 text-lg font-bold text-white">Green</div>
+          </div>
+          <div class="rounded bg-zinc-800 p-3">
+            <div class="text-xs uppercase text-zinc-400">Moves</div>
+            <div id="moveCount" class="mt-1 text-lg font-bold text-white">0</div>
+          </div>
+        </div>
+        <div id="message" class="mt-4 rounded border border-zinc-700 bg-zinc-800 p-3 text-sm font-semibold text-zinc-100"></div>
+        <div class="mt-4 rounded bg-zinc-950 p-3 text-sm leading-6 text-zinc-300">
+          Move your L triomino to a new legal position. Then optionally move one gray blocker to any empty square. If the next player has no legal L move, they lose.
+        </div>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button id="skipBtn" class="rounded border border-zinc-700 px-3 py-2 text-sm font-semibold text-zinc-200 hover:border-lime-300">Skip blocker</button>
+          <button id="movesBtn" class="rounded border border-zinc-700 px-3 py-2 text-sm font-semibold text-zinc-200 hover:border-lime-300">Show moves</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const moveCountEl = document.getElementById("moveCount");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+    const skipBtn = document.getElementById("skipBtn");
+    const movesBtn = document.getElementById("movesBtn");
+
+    const players = {
+      G: { name: "Green", mark: "G", color: "bg-lime-300 text-zinc-950" },
+      P: { name: "Pink", mark: "P", color: "bg-pink-300 text-zinc-950" }
+    };
+
+    const shapes = [
+      [[0, 0], [1, 0], [1, 1]],
+      [[0, 1], [1, 1], [1, 0]],
+      [[0, 0], [0, 1], [1, 0]],
+      [[0, 0], [0, 1], [1, 1]]
+    ];
+
+    let pieces;
+    let blockers;
+    let turn;
+    let phase;
+    let winner;
+    let moves;
+    let hints;
+
+    function startGame() {
+      pieces = {
+        G: [0, 4, 5],
+        P: [15, 11, 10]
+      };
+      blockers = [3, 12];
+      turn = "G";
+      phase = "move";
+      winner = null;
+      moves = 0;
+      hints = [];
+      setMessage("Green moves an L piece first.");
+      render();
+    }
+
+    function indexOf(row, col) {
+      return row * 4 + col;
+    }
+
+    function cellsFor(shape, row, col) {
+      const cells = shape.map(([dr, dc]) => [row + dr, col + dc]);
+      if (cells.some(([r, c]) => r < 0 || c < 0 || r > 3 || c > 3)) return null;
+      return cells.map(([r, c]) => indexOf(r, c));
+    }
+
+    function sameCells(a, b) {
+      return a.length === b.length && a.every((cell) => b.includes(cell));
+    }
+
+    function occupiedByOthers(player) {
+      const other = player === "G" ? "P" : "G";
+      return [...pieces[other], ...blockers];
+    }
+
+    function legalMovesFor(player) {
+      const blocked = occupiedByOthers(player);
+      const result = [];
+      for (const shape of shapes) {
+        for (let row = 0; row < 4; row++) {
+          for (let col = 0; col < 4; col++) {
+            const cells = cellsFor(shape, row, col);
+            if (!cells) continue;
+            if (sameCells(cells, pieces[player])) continue;
+            if (cells.some((cell) => blocked.includes(cell))) continue;
+            if (!result.some((move) => sameCells(move, cells))) result.push(cells);
+          }
+        }
+      }
+      return result;
+    }
+
+    function ownerOf(index) {
+      if (pieces.G.includes(index)) return "G";
+      if (pieces.P.includes(index)) return "P";
+      if (blockers.includes(index)) return "B";
+      return null;
+    }
+
+    function isEmpty(index) {
+      return !ownerOf(index);
+    }
+
+    function opponent() {
+      return turn === "G" ? "P" : "G";
+    }
+
+    function finishTurn() {
+      const next = opponent();
+      moves += 1;
+      if (legalMovesFor(next).length === 0) {
+        winner = turn;
+        phase = "game-over";
+        setMessage(`${players[turn].name} wins. ${players[next].name} has no legal L move.`);
+      } else {
+        turn = next;
+        phase = "move";
+        setMessage(`${players[turn].name} moves an L piece.`);
+      }
+      hints = [];
+      render();
+    }
+
+    function handleMove(index) {
+      const move = legalMovesFor(turn).find((candidate) => candidate.includes(index));
+      if (!move) {
+        setMessage("Choose a legal destination square for your L piece.");
+        return;
+      }
+      pieces[turn] = move;
+      phase = "blocker";
+      hints = [];
+      setMessage("Optional: move one gray blocker to any empty square, or skip.");
+      render();
+    }
+
+    function handleBlocker(index) {
+      if (!isEmpty(index)) return;
+      const firstBlocker = blockers[0];
+      blockers = [blockers[1], index === firstBlocker ? blockers[1] : index];
+      finishTurn();
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      if (phase === "move") handleMove(index);
+      else if (phase === "blocker") handleBlocker(index);
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function renderCell(index) {
+      const owner = ownerOf(index);
+      const button = document.createElement("button");
+      const isHint = hints.includes(index);
+      button.className = [
+        "relative flex aspect-square items-center justify-center rounded border border-zinc-700 bg-zinc-800 text-lg font-black transition hover:border-lime-300",
+        isHint ? "ring-4 ring-lime-300" : ""
+      ].join(" ");
+      button.setAttribute("aria-label", `Square ${index + 1}`);
+      button.addEventListener("click", () => handleCell(index));
+
+      if (owner === "B") {
+        const token = document.createElement("span");
+        token.className = "z-10 h-10 w-10 rounded bg-zinc-400 shadow";
+        button.appendChild(token);
+      } else if (owner) {
+        const token = document.createElement("span");
+        token.className = `z-10 flex h-10 w-10 items-center justify-center rounded ${players[owner].color}`;
+        token.textContent = players[owner].mark;
+        button.appendChild(token);
+      } else {
+        const dot = document.createElement("span");
+        dot.className = "h-2 w-2 rounded-full bg-zinc-600";
+        button.appendChild(dot);
+      }
+      return button;
+    }
+
+    function render() {
+      boardEl.replaceChildren(...Array.from({ length: 16 }, (_, index) => renderCell(index)));
+      turnLabel.textContent = winner ? `${players[winner].name} wins` : players[turn].name;
+      moveCountEl.textContent = moves;
+      skipBtn.disabled = phase !== "blocker" || winner;
+      skipBtn.classList.toggle("opacity-40", skipBtn.disabled);
+    }
+
+    skipBtn.addEventListener("click", () => {
+      if (phase === "blocker" && !winner) finishTurn();
+    });
+
+    movesBtn.addEventListener("click", () => {
+      if (winner || phase !== "move") return;
+      hints = legalMovesFor(turn).flat();
+      setMessage(`${players[turn].name} has ${legalMovesFor(turn).length} legal L placements.`);
+      render();
+    });
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
