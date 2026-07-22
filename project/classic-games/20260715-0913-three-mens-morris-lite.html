@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Three Men's Morris</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-cyan-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Three Men's Morris</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[1fr_260px]">
+      <div class="rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-xl">
+        <div id="board" class="relative mx-auto aspect-square w-full max-w-xl select-none rounded border border-slate-700 bg-slate-950">
+          <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+            <g id="lines" stroke="#64748b" stroke-width="1.6" stroke-linecap="round"></g>
+          </svg>
+          <div id="nodes"></div>
+        </div>
+      </div>
+
+      <aside class="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-cyan-200">蓝方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded border border-slate-700 bg-slate-950 p-3">
+              <p class="text-slate-400">阶段</p>
+              <p id="phaseLabel" class="mt-1 text-xl font-bold">落子</p>
+            </div>
+            <div class="rounded border border-slate-700 bg-slate-950 p-3">
+              <p class="text-slate-400">已落子</p>
+              <p id="placedLabel" class="mt-1 text-xl font-bold">0 / 6</p>
+            </div>
+          </div>
+          <p id="message" class="rounded border border-slate-700 bg-slate-950 p-3 text-sm leading-6 text-slate-200">蓝方先手，点击空点放置棋子。</p>
+          <div class="space-y-2 text-sm leading-6 text-slate-300">
+            <p>双方各有 3 枚棋子。先完成落子阶段，再进入移动阶段。</p>
+            <p>移动阶段只能沿棋盘线移动到相邻空点。</p>
+            <p>任意横、竖、斜三点连成一线即可获胜。</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 15, y: 15 }, { x: 50, y: 15 }, { x: 85, y: 15 },
+      { x: 15, y: 50 }, { x: 50, y: 50 }, { x: 85, y: 50 },
+      { x: 15, y: 85 }, { x: 50, y: 85 }, { x: 85, y: 85 }
+    ];
+
+    const edges = [
+      [0, 1], [1, 2],
+      [3, 4], [4, 5],
+      [6, 7], [7, 8],
+      [0, 3], [3, 6],
+      [1, 4], [4, 7],
+      [2, 5], [5, 8],
+      [0, 4], [4, 8],
+      [2, 4], [4, 6]
+    ];
+
+    const mills = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+
+    const adjacency = points.map(() => []);
+    edges.forEach(([a, b]) => {
+      adjacency[a].push(b);
+      adjacency[b].push(a);
+    });
+
+    const lines = document.getElementById("lines");
+    const nodes = document.getElementById("nodes");
+    const turnLabel = document.getElementById("turnLabel");
+    const phaseLabel = document.getElementById("phaseLabel");
+    const placedLabel = document.getElementById("placedLabel");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let state;
+
+    function resetGame() {
+      state = {
+        board: Array(9).fill(null),
+        turn: "blue",
+        placed: { blue: 0, rose: 0 },
+        phase: "placing",
+        selected: null,
+        winner: null
+      };
+      drawLines();
+      render();
+    }
+
+    function drawLines() {
+      lines.innerHTML = edges.map(([a, b]) => {
+        const start = points[a];
+        const end = points[b];
+        return `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}"></line>`;
+      }).join("");
+    }
+
+    function playerName(player) {
+      return player === "blue" ? "蓝方" : "玫红方";
+    }
+
+    function opponent(player) {
+      return player === "blue" ? "rose" : "blue";
+    }
+
+    function hasMill(player) {
+      return mills.some((line) => line.every((index) => state.board[index] === player));
+    }
+
+    function canMove(player) {
+      return state.board.some((piece, index) => piece === player && adjacency[index].some((to) => state.board[to] === null));
+    }
+
+    function handlePoint(index) {
+      if (state.winner) return;
+      if (state.phase === "placing") {
+        placePiece(index);
+        return;
+      }
+      movePiece(index);
+    }
+
+    function placePiece(index) {
+      if (state.board[index] !== null) return;
+      state.board[index] = state.turn;
+      state.placed[state.turn] += 1;
+      if (finishTurn()) return;
+      if (state.placed.blue + state.placed.rose === 6) {
+        state.phase = "moving";
+        message.textContent = `${playerName(state.turn)}请选择一枚棋子移动。`;
+      }
+      render();
+    }
+
+    function movePiece(index) {
+      const piece = state.board[index];
+      if (state.selected === null) {
+        if (piece === state.turn) {
+          state.selected = index;
+          message.textContent = "选择相邻空点完成移动。";
+          render();
+        }
+        return;
+      }
+
+      if (state.selected === index) {
+        state.selected = null;
+        message.textContent = "已取消选择。";
+        render();
+        return;
+      }
+
+      if (piece === state.turn) {
+        state.selected = index;
+        message.textContent = "已切换选择。";
+        render();
+        return;
+      }
+
+      const legal = state.board[index] === null && adjacency[state.selected].includes(index);
+      if (!legal) return;
+      state.board[index] = state.turn;
+      state.board[state.selected] = null;
+      state.selected = null;
+      finishTurn();
+      render();
+    }
+
+    function finishTurn() {
+      if (hasMill(state.turn)) {
+        state.winner = state.turn;
+        message.textContent = `${playerName(state.turn)}连成三子一线，获得胜利。`;
+        render();
+        return true;
+      }
+      const next = opponent(state.turn);
+      if (state.phase === "moving" && !canMove(next)) {
+        state.winner = state.turn;
+        message.textContent = `${playerName(next)}无棋可走，${playerName(state.turn)}获胜。`;
+        render();
+        return true;
+      }
+      state.turn = next;
+      message.textContent = state.phase === "placing" ? `${playerName(state.turn)}落子。` : `${playerName(state.turn)}移动一枚棋子。`;
+      return false;
+    }
+
+    function render() {
+      turnLabel.textContent = state.winner ? `${playerName(state.winner)}获胜` : playerName(state.turn);
+      phaseLabel.textContent = state.phase === "placing" ? "落子" : "移动";
+      placedLabel.textContent = `${state.placed.blue + state.placed.rose} / 6`;
+
+      const legalMoves = state.selected === null ? [] : adjacency[state.selected].filter((to) => state.board[to] === null);
+      nodes.innerHTML = points.map((point, index) => {
+        const piece = state.board[index];
+        const selected = state.selected === index;
+        const legal = legalMoves.includes(index);
+        const base = "absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-black shadow transition focus:outline-none focus:ring-2 focus:ring-cyan-200";
+        let look = "border-slate-600 bg-slate-800 text-slate-400 hover:bg-slate-700";
+        let label = "";
+        if (piece === "blue") {
+          look = "border-cyan-100 bg-cyan-500 text-slate-950 hover:bg-cyan-400";
+          label = "B";
+        }
+        if (piece === "rose") {
+          look = "border-rose-100 bg-rose-500 text-white hover:bg-rose-400";
+          label = "R";
+        }
+        if (selected) look += " ring-4 ring-white/70";
+        if (legal) look = "border-emerald-100 bg-emerald-500 text-white hover:bg-emerald-400";
+        return `<button type="button" class="${base} ${look}" style="left:${point.x}%;top:${point.y}%" aria-label="point ${index}" data-index="${index}">${label}</button>`;
+      }).join("");
+
+      nodes.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => handlePoint(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
