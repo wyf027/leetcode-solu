@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Rithmomachy</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-violet-950 text-violet-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-violet-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Rithmomachy</h1>
+        <p class="mt-1 max-w-2xl text-sm text-violet-200">移动数字棋子并用算术关系吃子：相等、倍数，或与相邻盟友相加等于目标。先得 18 分获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-violet-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-violet-700 bg-violet-900/70 p-4 shadow">
+        <div id="board" class="grid aspect-square grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-violet-700 bg-violet-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-violet-300">当前回合</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold"></div>
+          <p id="statusText" class="mt-3 min-h-20 text-sm leading-6 text-violet-100"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-violet-700 bg-violet-900/70 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-violet-300">偶方得分</div>
+            <div id="evenScore" class="mt-2 text-3xl font-black text-cyan-200"></div>
+          </div>
+          <div class="rounded border border-violet-700 bg-violet-900/70 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-violet-300">奇方得分</div>
+            <div id="oddScore" class="mt-2 text-3xl font-black text-rose-200"></div>
+          </div>
+        </div>
+
+        <div class="rounded border border-violet-700 bg-violet-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-violet-300">操作</div>
+          <p class="mt-2 text-sm leading-6 text-violet-100">先选己方数字，再点高亮目标。空位为移动；敌方目标为可捕获，捕获得目标数字分。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnText = document.getElementById('turnText');
+    const statusText = document.getElementById('statusText');
+    const evenScore = document.getElementById('evenScore');
+    const oddScore = document.getElementById('oddScore');
+    const resetBtn = document.getElementById('resetBtn');
+    const size = 4;
+    const goal = 18;
+    const players = [
+      { name: '偶方', key: 'even', color: 'bg-cyan-300', text: 'text-cyan-200', pieceText: 'text-violet-950' },
+      { name: '奇方', key: 'odd', color: 'bg-rose-300', text: 'text-rose-200', pieceText: 'text-violet-950' }
+    ];
+    let game;
+
+    function resetGame() {
+      game = {
+        turn: 0,
+        selected: null,
+        winner: null,
+        scores: [0, 0],
+        cells: Array.from({ length: size * size }, () => null),
+        message: '偶方先手。选择一个数字棋子，移动或捕获。'
+      };
+      [0, 1, 2, 3].forEach((index, i) => { game.cells[index] = { owner: 0, value: [2, 4, 6, 8][i] }; });
+      [12, 13, 14, 15].forEach((index, i) => { game.cells[index] = { owner: 1, value: [3, 5, 7, 9][i] }; });
+      render();
+    }
+
+    function row(index) {
+      return Math.floor(index / size);
+    }
+
+    function col(index) {
+      return index % size;
+    }
+
+    function indexAt(r, c) {
+      if (r < 0 || r >= size || c < 0 || c >= size) return -1;
+      return r * size + c;
+    }
+
+    function neighbors(index) {
+      return [[-1, 0], [1, 0], [0, -1], [0, 1]]
+        .map(([dr, dc]) => indexAt(row(index) + dr, col(index) + dc))
+        .filter((next) => next !== -1);
+    }
+
+    function allyValuesNear(index, owner) {
+      return neighbors(index)
+        .map((next) => game.cells[next])
+        .filter((piece) => piece && piece.owner === owner)
+        .map((piece) => piece.value);
+    }
+
+    function canCapture(from, to) {
+      const attacker = game.cells[from];
+      const target = game.cells[to];
+      if (!attacker || !target || attacker.owner === target.owner) return false;
+      if (attacker.value === target.value) return true;
+      if (target.value % attacker.value === 0 || attacker.value % target.value === 0) return true;
+      return allyValuesNear(from, attacker.owner).some((value) => value + attacker.value === target.value);
+    }
+
+    function legalMoves(index) {
+      const piece = game.cells[index];
+      if (!piece) return [];
+      return neighbors(index).filter((next) => game.cells[next] === null || canCapture(index, next));
+    }
+
+    function playerHasMove(playerIndex) {
+      return game.cells.some((piece, index) => piece && piece.owner === playerIndex && legalMoves(index).length > 0);
+    }
+
+    function selectCell(index) {
+      if (game.winner !== null) return;
+      const piece = game.cells[index];
+      if (game.selected === null) {
+        if (!piece || piece.owner !== game.turn) {
+          game.message = `请选择${players[game.turn].name}自己的数字。`;
+          render();
+          return;
+        }
+        if (!legalMoves(index).length) {
+          game.message = '这个数字暂时没有合法行动。';
+          render();
+          return;
+        }
+        game.selected = index;
+        game.message = '选择一个高亮格移动或捕获。';
+        render();
+        return;
+      }
+
+      if (piece && piece.owner === game.turn) {
+        game.selected = index;
+        game.message = '已改选数字棋子。';
+        render();
+        return;
+      }
+
+      if (!legalMoves(game.selected).includes(index)) {
+        game.message = '只能走到相邻空格，或捕获符合算术关系的相邻敌子。';
+        render();
+        return;
+      }
+
+      const mover = game.turn;
+      const attacker = game.cells[game.selected];
+      const target = game.cells[index];
+      if (target) {
+        game.scores[mover] += target.value;
+        game.message = `${players[mover].name} 捕获 ${target.value}，得 ${target.value} 分。`;
+      } else {
+        game.message = `${players[mover].name} 移动 ${attacker.value}。`;
+      }
+      game.cells[index] = attacker;
+      game.cells[game.selected] = null;
+      game.selected = null;
+      checkWinner();
+      if (game.winner === null) {
+        game.turn = 1 - game.turn;
+        if (!playerHasMove(game.turn)) {
+          game.winner = 1 - game.turn;
+          game.message = `${players[game.winner].name} 让对手无路可走，获得胜利。`;
+        } else {
+          game.message += ` 轮到${players[game.turn].name}。`;
+        }
+      }
+      render();
+    }
+
+    function checkWinner() {
+      if (game.scores[0] >= goal || game.scores[1] >= goal) {
+        game.winner = game.scores[0] >= goal ? 0 : 1;
+        game.message = `${players[game.winner].name} 达到 ${goal} 分，获得胜利。`;
+      }
+    }
+
+    function render() {
+      const targets = game.selected === null ? [] : legalMoves(game.selected);
+      turnText.textContent = game.winner === null ? players[game.turn].name : `${players[game.winner].name}胜利`;
+      turnText.className = `mt-1 text-2xl font-bold ${players[game.winner ?? game.turn].text}`;
+      statusText.textContent = game.message;
+      evenScore.textContent = `${game.scores[0]}/${goal}`;
+      oddScore.textContent = `${game.scores[1]}/${goal}`;
+      boardEl.innerHTML = game.cells.map((piece, index) => {
+        const selected = game.selected === index;
+        const target = targets.includes(index);
+        const capture = game.selected !== null && target && game.cells[index] !== null;
+        const dark = (row(index) + col(index)) % 2 === 0;
+        return `
+          <button class="relative flex items-center justify-center rounded border text-xl font-black transition ${selected ? 'border-amber-300 bg-amber-300/20' : target ? (capture ? 'border-rose-300 bg-rose-300/20' : 'border-emerald-300 bg-emerald-300/20') : dark ? 'border-violet-700 bg-violet-800/70 hover:bg-violet-800' : 'border-violet-700 bg-violet-950/60 hover:bg-violet-900'}" data-index="${index}">
+            <span class="absolute left-1 top-1 text-xs font-semibold text-violet-500">${index + 1}</span>
+            ${piece ? `<span class="flex h-14 w-14 items-center justify-center rounded-full ${players[piece.owner].color} ${players[piece.owner].pieceText}">${piece.value}</span>` : target ? `<span class="h-5 w-5 rounded-full ${capture ? 'bg-rose-300' : 'bg-emerald-300'}"></span>` : ''}
+          </button>
+        `;
+      }).join('');
+      boardEl.querySelectorAll('button[data-index]').forEach((button) => {
+        button.addEventListener('click', () => selectCell(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
