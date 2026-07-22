@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Asalto</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:items-center md:justify-center">
+    <section class="w-full max-w-xl">
+      <div class="mb-4 flex items-end justify-between gap-3">
+        <div>
+          <p class="text-sm uppercase tracking-[0.24em] text-amber-300">Classic Games</p>
+          <h1 class="text-3xl font-bold text-white">Mini Asalto</h1>
+        </div>
+        <button id="reset" class="rounded bg-amber-400 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-amber-300">Reset</button>
+      </div>
+
+      <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2 rounded bg-stone-900 p-3 shadow-2xl shadow-black/40"></div>
+    </section>
+
+    <aside class="w-full max-w-sm space-y-4">
+      <div class="rounded border border-stone-700 bg-stone-900 p-4">
+        <h2 class="mb-2 text-lg font-bold text-amber-200">Status</h2>
+        <p id="status" class="min-h-12 text-sm leading-6 text-stone-200"></p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-stone-400">Soldiers</p>
+          <p id="soldierCount" class="mt-1 text-2xl font-bold text-sky-300">0</p>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 p-4">
+          <p class="text-xs uppercase tracking-[0.2em] text-stone-400">Captured</p>
+          <p id="capturedCount" class="mt-1 text-2xl font-bold text-rose-300">0</p>
+        </div>
+      </div>
+
+      <div class="rounded border border-stone-700 bg-stone-900 p-4 text-sm leading-6 text-stone-300">
+        <h2 class="mb-2 text-lg font-bold text-amber-200">Rules</h2>
+        <p>Soldiers move one step up or sideways and try to occupy all three fortress cells.</p>
+        <p class="mt-2">Officers move one step in any orthogonal direction or jump over an adjacent soldier to capture it.</p>
+        <p class="mt-2">Soldiers win by filling the fortress or trapping both officers. Officers win after eight captures or when soldiers have no legal move.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const size = 5;
+    const fortress = new Set(["0,2", "1,1", "1,3"]);
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const soldierCountEl = document.getElementById("soldierCount");
+    const capturedCountEl = document.getElementById("capturedCount");
+    const resetButton = document.getElementById("reset");
+
+    let board = [];
+    let turn = "soldier";
+    let selected = null;
+    let moves = [];
+    let captured = 0;
+    let gameOver = false;
+
+    function key(row, col) {
+      return `${row},${col}`;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceAt(row, col) {
+      return board[row][col];
+    }
+
+    function setPiece(row, col, value) {
+      board[row][col] = value;
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      [[0, 1], [0, 3]].forEach(([row, col]) => setPiece(row, col, "O"));
+      [
+        [2, 0], [2, 1], [2, 2], [2, 3], [2, 4],
+        [3, 0], [3, 1], [3, 2], [3, 3], [3, 4],
+        [4, 1], [4, 2], [4, 3]
+      ].forEach(([row, col]) => setPiece(row, col, "S"));
+      turn = "soldier";
+      selected = null;
+      moves = [];
+      captured = 0;
+      gameOver = false;
+      render();
+    }
+
+    function soldierMoves(row, col) {
+      return [
+        [row - 1, col],
+        [row, col - 1],
+        [row, col + 1]
+      ]
+        .filter(([nextRow, nextCol]) => inBounds(nextRow, nextCol))
+        .filter(([nextRow, nextCol]) => !pieceAt(nextRow, nextCol))
+        .map(([nextRow, nextCol]) => ({
+          row: nextRow,
+          col: nextCol,
+          capture: null
+        }));
+    }
+
+    function officerMoves(row, col) {
+      const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      const result = [];
+
+      dirs.forEach(([dr, dc]) => {
+        const oneRow = row + dr;
+        const oneCol = col + dc;
+        if (!inBounds(oneRow, oneCol)) return;
+
+        if (!pieceAt(oneRow, oneCol)) {
+          result.push({ row: oneRow, col: oneCol, capture: null });
+          return;
+        }
+
+        const twoRow = row + dr * 2;
+        const twoCol = col + dc * 2;
+        if (
+          pieceAt(oneRow, oneCol) === "S" &&
+          inBounds(twoRow, twoCol) &&
+          !pieceAt(twoRow, twoCol)
+        ) {
+          result.push({
+            row: twoRow,
+            col: twoCol,
+            capture: { row: oneRow, col: oneCol }
+          });
+        }
+      });
+
+      return result;
+    }
+
+    function legalMoves(row, col) {
+      const piece = pieceAt(row, col);
+      if (piece === "S") return soldierMoves(row, col);
+      if (piece === "O") return officerMoves(row, col);
+      return [];
+    }
+
+    function allMovesFor(piece) {
+      const result = [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (pieceAt(row, col) === piece) {
+            legalMoves(row, col).forEach((move) => result.push({ from: { row, col }, move }));
+          }
+        }
+      }
+      return result;
+    }
+
+    function countPieces(piece) {
+      return board.flat().filter((cell) => cell === piece).length;
+    }
+
+    function fortressFilled() {
+      return [...fortress].every((cell) => {
+        const [row, col] = cell.split(",").map(Number);
+        return pieceAt(row, col) === "S";
+      });
+    }
+
+    function finishGame(message) {
+      gameOver = true;
+      selected = null;
+      moves = [];
+      statusEl.textContent = message;
+    }
+
+    function checkGame() {
+      if (fortressFilled()) {
+        finishGame("Soldiers win by occupying the fortress.");
+        return true;
+      }
+
+      if (captured >= 8) {
+        finishGame("Officers win after capturing eight soldiers.");
+        return true;
+      }
+
+      if (allMovesFor("O").length === 0) {
+        finishGame("Soldiers win because both officers are trapped.");
+        return true;
+      }
+
+      if (allMovesFor("S").length === 0) {
+        finishGame("Officers win because soldiers have no legal move.");
+        return true;
+      }
+
+      return false;
+    }
+
+    function selectCell(row, col) {
+      if (gameOver) return;
+      const piece = pieceAt(row, col);
+      const expected = turn === "soldier" ? "S" : "O";
+
+      if (piece !== expected) {
+        selected = null;
+        moves = [];
+        render();
+        return;
+      }
+
+      selected = { row, col };
+      moves = legalMoves(row, col);
+      render();
+    }
+
+    function applyMove(row, col) {
+      if (!selected || gameOver) return;
+      const move = moves.find((item) => item.row === row && item.col === col);
+      if (!move) return;
+
+      const piece = pieceAt(selected.row, selected.col);
+      setPiece(selected.row, selected.col, "");
+      if (move.capture) {
+        setPiece(move.capture.row, move.capture.col, "");
+        captured += 1;
+      }
+      setPiece(row, col, piece);
+
+      selected = null;
+      moves = [];
+      turn = turn === "soldier" ? "officer" : "soldier";
+      render();
+      if (!checkGame()) renderStatus();
+    }
+
+    function handleCell(row, col) {
+      if (moves.some((move) => move.row === row && move.col === col)) {
+        applyMove(row, col);
+        return;
+      }
+      selectCell(row, col);
+    }
+
+    function cellClasses(row, col) {
+      const classes = [
+        "relative",
+        "flex",
+        "aspect-square",
+        "items-center",
+        "justify-center",
+        "rounded",
+        "border",
+        "text-2xl",
+        "font-black",
+        "transition"
+      ];
+      const isFortress = fortress.has(key(row, col));
+      const isSelected = selected && selected.row === row && selected.col === col;
+      const isMove = moves.some((move) => move.row === row && move.col === col);
+
+      classes.push(isFortress ? "border-amber-300 bg-amber-950" : "border-stone-700 bg-stone-800");
+      if (isSelected) classes.push("ring-4 ring-emerald-300");
+      if (isMove) classes.push("cursor-pointer bg-emerald-900 ring-2 ring-emerald-400");
+      if (!gameOver && !isMove) classes.push("hover:bg-stone-700");
+      return classes.join(" ");
+    }
+
+    function renderPiece(piece) {
+      if (piece === "S") {
+        return '<span class="flex h-10 w-10 items-center justify-center rounded-full bg-sky-300 text-sky-950 shadow">S</span>';
+      }
+      if (piece === "O") {
+        return '<span class="flex h-10 w-10 items-center justify-center rounded-full bg-rose-300 text-rose-950 shadow">O</span>';
+      }
+      return "";
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(row, col);
+          button.innerHTML = renderPiece(pieceAt(row, col));
+          button.setAttribute("aria-label", `Row ${row + 1}, column ${col + 1}`);
+
+          if (fortress.has(key(row, col))) {
+            const mark = document.createElement("span");
+            mark.className = "absolute right-1 top-1 text-xs font-bold text-amber-200";
+            mark.textContent = "F";
+            button.appendChild(mark);
+          }
+
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+    }
+
+    function renderStatus() {
+      if (gameOver) return;
+      const actor = turn === "soldier" ? "Soldiers" : "Officers";
+      const hint = selected
+        ? `${actor}: choose a highlighted destination.`
+        : `${actor} to move. Select one of your pieces.`;
+      statusEl.textContent = hint;
+    }
+
+    function renderScores() {
+      soldierCountEl.textContent = countPieces("S");
+      capturedCountEl.textContent = captured;
+    }
+
+    function render() {
+      renderBoard();
+      renderScores();
+      renderStatus();
+    }
+
+    resetButton.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
