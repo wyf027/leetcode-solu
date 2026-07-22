@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Ikari Warriors Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.24em] text-amber-300">Classic vertical run-and-gun</p>
+        <h1 class="text-2xl font-bold text-white">Mini Ikari Warriors</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Score</p>
+          <p id="score" class="text-lg font-bold text-amber-300">0</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Lives</p>
+          <p id="lives" class="text-lg font-bold text-red-300">3</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Bombs</p>
+          <p id="bombs" class="text-lg font-bold text-lime-300">3</p>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <p class="text-zinc-400">Wave</p>
+          <p id="wave" class="text-lg font-bold text-cyan-300">1</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="rounded border border-zinc-700 bg-zinc-900 p-3 shadow-2xl shadow-amber-950/30">
+      <canvas id="game" width="900" height="560" class="block w-full rounded bg-zinc-950"></canvas>
+    </div>
+
+    <section class="flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-300">
+      <p>Move with arrows/WASD. Press Space to fire, Shift for a bomb. Reach the top extraction zone.</p>
+      <button id="restart" class="rounded bg-amber-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-amber-300">Restart</button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const bombsEl = document.getElementById("bombs");
+    const waveEl = document.getElementById("wave");
+    const restartBtn = document.getElementById("restart");
+    const keys = new Set();
+
+    const player = { x: 450, y: 486, r: 13, cool: 0, inv: 0, dirX: 0, dirY: -1 };
+    let enemies = [];
+    let shots = [];
+    let enemyShots = [];
+    let blasts = [];
+    let bunkers = [];
+    let scroll = 0;
+    let score = 0;
+    let lives = 3;
+    let bombs = 3;
+    let wave = 1;
+    let message = "Push north through the river road.";
+    let gameOver = false;
+    let lastTime = 0;
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      bombsEl.textContent = bombs;
+      waveEl.textContent = wave;
+    }
+
+    function resetWave() {
+      enemies = Array.from({ length: 8 + wave * 2 }, (_, i) => ({
+        x: 82 + (i * 103) % 736,
+        y: -80 - i * 74,
+        r: 12,
+        vx: i % 2 ? 44 : -44,
+        cool: 0.6 + (i % 4) * 0.35,
+        hp: 1 + Math.floor(wave / 3)
+      }));
+      bunkers = Array.from({ length: 4 + Math.min(wave, 4) }, (_, i) => ({
+        x: 120 + (i * 177) % 650,
+        y: -170 - i * 190,
+        w: 42,
+        h: 28,
+        cool: 1 + i * 0.4,
+        hp: 2
+      }));
+      shots = [];
+      enemyShots = [];
+      blasts = [];
+    }
+
+    function reset() {
+      player.x = 450;
+      player.y = 486;
+      player.cool = 0;
+      player.inv = 0;
+      player.dirX = 0;
+      player.dirY = -1;
+      scroll = 0;
+      score = 0;
+      lives = 3;
+      bombs = 3;
+      wave = 1;
+      message = "Push north through the river road.";
+      gameOver = false;
+      resetWave();
+      updateHud();
+    }
+
+    function dist(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function fire() {
+      if (player.cool > 0 || gameOver) return;
+      const len = Math.hypot(player.dirX, player.dirY) || 1;
+      const dx = player.dirX / len;
+      const dy = player.dirY / len;
+      shots.push({ x: player.x + dx * 14, y: player.y + dy * 14, vx: dx * 430, vy: dy * 430, r: 4, life: 1.1 });
+      player.cool = 0.14;
+    }
+
+    function useBomb() {
+      if (bombs <= 0 || gameOver) return;
+      bombs -= 1;
+      blasts.push({ x: player.x, y: player.y, r: 26, life: 0.45, max: 150 });
+      for (const e of enemies) {
+        if (Math.hypot(e.x - player.x, e.y - player.y) < 170) {
+          e.hp = 0;
+          score += 100;
+        }
+      }
+      for (const b of bunkers) {
+        if (Math.hypot(b.x + b.w / 2 - player.x, b.y + b.h / 2 - player.y) < 175) {
+          b.hp = 0;
+          score += 160;
+        }
+      }
+      enemyShots = enemyShots.filter((s) => Math.hypot(s.x - player.x, s.y - player.y) > 180);
+      message = "Bomb cleared nearby fire.";
+      updateHud();
+    }
+
+    function hitPlayer() {
+      if (player.inv > 0 || gameOver) return;
+      lives -= 1;
+      player.inv = 1.5;
+      message = lives > 0 ? "Hit. Regroup and keep moving." : "Mission failed. Press restart.";
+      updateHud();
+      if (lives <= 0) {
+        gameOver = true;
+      } else {
+        player.x = 450;
+        player.y = 486;
+        enemyShots = [];
+      }
+    }
+
+    function spawnEnemyShot(x, y, speed) {
+      const angle = Math.atan2(player.y - y, player.x - x);
+      enemyShots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: 4, life: 3 });
+    }
+
+    function updatePlayer(dt) {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w");
+      const down = keys.has("ArrowDown") || keys.has("s");
+      const mx = (right ? 1 : 0) - (left ? 1 : 0);
+      const my = (down ? 1 : 0) - (up ? 1 : 0);
+      const len = Math.hypot(mx, my) || 1;
+      if (mx || my) {
+        player.dirX = mx / len;
+        player.dirY = my / len;
+      }
+      player.x += mx / len * 220 * dt;
+      player.y += my / len * 220 * dt;
+      player.x = Math.max(42, Math.min(canvas.width - 42, player.x));
+      player.y = Math.max(54, Math.min(canvas.height - 42, player.y));
+      if (player.y < 86) {
+        wave += 1;
+        bombs = Math.min(5, bombs + 1);
+        player.y = 486;
+        scroll = 0;
+        message = "Extraction reached. New sector ahead.";
+        resetWave();
+        updateHud();
+      }
+      player.cool = Math.max(0, player.cool - dt);
+      player.inv = Math.max(0, player.inv - dt);
+    }
+
+    function updateRoad(dt) {
+      scroll += (34 + wave * 8) * dt;
+      for (const e of enemies) e.y += (34 + wave * 8) * dt;
+      for (const b of bunkers) b.y += (34 + wave * 8) * dt;
+      if (enemies.filter((e) => e.hp > 0 && e.y < canvas.height + 60).length < 4) {
+        enemies.push({
+          x: 80 + Math.random() * 740,
+          y: -80,
+          r: 12,
+          vx: Math.random() > 0.5 ? 52 : -52,
+          cool: 0.6,
+          hp: 1 + Math.floor(wave / 3)
+        });
+      }
+    }
+
+    function updateEnemies(dt) {
+      for (const e of enemies) {
+        if (e.hp <= 0) continue;
+        e.x += e.vx * dt;
+        if (e.x < 74 || e.x > canvas.width - 74) e.vx *= -1;
+        e.cool -= dt;
+        if (e.cool <= 0 && e.y > 40 && e.y < canvas.height - 20) {
+          spawnEnemyShot(e.x, e.y, 130 + wave * 18);
+          e.cool = Math.max(0.45, 1.55 - wave * 0.08 + Math.random() * 0.5);
+        }
+        if (dist(e, player) < e.r + player.r) hitPlayer();
+      }
+      for (const b of bunkers) {
+        if (b.hp <= 0) continue;
+        b.cool -= dt;
+        if (b.cool <= 0 && b.y > 28 && b.y < canvas.height - 28) {
+          spawnEnemyShot(b.x + b.w / 2, b.y + b.h, 105 + wave * 16);
+          b.cool = Math.max(0.7, 1.8 - wave * 0.08);
+        }
+        const nearest = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+        if (Math.abs(player.x - nearest.x) < b.w / 2 + player.r && Math.abs(player.y - nearest.y) < b.h / 2 + player.r) {
+          hitPlayer();
+        }
+      }
+    }
+
+    function updateShots(dt) {
+      for (const s of shots) {
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.life -= dt;
+        for (const e of enemies) {
+          if (e.hp > 0 && Math.hypot(e.x - s.x, e.y - s.y) < e.r + s.r) {
+            e.hp -= 1;
+            s.life = 0;
+            if (e.hp <= 0) score += 100;
+          }
+        }
+        for (const b of bunkers) {
+          if (b.hp > 0 && s.x > b.x && s.x < b.x + b.w && s.y > b.y && s.y < b.y + b.h) {
+            b.hp -= 1;
+            s.life = 0;
+            if (b.hp <= 0) score += 180;
+          }
+        }
+      }
+      for (const s of enemyShots) {
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.life -= dt;
+        if (Math.hypot(s.x - player.x, s.y - player.y) < s.r + player.r) {
+          s.life = 0;
+          hitPlayer();
+        }
+      }
+      shots = shots.filter((s) => s.life > 0 && s.x > -10 && s.x < canvas.width + 10 && s.y > -10 && s.y < canvas.height + 10);
+      enemyShots = enemyShots.filter((s) => s.life > 0 && s.x > -20 && s.x < canvas.width + 20 && s.y > -20 && s.y < canvas.height + 20);
+      enemies = enemies.filter((e) => e.y < canvas.height + 90 && e.hp > 0);
+      bunkers = bunkers.filter((b) => b.y < canvas.height + 90 && b.hp > 0);
+      for (const blast of blasts) {
+        blast.life -= dt;
+        blast.r += (blast.max - blast.r) * 6 * dt;
+      }
+      blasts = blasts.filter((blast) => blast.life > 0);
+      updateHud();
+    }
+
+    function update(dt) {
+      if (gameOver) return;
+      if (keys.has(" ")) fire();
+      updatePlayer(dt);
+      updateRoad(dt);
+      updateEnemies(dt);
+      updateShots(dt);
+    }
+
+    function drawTerrain() {
+      ctx.fillStyle = "#20351f";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#5f4b32";
+      ctx.beginPath();
+      ctx.moveTo(210, 0);
+      ctx.lineTo(690, 0);
+      ctx.lineTo(732, canvas.height);
+      ctx.lineTo(168, canvas.height);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#2563eb";
+      const riverX = 80 + Math.sin(scroll * 0.01) * 18;
+      ctx.fillRect(riverX, 0, 64, canvas.height);
+      ctx.fillStyle = "#365314";
+      for (let y = -80 + (scroll % 80); y < canvas.height; y += 80) {
+        ctx.fillRect(188, y, 30, 14);
+        ctx.fillRect(682, y + 28, 34, 14);
+      }
+      ctx.fillStyle = "rgba(250, 204, 21, 0.18)";
+      ctx.fillRect(246, 20, 408, 36);
+      ctx.fillStyle = "#fde68a";
+      ctx.font = "bold 14px system-ui";
+      ctx.fillText("EXTRACTION", 405, 43);
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      if (player.inv > 0 && Math.floor(player.inv * 12) % 2) ctx.globalAlpha = 0.45;
+      const angle = Math.atan2(player.dirY, player.dirX);
+      ctx.rotate(angle + Math.PI / 2);
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(-9, -12, 18, 24);
+      ctx.fillStyle = "#dcfce7";
+      ctx.beginPath();
+      ctx.arc(0, -16, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(0, -28);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawEnemies() {
+      ctx.fillStyle = "#ef4444";
+      for (const e of enemies) {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#7f1d1d";
+        ctx.fillRect(e.x - 6, e.y - 4, 12, 11);
+        ctx.fillStyle = "#ef4444";
+      }
+      ctx.fillStyle = "#71717a";
+      for (const b of bunkers) {
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.fillStyle = "#a1a1aa";
+        ctx.fillRect(b.x + 12, b.y - 7, 18, 8);
+        ctx.fillStyle = "#71717a";
+      }
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = "#fef3c7";
+      for (const s of shots) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "#fb7185";
+      for (const s of enemyShots) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (const blast of blasts) {
+        ctx.strokeStyle = `rgba(250, 204, 21, ${blast.life * 2})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(blast.x, blast.y, blast.r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function draw() {
+      drawTerrain();
+      drawEnemies();
+      drawProjectiles();
+      drawPlayer();
+      ctx.fillStyle = "rgba(24, 24, 27, 0.76)";
+      ctx.fillRect(16, 16, 430, 34);
+      ctx.fillStyle = "#f4f4f5";
+      ctx.font = "16px system-ui";
+      ctx.fillText(message, 28, 39);
+      if (gameOver) {
+        ctx.fillStyle = "rgba(24, 24, 27, 0.78)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 44px system-ui";
+        ctx.fillText("Mission Failed", 304, 262);
+        ctx.font = "20px system-ui";
+        ctx.fillText("Press Restart to try the assault again.", 288, 300);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(event.key)) event.preventDefault();
+      keys.add(event.key);
+      if (event.key === "Shift") useBomb();
+    });
+    addEventListener("keyup", (event) => keys.delete(event.key));
+    restartBtn.addEventListener("click", reset);
+    canvas.addEventListener("pointermove", (event) => {
+      if (!event.buttons) return;
+      const rect = canvas.getBoundingClientRect();
+      player.x = (event.clientX - rect.left) / rect.width * canvas.width;
+      player.y = (event.clientY - rect.top) / rect.height * canvas.height;
+    });
+    canvas.addEventListener("pointerdown", fire);
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
