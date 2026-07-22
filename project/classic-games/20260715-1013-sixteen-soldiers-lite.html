@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Sixteen Soldiers</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Sixteen Soldiers</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-lime-400 px-4 py-2 text-sm font-bold text-zinc-950 hover:bg-lime-300 focus:outline-none focus:ring-2 focus:ring-lime-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[1fr_280px]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-xl">
+        <div id="board" class="relative mx-auto aspect-square w-full max-w-xl select-none rounded border border-zinc-700 bg-zinc-950">
+          <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+            <g id="lines" stroke="#71717a" stroke-width="1.1" stroke-linecap="round"></g>
+          </svg>
+          <div id="nodes"></div>
+        </div>
+      </div>
+
+      <aside class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-lime-200">绿方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded border border-zinc-700 bg-zinc-950 p-3">
+              <p class="text-zinc-400">绿方</p>
+              <p id="greenCount" class="mt-1 text-xl font-bold">8</p>
+            </div>
+            <div class="rounded border border-zinc-700 bg-zinc-950 p-3">
+              <p class="text-zinc-400">紫方</p>
+              <p id="violetCount" class="mt-1 text-xl font-bold">8</p>
+            </div>
+          </div>
+          <p id="message" class="rounded border border-zinc-700 bg-zinc-950 p-3 text-sm leading-6 text-zinc-200">绿方先手。选择棋子后点击亮起的空点移动或跳吃。</p>
+          <div class="space-y-2 text-sm leading-6 text-zinc-300">
+            <p>这是 Sixteen Soldiers / Solah Guti 的迷你 5x5 变体。</p>
+            <p>普通移动：沿线移动到相邻空点。</p>
+            <p>跳吃：沿线越过相邻敌子，落到其后空点并移除敌子。</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const directions = [
+      [-1, 0], [1, 0], [0, -1], [0, 1],
+      [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+
+    const points = Array.from({ length: size * size }, (_, index) => {
+      const row = Math.floor(index / size);
+      const col = index % size;
+      return { row, col, x: 12 + col * 19, y: 12 + row * 19 };
+    });
+
+    const lines = document.getElementById("lines");
+    const nodes = document.getElementById("nodes");
+    const turnLabel = document.getElementById("turnLabel");
+    const greenCount = document.getElementById("greenCount");
+    const violetCount = document.getElementById("violetCount");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let state;
+
+    function toIndex(row, col) {
+      if (row < 0 || row >= size || col < 0 || col >= size) return -1;
+      return row * size + col;
+    }
+
+    function playerName(player) {
+      return player === "green" ? "绿方" : "紫方";
+    }
+
+    function opponent(player) {
+      return player === "green" ? "violet" : "green";
+    }
+
+    function resetGame() {
+      const board = Array(size * size).fill(null);
+      [0, 1, 2, 3, 4, 5, 6, 7].forEach((index) => board[index] = "violet");
+      [17, 18, 19, 20, 21, 22, 23, 24].forEach((index) => board[index] = "green");
+      state = { board, turn: "green", selected: null, winner: null };
+      drawLines();
+      render();
+    }
+
+    function drawLines() {
+      const seen = new Set();
+      const segments = [];
+      points.forEach((point, index) => {
+        directions.forEach(([dr, dc]) => {
+          const target = toIndex(point.row + dr, point.col + dc);
+          if (target < 0) return;
+          const key = [Math.min(index, target), Math.max(index, target)].join("-");
+          if (seen.has(key)) return;
+          seen.add(key);
+          const end = points[target];
+          segments.push(`<line x1="${point.x}" y1="${point.y}" x2="${end.x}" y2="${end.y}"></line>`);
+        });
+      });
+      lines.innerHTML = segments.join("");
+    }
+
+    function getCounts() {
+      return state.board.reduce((counts, piece) => {
+        if (piece) counts[piece] += 1;
+        return counts;
+      }, { green: 0, violet: 0 });
+    }
+
+    function legalMovesFrom(index) {
+      const piece = state.board[index];
+      if (!piece || state.winner) return [];
+      const { row, col } = points[index];
+      const moves = [];
+      directions.forEach(([dr, dc]) => {
+        const near = toIndex(row + dr, col + dc);
+        const far = toIndex(row + dr * 2, col + dc * 2);
+        if (near >= 0 && state.board[near] === null) {
+          moves.push({ to: near, capture: null });
+        }
+        if (near >= 0 && far >= 0 && state.board[near] === opponent(piece) && state.board[far] === null) {
+          moves.push({ to: far, capture: near });
+        }
+      });
+      return moves;
+    }
+
+    function allLegalMoves(player) {
+      return state.board.flatMap((piece, index) => piece === player ? legalMovesFrom(index).map((move) => ({ from: index, ...move })) : []);
+    }
+
+    function selectPoint(index) {
+      if (state.winner) return;
+      const piece = state.board[index];
+      if (state.selected === null) {
+        if (piece === state.turn) {
+          state.selected = index;
+          message.textContent = "选择一个亮起的空点移动，跳过敌子即可吃子。";
+          render();
+        }
+        return;
+      }
+
+      if (state.selected === index) {
+        state.selected = null;
+        message.textContent = "已取消选择。";
+        render();
+        return;
+      }
+
+      if (piece === state.turn) {
+        state.selected = index;
+        message.textContent = "已切换选择。";
+        render();
+        return;
+      }
+
+      const move = legalMovesFrom(state.selected).find((item) => item.to === index);
+      if (!move) return;
+      movePiece(state.selected, move);
+    }
+
+    function movePiece(from, move) {
+      state.board[move.to] = state.turn;
+      state.board[from] = null;
+      if (move.capture !== null) {
+        state.board[move.capture] = null;
+      }
+      state.selected = null;
+      checkWinner();
+      if (!state.winner) {
+        state.turn = opponent(state.turn);
+        if (allLegalMoves(state.turn).length === 0) {
+          state.winner = opponent(state.turn);
+          message.textContent = `${playerName(state.turn)}无棋可走，${playerName(state.winner)}获胜。`;
+        } else {
+          message.textContent = `${playerName(state.turn)}回合。`;
+        }
+      }
+      render();
+    }
+
+    function checkWinner() {
+      const counts = getCounts();
+      if (counts.green === 0 || counts.violet === 0) {
+        state.winner = counts.green > 0 ? "green" : "violet";
+        message.textContent = `${playerName(state.winner)}吃光对手，获得胜利。`;
+      }
+    }
+
+    function render() {
+      const counts = getCounts();
+      turnLabel.textContent = state.winner ? `${playerName(state.winner)}获胜` : playerName(state.turn);
+      greenCount.textContent = String(counts.green);
+      violetCount.textContent = String(counts.violet);
+      const legalTargets = state.selected === null ? [] : legalMovesFrom(state.selected).map((move) => move.to);
+
+      nodes.innerHTML = points.map((point, index) => {
+        const piece = state.board[index];
+        const selected = state.selected === index;
+        const legal = legalTargets.includes(index);
+        const base = "absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-black shadow transition focus:outline-none focus:ring-2 focus:ring-lime-200";
+        let look = "border-zinc-600 bg-zinc-800 text-zinc-400 hover:bg-zinc-700";
+        let label = "";
+        if (piece === "green") {
+          look = "border-lime-100 bg-lime-500 text-zinc-950 hover:bg-lime-400";
+          label = "G";
+        }
+        if (piece === "violet") {
+          look = "border-violet-100 bg-violet-500 text-white hover:bg-violet-400";
+          label = "V";
+        }
+        if (selected) look += " ring-4 ring-white/70";
+        if (legal) look = "border-amber-100 bg-amber-400 text-zinc-950 hover:bg-amber-300";
+        return `<button type="button" class="${base} ${look}" style="left:${point.x}%;top:${point.y}%" aria-label="point ${index}" data-index="${index}">${label}</button>`;
+      }).join("");
+
+      nodes.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => selectPoint(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
