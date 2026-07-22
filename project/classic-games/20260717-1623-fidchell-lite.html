@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Fidchell</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-yellow-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Fidchell</h1>
+      </div>
+      <button id="newGame" class="rounded bg-yellow-300 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-yellow-200">新局</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-emerald-700 bg-emerald-900 p-4">
+        <div class="mb-3 flex flex-col gap-2 text-sm text-emerald-100 sm:flex-row sm:items-center sm:justify-between">
+          <span>目标：让金色王棋逃到任意角落。守卫可协助开路，黑棋会自动围堵。</span>
+          <span id="turnLabel" class="font-semibold text-yellow-200">白方回合</span>
+        </div>
+        <div id="board" class="grid grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-emerald-700 bg-emerald-900 p-4">
+        <h2 class="mb-3 text-lg font-bold">玩法</h2>
+        <p class="rounded bg-emerald-800 p-3 text-sm text-emerald-100">点击王棋或守卫，再点同行同列的高亮空格滑行。王棋到角落获胜；王棋无路可走则失败。</p>
+        <p id="message" class="mt-4 min-h-24 rounded bg-emerald-800 p-3 text-sm text-emerald-100">选择一枚白方棋子开始。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const corners = [0, 4, 20, 24];
+    const orthogonal = [[-1, 0], [0, 1], [1, 0], [0, -1]];
+    let pieces = [];
+    let selected = null;
+    let blackThinking = false;
+    let gameOver = false;
+
+    function startGame() {
+      pieces = [
+        { id: "K", side: "W", pos: 12, king: true },
+        { id: "W1", side: "W", pos: 7 }, { id: "W2", side: "W", pos: 11 },
+        { id: "W3", side: "W", pos: 13 }, { id: "W4", side: "W", pos: 17 },
+        { id: "B1", side: "B", pos: 2 }, { id: "B2", side: "B", pos: 10 },
+        { id: "B3", side: "B", pos: 14 }, { id: "B4", side: "B", pos: 22 }
+      ];
+      selected = null;
+      blackThinking = false;
+      gameOver = false;
+      setMessage("选择王棋或守卫开始。");
+      render();
+    }
+
+    function setMessage(text) {
+      document.getElementById("message").textContent = text;
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexOf(row, col) {
+      return row * size + col;
+    }
+
+    function inBoard(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceAt(index) {
+      return pieces.find((piece) => piece.pos === index);
+    }
+
+    function legalMoves(piece) {
+      const [row, col] = rowCol(piece.pos);
+      const moves = [];
+      orthogonal.forEach(([dr, dc]) => {
+        let nextRow = row + dr;
+        let nextCol = col + dc;
+        while (inBoard(nextRow, nextCol)) {
+          const next = indexOf(nextRow, nextCol);
+          if (pieceAt(next)) break;
+          moves.push(next);
+          nextRow += dr;
+          nextCol += dc;
+        }
+      });
+      return moves;
+    }
+
+    function selectPiece(index) {
+      if (gameOver || blackThinking) return;
+      const piece = pieceAt(index);
+      if (piece && piece.side === "W") {
+        selected = piece.id;
+        setMessage(`${piece.id} 已选中。点击高亮格滑行。`);
+        render();
+        return;
+      }
+      if (selected) movePiece(index);
+    }
+
+    function movePiece(target) {
+      const piece = pieces.find((item) => item.id === selected);
+      if (!piece || !legalMoves(piece).includes(target)) {
+        setMessage("只能沿行列滑到没有阻挡的空格。");
+        return;
+      }
+      piece.pos = target;
+      selected = null;
+      if (piece.king && corners.includes(target)) {
+        gameOver = true;
+        setMessage("王棋抵达角落，白方获胜。");
+        render();
+        return;
+      }
+      blackThinking = true;
+      setMessage("黑棋正在围堵王棋。");
+      render();
+      window.setTimeout(cpuMove, 650);
+    }
+
+    function cpuMove() {
+      if (gameOver) return;
+      const blackPieces = pieces.filter((piece) => piece.side === "B");
+      const king = pieces.find((piece) => piece.king);
+      const [kRow, kCol] = rowCol(king.pos);
+      const options = blackPieces.flatMap((piece) => legalMoves(piece).map((to) => ({ piece, to })));
+      if (options.length) {
+        options.sort((a, b) => {
+          const [ar, ac] = rowCol(a.to);
+          const [br, bc] = rowCol(b.to);
+          return Math.abs(ar - kRow) + Math.abs(ac - kCol) - (Math.abs(br - kRow) + Math.abs(bc - kCol));
+        });
+        options[0].piece.pos = options[0].to;
+      }
+      blackThinking = false;
+      if (legalMoves(king).length === 0) {
+        gameOver = true;
+        setMessage("王棋被围住，黑方获胜。");
+      } else {
+        setMessage("黑棋移动一步。继续寻找角落出口。");
+      }
+      render();
+    }
+
+    function render() {
+      document.getElementById("turnLabel").textContent = gameOver ? "游戏结束" : (blackThinking ? "黑方回合" : "白方回合");
+      const selectedPiece = pieces.find((piece) => piece.id === selected);
+      const targets = selectedPiece ? legalMoves(selectedPiece) : [];
+      const board = document.getElementById("board");
+      board.innerHTML = "";
+      for (let index = 0; index < size * size; index += 1) {
+        const piece = pieceAt(index);
+        const target = targets.includes(index);
+        const corner = corners.includes(index);
+        const cell = document.createElement("button");
+        cell.className = `aspect-square rounded border text-xl font-black ${target ? "border-yellow-300 bg-yellow-300 text-emerald-950" : corner ? "border-yellow-300 bg-emerald-800" : "border-emerald-700 bg-emerald-950 hover:border-yellow-300"}`;
+        if (piece) {
+          cell.textContent = piece.king ? "K" : piece.side;
+          cell.className += piece.side === "W" ? " text-yellow-200" : " text-stone-300";
+          if (piece.id === selected) cell.className += " ring-4 ring-yellow-300";
+        } else {
+          cell.textContent = target ? "•" : "";
+        }
+        cell.addEventListener("click", () => selectPiece(index));
+        board.appendChild(cell);
+      }
+    }
+
+    document.getElementById("newGame").addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
