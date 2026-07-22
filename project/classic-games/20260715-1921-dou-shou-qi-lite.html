@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Dou Shou Qi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-lime-950 text-lime-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-lime-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Dou Shou Qi</h1>
+        <p class="mt-1 max-w-2xl text-sm text-lime-200">4x4 轻量斗兽棋。高阶动物可吃低阶，鼠可吃象；进入对方兽穴或吃光对手即可获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-lime-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-lime-700 bg-lime-900/70 p-4 shadow">
+        <div id="board" class="grid aspect-square grid-cols-4 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-lime-700 bg-lime-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-lime-300">当前回合</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold"></div>
+          <p id="statusText" class="mt-3 min-h-20 text-sm leading-6 text-lime-100"></p>
+        </div>
+
+        <div class="rounded border border-lime-700 bg-lime-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-lime-300">兽阶</div>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm text-lime-100">
+            <div class="rounded bg-lime-950/60 p-2">象 8</div>
+            <div class="rounded bg-lime-950/60 p-2">狮 7</div>
+            <div class="rounded bg-lime-950/60 p-2">犬 3</div>
+            <div class="rounded bg-lime-950/60 p-2">鼠 1</div>
+          </div>
+        </div>
+
+        <div class="rounded border border-lime-700 bg-lime-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-lime-300">操作</div>
+          <p class="mt-2 text-sm leading-6 text-lime-100">先选己方动物，再点高亮目标。红方从上向下进攻，蓝方从下向上进攻。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnText = document.getElementById('turnText');
+    const statusText = document.getElementById('statusText');
+    const resetBtn = document.getElementById('resetBtn');
+    const size = 4;
+    const dens = [14, 1];
+    const players = [
+      { name: '红方', key: 'red', color: 'bg-red-500', text: 'text-red-300', homeDen: 1, targetDen: 14 },
+      { name: '蓝方', key: 'blue', color: 'bg-blue-500', text: 'text-blue-300', homeDen: 14, targetDen: 1 }
+    ];
+    const animals = {
+      elephant: { label: '象', rank: 8 },
+      lion: { label: '狮', rank: 7 },
+      dog: { label: '犬', rank: 3 },
+      rat: { label: '鼠', rank: 1 }
+    };
+    let game;
+
+    function resetGame() {
+      game = {
+        turn: 0,
+        selected: null,
+        winner: null,
+        cells: Array.from({ length: size * size }, () => null),
+        message: '红方先手。选择一个动物移动到相邻格。'
+      };
+      place(0, 'red', 'lion');
+      place(2, 'red', 'elephant');
+      place(4, 'red', 'dog');
+      place(7, 'red', 'rat');
+      place(8, 'blue', 'rat');
+      place(11, 'blue', 'dog');
+      place(13, 'blue', 'elephant');
+      place(15, 'blue', 'lion');
+      render();
+    }
+
+    function place(index, owner, type) {
+      game.cells[index] = { owner, type };
+    }
+
+    function row(index) {
+      return Math.floor(index / size);
+    }
+
+    function col(index) {
+      return index % size;
+    }
+
+    function indexAt(r, c) {
+      if (r < 0 || r >= size || c < 0 || c >= size) return -1;
+      return r * size + c;
+    }
+
+    function ownerAt(index) {
+      const piece = game.cells[index];
+      if (!piece) return null;
+      return piece.owner === 'red' ? 0 : 1;
+    }
+
+    function neighbors(index) {
+      return [[-1, 0], [1, 0], [0, -1], [0, 1]]
+        .map(([dr, dc]) => indexAt(row(index) + dr, col(index) + dc))
+        .filter((next) => next !== -1);
+    }
+
+    function canCapture(attacker, defender) {
+      if (!attacker || !defender || attacker.owner === defender.owner) return false;
+      if (attacker.type === 'rat' && defender.type === 'elephant') return true;
+      if (attacker.type === 'elephant' && defender.type === 'rat') return false;
+      return animals[attacker.type].rank >= animals[defender.type].rank;
+    }
+
+    function legalMoves(index) {
+      const piece = game.cells[index];
+      if (!piece) return [];
+      const player = players[piece.owner === 'red' ? 0 : 1];
+      return neighbors(index).filter((next) => {
+        if (next === player.homeDen) return false;
+        const target = game.cells[next];
+        return target === null || canCapture(piece, target);
+      });
+    }
+
+    function selectCell(index) {
+      if (game.winner !== null) return;
+      const owner = ownerAt(index);
+      if (game.selected === null) {
+        if (owner !== game.turn) {
+          game.message = `请选择${players[game.turn].name}自己的动物。`;
+          render();
+          return;
+        }
+        if (!legalMoves(index).length) {
+          game.message = '这个动物暂时没有合法移动。';
+          render();
+          return;
+        }
+        game.selected = index;
+        game.message = '选择一个高亮目标移动或捕获。';
+        render();
+        return;
+      }
+
+      if (owner === game.turn) {
+        game.selected = index;
+        game.message = '已改选动物。';
+        render();
+        return;
+      }
+
+      if (!legalMoves(game.selected).includes(index)) {
+        game.message = '只能走到相邻空格，或捕获兽阶不高于自己的对手。';
+        render();
+        return;
+      }
+
+      const mover = game.turn;
+      const piece = game.cells[game.selected];
+      const target = game.cells[index];
+      game.cells[index] = piece;
+      game.cells[game.selected] = null;
+      game.selected = null;
+      game.message = target ? `${players[mover].name}${animals[piece.type].label}吃掉${animals[target.type].label}。` : `${players[mover].name}${animals[piece.type].label}移动。`;
+      if (index === players[mover].targetDen) {
+        game.winner = mover;
+        game.message = `${players[mover].name}进入对方兽穴，获得胜利。`;
+      } else {
+        checkWinner();
+      }
+      if (game.winner === null) {
+        game.turn = 1 - game.turn;
+        game.message += ` 轮到${players[game.turn].name}。`;
+      }
+      render();
+    }
+
+    function checkWinner() {
+      const redLeft = game.cells.some((piece) => piece && piece.owner === 'red');
+      const blueLeft = game.cells.some((piece) => piece && piece.owner === 'blue');
+      if (!redLeft || !blueLeft) {
+        game.winner = redLeft ? 0 : 1;
+        game.message = `${players[game.winner].name}吃光对手，获得胜利。`;
+      }
+    }
+
+    function render() {
+      const targets = game.selected === null ? [] : legalMoves(game.selected);
+      turnText.textContent = game.winner === null ? players[game.turn].name : `${players[game.winner].name}胜利`;
+      turnText.className = `mt-1 text-2xl font-bold ${players[game.winner ?? game.turn].text}`;
+      statusText.textContent = game.message;
+      boardEl.innerHTML = game.cells.map((piece, index) => {
+        const selected = game.selected === index;
+        const target = targets.includes(index);
+        const den = dens.includes(index);
+        const player = piece ? players[piece.owner === 'red' ? 0 : 1] : null;
+        return `
+          <button class="relative flex items-center justify-center rounded border text-xl font-black transition ${selected ? 'border-amber-300 bg-amber-300/20' : target ? 'border-emerald-300 bg-emerald-300/20' : den ? 'border-amber-300 bg-amber-300/10' : 'border-lime-700 bg-lime-950/60 hover:bg-lime-900'}" data-index="${index}">
+            <span class="absolute left-1 top-1 text-xs font-semibold text-lime-500">${den ? '穴' : index + 1}</span>
+            ${piece ? `<span class="flex h-14 w-14 items-center justify-center rounded-full ${player.color} text-white">${animals[piece.type].label}</span>` : target ? '<span class="h-5 w-5 rounded-full bg-emerald-300"></span>' : ''}
+          </button>
+        `;
+      }).join('');
+      boardEl.querySelectorAll('button[data-index]').forEach((button) => {
+        button.addEventListener('click', () => selectCell(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
