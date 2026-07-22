@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Len Choa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-orange-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Len Choa</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-400 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-orange-300 focus:outline-none focus:ring-2 focus:ring-orange-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-6 lg:grid-cols-[1fr_280px]">
+      <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4 shadow-xl">
+        <div id="board" class="relative mx-auto aspect-square w-full max-w-xl select-none rounded border border-neutral-700 bg-neutral-950">
+          <svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+            <g id="lines" stroke="#737373" stroke-width="1.25" stroke-linecap="round"></g>
+          </svg>
+          <div id="nodes"></div>
+        </div>
+      </div>
+
+      <aside class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-neutral-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-orange-200">羊方</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded border border-neutral-700 bg-neutral-950 p-3">
+              <p class="text-neutral-400">羊存活</p>
+              <p id="goatCount" class="mt-1 text-xl font-bold">4</p>
+            </div>
+            <div class="rounded border border-neutral-700 bg-neutral-950 p-3">
+              <p class="text-neutral-400">待落羊</p>
+              <p id="reserveCount" class="mt-1 text-xl font-bold">3</p>
+            </div>
+          </div>
+          <p id="message" class="rounded border border-neutral-700 bg-neutral-950 p-3 text-sm leading-6 text-neutral-200">羊方先补足四只羊。点击空点落羊，之后沿线移动围住虎。</p>
+          <div class="space-y-2 text-sm leading-6 text-neutral-300">
+            <p>虎可沿线走到相邻空点，或跳过相邻羊到空点并吃掉它。</p>
+            <p>羊先放完 4 枚，再沿线移动一格。</p>
+            <p>虎吃到 3 只羊获胜；羊让虎无合法移动获胜。</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 50, y: 8 },
+      { x: 24, y: 26 }, { x: 50, y: 26 }, { x: 76, y: 26 },
+      { x: 16, y: 52 }, { x: 50, y: 52 }, { x: 84, y: 52 },
+      { x: 24, y: 78 }, { x: 50, y: 78 }, { x: 76, y: 78 }
+    ];
+
+    const edges = [
+      [0, 1], [0, 2], [0, 3],
+      [1, 2], [2, 3],
+      [1, 4], [1, 5], [2, 5], [3, 5], [3, 6],
+      [4, 5], [5, 6],
+      [4, 7], [5, 7], [5, 8], [5, 9], [6, 9],
+      [7, 8], [8, 9]
+    ];
+
+    const adjacency = points.map(() => []);
+    edges.forEach(([a, b]) => {
+      adjacency[a].push(b);
+      adjacency[b].push(a);
+    });
+
+    const lines = document.getElementById("lines");
+    const nodes = document.getElementById("nodes");
+    const turnLabel = document.getElementById("turnLabel");
+    const goatCount = document.getElementById("goatCount");
+    const reserveCount = document.getElementById("reserveCount");
+    const message = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let state;
+
+    function resetGame() {
+      state = {
+        board: Array(10).fill(null),
+        turn: "goats",
+        selected: null,
+        reserve: 3,
+        captured: 0,
+        winner: null
+      };
+      state.board[0] = "tiger";
+      state.board[7] = "goat";
+      drawLines();
+      render();
+    }
+
+    function drawLines() {
+      lines.innerHTML = edges.map(([a, b]) => {
+        const start = points[a];
+        const end = points[b];
+        return `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}"></line>`;
+      }).join("");
+    }
+
+    function goatTotal() {
+      return state.board.filter((piece) => piece === "goat").length;
+    }
+
+    function tigerIndex() {
+      return state.board.indexOf("tiger");
+    }
+
+    function jumpLanding(from, over) {
+      const ax = points[from].x;
+      const ay = points[from].y;
+      const bx = points[over].x;
+      const by = points[over].y;
+      const targetX = bx + (bx - ax);
+      const targetY = by + (by - ay);
+      return points.findIndex((point) => Math.abs(point.x - targetX) < 1 && Math.abs(point.y - targetY) < 1);
+    }
+
+    function tigerMoves() {
+      const from = tigerIndex();
+      return adjacency[from].flatMap((near) => {
+        if (state.board[near] === null) return [{ to: near, capture: null }];
+        if (state.board[near] !== "goat") return [];
+        const landing = jumpLanding(from, near);
+        if (landing >= 0 && state.board[landing] === null && adjacency[near].includes(landing)) {
+          return [{ to: landing, capture: near }];
+        }
+        return [];
+      });
+    }
+
+    function goatMovesFrom(index) {
+      if (state.board[index] !== "goat") return [];
+      return adjacency[index].filter((to) => state.board[to] === null).map((to) => ({ to, capture: null }));
+    }
+
+    function selectPoint(index) {
+      if (state.winner) return;
+      if (state.turn === "goats" && state.reserve > 0) {
+        placeGoat(index);
+        return;
+      }
+
+      const piece = state.board[index];
+      if (state.selected === null) {
+        if ((state.turn === "tiger" && piece === "tiger") || (state.turn === "goats" && piece === "goat")) {
+          state.selected = index;
+          message.textContent = "选择亮起的空点完成移动。";
+          render();
+        }
+        return;
+      }
+
+      if (state.selected === index) {
+        state.selected = null;
+        message.textContent = "已取消选择。";
+        render();
+        return;
+      }
+
+      if ((state.turn === "tiger" && piece === "tiger") || (state.turn === "goats" && piece === "goat")) {
+        state.selected = index;
+        message.textContent = "已切换选择。";
+        render();
+        return;
+      }
+
+      const move = legalMovesFrom(state.selected).find((item) => item.to === index);
+      if (move) movePiece(state.selected, move);
+    }
+
+    function legalMovesFrom(index) {
+      if (state.board[index] === "tiger") return tigerMoves();
+      if (state.board[index] === "goat") return goatMovesFrom(index);
+      return [];
+    }
+
+    function placeGoat(index) {
+      if (state.board[index] !== null) return;
+      state.board[index] = "goat";
+      state.reserve -= 1;
+      state.turn = "tiger";
+      state.selected = null;
+      checkWinner();
+      if (!state.winner) message.textContent = "虎方回合。可移动或跳吃羊。";
+      render();
+    }
+
+    function movePiece(from, move) {
+      const piece = state.board[from];
+      state.board[move.to] = piece;
+      state.board[from] = null;
+      if (move.capture !== null) {
+        state.board[move.capture] = null;
+        state.captured += 1;
+      }
+      state.selected = null;
+      state.turn = state.turn === "tiger" ? "goats" : "tiger";
+      checkWinner();
+      if (!state.winner) {
+        message.textContent = state.turn === "tiger" ? "虎方回合。可移动或跳吃羊。" : "羊方回合。移动一只羊围堵虎。";
+      }
+      render();
+    }
+
+    function checkWinner() {
+      if (state.captured >= 3 || goatTotal() <= 1) {
+        state.winner = "tiger";
+        message.textContent = "虎吃掉足够多的羊，虎方获胜。";
+        return;
+      }
+      if (tigerMoves().length === 0) {
+        state.winner = "goats";
+        message.textContent = "羊方堵住了虎的所有路线，羊方获胜。";
+      }
+    }
+
+    function render() {
+      turnLabel.textContent = state.winner ? (state.winner === "tiger" ? "虎方获胜" : "羊方获胜") : (state.turn === "tiger" ? "虎方" : "羊方");
+      goatCount.textContent = String(goatTotal());
+      reserveCount.textContent = String(state.reserve);
+
+      const legalTargets = state.selected === null ? [] : legalMovesFrom(state.selected).map((move) => move.to);
+      nodes.innerHTML = points.map((point, index) => {
+        const piece = state.board[index];
+        const selected = state.selected === index;
+        const legal = legalTargets.includes(index) || (state.turn === "goats" && state.reserve > 0 && piece === null);
+        const base = "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-black shadow transition focus:outline-none focus:ring-2 focus:ring-orange-200";
+        let look = "border-neutral-600 bg-neutral-800 text-neutral-400 hover:bg-neutral-700";
+        let label = "";
+        if (piece === "tiger") {
+          look = "border-orange-100 bg-orange-500 text-neutral-950 hover:bg-orange-400";
+          label = "T";
+        }
+        if (piece === "goat") {
+          look = "border-sky-100 bg-sky-500 text-white hover:bg-sky-400";
+          label = "G";
+        }
+        if (selected) look += " ring-4 ring-white/70";
+        if (legal && !piece) look = "border-emerald-100 bg-emerald-500 text-white hover:bg-emerald-400";
+        return `<button type="button" class="${base} ${look}" style="left:${point.x}%;top:${point.y}%" aria-label="point ${index}" data-index="${index}">${label}</button>`;
+      }).join("");
+
+      nodes.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => selectPoint(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
