@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Sig</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl shadow-black/30">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Sig</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+            双方轮流给两个点之间的空连线染色。玩家 A 用红色，玩家 B 用蓝色；谁先染出自己的同色三角形谁输。
+          </p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-amber-300 px-4 py-2 text-sm font-bold text-zinc-950 transition hover:bg-amber-200">
+          重新开始
+        </button>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <svg id="board" viewBox="0 0 420 420" class="aspect-square w-full rounded-md bg-zinc-950" role="img" aria-label="Mini Sig board"></svg>
+      </div>
+
+      <aside class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-white">玩家 A</p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">已染色连线</p>
+            <p id="moveLabel" class="mt-1 text-2xl font-bold text-white">0 / 10</p>
+          </div>
+          <div class="rounded-md bg-zinc-800 p-3">
+            <p id="status" class="text-sm leading-6 text-zinc-200">选择任意灰色连线。避免形成自己的同色三角形。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded-md border border-red-500/40 bg-red-500/10 p-2 text-red-100">玩家 A：红线</div>
+            <div class="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-sky-100">玩家 B：蓝线</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnLabel = document.getElementById('turnLabel');
+    const moveLabel = document.getElementById('moveLabel');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const points = [
+      { x: 210, y: 52 },
+      { x: 360, y: 160 },
+      { x: 304, y: 338 },
+      { x: 116, y: 338 },
+      { x: 60, y: 160 }
+    ];
+
+    const edges = [];
+    for (let a = 0; a < points.length; a += 1) {
+      for (let b = a + 1; b < points.length; b += 1) {
+        edges.push({ a, b, color: '' });
+      }
+    }
+
+    const triangles = [];
+    for (let a = 0; a < points.length; a += 1) {
+      for (let b = a + 1; b < points.length; b += 1) {
+        for (let c = b + 1; c < points.length; c += 1) {
+          triangles.push([a, b, c]);
+        }
+      }
+    }
+
+    let player = 'red';
+    let ended = false;
+    let losingTriangle = [];
+
+    function startGame() {
+      edges.forEach(edge => {
+        edge.color = '';
+      });
+      player = 'red';
+      ended = false;
+      losingTriangle = [];
+      statusEl.textContent = '选择任意灰色连线。避免形成自己的同色三角形。';
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      edges.forEach((edge, index) => drawEdge(edge, index));
+      points.forEach((point, index) => drawPoint(point, index));
+
+      turnLabel.textContent = ended ? '本局结束' : `玩家 ${player === 'red' ? 'A' : 'B'}`;
+      moveLabel.textContent = `${edges.filter(edge => edge.color).length} / ${edges.length}`;
+    }
+
+    function drawEdge(edge, index) {
+      const start = points[edge.a];
+      const end = points[edge.b];
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      const isLosing = losingTriangle.includes(edge.a) && losingTriangle.includes(edge.b);
+      const colorClass = edge.color === 'red' ? '#f87171' : edge.color === 'blue' ? '#38bdf8' : '#52525b';
+      line.setAttribute('x1', start.x);
+      line.setAttribute('y1', start.y);
+      line.setAttribute('x2', end.x);
+      line.setAttribute('y2', end.y);
+      line.setAttribute('stroke', isLosing ? '#facc15' : colorClass);
+      line.setAttribute('stroke-width', edge.color ? '8' : '5');
+      line.setAttribute('stroke-linecap', 'round');
+      line.classList.add('transition');
+      if (!edge.color && !ended) {
+        line.classList.add('cursor-pointer');
+        line.addEventListener('click', () => handleEdge(index));
+      }
+      boardEl.appendChild(line);
+    }
+
+    function drawPoint(point, index) {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', point.x);
+      circle.setAttribute('cy', point.y);
+      circle.setAttribute('r', '18');
+      circle.setAttribute('fill', '#18181b');
+      circle.setAttribute('stroke', '#d4d4d8');
+      circle.setAttribute('stroke-width', '4');
+      boardEl.appendChild(circle);
+
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', point.x);
+      label.setAttribute('y', point.y + 6);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('font-size', '16');
+      label.setAttribute('font-weight', '800');
+      label.setAttribute('fill', '#fafafa');
+      label.textContent = index + 1;
+      boardEl.appendChild(label);
+    }
+
+    function handleEdge(index) {
+      if (ended || edges[index].color) {
+        return;
+      }
+
+      edges[index].color = player;
+      const triangle = findTriangle(player);
+      if (triangle) {
+        ended = true;
+        losingTriangle = triangle;
+        const loser = player === 'red' ? 'A' : 'B';
+        const winner = player === 'red' ? 'B' : 'A';
+        statusEl.textContent = `玩家 ${loser} 形成同色三角形，玩家 ${winner} 获胜。`;
+      } else if (edges.every(edge => edge.color)) {
+        ended = true;
+        statusEl.textContent = '所有连线都已染色，没人形成三角形，本局平局。';
+      } else {
+        player = player === 'red' ? 'blue' : 'red';
+        statusEl.textContent = `轮到玩家 ${player === 'red' ? 'A' : 'B'}。`;
+      }
+      render();
+    }
+
+    function findTriangle(color) {
+      return triangles.find(([a, b, c]) => hasEdge(a, b, color) && hasEdge(a, c, color) && hasEdge(b, c, color)) || null;
+    }
+
+    function hasEdge(a, b, color) {
+      return edges.some(edge => edge.color === color && ((edge.a === a && edge.b === b) || (edge.a === b && edge.b === a)));
+    }
+
+    resetBtn.addEventListener('click', startGame);
+    startGame();
+  </script>
+</body>
+</html>
