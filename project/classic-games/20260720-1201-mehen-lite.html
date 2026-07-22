@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Mehen</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wider text-amber-300">Ancient Race Game</p>
+        <h1 class="text-3xl font-bold">Mini Mehen</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-500 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-400">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+        <div id="track" class="grid grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded-lg border border-stone-800 bg-stone-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded border border-stone-700 p-3">
+            <div class="text-xs text-stone-400">金方出局</div>
+            <div id="goldHome" class="text-2xl font-bold">0</div>
+          </div>
+          <div class="rounded border border-stone-700 p-3">
+            <div class="text-xs text-stone-400">蓝方出局</div>
+            <div id="blueHome" class="text-2xl font-bold">0</div>
+          </div>
+        </div>
+
+        <div class="mt-4 rounded border border-stone-700 p-3">
+          <div class="text-xs text-stone-400">当前回合</div>
+          <div id="turnLabel" class="mt-1 text-lg font-semibold">金方</div>
+        </div>
+
+        <button id="rollBtn" class="mt-4 w-full rounded bg-stone-100 px-4 py-3 font-semibold text-stone-950 hover:bg-white">
+          掷四根棒
+        </button>
+        <div class="mt-3 rounded border border-stone-700 p-3">
+          <div class="text-xs text-stone-400">点数</div>
+          <div id="rollValue" class="mt-1 text-3xl font-bold">-</div>
+        </div>
+
+        <p id="message" class="mt-4 min-h-16 rounded bg-stone-800 p-3 text-sm leading-6 text-stone-200"></p>
+
+        <div class="mt-4 space-y-2 text-sm text-stone-300">
+          <p>掷棒后选择一枚己方棋子，沿蛇形赛道向中心前进。</p>
+          <p>落到对手占据的格子会把那枚棋子送回起点。先让三枚棋子越过终点获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const TRACK_LENGTH = 20;
+    const PIECES = 3;
+    const GOLD = "gold";
+    const BLUE = "blue";
+    const trackEl = document.getElementById("track");
+    const turnLabel = document.getElementById("turnLabel");
+    const rollBtn = document.getElementById("rollBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const rollValue = document.getElementById("rollValue");
+    const messageEl = document.getElementById("message");
+    const goldHome = document.getElementById("goldHome");
+    const blueHome = document.getElementById("blueHome");
+
+    const pathOrder = [
+      0, 1, 2, 3, 4,
+      9, 14, 19, 24,
+      23, 22, 21, 20,
+      15, 10, 5,
+      6, 7, 8, 13
+    ];
+
+    let pieces = [];
+    let turn = GOLD;
+    let roll = 0;
+    let rolled = false;
+    let gameOver = false;
+
+    function resetGame() {
+      pieces = [
+        ...Array.from({ length: PIECES }, (_, id) => ({ id: `G${id + 1}`, side: GOLD, pos: -1, done: false })),
+        ...Array.from({ length: PIECES }, (_, id) => ({ id: `B${id + 1}`, side: BLUE, pos: -1, done: false }))
+      ];
+      turn = GOLD;
+      roll = 0;
+      rolled = false;
+      gameOver = false;
+      render("金方先手。掷棒后移动一枚棋子。");
+    }
+
+    function throwSticks() {
+      const marks = Array.from({ length: 4 }, () => Math.random() < 0.5 ? 1 : 0);
+      const total = marks.reduce((sum, value) => sum + value, 0);
+      return total === 0 ? 5 : total;
+    }
+
+    function activePieces() {
+      return pieces.filter((piece) => piece.side === turn && !piece.done);
+    }
+
+    function occupiedAt(pos) {
+      return pieces.find((piece) => !piece.done && piece.pos === pos);
+    }
+
+    function canMove(piece) {
+      if (piece.done || piece.side !== turn || !rolled) return false;
+      const target = piece.pos + roll;
+      const blocker = occupiedAt(target);
+      return target >= TRACK_LENGTH || !blocker || blocker.side !== turn;
+    }
+
+    function hasMove() {
+      return activePieces().some(canMove);
+    }
+
+    function passTurn(note) {
+      turn = turn === GOLD ? BLUE : GOLD;
+      rolled = false;
+      roll = 0;
+      render(note);
+    }
+
+    function rollTurn() {
+      if (gameOver || rolled) return;
+      roll = throwSticks();
+      rolled = true;
+      if (!hasMove()) {
+        passTurn(`${sideName(turn)}掷出 ${roll}，但没有合法移动，回合交给对手。`);
+        return;
+      }
+      render(`${sideName(turn)}掷出 ${roll}。选择一枚可移动的棋子。`);
+    }
+
+    function movePiece(id) {
+      if (gameOver || !rolled) return;
+      const piece = pieces.find((item) => item.id === id);
+      if (!piece || !canMove(piece)) {
+        render("这枚棋子暂时不能移动。");
+        return;
+      }
+
+      const target = piece.pos + roll;
+      let note = `${piece.id} 前进 ${roll} 格。`;
+      if (target >= TRACK_LENGTH) {
+        piece.done = true;
+        piece.pos = TRACK_LENGTH;
+        note = `${piece.id} 抵达中心。`;
+      } else {
+        const rival = occupiedAt(target);
+        if (rival && rival.side !== piece.side) {
+          rival.pos = -1;
+          note += ` ${rival.id} 被送回起点。`;
+        }
+        piece.pos = target;
+      }
+
+      const finished = pieces.filter((item) => item.side === piece.side && item.done).length;
+      if (finished === PIECES) {
+        gameOver = true;
+        render(`${sideName(piece.side)}三枚棋子全部抵达中心，获胜。`);
+        return;
+      }
+
+      passTurn(note);
+    }
+
+    function sideName(side) {
+      return side === GOLD ? "金方" : "蓝方";
+    }
+
+    function pieceClass(side) {
+      return side === GOLD ? "bg-amber-400 text-stone-950" : "bg-sky-500 text-white";
+    }
+
+    function renderCell(pathIndex, gridIndex) {
+      const cell = document.createElement("div");
+      const isPath = pathIndex !== -1;
+      cell.className = isPath
+        ? "min-h-20 rounded border border-amber-800 bg-stone-800 p-2"
+        : "min-h-20 rounded border border-stone-800 bg-stone-950";
+
+      if (!isPath) return cell;
+
+      const label = document.createElement("div");
+      label.className = "mb-1 flex items-center justify-between text-xs text-stone-400";
+      label.innerHTML = `<span>${pathIndex + 1}</span><span>${pathIndex === TRACK_LENGTH - 1 ? "中心" : ""}</span>`;
+      cell.appendChild(label);
+
+      const stack = document.createElement("div");
+      stack.className = "flex flex-wrap gap-1";
+      pieces
+        .filter((piece) => !piece.done && piece.pos === pathIndex)
+        .forEach((piece) => stack.appendChild(renderPiece(piece)));
+      cell.appendChild(stack);
+
+      return cell;
+    }
+
+    function renderPiece(piece) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `h-8 w-8 rounded-full text-xs font-bold ${pieceClass(piece.side)} ${canMove(piece) ? "ring-2 ring-white" : ""}`;
+      button.textContent = piece.id;
+      button.addEventListener("click", () => movePiece(piece.id));
+      return button;
+    }
+
+    function renderStart(side) {
+      const box = document.createElement("div");
+      box.className = "mt-2 flex flex-wrap gap-1";
+      pieces
+        .filter((piece) => piece.side === side && !piece.done && piece.pos === -1)
+        .forEach((piece) => box.appendChild(renderPiece(piece)));
+      return box;
+    }
+
+    function render(message) {
+      trackEl.innerHTML = "";
+      const indexByGrid = new Map(pathOrder.map((grid, index) => [grid, index]));
+      for (let grid = 0; grid < 25; grid += 1) {
+        trackEl.appendChild(renderCell(indexByGrid.has(grid) ? indexByGrid.get(grid) : -1, grid));
+      }
+
+      const startPanel = document.createElement("div");
+      startPanel.className = "col-span-5 grid gap-3 rounded border border-stone-700 bg-stone-800 p-3 sm:grid-cols-2";
+      startPanel.innerHTML = "<div><div class='text-xs text-stone-400'>金方起点</div></div><div><div class='text-xs text-stone-400'>蓝方起点</div></div>";
+      startPanel.children[0].appendChild(renderStart(GOLD));
+      startPanel.children[1].appendChild(renderStart(BLUE));
+      trackEl.appendChild(startPanel);
+
+      turnLabel.textContent = gameOver ? "结束" : sideName(turn);
+      rollValue.textContent = rolled ? roll : "-";
+      goldHome.textContent = pieces.filter((piece) => piece.side === GOLD && piece.done).length;
+      blueHome.textContent = pieces.filter((piece) => piece.side === BLUE && piece.done).length;
+      rollBtn.disabled = gameOver || rolled;
+      rollBtn.className = rollBtn.disabled
+        ? "mt-4 w-full rounded bg-stone-700 px-4 py-3 font-semibold text-stone-400"
+        : "mt-4 w-full rounded bg-stone-100 px-4 py-3 font-semibold text-stone-950 hover:bg-white";
+      messageEl.textContent = message;
+    }
+
+    rollBtn.addEventListener("click", rollTurn);
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
