@@ -1,0 +1,1633 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 65 Valid Number 粒子对撞机交互讲解：用确定有限状态机逐字符验证数字。"
+    />
+    <title>65. 有效数字｜语法粒子对撞机</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              void: "#170f2d",
+              reactor: "#281946",
+              chamber: "#3b2862",
+              ion: "#7be0d6",
+              plasma: "#ff6b35",
+              phosphor: "#e9ff70",
+              frost: "#f5f1ff",
+              haze: "#d7cfee",
+              reject: "#ff3d71",
+              ink: "#171126",
+            },
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              body: ["Noto Sans SC", "sans-serif"],
+              mono: ["JetBrains Mono", "monospace"],
+            },
+            boxShadow: {
+              ion: "8px 8px 0 #7be0d6",
+              plasma: "8px 8px 0 #ff6b35",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        overflow-x: hidden;
+        background: #170f2d;
+        color: #f5f1ff;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      button,
+      [tabindex="0"] {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus-visible,
+      [tabindex="0"]:focus-visible {
+        outline: 4px solid #e9ff70;
+        outline-offset: 4px;
+      }
+
+      .scan-field {
+        background-color: #281946;
+        background-image:
+          linear-gradient(rgba(123, 224, 214, 0.08) 1px, transparent 1px),
+          linear-gradient(
+            90deg,
+            rgba(123, 224, 214, 0.08) 1px,
+            transparent 1px
+          ),
+          radial-gradient(
+            circle at 74% 42%,
+            rgba(255, 107, 53, 0.22),
+            transparent 34%
+          );
+        background-size:
+          34px 34px,
+          34px 34px,
+          auto;
+      }
+
+      .beam {
+        background: linear-gradient(90deg, #7be0d6, #e9ff70, #ff6b35);
+        box-shadow: 0 0 24px rgba(123, 224, 214, 0.8);
+        animation: pulse-beam 2.4s ease-in-out infinite;
+      }
+
+      .hero-token {
+        position: relative;
+        display: grid;
+        height: 4.1rem;
+        width: 4.1rem;
+        place-items: center;
+        border: 2px solid #7be0d6;
+        background: #170f2d;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 1.55rem;
+        font-weight: 700;
+        box-shadow: 5px 5px 0 #ff6b35;
+      }
+
+      .hero-token::after {
+        position: absolute;
+        right: -1.1rem;
+        width: 1rem;
+        height: 2px;
+        background: #e9ff70;
+        content: "";
+      }
+
+      .hero-token:last-child::after {
+        display: none;
+      }
+
+      .state-node {
+        min-width: 0;
+        border: 2px solid rgba(215, 207, 238, 0.38);
+        background: rgba(40, 25, 70, 0.72);
+        transition:
+          transform 160ms ease,
+          border-color 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .state-node[data-active="true"] {
+        z-index: 2;
+        border-color: #e9ff70;
+        background: #ff6b35;
+        color: #171126;
+        box-shadow: 6px 6px 0 #7be0d6;
+        transform: translateY(-4px);
+      }
+
+      .state-node[data-reject="true"][data-active="true"] {
+        border-color: #f5f1ff;
+        background: #ff3d71;
+        color: #f5f1ff;
+      }
+
+      .token-cell {
+        display: grid;
+        min-height: 3.5rem;
+        min-width: 3rem;
+        place-items: center;
+        border: 2px solid rgba(215, 207, 238, 0.45);
+        background: #281946;
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        transition:
+          transform 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .token-cell[data-processed="true"] {
+        border-color: #7be0d6;
+        color: #7be0d6;
+      }
+
+      .token-cell[data-active="true"] {
+        border-color: #e9ff70;
+        background: #e9ff70;
+        color: #171126;
+        transform: translateY(-4px);
+      }
+
+      .test-code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .code-panel pre {
+        max-width: 100%;
+        overflow-x: auto;
+      }
+
+      @keyframes pulse-beam {
+        50% {
+          opacity: 0.62;
+          transform: scaleX(0.97);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      @media (max-width: 390px) {
+        .hero-token {
+          height: 3rem;
+          width: 3rem;
+          font-size: 1rem;
+        }
+      }
+    </style>
+  </head>
+  <body class="font-body antialiased">
+    <div
+      id="live-status"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <header class="border-b-2 border-ion/70 bg-void">
+      <div
+        class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8"
+      >
+        <div class="flex min-w-0 items-center gap-3">
+          <span
+            class="grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 border-ion bg-plasma font-mono text-sm font-bold text-ink"
+            >65</span
+          >
+          <div class="min-w-0">
+            <p
+              class="font-mono text-[10px] font-semibold uppercase tracking-[0.25em] text-ion sm:text-xs"
+            >
+              SYNTAX COLLIDER · CHANNEL 065
+            </p>
+            <p
+              class="truncate font-display text-xl font-bold uppercase tracking-wide text-frost sm:text-2xl"
+            >
+              Valid Number
+            </p>
+          </div>
+        </div>
+        <span
+          class="shrink-0 border-2 border-plasma bg-reject px-3 py-1.5 font-mono text-xs font-bold uppercase text-frost shadow-[3px_3px_0_#7be0d6]"
+          >Hard</span
+        >
+      </div>
+    </header>
+
+    <main>
+      <section class="scan-field border-b-2 border-ion/70">
+        <div
+          class="mx-auto grid min-h-[740px] max-w-7xl items-center gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.02fr_0.98fr] lg:py-20"
+        >
+          <div>
+            <div class="mb-7 flex flex-wrap gap-2">
+              <span
+                class="border border-ion/70 bg-void px-3 py-1 font-mono text-xs text-ion"
+                >STRING</span
+              >
+              <span
+                class="border border-phosphor bg-phosphor px-3 py-1 font-mono text-xs font-bold text-ink"
+                >FINITE STATE MACHINE</span
+              >
+              <span
+                class="border border-ion/70 bg-void px-3 py-1 font-mono text-xs text-ion"
+                >PARSING</span
+              >
+            </div>
+            <p
+              class="mb-4 font-mono text-xs font-semibold uppercase tracking-[0.26em] text-plasma sm:text-sm"
+            >
+              INJECT ONE CHARACTER. FOLLOW ONE LEGAL TRANSITION.
+            </p>
+            <h1
+              class="max-w-3xl font-display text-[4.15rem] font-bold uppercase leading-[0.84] tracking-[-0.055em] text-frost sm:text-[6.4rem] lg:text-[7.5rem]"
+            >
+              Clear the<br />syntax<br /><span class="text-ion">collider.</span>
+            </h1>
+            <p
+              class="mt-8 max-w-2xl border-l-4 border-plasma pl-5 text-base font-semibold leading-8 text-haze sm:text-lg"
+            >
+              字符不是“看起来像数字”就够了。每一次注入都必须存在合法状态迁移，扫描结束还必须停在接收态。
+            </p>
+          </div>
+
+          <div class="relative mx-auto w-full max-w-xl">
+            <div
+              class="absolute -inset-3 rotate-2 border-2 border-plasma bg-plasma/20"
+              aria-hidden="true"
+            ></div>
+            <div
+              class="relative border-2 border-ion bg-void p-5 shadow-ion sm:p-8"
+            >
+              <div
+                class="flex items-start justify-between gap-4 border-b border-ion/40 pb-4"
+              >
+                <div>
+                  <p
+                    class="font-mono text-[10px] uppercase tracking-[0.2em] text-ion"
+                  >
+                    PARTICLE STREAM A
+                  </p>
+                  <p class="mt-1 font-display text-3xl font-bold uppercase">
+                    -90E3
+                  </p>
+                </div>
+                <span
+                  class="border border-phosphor bg-phosphor px-3 py-1 font-mono text-xs font-bold text-ink"
+                  >ACCEPTED</span
+                >
+              </div>
+
+              <div class="relative mt-8">
+                <div
+                  class="beam absolute left-0 right-0 top-1/2 h-1"
+                  aria-hidden="true"
+                ></div>
+                <div class="relative flex items-center justify-between gap-3">
+                  <span class="hero-token">−</span>
+                  <span class="hero-token">9</span>
+                  <span class="hero-token">0</span>
+                  <span class="hero-token">E</span>
+                  <span class="hero-token">3</span>
+                </div>
+              </div>
+
+              <div
+                class="mt-9 grid grid-cols-2 gap-2 font-mono text-[10px] sm:grid-cols-3"
+              >
+                <div class="border border-ion/40 p-3 text-ion">
+                  START → SIGN
+                </div>
+                <div class="border border-ion/40 p-3 text-ion">
+                  SIGN → INTEGER
+                </div>
+                <div class="border border-ion/40 p-3 text-ion">
+                  INTEGER → INTEGER
+                </div>
+                <div class="border border-ion/40 p-3 text-ion">
+                  INTEGER → EXP
+                </div>
+                <div
+                  class="border border-phosphor bg-phosphor p-3 font-bold text-ink"
+                >
+                  EXP → EXP_NUMBER
+                </div>
+              </div>
+              <p class="mt-5 font-mono text-xs leading-6 text-haze">
+                ACCEPTING STATES · INTEGER / POINT / FRACTION / EXP_NUMBER
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-b-2 border-chamber bg-frost text-ink">
+        <div
+          class="mx-auto grid max-w-7xl gap-10 px-5 py-16 sm:px-8 lg:grid-cols-[0.34fr_1fr]"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-semibold uppercase tracking-[0.23em] text-reject"
+            >
+              INPUT PROTOCOL
+            </p>
+            <h2 class="mt-2 font-display text-5xl font-bold uppercase">题意</h2>
+          </div>
+          <div class="space-y-8">
+            <p class="text-base font-medium leading-8 sm:text-lg">
+              给定字符串
+              <code class="bg-haze px-1.5 py-0.5 font-mono">s</code
+              >，判断它是否符合有效数字语法。有效数字是整数或小数，后面可以接一个可选指数；指数标记
+              <code class="font-mono">e / E</code> 后必须是带可选符号的整数。
+            </p>
+
+            <div class="grid gap-4 md:grid-cols-3">
+              <article
+                class="border-2 border-ink bg-white p-5 shadow-[5px_5px_0_#7be0d6]"
+              >
+                <p
+                  class="font-mono text-xs font-bold uppercase tracking-widest text-reject"
+                >
+                  官方样例 1
+                </p>
+                <dl class="mt-4 space-y-3">
+                  <div>
+                    <dt class="text-xs font-bold text-chamber">输入</dt>
+                    <dd class="mt-1 font-mono text-sm font-semibold">
+                      s = "0"
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold text-chamber">输出</dt>
+                    <dd class="mt-1 font-mono text-lg font-bold">true</dd>
+                  </div>
+                </dl>
+              </article>
+              <article
+                class="border-2 border-ink bg-white p-5 shadow-[5px_5px_0_#ff6b35]"
+              >
+                <p
+                  class="font-mono text-xs font-bold uppercase tracking-widest text-reject"
+                >
+                  官方样例 2
+                </p>
+                <dl class="mt-4 space-y-3">
+                  <div>
+                    <dt class="text-xs font-bold text-chamber">输入</dt>
+                    <dd class="mt-1 font-mono text-sm font-semibold">
+                      s = "e"
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold text-chamber">输出</dt>
+                    <dd class="mt-1 font-mono text-lg font-bold">false</dd>
+                  </div>
+                </dl>
+              </article>
+              <article
+                class="border-2 border-ink bg-white p-5 shadow-[5px_5px_0_#ff3d71]"
+              >
+                <p
+                  class="font-mono text-xs font-bold uppercase tracking-widest text-reject"
+                >
+                  官方样例 3
+                </p>
+                <dl class="mt-4 space-y-3">
+                  <div>
+                    <dt class="text-xs font-bold text-chamber">输入</dt>
+                    <dd class="mt-1 font-mono text-sm font-semibold">
+                      s = "."
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold text-chamber">输出</dt>
+                    <dd class="mt-1 font-mono text-lg font-bold">false</dd>
+                  </div>
+                </dl>
+              </article>
+            </div>
+
+            <div class="grid gap-5 lg:grid-cols-2">
+              <article class="border-2 border-ink bg-haze/50 p-5">
+                <h3 class="font-display text-2xl font-bold uppercase">
+                  合法语法
+                </h3>
+                <ul class="mt-4 space-y-2 font-mono text-sm leading-7">
+                  <li>integer := [sign] digits</li>
+                  <li>decimal := [sign] (digits. | digits.digits | .digits)</li>
+                  <li>number := (integer | decimal) [exponent]</li>
+                  <li>exponent := (e | E) integer</li>
+                </ul>
+              </article>
+              <article class="border-2 border-ink bg-haze/50 p-5">
+                <h3 class="font-display text-2xl font-bold uppercase">
+                  约束与空格记号
+                </h3>
+                <ul class="mt-4 space-y-2 font-mono text-sm leading-7">
+                  <li>1 ≤ s.length ≤ 20</li>
+                  <li>字符来自英文字母、数字、+、−、.</li>
+                  <li>官方约束不含空格；本页防御性用例中的 ␠ 表示一个空格。</li>
+                  <li>算法不调用 trim，约束外空格直接判 false。</li>
+                </ul>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-void" aria-labelledby="demo-title">
+        <div class="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-20">
+          <div
+            class="flex flex-col justify-between gap-5 border-b border-ion/30 pb-7 lg:flex-row lg:items-end"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-plasma"
+              >
+                LIVE COLLISION TRACE
+              </p>
+              <h2
+                id="demo-title"
+                class="mt-2 font-display text-5xl font-bold uppercase sm:text-6xl"
+              >
+                交互演示 · 逐字符过机
+              </h2>
+            </div>
+            <p id="demo-help" class="max-w-xl text-sm leading-7 text-haze">
+              每一步只消费一个字符。键盘可用 ← / →、Home /
+              End；空格键开始或暂停自动播放。
+            </p>
+          </div>
+
+          <div
+            class="mt-8 flex flex-wrap gap-3"
+            role="group"
+            aria-label="演示用例"
+          >
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-phosphor bg-phosphor px-4 py-2 font-mono text-xs font-bold text-ink"
+              aria-pressed="true"
+            >
+              s = "-90E3"
+            </button>
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-ion/60 px-4 py-2 font-mono text-xs text-ion"
+              aria-pressed="false"
+            >
+              s = ".1"
+            </button>
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-ion/60 px-4 py-2 font-mono text-xs text-ion"
+              aria-pressed="false"
+            >
+              s = "1e+"
+            </button>
+            <button
+              type="button"
+              class="case-button min-h-11 border-2 border-ion/60 px-4 py-2 font-mono text-xs text-ion"
+              aria-pressed="false"
+            >
+              s = "95a54e53"
+            </button>
+          </div>
+
+          <div
+            id="demo-stage"
+            class="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]"
+            tabindex="0"
+            role="application"
+            aria-label="有效数字有限状态机演示"
+            aria-describedby="demo-help"
+          >
+            <article class="scan-field border-2 border-ion/60 p-4 sm:p-7">
+              <div class="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <p
+                    class="font-mono text-[10px] uppercase tracking-[0.22em] text-ion"
+                  >
+                    PARTICLE QUEUE
+                  </p>
+                  <h3
+                    id="stream-label"
+                    class="mt-1 font-display text-3xl font-bold uppercase"
+                  >
+                    s = "-90E3"
+                  </h3>
+                </div>
+                <div class="text-right">
+                  <p
+                    class="font-mono text-[10px] uppercase tracking-widest text-ion"
+                  >
+                    VERDICT
+                  </p>
+                  <output
+                    id="result-output"
+                    class="font-display text-4xl font-bold text-phosphor"
+                    >—</output
+                  >
+                </div>
+              </div>
+
+              <div
+                id="token-stream"
+                class="mt-7 flex min-h-14 flex-wrap gap-3"
+                role="group"
+                aria-label="字符流"
+              ></div>
+
+              <div class="mt-7 border-t border-ion/30 pt-6">
+                <div class="mb-4 flex items-center justify-between gap-4">
+                  <p
+                    class="font-mono text-[10px] uppercase tracking-[0.22em] text-ion"
+                  >
+                    STATE CHAMBERS
+                  </p>
+                  <p class="font-mono text-[10px] text-haze">◆ = ACCEPTING</p>
+                </div>
+                <div
+                  id="state-grid"
+                  class="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                ></div>
+              </div>
+
+              <div
+                class="mt-6 h-2 overflow-hidden bg-chamber"
+                aria-hidden="true"
+              >
+                <div id="scan-progress" class="h-full bg-plasma"></div>
+              </div>
+            </article>
+
+            <aside class="border-2 border-ion bg-frost p-5 text-ink sm:p-7">
+              <div
+                class="flex items-center justify-between gap-4 border-b-2 border-ink pb-4"
+              >
+                <span
+                  class="font-mono text-xs font-bold uppercase tracking-widest text-reject"
+                  >Transition probe</span
+                >
+                <span id="step-count" class="font-mono text-sm font-bold"
+                  >0 / 6</span
+                >
+              </div>
+              <h3
+                id="step-title"
+                class="mt-6 font-display text-4xl font-bold uppercase leading-none"
+              >
+                等待字符注入
+              </h3>
+              <p
+                id="step-description"
+                class="mt-4 min-h-20 text-sm leading-7 text-chamber"
+              >
+                状态机从 START
+                出发；读取每个字符后，必须沿已定义的转移进入下一状态。
+              </p>
+
+              <dl class="mt-6 grid grid-cols-2 gap-3 font-mono text-sm">
+                <div class="border-2 border-ink p-3">
+                  <dt
+                    class="text-[10px] uppercase tracking-widest text-chamber"
+                  >
+                    Character
+                  </dt>
+                  <dd id="char-value" class="mt-1 text-2xl font-bold">—</dd>
+                </div>
+                <div class="border-2 border-ink p-3">
+                  <dt
+                    class="text-[10px] uppercase tracking-widest text-chamber"
+                  >
+                    Token type
+                  </dt>
+                  <dd id="type-value" class="mt-1 text-lg font-bold">—</dd>
+                </div>
+                <div class="border-2 border-ink p-3">
+                  <dt
+                    class="text-[10px] uppercase tracking-widest text-chamber"
+                  >
+                    From
+                  </dt>
+                  <dd id="from-value" class="mt-1 text-lg font-bold">—</dd>
+                </div>
+                <div class="border-2 border-reject bg-phosphor p-3">
+                  <dt class="text-[10px] uppercase tracking-widest text-reject">
+                    To
+                  </dt>
+                  <dd id="to-value" class="mt-1 text-lg font-bold">START</dd>
+                </div>
+              </dl>
+
+              <p
+                id="transition-note"
+                class="mt-5 border-l-4 border-plasma pl-4 font-mono text-xs leading-6 text-chamber"
+              >
+                START CHAMBER ARMED
+              </p>
+            </aside>
+          </div>
+
+          <div
+            class="mt-6 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap"
+            role="group"
+            aria-label="演示控制"
+          >
+            <button
+              id="start-button"
+              type="button"
+              class="min-h-12 border-2 border-ion px-5 py-2 font-mono text-sm font-bold hover:bg-ion hover:text-ink"
+            >
+              ↤ 起点
+            </button>
+            <button
+              id="prev-button"
+              type="button"
+              class="min-h-12 border-2 border-ion px-5 py-2 font-mono text-sm font-bold hover:bg-ion hover:text-ink"
+            >
+              ← 上一步
+            </button>
+            <button
+              id="play-button"
+              type="button"
+              class="min-h-12 border-2 border-phosphor bg-phosphor px-6 py-2 font-mono text-sm font-bold text-ink"
+              aria-pressed="false"
+            >
+              ▶ 自动播放
+            </button>
+            <button
+              id="next-button"
+              type="button"
+              class="min-h-12 border-2 border-ion px-5 py-2 font-mono text-sm font-bold hover:bg-ion hover:text-ink"
+            >
+              下一步 →
+            </button>
+            <button
+              id="end-button"
+              type="button"
+              class="min-h-12 border-2 border-ion px-5 py-2 font-mono text-sm font-bold hover:bg-ion hover:text-ink"
+            >
+              结论 ↦
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="border-b-2 border-chamber bg-haze text-ink"
+        aria-labelledby="test-title"
+      >
+        <div class="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-20">
+          <div
+            class="grid gap-5 border-b-2 border-ink pb-7 lg:grid-cols-[0.35fr_1fr]"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-semibold uppercase tracking-[0.23em] text-reject"
+              >
+                COLLISION REPORT
+              </p>
+              <h2
+                id="test-title"
+                class="mt-2 font-display text-5xl font-bold uppercase"
+              >
+                测试与验证
+              </h2>
+            </div>
+            <p class="max-w-3xl text-sm leading-7 text-chamber">
+              每条用例独立列出输入、期望输出、实际输出与通过状态。␠
+              表示一个空格，防止不可见字符被误读。
+            </p>
+          </div>
+
+          <div id="test-grid" class="mt-8 grid gap-5 lg:grid-cols-2"></div>
+
+          <div
+            class="mt-10 border-2 border-ink bg-frost p-5 shadow-plasma sm:p-7"
+          >
+            <h3 class="font-display text-3xl font-bold uppercase">
+              工程验证记录
+            </h3>
+            <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div class="border-2 border-ink bg-ion/30 p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-chamber"
+                >
+                  Prettier
+                </p>
+                <p class="mt-2 font-bold">✓ 通过</p>
+              </div>
+              <div class="border-2 border-ink bg-ion/30 p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-chamber"
+                >
+                  HTML Validate
+                </p>
+                <p class="mt-2 font-bold">✓ 通过</p>
+              </div>
+              <div class="border-2 border-ink bg-ion/30 p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-chamber"
+                >
+                  JavaScript
+                </p>
+                <p class="mt-2 font-bold">✓ 语法通过</p>
+              </div>
+              <div class="border-2 border-ink bg-ion/30 p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-chamber"
+                >
+                  真实 Chrome
+                </p>
+                <p class="mt-2 font-bold">✓ 桌面 / 390px</p>
+              </div>
+              <div class="border-2 border-ink bg-phosphor p-4">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-widest text-reject"
+                >
+                  算法对拍
+                </p>
+                <p class="mt-2 font-black">✓ 5000 组</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-plasma text-ink">
+        <div class="mx-auto max-w-7xl px-5 py-14 text-center sm:px-8">
+          <p
+            class="font-mono text-xs font-semibold uppercase tracking-[0.25em]"
+          >
+            SOLUTION CONTAINMENT
+          </p>
+          <h2
+            class="mt-2 font-display text-4xl font-bold uppercase sm:text-5xl"
+          >
+            先走完状态机，再解除题解封锁
+          </h2>
+          <button
+            id="solution-toggle"
+            type="button"
+            class="mt-7 min-h-13 border-4 border-ink bg-frost px-8 py-3 font-mono text-sm font-bold shadow-[8px_8px_0_#7be0d6] hover:bg-phosphor"
+            aria-expanded="false"
+            aria-controls="solution-content"
+          >
+            查看题解
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="solution-content"
+        class="bg-frost text-ink"
+        aria-label="题解"
+        hidden
+      >
+        <div class="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-20">
+          <div class="border-b-4 border-ink pb-8">
+            <p
+              class="font-mono text-xs font-semibold uppercase tracking-[0.23em] text-reject"
+            >
+              CONTAINMENT RELEASED
+            </p>
+            <h2 class="mt-2 font-display text-6xl font-bold uppercase">题解</h2>
+          </div>
+
+          <div class="mt-10 grid gap-6 lg:grid-cols-2">
+            <article class="border-2 border-ink bg-haze/50 p-6">
+              <p
+                class="font-mono text-xs font-bold uppercase tracking-widest text-reject"
+              >
+                Core insight
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-bold uppercase">
+                核心洞察
+              </h3>
+              <p class="mt-4 leading-8">
+                这不是数值计算，而是语法识别。把「读到某个前缀后，接下来允许什么」编码为状态；每个字符归类为
+                digit、sign、dot 或 exp，再查唯一转移。不存在转移立即失败。
+              </p>
+            </article>
+            <article class="border-2 border-ink bg-reactor p-6 text-frost">
+              <p
+                class="font-mono text-xs font-bold uppercase tracking-widest text-phosphor"
+              >
+                Accepting states
+              </p>
+              <h3 class="mt-2 font-display text-3xl font-bold uppercase">
+                结束态同样重要
+              </h3>
+              <p class="mt-4 leading-8 text-haze">
+                字符全部合法仍不一定是数字，例如
+                <code class="font-mono text-phosphor">"1e+"</code> 会停在
+                EXP_SIGN。只有 INTEGER、POINT、FRACTION、EXP_NUMBER
+                四个状态可以在字符串结束时接收。
+              </p>
+            </article>
+          </div>
+
+          <div class="mt-8 grid gap-6 lg:grid-cols-3">
+            <article class="border-t-4 border-plasma bg-haze/40 p-6">
+              <h3 class="font-display text-3xl font-bold uppercase">
+                完整过程
+              </h3>
+              <ol class="mt-4 space-y-3 text-sm leading-7">
+                <li><strong>1.</strong> 从 START 状态开始。</li>
+                <li>
+                  <strong>2.</strong> 把当前字符归类为 digit / sign / dot /
+                  exp。
+                </li>
+                <li><strong>3.</strong> 用当前状态和字符类型查询下一状态。</li>
+                <li><strong>4.</strong> 转移不存在则立即返回 false。</li>
+                <li>
+                  <strong>5.</strong> 扫描结束，检查当前状态是否属于接收态。
+                </li>
+              </ol>
+            </article>
+            <article class="border-t-4 border-plasma bg-haze/40 p-6">
+              <h3 class="font-display text-3xl font-bold uppercase">边界</h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>
+                  <code class="font-mono">"4."</code> 合法：POINT 是接收态。
+                </li>
+                <li>
+                  <code class="font-mono">".9"</code> 合法：点后至少一个数字。
+                </li>
+                <li>
+                  <code class="font-mono">"."</code> 非法：POINT_NO_INT
+                  不是接收态。
+                </li>
+                <li>指数只能出现一次，且指数部分不允许小数点。</li>
+                <li>符号只允许在开头或指数标记之后。</li>
+              </ul>
+            </article>
+            <article class="border-t-4 border-plasma bg-haze/40 p-6">
+              <h3 class="font-display text-3xl font-bold uppercase">复杂度</h3>
+              <dl class="mt-4 space-y-4">
+                <div>
+                  <dt class="font-mono text-xs text-chamber">TIME</dt>
+                  <dd class="font-display text-3xl font-bold">O(n)</dd>
+                </div>
+                <div>
+                  <dt class="font-mono text-xs text-chamber">SPACE</dt>
+                  <dd class="font-display text-3xl font-bold">O(1)</dd>
+                </div>
+              </dl>
+            </article>
+          </div>
+
+          <div class="mt-8 grid gap-6 lg:grid-cols-3">
+            <article class="border-2 border-ink p-6">
+              <h3 class="font-display text-3xl font-bold uppercase">
+                替代方案
+              </h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>
+                  <strong>布尔标记：</strong
+                  >跟踪数字、点、指数和指数后数字；代码短，但规则更分散。
+                </li>
+                <li>
+                  <strong>正则表达式：</strong
+                  >适合生产校验；面试中可读性和推导过程较弱。
+                </li>
+                <li>
+                  <strong>递归下降：</strong
+                  >语法映射最直接，但本题规模下显得过重。
+                </li>
+              </ul>
+            </article>
+            <article class="border-2 border-ink p-6">
+              <h3 class="font-display text-3xl font-bold uppercase">
+                面试追问
+              </h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>
+                  若允许首尾空格？在进入状态机前明确 trim，但不要吞掉内部空格。
+                </li>
+                <li>若加入十六进制？增加前缀状态和十六进制 digit 类型。</li>
+                <li>如何从语法系统化构造 DFA？先画 NFA，再合并等价状态。</li>
+                <li>
+                  为何不用解析浮点数？库函数可能接受题目语法之外的表示法。
+                </li>
+              </ul>
+            </article>
+            <article class="border-2 border-ink p-6">
+              <h3 class="font-display text-3xl font-bold uppercase">
+                常见错误
+              </h3>
+              <ul class="mt-4 space-y-3 text-sm leading-7">
+                <li>只检查字符是否合法，忘记检查最终状态。</li>
+                <li>
+                  允许指数后出现小数点，误判
+                  <code class="font-mono">"99e2.5"</code>。
+                </li>
+                <li>
+                  让符号出现在任意位置，误判
+                  <code class="font-mono">"--6"</code>。
+                </li>
+                <li>直接 trim 输入，掩盖当前约束外的非法空格。</li>
+              </ul>
+            </article>
+          </div>
+
+          <article class="mt-10 border-4 border-ink bg-void text-frost">
+            <div
+              class="flex flex-col gap-4 border-b border-ion/30 p-5 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div>
+                <p
+                  class="font-mono text-xs uppercase tracking-widest text-phosphor"
+                >
+                  SUBMIT-READY DFA
+                </p>
+                <h3 class="font-display text-4xl font-bold uppercase">
+                  四语言可提交代码
+                </h3>
+              </div>
+              <div
+                class="flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="代码语言"
+              >
+                <button
+                  id="tab-java"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-phosphor bg-phosphor px-4 py-2 font-mono text-xs font-bold text-ink"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="panel-java"
+                  tabindex="0"
+                >
+                  Java
+                </button>
+                <button
+                  id="tab-javascript"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-ion px-4 py-2 font-mono text-xs"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-javascript"
+                  tabindex="-1"
+                >
+                  JavaScript
+                </button>
+                <button
+                  id="tab-python"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-ion px-4 py-2 font-mono text-xs"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-python"
+                  tabindex="-1"
+                >
+                  Python
+                </button>
+                <button
+                  id="tab-cpp"
+                  type="button"
+                  class="language-tab min-h-11 border-2 border-ion px-4 py-2 font-mono text-xs"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-cpp"
+                  tabindex="-1"
+                >
+                  C++
+                </button>
+              </div>
+            </div>
+
+            <div
+              id="panel-java"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-java"
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-haze"
+              ><code>class Solution {
+    private static final int[][] NEXT = {
+        {2, 1, 4, -1}, {2, -1, 4, -1}, {2, -1, 3, 6},
+        {5, -1, -1, 6}, {5, -1, -1, -1}, {5, -1, -1, 6},
+        {8, 7, -1, -1}, {8, -1, -1, -1}, {8, -1, -1, -1}
+    };
+    private static final boolean[] ACCEPT = {
+        false, false, true, true, false, true, false, false, true
+    };
+
+    public boolean isNumber(String s) {
+        int state = 0;
+        for (char ch : s.toCharArray()) {
+            int type = typeOf(ch);
+            if (type == -1 || NEXT[state][type] == -1) {
+                return false;
+            }
+            state = NEXT[state][type];
+        }
+        return ACCEPT[state];
+    }
+
+    private int typeOf(char ch) {
+        if (ch &gt;= '0' &amp;&amp; ch &lt;= '9') return 0;
+        if (ch == '+' || ch == '-') return 1;
+        if (ch == '.') return 2;
+        if (ch == 'e' || ch == 'E') return 3;
+        return -1;
+    }
+}</code></pre>
+            </div>
+
+            <div
+              id="panel-javascript"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-javascript"
+              hidden
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-haze"
+              ><code>var isNumber = function (s) {
+  const next = [
+    [2, 1, 4, -1], [2, -1, 4, -1], [2, -1, 3, 6],
+    [5, -1, -1, 6], [5, -1, -1, -1], [5, -1, -1, 6],
+    [8, 7, -1, -1], [8, -1, -1, -1], [8, -1, -1, -1],
+  ];
+  const accept = new Set([2, 3, 5, 8]);
+  let state = 0;
+
+  for (const ch of s) {
+    let type = -1;
+    if (ch &gt;= "0" &amp;&amp; ch &lt;= "9") type = 0;
+    else if (ch === "+" || ch === "-") type = 1;
+    else if (ch === ".") type = 2;
+    else if (ch === "e" || ch === "E") type = 3;
+
+    if (type === -1 || next[state][type] === -1) return false;
+    state = next[state][type];
+  }
+  return accept.has(state);
+};</code></pre>
+            </div>
+
+            <div
+              id="panel-python"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-python"
+              hidden
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-haze"
+              ><code>class Solution:
+    def isNumber(self, s: str) -&gt; bool:
+        transitions = [
+            [2, 1, 4, -1], [2, -1, 4, -1], [2, -1, 3, 6],
+            [5, -1, -1, 6], [5, -1, -1, -1], [5, -1, -1, 6],
+            [8, 7, -1, -1], [8, -1, -1, -1], [8, -1, -1, -1],
+        ]
+        accepting = {2, 3, 5, 8}
+        state = 0
+
+        for char in s:
+            if char.isdigit() and char.isascii():
+                token_type = 0
+            elif char in "+-":
+                token_type = 1
+            elif char == ".":
+                token_type = 2
+            elif char in "eE":
+                token_type = 3
+            else:
+                return False
+
+            state = transitions[state][token_type]
+            if state == -1:
+                return False
+        return state in accepting</code></pre>
+            </div>
+
+            <div
+              id="panel-cpp"
+              class="code-panel p-5 sm:p-7"
+              role="tabpanel"
+              aria-labelledby="tab-cpp"
+              hidden
+            >
+              <pre
+                class="font-mono text-sm leading-7 text-haze"
+              ><code>class Solution {
+public:
+    bool isNumber(std::string s) {
+        const int next[9][4] = {
+            {2, 1, 4, -1}, {2, -1, 4, -1}, {2, -1, 3, 6},
+            {5, -1, -1, 6}, {5, -1, -1, -1}, {5, -1, -1, 6},
+            {8, 7, -1, -1}, {8, -1, -1, -1}, {8, -1, -1, -1}
+        };
+        const bool accept[9] = {
+            false, false, true, true, false, true, false, false, true
+        };
+        int state = 0;
+
+        for (char ch : s) {
+            int type = -1;
+            if (ch &gt;= '0' &amp;&amp; ch &lt;= '9') type = 0;
+            else if (ch == '+' || ch == '-') type = 1;
+            else if (ch == '.') type = 2;
+            else if (ch == 'e' || ch == 'E') type = 3;
+
+            if (type == -1 || next[state][type] == -1) return false;
+            state = next[state][type];
+        }
+        return accept[state];
+    }
+};</code></pre>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (() => {
+        const stateNames = [
+          "START",
+          "SIGN",
+          "INTEGER",
+          "POINT",
+          "POINT_NO_INT",
+          "FRACTION",
+          "EXP",
+          "EXP_SIGN",
+          "EXP_NUMBER",
+          "REJECT",
+        ];
+        const stateNotes = {
+          START: "起始",
+          SIGN: "首符号",
+          INTEGER: "整数位",
+          POINT: "整数尾点",
+          POINT_NO_INT: "前置点",
+          FRACTION: "小数位",
+          EXP: "指数标记",
+          EXP_SIGN: "指数符号",
+          EXP_NUMBER: "指数整数",
+          REJECT: "非法转移",
+        };
+        const acceptingStates = new Set([
+          "INTEGER",
+          "POINT",
+          "FRACTION",
+          "EXP_NUMBER",
+        ]);
+        const transitions = {
+          START: { digit: "INTEGER", sign: "SIGN", dot: "POINT_NO_INT" },
+          SIGN: { digit: "INTEGER", dot: "POINT_NO_INT" },
+          INTEGER: { digit: "INTEGER", dot: "POINT", exp: "EXP" },
+          POINT: { digit: "FRACTION", exp: "EXP" },
+          POINT_NO_INT: { digit: "FRACTION" },
+          FRACTION: { digit: "FRACTION", exp: "EXP" },
+          EXP: { digit: "EXP_NUMBER", sign: "EXP_SIGN" },
+          EXP_SIGN: { digit: "EXP_NUMBER" },
+          EXP_NUMBER: { digit: "EXP_NUMBER" },
+        };
+
+        const demoCases = ["-90E3", ".1", "1e+", "95a54e53"];
+        const testCases = [
+          { name: "官方样例 · 整数零", s: "0", expected: true },
+          { name: "官方样例 · 单独指数", s: "e", expected: false },
+          { name: "官方样例 · 单独小数点", s: ".", expected: false },
+          { name: "大写指数", s: "-90E3", expected: true },
+          { name: "整数尾点", s: "4.", expected: true },
+          { name: "省略整数部分", s: "-.9", expected: true },
+          { name: "指数带符号", s: "+6e-1", expected: true },
+          { name: "指数缺数字", s: "1e", expected: false },
+          { name: "指数出现小数点", s: "99e2.5", expected: false },
+          { name: "防御性空格（约束外）", s: " ", expected: false },
+        ];
+
+        const caseButtons = [...document.querySelectorAll(".case-button")];
+        const tokenStream = document.querySelector("#token-stream");
+        const stateGrid = document.querySelector("#state-grid");
+        const streamLabel = document.querySelector("#stream-label");
+        const resultOutput = document.querySelector("#result-output");
+        const scanProgress = document.querySelector("#scan-progress");
+        const stepCount = document.querySelector("#step-count");
+        const stepTitle = document.querySelector("#step-title");
+        const stepDescription = document.querySelector("#step-description");
+        const charValue = document.querySelector("#char-value");
+        const typeValue = document.querySelector("#type-value");
+        const fromValue = document.querySelector("#from-value");
+        const toValue = document.querySelector("#to-value");
+        const transitionNote = document.querySelector("#transition-note");
+        const startButton = document.querySelector("#start-button");
+        const prevButton = document.querySelector("#prev-button");
+        const playButton = document.querySelector("#play-button");
+        const nextButton = document.querySelector("#next-button");
+        const endButton = document.querySelector("#end-button");
+        const demoStage = document.querySelector("#demo-stage");
+        const testGrid = document.querySelector("#test-grid");
+        const solutionToggle = document.querySelector("#solution-toggle");
+        const solutionContent = document.querySelector("#solution-content");
+        const languageTabs = [...document.querySelectorAll('[role="tab"]')];
+        const codePanels = [...document.querySelectorAll('[role="tabpanel"]')];
+        const liveStatus = document.querySelector("#live-status");
+        const reducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+
+        let activeCase = 0;
+        let frames = [];
+        let currentFrame = 0;
+        let autoplayTimer = null;
+
+        function displayChar(char) {
+          return char === " " ? "␠" : char;
+        }
+
+        function formatInput(s) {
+          return `s = "${[...s].map(displayChar).join("")}"`;
+        }
+
+        function categorize(char) {
+          if (char >= "0" && char <= "9") return "digit";
+          if (char === "+" || char === "-") return "sign";
+          if (char === ".") return "dot";
+          if (char === "e" || char === "E") return "exp";
+          return "other";
+        }
+
+        function isNumber(s) {
+          let state = "START";
+          for (const char of s) {
+            const type = categorize(char);
+            const next = transitions[state]?.[type];
+            if (!next) return false;
+            state = next;
+          }
+          return acceptingStates.has(state);
+        }
+
+        function buildFrames(s) {
+          const nextFrames = [
+            {
+              title: "等待字符注入",
+              description:
+                "状态机从 START 出发；读取每个字符后，必须沿已定义的转移进入下一状态。",
+              state: "START",
+              previous: null,
+              char: null,
+              type: null,
+              charIndex: -1,
+              consumed: 0,
+              note: "START CHAMBER ARMED",
+              conclusion: false,
+              valid: null,
+            },
+          ];
+          let state = "START";
+          let consumed = 0;
+
+          for (let index = 0; index < s.length; index += 1) {
+            const char = s[index];
+            const type = categorize(char);
+            const previous = state;
+            const next = transitions[state]?.[type] ?? "REJECT";
+            consumed = index + 1;
+            state = next;
+            const rejected = next === "REJECT";
+            nextFrames.push({
+              title: rejected
+                ? `字符 ${displayChar(char)} 触发拒绝`
+                : `注入字符 ${displayChar(char)}`,
+              description: rejected
+                ? "当前状态没有对应字符类型的合法转移，扫描可立即终止。"
+                : "字符分类完成，沿唯一合法边进入下一状态舱。",
+              state,
+              previous,
+              char,
+              type,
+              charIndex: index,
+              consumed,
+              note: rejected
+                ? `${previous} + ${type.toUpperCase()} → REJECT`
+                : `${previous} + ${type.toUpperCase()} → ${next}`,
+              conclusion: false,
+              valid: null,
+            });
+            if (rejected) break;
+          }
+
+          const valid =
+            state !== "REJECT" &&
+            consumed === s.length &&
+            acceptingStates.has(state);
+          nextFrames.push({
+            title: valid ? "扫描完成：有效数字" : "扫描完成：无效数字",
+            description: valid
+              ? `${state} 是接收态，且所有字符均已消费。`
+              : state === "REJECT"
+                ? "扫描过程中发生非法转移，因此结果为 false。"
+                : `${state} 不是接收态，字符串在语法尚未完整时结束。`,
+            state,
+            previous: state,
+            char: null,
+            type: null,
+            charIndex: -1,
+            consumed,
+            note: valid
+              ? `${state} ∈ ACCEPTING STATES`
+              : `${state} ∉ ACCEPTING STATES`,
+            conclusion: true,
+            valid,
+          });
+          return nextFrames;
+        }
+
+        function stopAutoplay(announce = false) {
+          if (autoplayTimer !== null) {
+            window.clearInterval(autoplayTimer);
+            autoplayTimer = null;
+          }
+          playButton.setAttribute("aria-pressed", "false");
+          playButton.textContent = "▶ 自动播放";
+          if (announce) liveStatus.textContent = "自动播放已暂停。";
+        }
+
+        function renderFrame() {
+          const frame = frames[currentFrame];
+          const s = demoCases[activeCase];
+
+          tokenStream.replaceChildren();
+          [...s].forEach((char, index) => {
+            const token = document.createElement("span");
+            token.className = "token-cell";
+            token.dataset.processed = String(index < frame.consumed);
+            token.dataset.active = String(index === frame.charIndex);
+            token.textContent = displayChar(char);
+            token.setAttribute(
+              "aria-label",
+              `第 ${index + 1} 个字符：${displayChar(char)}`,
+            );
+            tokenStream.append(token);
+          });
+
+          stateGrid.replaceChildren();
+          stateNames.forEach((state) => {
+            const node = document.createElement("div");
+            node.className = "state-node p-3";
+            node.dataset.active = String(state === frame.state);
+            node.dataset.reject = String(state === "REJECT");
+            const label = document.createElement("p");
+            label.className = "test-code font-mono text-[10px] font-bold";
+            label.textContent = `${acceptingStates.has(state) ? "◆ " : ""}${state}`;
+            const note = document.createElement("p");
+            note.className = "mt-1 text-xs text-haze";
+            if (state === frame.state) note.className = "mt-1 text-xs";
+            note.textContent = stateNotes[state];
+            node.append(label, note);
+            stateGrid.append(node);
+          });
+
+          streamLabel.textContent = formatInput(s);
+          stepCount.textContent = `${currentFrame} / ${frames.length - 1}`;
+          stepTitle.textContent = frame.title;
+          stepDescription.textContent = frame.description;
+          charValue.textContent =
+            frame.char === null ? "—" : displayChar(frame.char);
+          typeValue.textContent = frame.type?.toUpperCase() ?? "—";
+          fromValue.textContent = frame.previous ?? "—";
+          toValue.textContent = frame.state;
+          transitionNote.textContent = frame.note;
+          resultOutput.textContent = frame.conclusion
+            ? String(frame.valid)
+            : "—";
+          resultOutput.classList.toggle(
+            "text-reject",
+            frame.conclusion && !frame.valid,
+          );
+          resultOutput.classList.toggle(
+            "text-phosphor",
+            !frame.conclusion || frame.valid,
+          );
+          scanProgress.style.width = `${(currentFrame / (frames.length - 1)) * 100}%`;
+          startButton.disabled = currentFrame === 0;
+          prevButton.disabled = currentFrame === 0;
+          nextButton.disabled = currentFrame === frames.length - 1;
+          endButton.disabled = currentFrame === frames.length - 1;
+        }
+
+        function setFrame(index, announce = true) {
+          currentFrame = Math.max(0, Math.min(index, frames.length - 1));
+          renderFrame();
+          if (announce) {
+            liveStatus.textContent = `第 ${currentFrame} 步，共 ${frames.length - 1} 步：${frames[currentFrame].title}`;
+          }
+          if (currentFrame === frames.length - 1) stopAutoplay();
+        }
+
+        function selectCase(index) {
+          stopAutoplay();
+          activeCase = index;
+          frames = buildFrames(demoCases[index]);
+          currentFrame = 0;
+          caseButtons.forEach((button, buttonIndex) => {
+            const active = buttonIndex === index;
+            button.setAttribute("aria-pressed", String(active));
+            button.classList.toggle("bg-phosphor", active);
+            button.classList.toggle("text-ink", active);
+            button.classList.toggle("border-phosphor", active);
+            button.classList.toggle("border-ion/60", !active);
+            button.classList.toggle("text-ion", !active);
+          });
+          renderFrame();
+          liveStatus.textContent = `已选择用例：${formatInput(demoCases[index])}`;
+        }
+
+        function toggleAutoplay() {
+          if (autoplayTimer !== null) {
+            stopAutoplay(true);
+            return;
+          }
+          if (currentFrame === frames.length - 1) setFrame(0, false);
+          playButton.setAttribute("aria-pressed", "true");
+          playButton.textContent = "❚❚ 暂停播放";
+          liveStatus.textContent = "自动播放已开始。";
+          const delay = reducedMotion ? 1000 : 700;
+          autoplayTimer = window.setInterval(() => {
+            setFrame(currentFrame + 1);
+          }, delay);
+        }
+
+        function renderTests() {
+          const fragment = document.createDocumentFragment();
+          testCases.forEach((test, index) => {
+            const actual = isNumber(test.s);
+            const passed = actual === test.expected;
+            const card = document.createElement("article");
+            card.className =
+              "border-2 border-ink bg-frost p-5 shadow-[5px_5px_0_#281946]";
+
+            const header = document.createElement("div");
+            header.className =
+              "flex items-start justify-between gap-4 border-b-2 border-ink pb-3";
+            const title = document.createElement("h3");
+            title.className = "font-display text-xl font-bold uppercase";
+            title.textContent = `${String(index + 1).padStart(2, "0")} · ${test.name}`;
+            const badge = document.createElement("span");
+            badge.className = passed
+              ? "shrink-0 bg-reactor px-3 py-1 font-mono text-xs font-bold text-frost"
+              : "shrink-0 bg-reject px-3 py-1 font-mono text-xs font-bold text-frost";
+            badge.textContent = passed ? "PASS" : "FAIL";
+            header.append(title, badge);
+
+            const fields = document.createElement("dl");
+            fields.className = "mt-4 grid gap-3 sm:grid-cols-2";
+            const data = [
+              ["输入", formatInput(test.s)],
+              ["期望输出", String(test.expected)],
+              ["实际输出", String(actual)],
+              ["通过状态", passed ? "通过" : "未通过"],
+            ];
+            data.forEach(([label, value]) => {
+              const field = document.createElement("div");
+              field.className = "min-w-0 border border-chamber/40 bg-white p-3";
+              const term = document.createElement("dt");
+              term.className =
+                "font-mono text-[10px] font-bold uppercase tracking-widest text-chamber";
+              term.textContent = label;
+              const detail = document.createElement("dd");
+              detail.className =
+                "test-code mt-1 font-mono text-sm font-semibold";
+              detail.textContent = value;
+              field.append(term, detail);
+              fields.append(field);
+            });
+            card.append(header, fields);
+            fragment.append(card);
+          });
+          testGrid.append(fragment);
+        }
+
+        function activateTab(tab) {
+          languageTabs.forEach((candidate) => {
+            const active = candidate === tab;
+            candidate.setAttribute("aria-selected", String(active));
+            candidate.tabIndex = active ? 0 : -1;
+            candidate.classList.toggle("bg-phosphor", active);
+            candidate.classList.toggle("text-ink", active);
+            candidate.classList.toggle("border-phosphor", active);
+            candidate.classList.toggle("border-ion", !active);
+          });
+          codePanels.forEach((panel) => {
+            panel.hidden = panel.id !== tab.getAttribute("aria-controls");
+          });
+          tab.focus();
+          liveStatus.textContent = `已切换到 ${tab.textContent.trim()} 代码。`;
+        }
+
+        caseButtons.forEach((button, index) => {
+          button.addEventListener("click", () => selectCase(index));
+        });
+        startButton.addEventListener("click", () => setFrame(0));
+        prevButton.addEventListener("click", () => setFrame(currentFrame - 1));
+        playButton.addEventListener("click", toggleAutoplay);
+        nextButton.addEventListener("click", () => setFrame(currentFrame + 1));
+        endButton.addEventListener("click", () => setFrame(frames.length - 1));
+
+        demoStage.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            setFrame(currentFrame + 1);
+          } else if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            setFrame(currentFrame - 1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            setFrame(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            setFrame(frames.length - 1);
+          } else if (event.key === " " && event.target === demoStage) {
+            event.preventDefault();
+            toggleAutoplay();
+          }
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const expanded =
+            solutionToggle.getAttribute("aria-expanded") === "true";
+          solutionToggle.setAttribute("aria-expanded", String(!expanded));
+          solutionContent.hidden = expanded;
+          solutionToggle.textContent = expanded ? "查看题解" : "收起题解";
+          liveStatus.textContent = expanded ? "题解已收起。" : "题解已展开。";
+        });
+
+        languageTabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab));
+          tab.addEventListener("keydown", (event) => {
+            let targetIndex = index;
+            if (event.key === "ArrowRight") {
+              targetIndex = (index + 1) % languageTabs.length;
+            } else if (event.key === "ArrowLeft") {
+              targetIndex =
+                (index - 1 + languageTabs.length) % languageTabs.length;
+            } else if (event.key === "Home") {
+              targetIndex = 0;
+            } else if (event.key === "End") {
+              targetIndex = languageTabs.length - 1;
+            } else {
+              return;
+            }
+            event.preventDefault();
+            activateTab(languageTabs[targetIndex]);
+          });
+        });
+
+        frames = buildFrames(demoCases[0]);
+        renderFrame();
+        renderTests();
+      })();
+    </script>
+  </body>
+</html>
