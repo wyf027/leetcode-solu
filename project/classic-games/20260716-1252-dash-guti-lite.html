@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Dash Guti</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center">
+    <section class="flex-1">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-normal">Mini Dash Guti</h1>
+          <p id="status" class="mt-1 text-sm text-zinc-300">Blue moves first. Capture five red counters to win.</p>
+        </div>
+        <button id="reset" class="rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-cyan-300">Reset</button>
+      </div>
+      <div class="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
+        <svg id="board" viewBox="0 0 420 420" class="aspect-square w-full" role="img" aria-label="Mini Dash Guti board"></svg>
+      </div>
+    </section>
+
+    <aside class="w-full rounded-lg border border-zinc-700 bg-zinc-900 p-4 md:w-72">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-md bg-zinc-800 p-3">
+          <div class="text-zinc-400">Blue captures</div>
+          <div id="blueScore" class="mt-1 text-2xl font-semibold">0 / 5</div>
+        </div>
+        <div class="rounded-md bg-zinc-800 p-3">
+          <div class="text-zinc-400">Red captures</div>
+          <div id="redScore" class="mt-1 text-2xl font-semibold">0 / 5</div>
+        </div>
+      </div>
+      <div class="mt-4 space-y-2 text-sm text-zinc-300">
+        <p>Select one of your counters, then choose an empty connected point.</p>
+        <p>A jump over one adjacent enemy counter captures it.</p>
+        <p>The first side to capture five counters wins this small Dash Guti board.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const svg = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const resetBtn = document.getElementById("reset");
+    const blueScoreEl = document.getElementById("blueScore");
+    const redScoreEl = document.getElementById("redScore");
+
+    const points = [
+      [60, 60], [135, 60], [210, 60], [285, 60], [360, 60],
+      [60, 135], [135, 135], [210, 135], [285, 135], [360, 135],
+      [60, 210], [135, 210], [210, 210], [285, 210], [360, 210],
+      [60, 285], [135, 285], [210, 285], [285, 285], [360, 285],
+      [60, 360], [135, 360], [210, 360], [285, 360], [360, 360]
+    ];
+    const lines = [];
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 4; col++) lines.push([row * 5 + col, row * 5 + col + 1]);
+    }
+    for (let col = 0; col < 5; col++) {
+      for (let row = 0; row < 4; row++) lines.push([row * 5 + col, (row + 1) * 5 + col]);
+    }
+    [0, 6, 12, 18].forEach((start) => lines.push([start, start + 6]));
+    [4, 8, 12, 16].forEach((start) => lines.push([start, start + 4]));
+
+    const neighbors = points.map(() => new Set());
+    lines.forEach(([a, b]) => {
+      neighbors[a].add(b);
+      neighbors[b].add(a);
+    });
+
+    let board;
+    let turn;
+    let selected;
+    let blueScore;
+    let redScore;
+    let gameOver;
+
+    function startGame() {
+      board = Array(points.length).fill(null);
+      [0, 1, 2, 3, 4, 5, 6, 8, 9, 10].forEach((index) => board[index] = "red");
+      [14, 15, 16, 18, 19, 20, 21, 22, 23, 24].forEach((index) => board[index] = "blue");
+      turn = "blue";
+      selected = null;
+      blueScore = 0;
+      redScore = 0;
+      gameOver = false;
+      setStatus("Blue turn: select a counter.");
+      render();
+    }
+
+    function render() {
+      svg.innerHTML = "";
+      lines.forEach(([a, b]) => drawLine(points[a], points[b]));
+      points.forEach(([x, y], index) => {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        node.setAttribute("cx", x);
+        node.setAttribute("cy", y);
+        node.setAttribute("r", selected === index ? 17 : 12);
+        node.setAttribute("fill", selected === index ? "#22d3ee" : "#52525b");
+        node.setAttribute("stroke", "#d4d4d8");
+        node.setAttribute("stroke-width", "2");
+        node.classList.add("cursor-pointer");
+        node.addEventListener("click", () => handlePoint(index));
+        svg.appendChild(node);
+        if (board[index]) drawPiece(x, y, board[index]);
+      });
+      blueScoreEl.textContent = `${blueScore} / 5`;
+      redScoreEl.textContent = `${redScore} / 5`;
+    }
+
+    function drawLine(from, to) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", from[0]);
+      line.setAttribute("y1", from[1]);
+      line.setAttribute("x2", to[0]);
+      line.setAttribute("y2", to[1]);
+      line.setAttribute("stroke", "#71717a");
+      line.setAttribute("stroke-width", "4");
+      line.setAttribute("stroke-linecap", "round");
+      svg.appendChild(line);
+    }
+
+    function drawPiece(x, y, side) {
+      const piece = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      piece.setAttribute("cx", x);
+      piece.setAttribute("cy", y);
+      piece.setAttribute("r", "19");
+      piece.setAttribute("fill", side === "blue" ? "#38bdf8" : "#fb7185");
+      piece.setAttribute("stroke", "#fafafa");
+      piece.setAttribute("stroke-width", "3");
+      piece.classList.add("pointer-events-none");
+      svg.appendChild(piece);
+    }
+
+    function handlePoint(index) {
+      if (gameOver) return;
+      if (selected === null) {
+        if (board[index] === turn) {
+          selected = index;
+          setStatus(`${label(turn)}: choose a move or jump.`);
+        }
+        render();
+        return;
+      }
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (board[index]) return;
+      const capture = findCapture(selected, index);
+      if (neighbors[selected].has(index)) {
+        board[index] = turn;
+        board[selected] = null;
+        endTurn();
+      } else if (capture !== null) {
+        board[index] = turn;
+        board[selected] = null;
+        board[capture] = null;
+        if (turn === "blue") blueScore++;
+        else redScore++;
+        endTurn();
+      }
+      render();
+      checkWinner();
+    }
+
+    function findCapture(from, to) {
+      const [fx, fy] = points[from];
+      const [tx, ty] = points[to];
+      const middlePoint = [(fx + tx) / 2, (fy + ty) / 2];
+      const middle = points.findIndex(([x, y]) => x === middlePoint[0] && y === middlePoint[1]);
+      if (middle < 0 || board[middle] === turn || !board[middle]) return null;
+      if (!neighbors[from].has(middle) || !neighbors[middle].has(to)) return null;
+      return middle;
+    }
+
+    function endTurn() {
+      selected = null;
+      turn = turn === "blue" ? "red" : "blue";
+      setStatus(`${label(turn)} turn: select a counter.`);
+    }
+
+    function checkWinner() {
+      if (blueScore >= 5 || redScore >= 5) {
+        gameOver = true;
+        setStatus(`${blueScore >= 5 ? "Blue" : "Red"} wins by capturing five counters.`);
+        return;
+      }
+      if (!hasAnyMove(turn)) {
+        gameOver = true;
+        setStatus(`${label(turn === "blue" ? "red" : "blue")} wins by blocking every move.`);
+      }
+    }
+
+    function hasAnyMove(side) {
+      return board.some((piece, index) => {
+        if (piece !== side) return false;
+        if ([...neighbors[index]].some((to) => !board[to])) return true;
+        return points.some((_, to) => !board[to] && findCaptureForSide(index, to, side) !== null);
+      });
+    }
+
+    function findCaptureForSide(from, to, side) {
+      const [fx, fy] = points[from];
+      const [tx, ty] = points[to];
+      const middlePoint = [(fx + tx) / 2, (fy + ty) / 2];
+      const middle = points.findIndex(([x, y]) => x === middlePoint[0] && y === middlePoint[1]);
+      if (middle < 0 || board[middle] === side || !board[middle]) return null;
+      if (!neighbors[from].has(middle) || !neighbors[middle].has(to)) return null;
+      return middle;
+    }
+
+    function label(side) {
+      return side === "blue" ? "Blue" : "Red";
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
