@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Sliding Rooks</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-sky-300">classic sliding puzzle</p>
+        <h1 class="text-3xl font-bold text-white">Mini Sliding Rooks</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-sky-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-4 gap-1"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="text-sm text-slate-400">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-slate-300"></p>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+            <li>Slide one of your rooks any distance in a straight line.</li>
+            <li>Rooks cannot jump over blockers or other rooks.</li>
+            <li>Land on an opposing rook to capture it.</li>
+            <li>Win by capturing both enemy rooks or leaving them no move.</li>
+          </ul>
+        </div>
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p class="font-semibold text-white">Pieces</p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded bg-slate-800 p-3">
+              <p class="text-slate-400">Blue</p>
+              <p id="blueCount" class="text-2xl font-bold text-sky-300"></p>
+            </div>
+            <div class="rounded bg-slate-800 p-3">
+              <p class="text-slate-400">Red</p>
+              <p id="redCount" class="text-2xl font-bold text-rose-300"></p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 4;
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const statusEl = document.getElementById("status");
+    const blueCount = document.getElementById("blueCount");
+    const redCount = document.getElementById("redCount");
+    const resetBtn = document.getElementById("resetBtn");
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    let board = [];
+    let turn = "B";
+    let selected = null;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      board[0][0] = "R";
+      board[0][3] = "R";
+      board[3][0] = "B";
+      board[3][3] = "B";
+      board[1][1] = "X";
+      board[2][2] = "X";
+      turn = "B";
+      selected = null;
+      gameOver = false;
+      render("Blue starts. Select a rook to slide.");
+    }
+
+    function opponent(side) {
+      return side === "B" ? "R" : "B";
+    }
+
+    function nameOf(side) {
+      return side === "B" ? "Blue" : "Red";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function countPieces(side) {
+      return board.flat().filter((piece) => piece === side).length;
+    }
+
+    function legalMoves(row, col) {
+      if (gameOver || board[row][col] !== turn) return [];
+      const moves = [];
+      directions.forEach(([dr, dc]) => {
+        let nextRow = row + dr;
+        let nextCol = col + dc;
+        while (inBounds(nextRow, nextCol)) {
+          const piece = board[nextRow][nextCol];
+          if (piece === "" || piece === opponent(turn)) moves.push([nextRow, nextCol]);
+          if (piece !== "") break;
+          nextRow += dr;
+          nextCol += dc;
+        }
+      });
+      return moves;
+    }
+
+    function allMoves(side) {
+      const previous = turn;
+      turn = side;
+      const moves = [];
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          if (piece === side) legalMoves(rowIndex, colIndex).forEach((move) => moves.push(move));
+        });
+      });
+      turn = previous;
+      return moves;
+    }
+
+    function finishTurn(message) {
+      const enemy = opponent(turn);
+      if (countPieces(enemy) === 0) {
+        gameOver = true;
+        selected = null;
+        render(`${nameOf(turn)} wins by capturing every enemy rook.`);
+        return;
+      }
+      if (allMoves(enemy).length === 0) {
+        gameOver = true;
+        selected = null;
+        render(`${nameOf(turn)} wins by blocking all enemy moves.`);
+        return;
+      }
+      turn = enemy;
+      selected = null;
+      render(message || `${nameOf(turn)} to move.`);
+    }
+
+    function sameCell(a, b) {
+      return a && a[0] === b[0] && a[1] === b[1];
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (board[row][col] === turn) {
+        selected = [row, col];
+        render(`Slide this ${nameOf(turn)} rook.`);
+        return;
+      }
+      if (!selected) return;
+      const moves = legalMoves(selected[0], selected[1]);
+      if (!moves.some((move) => sameCell(move, [row, col]))) return;
+      board[row][col] = turn;
+      board[selected[0]][selected[1]] = "";
+      finishTurn(`${nameOf(turn)} slides across the board.`);
+    }
+
+    function cellClasses(row, col) {
+      const piece = board[row][col];
+      const moves = selected ? legalMoves(selected[0], selected[1]) : [];
+      const isSelected = selected && sameCell(selected, [row, col]);
+      const isMove = moves.some((move) => sameCell(move, [row, col]));
+      const base = "flex aspect-square items-center justify-center rounded border text-4xl font-black transition";
+      const color = piece === "B"
+        ? "border-sky-400 bg-sky-950 text-sky-200"
+        : piece === "R"
+          ? "border-rose-400 bg-rose-950 text-rose-200"
+          : piece === "X"
+            ? "border-slate-600 bg-slate-700 text-slate-400"
+            : "border-slate-700 bg-slate-800 text-slate-500";
+      const state = isSelected ? " ring-4 ring-white" : isMove ? " ring-4 ring-lime-300" : " hover:border-sky-300";
+      return `${base} ${color}${state}`;
+    }
+
+    function render(message) {
+      boardEl.innerHTML = "";
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(rowIndex, colIndex);
+          button.textContent = piece === "X" ? "■" : piece;
+          button.setAttribute("aria-label", `row ${rowIndex + 1} column ${colIndex + 1}`);
+          button.addEventListener("click", () => handleCell(rowIndex, colIndex));
+          boardEl.appendChild(button);
+        });
+      });
+      turnLabel.textContent = gameOver ? "Game over" : nameOf(turn);
+      statusEl.textContent = message;
+      blueCount.textContent = countPieces("B");
+      redCount.textContent = countPieces("R");
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
