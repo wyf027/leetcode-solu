@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Queen Bee</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-amber-300">classic hive variant</p>
+        <h1 class="text-3xl font-bold text-white">Mini Queen Bee</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="text-sm text-zinc-400">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-zinc-300"></p>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="font-semibold text-white">Reserve</p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded bg-zinc-800 p-3">
+              <p class="text-zinc-400">Gold bees</p>
+              <p id="goldReserve" class="text-2xl font-bold text-amber-300"></p>
+            </div>
+            <div class="rounded bg-zinc-800 p-3">
+              <p class="text-zinc-400">Violet bees</p>
+              <p id="violetReserve" class="text-2xl font-bold text-violet-300"></p>
+            </div>
+          </div>
+        </div>
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-zinc-300">
+            <li>Each side has one queen and four guard bees.</li>
+            <li>Place reserves next to your hive, then slide one step.</li>
+            <li>Surround the enemy queen on all open orthogonal sides to win.</li>
+            <li>If you cannot move or place, your opponent wins.</li>
+          </ul>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const statusEl = document.getElementById("status");
+    const goldReserve = document.getElementById("goldReserve");
+    const violetReserve = document.getElementById("violetReserve");
+    const resetBtn = document.getElementById("resetBtn");
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    let board = [];
+    let turn = "G";
+    let reserve = { G: 4, V: 4 };
+    let selected = null;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      board[1][2] = "VQ";
+      board[3][2] = "GQ";
+      turn = "G";
+      reserve = { G: 4, V: 4 };
+      selected = null;
+      gameOver = false;
+      render("Gold starts. Place a guard bee beside your queen.");
+    }
+
+    function opponent(side) {
+      return side === "G" ? "V" : "G";
+    }
+
+    function nameOf(side) {
+      return side === "G" ? "Gold" : "Violet";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function adjacentCells(row, col) {
+      return directions
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([nextRow, nextCol]) => inBounds(nextRow, nextCol));
+    }
+
+    function hasFriendlyNeighbor(row, col, side) {
+      return adjacentCells(row, col).some(([nextRow, nextCol]) => board[nextRow][nextCol].startsWith(side));
+    }
+
+    function legalDrops(side) {
+      if (reserve[side] === 0) return [];
+      const drops = [];
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          if (piece !== "") return;
+          if (hasFriendlyNeighbor(rowIndex, colIndex, side)) drops.push([rowIndex, colIndex]);
+        });
+      });
+      return drops;
+    }
+
+    function legalMoves(row, col) {
+      if (gameOver || !board[row][col].startsWith(turn)) return [];
+      return adjacentCells(row, col).filter(([nextRow, nextCol]) => board[nextRow][nextCol] === "");
+    }
+
+    function allActions(side) {
+      const previous = turn;
+      turn = side;
+      let count = legalDrops(side).length;
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          if (piece.startsWith(side)) count += legalMoves(rowIndex, colIndex).length;
+        });
+      });
+      turn = previous;
+      return count;
+    }
+
+    function queenPosition(side) {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === `${side}Q`) return [row, col];
+        }
+      }
+      return null;
+    }
+
+    function queenSurrounded(side) {
+      const position = queenPosition(side);
+      if (!position) return false;
+      return adjacentCells(position[0], position[1]).every(([row, col]) => board[row][col] !== "");
+    }
+
+    function finishTurn(message) {
+      const enemy = opponent(turn);
+      if (queenSurrounded(enemy)) {
+        gameOver = true;
+        selected = null;
+        render(`${nameOf(turn)} wins by surrounding the enemy queen.`);
+        return;
+      }
+      if (allActions(enemy) === 0) {
+        gameOver = true;
+        selected = null;
+        render(`${nameOf(turn)} wins. ${nameOf(enemy)} has no legal action.`);
+        return;
+      }
+      turn = enemy;
+      selected = null;
+      render(message || `${nameOf(turn)} to act.`);
+    }
+
+    function sameCell(a, b) {
+      return a && a[0] === b[0] && a[1] === b[1];
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      if (board[row][col].startsWith(turn)) {
+        selected = [row, col];
+        render(`Move this ${nameOf(turn)} bee one step, or place a reserve bee.`);
+        return;
+      }
+      if (selected) {
+        const moves = legalMoves(selected[0], selected[1]);
+        if (moves.some((move) => sameCell(move, [row, col]))) {
+          board[row][col] = board[selected[0]][selected[1]];
+          board[selected[0]][selected[1]] = "";
+          finishTurn(`${nameOf(turn)} slides a bee.`);
+          return;
+        }
+      }
+      const drops = legalDrops(turn);
+      if (board[row][col] === "" && drops.some((drop) => sameCell(drop, [row, col]))) {
+        board[row][col] = `${turn}B`;
+        reserve[turn] -= 1;
+        finishTurn(`${nameOf(turn)} places a guard bee.`);
+      }
+    }
+
+    function cellClasses(row, col) {
+      const piece = board[row][col];
+      const moves = selected ? legalMoves(selected[0], selected[1]) : [];
+      const drops = legalDrops(turn);
+      const isSelected = selected && sameCell(selected, [row, col]);
+      const isMove = moves.some((move) => sameCell(move, [row, col]));
+      const isDrop = piece === "" && drops.some((drop) => sameCell(drop, [row, col]));
+      const base = "flex aspect-square items-center justify-center rounded border text-2xl font-black transition";
+      const color = piece.startsWith("G")
+        ? "border-amber-400 bg-amber-950 text-amber-200"
+        : piece.startsWith("V")
+          ? "border-violet-400 bg-violet-950 text-violet-200"
+          : "border-zinc-700 bg-zinc-800 text-zinc-500";
+      const state = isSelected ? " ring-4 ring-white" : isMove || isDrop ? " ring-4 ring-lime-300" : " hover:border-amber-300";
+      return `${base} ${color}${state}`;
+    }
+
+    function render(message) {
+      boardEl.innerHTML = "";
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(rowIndex, colIndex);
+          button.textContent = piece.endsWith("Q") ? "Q" : piece ? "B" : "";
+          button.setAttribute("aria-label", `row ${rowIndex + 1} column ${colIndex + 1}`);
+          button.addEventListener("click", () => handleCell(rowIndex, colIndex));
+          boardEl.appendChild(button);
+        });
+      });
+      turnLabel.textContent = gameOver ? "Game over" : nameOf(turn);
+      statusEl.textContent = message;
+      goldReserve.textContent = reserve.G;
+      violetReserve.textContent = reserve.V;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
