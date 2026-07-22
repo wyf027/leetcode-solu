@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bizingo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-cyan-300">Classic Games</p>
+        <h1 class="text-3xl font-bold">Mini Bizingo</h1>
+      </div>
+      <button id="newGame" class="rounded bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-300">新局</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-4">
+        <div class="mb-3 flex flex-col gap-2 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+          <span>目标：移动蓝棋夹击红棋。捕获 4 枚获胜；若蓝棋全被夹掉则失败。</span>
+          <span id="turnLabel" class="font-semibold text-cyan-200">蓝棋回合</span>
+        </div>
+        <div id="board" class="grid grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-slate-700 bg-slate-900 p-4">
+        <h2 class="mb-3 text-lg font-bold">规则</h2>
+        <p class="rounded bg-slate-800 p-3 text-sm text-slate-200">点击一枚蓝棋，再点击高亮格移动一格。移动后，若相邻红棋另一侧是蓝棋或棋盘边缘，即可夹掉。</p>
+        <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div class="rounded bg-slate-800 p-3">
+            <p class="font-semibold text-cyan-200">蓝棋</p>
+            <p id="blueScore">捕获 0 / 4</p>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <p class="font-semibold text-rose-200">红棋</p>
+            <p id="redScore">捕获 0 / 4</p>
+          </div>
+        </div>
+        <p id="message" class="mt-4 min-h-20 rounded bg-slate-800 p-3 text-sm text-slate-200">选择蓝棋开始。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const dirs = [[-1, 0], [0, 1], [1, 0], [0, -1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    let pieces = [];
+    let selected = null;
+    let blueCaptures = 0;
+    let redCaptures = 0;
+    let gameOver = false;
+    let redThinking = false;
+
+    function startGame() {
+      pieces = [
+        { id: "B1", side: "B", pos: 20 }, { id: "B2", side: "B", pos: 21 },
+        { id: "B3", side: "B", pos: 23 }, { id: "B4", side: "B", pos: 24 },
+        { id: "B5", side: "B", pos: 17 },
+        { id: "R1", side: "R", pos: 0 }, { id: "R2", side: "R", pos: 1 },
+        { id: "R3", side: "R", pos: 3 }, { id: "R4", side: "R", pos: 4 },
+        { id: "R5", side: "R", pos: 7 }
+      ];
+      selected = null;
+      blueCaptures = 0;
+      redCaptures = 0;
+      gameOver = false;
+      redThinking = false;
+      setMessage("选择蓝棋开始。");
+      render();
+    }
+
+    function setMessage(text) {
+      document.getElementById("message").textContent = text;
+    }
+
+    function rowCol(index) {
+      return [Math.floor(index / size), index % size];
+    }
+
+    function indexOf(row, col) {
+      return row * size + col;
+    }
+
+    function inBoard(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function pieceAt(index) {
+      return pieces.find((piece) => piece.pos === index);
+    }
+
+    function legalMoves(piece) {
+      const [row, col] = rowCol(piece.pos);
+      return dirs
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([nextRow, nextCol]) => inBoard(nextRow, nextCol))
+        .map(([nextRow, nextCol]) => indexOf(nextRow, nextCol))
+        .filter((target) => !pieceAt(target));
+    }
+
+    function selectPiece(index) {
+      if (gameOver || redThinking) return;
+      const piece = pieceAt(index);
+      if (piece && piece.side === "B") {
+        selected = piece.id;
+        setMessage(`${piece.id} 已选中。点击高亮格移动。`);
+        render();
+        return;
+      }
+      if (selected !== null) movePiece(index);
+    }
+
+    function movePiece(target) {
+      const piece = pieces.find((item) => item.id === selected);
+      if (!piece || !legalMoves(piece).includes(target)) {
+        setMessage("不能移动到那里。");
+        return;
+      }
+      piece.pos = target;
+      selected = null;
+      const captured = captureCheck("B");
+      setMessage(captured ? `蓝棋夹掉 ${captured} 枚红棋。` : "蓝棋移动一步。");
+      render();
+      if (!checkWin()) {
+        redThinking = true;
+        window.setTimeout(cpuMove, 650);
+      }
+    }
+
+    function captureCheck(side) {
+      const enemy = side === "B" ? "R" : "B";
+      const before = pieces.length;
+      pieces = pieces.filter((piece) => {
+        if (piece.side !== enemy) return true;
+        return !isFlanked(piece, side);
+      });
+      const captured = before - pieces.length;
+      if (side === "B") blueCaptures += captured;
+      else redCaptures += captured;
+      return captured;
+    }
+
+    function isFlanked(piece, side) {
+      const [row, col] = rowCol(piece.pos);
+      return dirs.some(([dr, dc]) => {
+        const aRow = row + dr;
+        const aCol = col + dc;
+        const bRow = row - dr;
+        const bCol = col - dc;
+        const aOwn = inBoard(aRow, aCol) ? pieceAt(indexOf(aRow, aCol))?.side === side : true;
+        const bOwn = inBoard(bRow, bCol) ? pieceAt(indexOf(bRow, bCol))?.side === side : true;
+        return aOwn && bOwn;
+      });
+    }
+
+    function cpuMove() {
+      if (gameOver) return;
+      const redPieces = pieces.filter((piece) => piece.side === "R");
+      const options = redPieces.flatMap((piece) => legalMoves(piece).map((to) => ({ piece, to })));
+      if (!options.length) {
+        setMessage("红棋无路可走，蓝棋获胜。");
+        gameOver = true;
+        render();
+        return;
+      }
+      const chosen = options.find(({ piece, to }) => {
+        const old = piece.pos;
+        piece.pos = to;
+        const canCapture = pieces.some((candidate) => candidate.side === "B" && isFlanked(candidate, "R"));
+        piece.pos = old;
+        return canCapture;
+      }) || options[Math.floor(Math.random() * options.length)];
+      chosen.piece.pos = chosen.to;
+      const captured = captureCheck("R");
+      redThinking = false;
+      setMessage(captured ? `红棋夹掉 ${captured} 枚蓝棋。` : "红棋移动一步。");
+      render();
+      checkWin();
+    }
+
+    function checkWin() {
+      const blueAlive = pieces.some((piece) => piece.side === "B");
+      const redAlive = pieces.some((piece) => piece.side === "R");
+      if (blueCaptures >= 4 || !redAlive) {
+        gameOver = true;
+        setMessage("蓝棋获胜。");
+      } else if (redCaptures >= 4 || !blueAlive) {
+        gameOver = true;
+        setMessage("红棋获胜。点击新局再试。");
+      }
+      render();
+      return gameOver;
+    }
+
+    function render() {
+      document.getElementById("turnLabel").textContent = gameOver ? "游戏结束" : (redThinking ? "红棋回合" : "蓝棋回合");
+      document.getElementById("blueScore").textContent = `捕获 ${blueCaptures} / 4`;
+      document.getElementById("redScore").textContent = `捕获 ${redCaptures} / 4`;
+      const selectedPiece = pieces.find((piece) => piece.id === selected);
+      const targets = selectedPiece ? legalMoves(selectedPiece) : [];
+      const board = document.getElementById("board");
+      board.innerHTML = "";
+      for (let index = 0; index < size * size; index += 1) {
+        const piece = pieceAt(index);
+        const target = targets.includes(index);
+        const cell = document.createElement("button");
+        cell.className = `aspect-square rounded border text-xl font-black ${target ? "border-cyan-300 bg-cyan-300 text-slate-950" : "border-slate-700 bg-slate-950 hover:border-cyan-300"}`;
+        if (piece) {
+          cell.textContent = piece.side;
+          cell.className += piece.side === "B" ? " text-cyan-300" : " text-rose-300";
+          if (piece.id === selected) cell.className += " ring-4 ring-cyan-300";
+        } else {
+          cell.textContent = target ? "•" : "";
+        }
+        cell.addEventListener("click", () => selectPiece(index));
+        board.appendChild(cell);
+      }
+    }
+
+    document.getElementById("newGame").addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
