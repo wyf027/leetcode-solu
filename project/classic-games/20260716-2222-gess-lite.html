@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gess</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-medium uppercase tracking-widest text-lime-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Gess</h1>
+      </div>
+      <button id="reset" class="w-fit rounded-md bg-lime-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-lime-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded-lg border border-emerald-800 bg-emerald-900/80 p-4 shadow-2xl shadow-black/30">
+        <div id="board" class="grid aspect-square w-full grid-cols-8 gap-1"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4">
+          <div class="text-sm text-emerald-300">当前回合</div>
+          <div id="turn" class="mt-1 text-2xl font-bold"></div>
+          <p id="status" class="mt-3 min-h-16 text-sm leading-6 text-emerald-100"></p>
+        </div>
+
+        <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4">
+          <div class="text-sm font-semibold text-emerald-100">已选足迹</div>
+          <div id="pattern" class="mt-3 grid grid-cols-3 gap-1"></div>
+        </div>
+
+        <div class="rounded-lg border border-emerald-800 bg-emerald-900 p-4 text-sm leading-6 text-emerald-100">
+          <p>选择一个 3x3 足迹中心。足迹内己方棋子的位置决定可移动方向；中心有棋子时只能走 1 格。</p>
+          <p class="mt-2">移动会搬运足迹内所有己方棋子并吃掉目标格对手棋子。吃掉对手核心棋即获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 8;
+    const boardEl = document.getElementById("board");
+    const turnEl = document.getElementById("turn");
+    const statusEl = document.getElementById("status");
+    const patternEl = document.getElementById("pattern");
+    const resetEl = document.getElementById("reset");
+    const players = [
+      { name: "青方", stone: "bg-cyan-300", text: "text-cyan-200", core: "C" },
+      { name: "紫方", stone: "bg-fuchsia-300", text: "text-fuchsia-200", core: "P" }
+    ];
+    const dirMap = {
+      "-1,-1": [-1, -1],
+      "-1,0": [-1, 0],
+      "-1,1": [-1, 1],
+      "0,-1": [0, -1],
+      "0,1": [0, 1],
+      "1,-1": [1, -1],
+      "1,0": [1, 0],
+      "1,1": [1, 1]
+    };
+    let cells;
+    let current;
+    let selected;
+    let winner;
+
+    function key(row, col) {
+      return row + "," + col;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function startGame() {
+      cells = Array.from({ length: size }, () => Array(size).fill(null));
+      [[0, 2], [0, 3], [0, 4], [1, 3], [2, 2], [2, 3], [2, 4]].forEach(([r, c]) => cells[r][c] = 1);
+      [[5, 3], [5, 4], [5, 5], [6, 4], [7, 3], [7, 4], [7, 5]].forEach(([r, c]) => cells[r][c] = 0);
+      cells[1][4] = { owner: 1, core: true };
+      cells[6][3] = { owner: 0, core: true };
+      current = 0;
+      selected = null;
+      winner = null;
+      statusEl.textContent = "选择一个 3x3 足迹中心。";
+      render();
+    }
+
+    function ownerOf(piece) {
+      return typeof piece === "number" ? piece : piece && piece.owner;
+    }
+
+    function footprint(center) {
+      const stones = [];
+      const dirs = [];
+      let shortMove = false;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const row = center.row + dr;
+          const col = center.col + dc;
+          if (!inBounds(row, col)) continue;
+          const piece = cells[row][col];
+          if (ownerOf(piece) === current) {
+            stones.push({ row, col, dr, dc, piece });
+            if (dr === 0 && dc === 0) shortMove = true;
+            const dir = dirMap[key(dr, dc)];
+            if (dir) dirs.push(dir);
+          }
+        }
+      }
+      return { stones, dirs, shortMove };
+    }
+
+    function canSelect(row, col) {
+      const fp = footprint({ row, col });
+      return fp.stones.length > 0 && fp.dirs.length > 0;
+    }
+
+    function moveInfo(from, to) {
+      const dr = to.row - from.row;
+      const dc = to.col - from.col;
+      const distance = Math.max(Math.abs(dr), Math.abs(dc));
+      if (distance < 1) return null;
+      const straight = dr === 0 || dc === 0 || Math.abs(dr) === Math.abs(dc);
+      if (!straight) return null;
+      return { stepR: Math.sign(dr), stepC: Math.sign(dc), distance };
+    }
+
+    function canMove(from, to) {
+      if (!selected) return false;
+      const info = moveInfo(from, to);
+      if (!info) return false;
+      const fp = footprint(from);
+      if (!fp.dirs.some(([r, c]) => r === info.stepR && c === info.stepC)) return false;
+      if (fp.shortMove && info.distance > 1) return false;
+      const moving = new Set(fp.stones.map(stone => key(stone.row, stone.col)));
+      for (const stone of fp.stones) {
+        const row = stone.row + info.stepR * info.distance;
+        const col = stone.col + info.stepC * info.distance;
+        if (!inBounds(row, col)) return false;
+        const target = cells[row][col];
+        if (ownerOf(target) === current && !moving.has(key(row, col))) return false;
+      }
+      return true;
+    }
+
+    function applyMove(from, to) {
+      const info = moveInfo(from, to);
+      const fp = footprint(from);
+      const next = cells.map(row => row.slice());
+      fp.stones.forEach(stone => next[stone.row][stone.col] = null);
+      fp.stones.forEach(stone => {
+        const row = stone.row + info.stepR * info.distance;
+        const col = stone.col + info.stepC * info.distance;
+        if (next[row][col] && ownerOf(next[row][col]) !== current && next[row][col].core) {
+          winner = current;
+        }
+        next[row][col] = stone.piece;
+      });
+      cells = next;
+    }
+
+    function handleCell(row, col) {
+      if (winner !== null) return;
+      if (!selected) {
+        if (canSelect(row, col)) {
+          selected = { row, col };
+          statusEl.textContent = "选择目标中心，足迹内己方棋子会整体平移。";
+        } else {
+          statusEl.textContent = "这个 3x3 足迹没有可用方向。";
+        }
+      } else if (selected.row === row && selected.col === col) {
+        selected = null;
+        statusEl.textContent = "已取消选择。";
+      } else if (canMove(selected, { row, col })) {
+        applyMove(selected, { row, col });
+        selected = null;
+        if (winner !== null) {
+          statusEl.textContent = players[winner].name + "吃掉了对手核心棋。";
+        } else {
+          current = 1 - current;
+          statusEl.textContent = "选择一个 3x3 足迹中心。";
+        }
+      } else {
+        statusEl.textContent = "目标方向或距离不符合当前足迹。";
+      }
+      render();
+    }
+
+    function renderPattern() {
+      patternEl.innerHTML = "";
+      const fp = selected ? footprint(selected) : { stones: [] };
+      const active = new Set(fp.stones.map(stone => key(stone.dr, stone.dc)));
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const dot = document.createElement("div");
+          dot.className = "aspect-square rounded border border-emerald-700 " + (active.has(key(dr, dc)) ? players[current].stone : "bg-emerald-950");
+          patternEl.appendChild(dot);
+        }
+      }
+    }
+
+    function render() {
+      const active = winner === null ? current : winner;
+      turnEl.textContent = winner === null ? players[current].name : players[winner].name + "获胜";
+      turnEl.className = "mt-1 text-2xl font-bold " + players[active].text;
+      boardEl.innerHTML = "";
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const piece = cells[row][col];
+          const owner = ownerOf(piece);
+          const isSelected = selected && Math.abs(selected.row - row) <= 1 && Math.abs(selected.col - col) <= 1;
+          const button = document.createElement("button");
+          button.className = [
+            "relative flex aspect-square items-center justify-center rounded border text-xs font-bold transition",
+            (row + col) % 2 ? "bg-emerald-800" : "bg-emerald-700",
+            isSelected ? "border-lime-300 ring-2 ring-lime-300" : "border-emerald-900",
+            selected && canMove(selected, { row, col }) ? "outline outline-2 outline-amber-300" : ""
+          ].join(" ");
+          if (owner !== null && owner !== undefined) {
+            const stone = document.createElement("span");
+            stone.className = "flex h-4/5 w-4/5 items-center justify-center rounded-full " + players[owner].stone + " text-emerald-950";
+            stone.textContent = piece && piece.core ? "★" : "";
+            button.appendChild(stone);
+          }
+          button.addEventListener("click", () => handleCell(row, col));
+          boardEl.appendChild(button);
+        }
+      }
+      renderPattern();
+    }
+
+    resetEl.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
