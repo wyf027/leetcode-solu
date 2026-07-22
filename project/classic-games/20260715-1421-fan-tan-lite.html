@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Fan Tan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-6xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Fan Tan</h1>
+        <p class="mt-1 max-w-2xl text-sm text-emerald-200">从手牌打出 7，随后在每个花色上向两端连续接牌。无法出牌时必须跳过，用尽手牌即可获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-amber-200">重新发牌</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-emerald-700 bg-emerald-900/70 p-4 shadow">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-lg font-semibold">牌桌</h2>
+          <span id="scoreText" class="text-sm text-emerald-200"></span>
+        </div>
+        <div id="table" class="grid gap-3"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-emerald-700 bg-emerald-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-emerald-300">状态</div>
+          <p id="statusText" class="mt-2 min-h-16 text-sm leading-6 text-emerald-100"></p>
+          <button id="hintBtn" class="mt-3 w-full rounded border border-emerald-500 px-4 py-2 text-sm font-semibold hover:bg-emerald-800">提示可出牌</button>
+          <button id="passBtn" class="mt-2 w-full rounded bg-emerald-200 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-white">跳过</button>
+        </div>
+
+        <div class="rounded border border-emerald-700 bg-emerald-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-emerald-300">手牌</div>
+          <div id="hand" class="mt-3 grid grid-cols-4 gap-2"></div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const tableEl = document.getElementById('table');
+    const handEl = document.getElementById('hand');
+    const statusText = document.getElementById('statusText');
+    const scoreText = document.getElementById('scoreText');
+    const resetBtn = document.getElementById('resetBtn');
+    const hintBtn = document.getElementById('hintBtn');
+    const passBtn = document.getElementById('passBtn');
+
+    const suits = [
+      { key: 'S', label: '黑桃', symbol: '♠', color: 'text-slate-900' },
+      { key: 'H', label: '红心', symbol: '♥', color: 'text-rose-700' },
+      { key: 'D', label: '方块', symbol: '♦', color: 'text-rose-700' },
+      { key: 'C', label: '梅花', symbol: '♣', color: 'text-slate-900' }
+    ];
+    const rankNames = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+    let game;
+
+    function resetGame() {
+      const deck = [];
+      suits.forEach((suit) => {
+        for (let rank = 1; rank <= 13; rank += 1) {
+          deck.push({ suit: suit.key, rank });
+        }
+      });
+      shuffle(deck);
+      game = {
+        hand: deck.slice(0, 20).sort(sortCards),
+        lines: Object.fromEntries(suits.map((suit) => [suit.key, { low: 8, high: 6 }])),
+        played: 0,
+        passes: 0,
+        message: '先找任意一张 7 开局；之后只能接在已铺花色的两端。'
+      };
+      render();
+    }
+
+    function shuffle(cards) {
+      for (let i = cards.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+    }
+
+    function sortCards(a, b) {
+      const suitOrder = suits.findIndex((suit) => suit.key === a.suit) - suits.findIndex((suit) => suit.key === b.suit);
+      return suitOrder || a.rank - b.rank;
+    }
+
+    function rankLabel(rank) {
+      return rankNames[rank] || String(rank);
+    }
+
+    function cardLabel(card) {
+      const suit = suits.find((item) => item.key === card.suit);
+      return `${suit.symbol}${rankLabel(card.rank)}`;
+    }
+
+    function canPlay(card) {
+      const line = game.lines[card.suit];
+      if (card.rank === 7 && line.low === 8 && line.high === 6) return true;
+      return card.rank === line.low - 1 || card.rank === line.high + 1;
+    }
+
+    function playableCards() {
+      return game.hand.filter(canPlay);
+    }
+
+    function playCard(index) {
+      const card = game.hand[index];
+      if (!card || !canPlay(card)) {
+        game.message = '这张牌还接不上。请打 7，或接在同花色连续牌列的两端。';
+        render();
+        return;
+      }
+      const line = game.lines[card.suit];
+      line.low = Math.min(line.low, card.rank);
+      line.high = Math.max(line.high, card.rank);
+      game.hand.splice(index, 1);
+      game.played += 1;
+      game.message = `打出 ${cardLabel(card)}。`;
+      if (game.hand.length === 0) {
+        game.message = `全部出完，完成挑战。跳过次数：${game.passes}`;
+      } else if (!playableCards().length) {
+        game.message += ' 当前无牌可接，可以跳过。';
+      }
+      render();
+    }
+
+    function passTurn() {
+      if (game.hand.length === 0) return;
+      if (playableCards().length) {
+        game.message = '还有可出的牌，不能跳过。';
+      } else {
+        game.passes += 1;
+        game.message = `跳过一次。累计跳过 ${game.passes} 次，继续等待可接牌。`;
+      }
+      render();
+    }
+
+    function showHint() {
+      const cards = playableCards();
+      game.message = cards.length ? `可出：${cards.map(cardLabel).join('、')}` : '当前没有可出的牌，可以跳过。';
+      render();
+    }
+
+    function renderTableRow(suit) {
+      const line = game.lines[suit.key];
+      const cells = [];
+      for (let rank = 1; rank <= 13; rank += 1) {
+        const active = rank >= line.low && rank <= line.high;
+        cells.push(`
+          <div class="flex aspect-[3/4] min-h-12 items-center justify-center rounded border text-sm font-bold ${active ? `bg-white ${suit.color} border-amber-300` : 'border-emerald-700 bg-emerald-950/50 text-emerald-700'}">
+            ${active ? `${suit.symbol}${rankLabel(rank)}` : rankLabel(rank)}
+          </div>
+        `);
+      }
+      return `
+        <div>
+          <div class="mb-1 text-sm font-semibold text-emerald-200">${suit.label}</div>
+          <div class="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-1">${cells.join('')}</div>
+        </div>
+      `;
+    }
+
+    function render() {
+      tableEl.innerHTML = suits.map(renderTableRow).join('');
+      scoreText.textContent = `已出 ${game.played} / 20，跳过 ${game.passes}`;
+      statusText.textContent = game.message;
+      passBtn.disabled = game.hand.length === 0;
+      passBtn.className = `mt-2 w-full rounded px-4 py-2 text-sm font-bold ${passBtn.disabled ? 'bg-emerald-800 text-emerald-500' : 'bg-emerald-200 text-emerald-950 hover:bg-white'}`;
+
+      handEl.innerHTML = game.hand.map((card, index) => {
+        const suit = suits.find((item) => item.key === card.suit);
+        const playable = canPlay(card);
+        return `
+          <button class="rounded border px-2 py-3 text-lg font-black shadow-sm ${playable ? `border-amber-300 bg-white ${suit.color} hover:-translate-y-0.5` : `border-emerald-700 bg-emerald-800 ${suit.color.replace('900', '700')} opacity-70`}" data-index="${index}">
+            ${cardLabel(card)}
+          </button>
+        `;
+      }).join('');
+      handEl.querySelectorAll('button[data-index]').forEach((button) => {
+        button.addEventListener('click', () => playCard(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    hintBtn.addEventListener('click', showHint);
+    passBtn.addEventListener('click', passTurn);
+    resetGame();
+  </script>
+</body>
+</html>
