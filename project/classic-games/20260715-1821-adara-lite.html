@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Adara</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-teal-950 text-teal-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-teal-700 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Mini Adara</h1>
+        <p class="mt-1 max-w-2xl text-sm text-teal-200">在 5x5 棋盘上斜向移动或跳吃。连续跳吃可继续行动，先捕获 5 枚或封住对手获胜。</p>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-bold text-teal-950 hover:bg-amber-200">重新开始</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-teal-700 bg-teal-900/70 p-4 shadow">
+        <div id="board" class="grid aspect-square grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-teal-700 bg-teal-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-teal-300">当前回合</div>
+          <div id="turnText" class="mt-1 text-2xl font-bold"></div>
+          <p id="statusText" class="mt-3 min-h-20 text-sm leading-6 text-teal-100"></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded border border-teal-700 bg-teal-900/70 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-teal-300">日方捕获</div>
+            <div id="sunScore" class="mt-2 text-3xl font-black text-amber-200"></div>
+          </div>
+          <div class="rounded border border-teal-700 bg-teal-900/70 p-4 text-center shadow">
+            <div class="text-xs font-semibold uppercase tracking-widest text-teal-300">月方捕获</div>
+            <div id="moonScore" class="mt-2 text-3xl font-black text-sky-200"></div>
+          </div>
+        </div>
+
+        <div class="rounded border border-teal-700 bg-teal-900/70 p-4 shadow">
+          <div class="text-xs font-semibold uppercase tracking-widest text-teal-300">操作</div>
+          <p class="mt-2 text-sm leading-6 text-teal-100">先选己方棋子，再点高亮空位。金色目标表示跳吃；跳吃后若还能继续跳，会保持当前回合。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnText = document.getElementById('turnText');
+    const statusText = document.getElementById('statusText');
+    const sunScore = document.getElementById('sunScore');
+    const moonScore = document.getElementById('moonScore');
+    const resetBtn = document.getElementById('resetBtn');
+    const size = 5;
+    const players = [
+      { name: '日方', key: 'sun', mark: '日', color: 'bg-amber-300', text: 'text-amber-200', pieceText: 'text-teal-950' },
+      { name: '月方', key: 'moon', mark: '月', color: 'bg-sky-300', text: 'text-sky-200', pieceText: 'text-teal-950' }
+    ];
+    let game;
+
+    function resetGame() {
+      game = {
+        turn: 0,
+        selected: null,
+        mustJumpFrom: null,
+        winner: null,
+        captures: [0, 0],
+        cells: Array.from({ length: size * size }, () => null),
+        message: '日方先手。选择一枚棋子斜向移动或跳吃。'
+      };
+      [0, 2, 4, 6, 8, 10].forEach((index) => { game.cells[index] = 'sun'; });
+      [14, 16, 18, 20, 22, 24].forEach((index) => { game.cells[index] = 'moon'; });
+      render();
+    }
+
+    function row(index) {
+      return Math.floor(index / size);
+    }
+
+    function col(index) {
+      return index % size;
+    }
+
+    function indexAt(r, c) {
+      if (r < 0 || r >= size || c < 0 || c >= size) return -1;
+      return r * size + c;
+    }
+
+    function ownerAt(index) {
+      const piece = game.cells[index];
+      return piece === 'sun' ? 0 : piece === 'moon' ? 1 : null;
+    }
+
+    function legalMoves(index, capturesOnly = false) {
+      const owner = ownerAt(index);
+      if (owner === null) return [];
+      const enemy = players[1 - owner].key;
+      const moves = [];
+      [-1, 1].forEach((dr) => {
+        [-1, 1].forEach((dc) => {
+          const step = indexAt(row(index) + dr, col(index) + dc);
+          if (!capturesOnly && step !== -1 && game.cells[step] === null) {
+            moves.push({ to: step, capture: null });
+          }
+          if (step !== -1 && game.cells[step] === enemy) {
+            const landing = indexAt(row(index) + dr * 2, col(index) + dc * 2);
+            if (landing !== -1 && game.cells[landing] === null) {
+              moves.push({ to: landing, capture: step });
+            }
+          }
+        });
+      });
+      return moves;
+    }
+
+    function playerHasMove(playerIndex) {
+      return game.cells.some((piece, index) => piece === players[playerIndex].key && legalMoves(index).length > 0);
+    }
+
+    function selectCell(index) {
+      if (game.winner !== null) return;
+      const owner = ownerAt(index);
+      if (game.mustJumpFrom !== null && index !== game.mustJumpFrom && game.selected === null) {
+        game.message = '必须继续移动刚刚跳吃的棋子。';
+        render();
+        return;
+      }
+      if (game.selected === null) {
+        if (owner !== game.turn) {
+          game.message = `请选择${players[game.turn].name}自己的棋子。`;
+          render();
+          return;
+        }
+        if (game.mustJumpFrom !== null && index !== game.mustJumpFrom) {
+          game.message = '连续跳吃时不能改选棋子。';
+          render();
+          return;
+        }
+        const moves = legalMoves(index, game.mustJumpFrom !== null);
+        if (!moves.length) {
+          game.message = '这枚棋子没有合法移动。';
+          render();
+          return;
+        }
+        game.selected = index;
+        game.message = '选择一个高亮目标。';
+        render();
+        return;
+      }
+
+      const capturesOnly = game.mustJumpFrom !== null;
+      const move = legalMoves(game.selected, capturesOnly).find((item) => item.to === index);
+      if (!move) {
+        game.message = capturesOnly ? '必须继续跳吃到金色目标。' : '只能斜向走一步，或跳过对手棋子。';
+        render();
+        return;
+      }
+
+      const mover = game.turn;
+      game.cells[index] = players[mover].key;
+      game.cells[game.selected] = null;
+      game.selected = null;
+      if (move.capture !== null) {
+        game.cells[move.capture] = null;
+        game.captures[mover] += 1;
+        const moreJumps = legalMoves(index, true);
+        if (moreJumps.length && game.captures[mover] < 5) {
+          game.mustJumpFrom = index;
+          game.message = `${players[mover].name} 跳吃一枚，可继续跳吃。`;
+          checkWinner();
+          render();
+          return;
+        }
+        game.mustJumpFrom = null;
+        game.message = `${players[mover].name} 完成跳吃。`;
+      } else {
+        game.mustJumpFrom = null;
+        game.message = `${players[mover].name} 移动完成。`;
+      }
+      game.turn = 1 - game.turn;
+      checkWinner();
+      if (game.winner === null) game.message += ` 轮到${players[game.turn].name}。`;
+      render();
+    }
+
+    function checkWinner() {
+      if (game.captures[0] >= 5 || game.captures[1] >= 5) {
+        game.winner = game.captures[0] >= 5 ? 0 : 1;
+        game.message = `${players[game.winner].name} 捕获 5 枚棋子，获得胜利。`;
+        return;
+      }
+      if (!playerHasMove(game.turn)) {
+        game.winner = 1 - game.turn;
+        game.message = `${players[game.winner].name} 封住对手，获得胜利。`;
+      }
+    }
+
+    function render() {
+      const capturesOnly = game.mustJumpFrom !== null;
+      const moves = game.selected === null ? [] : legalMoves(game.selected, capturesOnly);
+      const targets = moves.map((move) => move.to);
+      turnText.textContent = game.winner === null ? players[game.turn].name : `${players[game.winner].name}胜利`;
+      turnText.className = `mt-1 text-2xl font-bold ${players[game.winner ?? game.turn].text}`;
+      statusText.textContent = game.message;
+      sunScore.textContent = `${game.captures[0]}/5`;
+      moonScore.textContent = `${game.captures[1]}/5`;
+      boardEl.innerHTML = game.cells.map((piece, index) => {
+        const owner = ownerAt(index);
+        const selected = game.selected === index || game.mustJumpFrom === index;
+        const target = targets.includes(index);
+        const move = moves.find((item) => item.to === index);
+        const player = owner === null ? null : players[owner];
+        const dark = (row(index) + col(index)) % 2 === 0;
+        return `
+          <button class="relative flex items-center justify-center rounded border text-lg font-black transition ${selected ? 'border-amber-300 bg-amber-300/20' : target ? (move.capture === null ? 'border-emerald-300 bg-emerald-300/20' : 'border-amber-300 bg-amber-300/20') : dark ? 'border-teal-700 bg-teal-800/70 hover:bg-teal-800' : 'border-teal-700 bg-teal-950/60 hover:bg-teal-900'}" data-index="${index}">
+            <span class="absolute left-1 top-1 text-xs font-semibold text-teal-500">${index + 1}</span>
+            ${player ? `<span class="flex h-12 w-12 items-center justify-center rounded-full ${player.color} ${player.pieceText}">${player.mark}</span>` : target ? `<span class="h-5 w-5 rounded-full ${move.capture === null ? 'bg-emerald-300' : 'bg-amber-300'}"></span>` : ''}
+          </button>
+        `;
+      }).join('');
+      boardEl.querySelectorAll('button[data-index]').forEach((button) => {
+        button.addEventListener('click', () => selectCell(Number(button.dataset.index)));
+      });
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
