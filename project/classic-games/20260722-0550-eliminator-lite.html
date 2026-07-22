@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Eliminator Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-cyan-200">Mini Eliminator</h1>
+        <p class="text-sm text-slate-400">方向键或 A/D 旋转，W/上箭头推进，空格射击，Enter 重新开始。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-cyan-500/40 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">分数</div>
+          <div id="score" class="text-lg font-semibold text-cyan-200">0</div>
+        </div>
+        <div class="rounded border border-fuchsia-500/40 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">护盾</div>
+          <div id="lives" class="text-lg font-semibold text-fuchsia-200">3</div>
+        </div>
+        <div class="rounded border border-amber-500/40 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">波次</div>
+          <div id="wave" class="text-lg font-semibold text-amber-200">1</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="relative overflow-hidden rounded border border-slate-700 bg-slate-900 shadow-2xl shadow-cyan-950/40">
+      <canvas id="game" width="960" height="540" class="block aspect-video w-full bg-black"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-6 top-6 rounded border border-cyan-300/40 bg-slate-950/85 px-4 py-3 text-center text-sm text-cyan-100">
+        消灭巡航敌机并避开漂浮障碍。按空格开始。
+      </div>
+    </section>
+
+    <div class="grid gap-3 text-sm text-slate-300 sm:grid-cols-3">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">目标：清空本波敌机，下一波速度会更快。</div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">撞击障碍或敌弹会消耗护盾，短暂无敌后继续。</div>
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">连续命中可以更快积累分数，但子弹数量有限。</div>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const waveEl = document.getElementById("wave");
+    const messageEl = document.getElementById("message");
+    const keys = new Set();
+    const W = canvas.width;
+    const H = canvas.height;
+    const TAU = Math.PI * 2;
+
+    let ship;
+    let bullets;
+    let enemyShots;
+    let enemies;
+    let rocks;
+    let stars;
+    let score;
+    let lives;
+    let wave;
+    let running;
+    let lastTime;
+
+    function wrap(entity) {
+      if (entity.x < -20) entity.x = W + 20;
+      if (entity.x > W + 20) entity.x = -20;
+      if (entity.y < -20) entity.y = H + 20;
+      if (entity.y > H + 20) entity.y = -20;
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function makeStars() {
+      return Array.from({ length: 90 }, () => ({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 1.4 + 0.4,
+        alpha: Math.random() * 0.5 + 0.35
+      }));
+    }
+
+    function reset() {
+      ship = { x: W / 2, y: H / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: 14, reload: 0, invuln: 2 };
+      bullets = [];
+      enemyShots = [];
+      rocks = [
+        { x: 210, y: 140, radius: 34, vx: 24, vy: 13 },
+        { x: 720, y: 380, radius: 42, vx: -18, vy: -11 },
+        { x: 510, y: 105, radius: 28, vx: -13, vy: 20 }
+      ];
+      stars = makeStars();
+      score = 0;
+      lives = 3;
+      wave = 1;
+      running = true;
+      lastTime = 0;
+      spawnWave();
+      setMessage("");
+      updateHud();
+    }
+
+    function spawnWave() {
+      enemies = [];
+      const count = Math.min(6, wave + 2);
+      for (let i = 0; i < count; i++) {
+        const edge = i % 4;
+        const enemy = {
+          x: edge === 0 ? 60 : edge === 1 ? W - 60 : Math.random() * W,
+          y: edge === 2 ? 60 : edge === 3 ? H - 60 : Math.random() * H,
+          vx: 0,
+          vy: 0,
+          radius: 16,
+          reload: Math.random() * 1.4 + 0.5,
+          turn: Math.random() > 0.5 ? 1 : -1
+        };
+        enemies.push(enemy);
+      }
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      waveEl.textContent = wave;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.toggle("hidden", !text);
+    }
+
+    function shoot() {
+      if (ship.reload > 0 || bullets.length > 5 || !running) return;
+      bullets.push({
+        x: ship.x + Math.cos(ship.angle) * 18,
+        y: ship.y + Math.sin(ship.angle) * 18,
+        vx: ship.vx + Math.cos(ship.angle) * 420,
+        vy: ship.vy + Math.sin(ship.angle) * 420,
+        life: 1.15,
+        radius: 3
+      });
+      ship.reload = 0.18;
+    }
+
+    function damageShip() {
+      if (ship.invuln > 0 || !running) return;
+      lives -= 1;
+      ship.x = W / 2;
+      ship.y = H / 2;
+      ship.vx = 0;
+      ship.vy = 0;
+      ship.invuln = 2.2;
+      updateHud();
+      if (lives <= 0) {
+        running = false;
+        setMessage("任务失败。按 Enter 重新开始。");
+      }
+    }
+
+    function update(dt) {
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) ship.angle -= 4.5 * dt;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) ship.angle += 4.5 * dt;
+      if (keys.has("ArrowUp") || keys.has("KeyW")) {
+        ship.vx += Math.cos(ship.angle) * 250 * dt;
+        ship.vy += Math.sin(ship.angle) * 250 * dt;
+      }
+      ship.vx *= 0.992;
+      ship.vy *= 0.992;
+      ship.x += ship.vx * dt;
+      ship.y += ship.vy * dt;
+      ship.reload = Math.max(0, ship.reload - dt);
+      ship.invuln = Math.max(0, ship.invuln - dt);
+      wrap(ship);
+
+      bullets.forEach((b) => {
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.life -= dt;
+        wrap(b);
+      });
+      bullets = bullets.filter((b) => b.life > 0);
+
+      enemyShots.forEach((shot) => {
+        shot.x += shot.vx * dt;
+        shot.y += shot.vy * dt;
+        shot.life -= dt;
+        wrap(shot);
+        if (distance(shot, ship) < shot.radius + ship.radius) {
+          shot.life = 0;
+          damageShip();
+        }
+      });
+      enemyShots = enemyShots.filter((shot) => shot.life > 0);
+
+      rocks.forEach((rock) => {
+        rock.x += rock.vx * dt;
+        rock.y += rock.vy * dt;
+        wrap(rock);
+        if (distance(rock, ship) < rock.radius + ship.radius) damageShip();
+      });
+
+      enemies.forEach((enemy) => {
+        const angleToShip = Math.atan2(ship.y - enemy.y, ship.x - enemy.x);
+        enemy.vx += Math.cos(angleToShip + enemy.turn * 0.45) * (40 + wave * 8) * dt;
+        enemy.vy += Math.sin(angleToShip + enemy.turn * 0.45) * (40 + wave * 8) * dt;
+        enemy.vx *= 0.985;
+        enemy.vy *= 0.985;
+        enemy.x += enemy.vx * dt;
+        enemy.y += enemy.vy * dt;
+        enemy.reload -= dt;
+        wrap(enemy);
+
+        if (enemy.reload <= 0) {
+          enemyShots.push({
+            x: enemy.x,
+            y: enemy.y,
+            vx: Math.cos(angleToShip) * (145 + wave * 12),
+            vy: Math.sin(angleToShip) * (145 + wave * 12),
+            life: 2.6,
+            radius: 4
+          });
+          enemy.reload = Math.max(0.75, 1.75 - wave * 0.08) + Math.random() * 0.8;
+        }
+
+        if (distance(enemy, ship) < enemy.radius + ship.radius) damageShip();
+      });
+
+      bullets.forEach((bullet) => {
+        enemies.forEach((enemy) => {
+          if (!enemy.dead && distance(bullet, enemy) < bullet.radius + enemy.radius) {
+            enemy.dead = true;
+            bullet.life = 0;
+            score += 100;
+          }
+        });
+      });
+      enemies = enemies.filter((enemy) => !enemy.dead);
+
+      if (enemies.length === 0 && running) {
+        wave += 1;
+        score += 250;
+        spawnWave();
+        updateHud();
+      }
+      updateHud();
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.rotate(ship.angle);
+      ctx.strokeStyle = ship.invuln > 0 && Math.floor(ship.invuln * 12) % 2 ? "#67e8f9" : "#e0f2fe";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(18, 0);
+      ctx.lineTo(-13, -10);
+      ctx.lineTo(-8, 0);
+      ctx.lineTo(-13, 10);
+      ctx.closePath();
+      ctx.stroke();
+      if (keys.has("ArrowUp") || keys.has("KeyW")) {
+        ctx.strokeStyle = "#f59e0b";
+        ctx.beginPath();
+        ctx.moveTo(-13, -5);
+        ctx.lineTo(-25 - Math.random() * 8, 0);
+        ctx.lineTo(-13, 5);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, W, H);
+
+      stars.forEach((star) => {
+        ctx.fillStyle = `rgba(165, 243, 252, ${star.alpha})`;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, TAU);
+        ctx.fill();
+      });
+
+      rocks.forEach((rock) => {
+        ctx.strokeStyle = "#64748b";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i < 9; i++) {
+          const a = (i / 9) * TAU;
+          const r = rock.radius * (0.78 + (i % 3) * 0.1);
+          const x = rock.x + Math.cos(a) * r;
+          const y = rock.y + Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      });
+
+      enemies.forEach((enemy) => {
+        const angle = Math.atan2(ship.y - enemy.y, ship.x - enemy.x);
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.rotate(angle);
+        ctx.strokeStyle = "#f0abfc";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(16, 0);
+        ctx.lineTo(-12, -12);
+        ctx.lineTo(-7, 0);
+        ctx.lineTo(-12, 12);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      });
+
+      ctx.fillStyle = "#67e8f9";
+      bullets.forEach((bullet) => {
+        ctx.beginPath();
+        ctx.arc(bullet.x, bullet.y, bullet.radius, 0, TAU);
+        ctx.fill();
+      });
+
+      ctx.fillStyle = "#f472b6";
+      enemyShots.forEach((shot) => {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.radius, 0, TAU);
+        ctx.fill();
+      });
+
+      drawShip();
+    }
+
+    function loop(time) {
+      if (!lastTime) lastTime = time;
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      if (running) update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      keys.add(event.code);
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (!running && lives <= 0) reset();
+        else {
+          if (!running) running = true;
+          setMessage("");
+          shoot();
+        }
+      }
+      if (event.code === "Enter") reset();
+    });
+
+    document.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    reset();
+    running = false;
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
