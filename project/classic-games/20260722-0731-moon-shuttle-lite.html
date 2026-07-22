@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Moon Shuttle Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-wide text-teal-200">Mini Moon Shuttle</h1>
+        <p class="text-sm text-neutral-400">方向键或 WASD 移动，空格发射光束，Enter 重新开始。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-teal-500/40 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-400">分数</div>
+          <div id="score" class="text-lg font-semibold text-teal-200">0</div>
+        </div>
+        <div class="rounded border border-sky-500/40 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-400">阶段</div>
+          <div id="stage" class="text-lg font-semibold text-sky-200">1</div>
+        </div>
+        <div class="rounded border border-amber-500/40 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-400">护盾</div>
+          <div id="shield" class="text-lg font-semibold text-amber-200">3</div>
+        </div>
+        <div class="rounded border border-fuchsia-500/40 bg-neutral-900 px-3 py-2">
+          <div class="text-neutral-400">能量</div>
+          <div id="energy" class="text-lg font-semibold text-fuchsia-200">100</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="relative overflow-hidden rounded border border-neutral-700 bg-neutral-900 shadow-2xl shadow-teal-950/30">
+      <canvas id="game" width="960" height="540" class="block aspect-video w-full bg-black"></canvas>
+      <div id="message" class="pointer-events-none absolute inset-x-6 top-6 rounded border border-teal-300/40 bg-neutral-950/85 px-4 py-3 text-center text-sm text-teal-100">
+        穿过能量门、避开陨石带并击落巡航敌机。按空格开始。
+      </div>
+    </section>
+
+    <div class="grid gap-3 text-sm text-neutral-300 sm:grid-cols-3">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">能量会缓慢下降，穿过蓝色能量门可补充。</div>
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">陨石带会从右侧压来，贴边飞行风险更高。</div>
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-3">清空一组敌机后进入下一阶段，速度会提升。</div>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const stageEl = document.getElementById("stage");
+    const shieldEl = document.getElementById("shield");
+    const energyEl = document.getElementById("energy");
+    const messageEl = document.getElementById("message");
+    const keys = new Set();
+    const W = canvas.width;
+    const H = canvas.height;
+    const TAU = Math.PI * 2;
+
+    let shuttle;
+    let beams;
+    let enemies;
+    let rocks;
+    let gates;
+    let stars;
+    let bursts;
+    let score;
+    let stage;
+    let running;
+    let over;
+    let scroll;
+    let lastTime;
+
+    function makeStars() {
+      return Array.from({ length: 130 }, () => ({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 1.4 + 0.3,
+        speed: Math.random() * 34 + 14
+      }));
+    }
+
+    function reset() {
+      shuttle = { x: 140, y: H / 2, vx: 0, vy: 0, w: 52, h: 24, reload: 0, shield: 3, energy: 100, invuln: 0 };
+      beams = [];
+      enemies = [];
+      rocks = [];
+      gates = [];
+      bursts = [];
+      stars = makeStars();
+      score = 0;
+      stage = 1;
+      scroll = 0;
+      running = false;
+      over = false;
+      lastTime = 0;
+      spawnStage();
+      setMessage("穿过能量门、避开陨石带并击落巡航敌机。按空格开始。");
+      updateHud();
+    }
+
+    function spawnStage() {
+      enemies = Array.from({ length: 4 + stage }, (_, i) => ({
+        x: W + 150 + i * 160,
+        y: 80 + Math.random() * 360,
+        vy: Math.random() > 0.5 ? 55 : -55,
+        r: 15,
+        alive: true
+      }));
+      rocks = Array.from({ length: 7 + stage }, (_, i) => ({
+        x: W + 90 + i * 135 + Math.random() * 40,
+        y: 48 + Math.random() * 430,
+        r: 14 + Math.random() * 20,
+        spin: Math.random() * TAU
+      }));
+      gates = [
+        { x: W + 420, y: 140 + Math.random() * 250, r: 34, used: false },
+        { x: W + 1050, y: 140 + Math.random() * 250, r: 38, used: false }
+      ];
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.toggle("hidden", !text);
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      stageEl.textContent = stage;
+      shieldEl.textContent = shuttle.shield;
+      energyEl.textContent = Math.max(0, Math.floor(shuttle.energy));
+    }
+
+    function fire() {
+      if (shuttle.reload > 0 || over) return;
+      beams.push({ x: shuttle.x + shuttle.w - 2, y: shuttle.y + shuttle.h / 2, life: 0.9, speed: 560 });
+      shuttle.reload = 0.16;
+      if (!running) {
+        running = true;
+        setMessage("");
+      }
+    }
+
+    function explode(x, y, color) {
+      bursts.push({ x, y, r: 5, life: 0.34, color });
+    }
+
+    function damage() {
+      if (shuttle.invuln > 0 || over) return;
+      shuttle.shield -= 1;
+      shuttle.invuln = 1.25;
+      explode(shuttle.x + 24, shuttle.y + 12, "#fb7185");
+      if (shuttle.shield <= 0) {
+        over = true;
+        running = false;
+        setMessage("护盾耗尽。按 Enter 重新开始。");
+      }
+      updateHud();
+    }
+
+    function update(dt) {
+      if (!running || over) return;
+      scroll += (115 + stage * 12) * dt;
+      shuttle.energy -= (4.2 + stage * 0.4) * dt;
+      if (shuttle.energy <= 0) {
+        over = true;
+        running = false;
+        setMessage("能量耗尽。按 Enter 重新开始。");
+      }
+
+      const ax = (keys.has("ArrowRight") || keys.has("KeyD") ? 260 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 220 : 0);
+      const ay = (keys.has("ArrowDown") || keys.has("KeyS") ? 285 : 0) - (keys.has("ArrowUp") || keys.has("KeyW") ? 285 : 0);
+      shuttle.vx = (shuttle.vx + ax * dt) * 0.91;
+      shuttle.vy = (shuttle.vy + ay * dt) * 0.91;
+      shuttle.x = Math.max(34, Math.min(W - 110, shuttle.x + shuttle.vx * dt));
+      shuttle.y = Math.max(42, Math.min(H - 58, shuttle.y + shuttle.vy * dt));
+      shuttle.reload = Math.max(0, shuttle.reload - dt);
+      shuttle.invuln = Math.max(0, shuttle.invuln - dt);
+
+      stars.forEach((star) => {
+        star.x -= (star.speed + 50 + stage * 8) * dt;
+        if (star.x < -4) {
+          star.x = W + Math.random() * 50;
+          star.y = Math.random() * H;
+        }
+      });
+
+      beams.forEach((beam) => {
+        beam.x += beam.speed * dt;
+        beam.life -= dt;
+      });
+      beams = beams.filter((beam) => beam.life > 0 && beam.x < W + 30);
+
+      enemies.forEach((enemy) => {
+        if (!enemy.alive) return;
+        enemy.x -= (105 + stage * 18) * dt;
+        enemy.y += enemy.vy * dt;
+        if (enemy.y < 48 || enemy.y > H - 48) enemy.vy *= -1;
+        if (enemy.x < -50) {
+          enemy.x = W + 220 + Math.random() * 260;
+          enemy.y = 80 + Math.random() * 360;
+        }
+        if (Math.hypot(enemy.x - shuttle.x, enemy.y - shuttle.y) < enemy.r + 26) damage();
+      });
+
+      rocks.forEach((rock) => {
+        rock.x -= (135 + stage * 16) * dt;
+        rock.spin += dt * 1.5;
+        if (rock.x < -50) {
+          rock.x = W + 180 + Math.random() * 500;
+          rock.y = 48 + Math.random() * 430;
+        }
+        if (Math.hypot(rock.x - shuttle.x, rock.y - shuttle.y) < rock.r + 23) damage();
+      });
+
+      gates.forEach((gate) => {
+        gate.x -= (115 + stage * 12) * dt;
+        if (!gate.used && Math.hypot(gate.x - shuttle.x, gate.y - shuttle.y) < gate.r + 24) {
+          gate.used = true;
+          shuttle.energy = Math.min(100, shuttle.energy + 32);
+          score += 180;
+          explode(gate.x, gate.y, "#38bdf8");
+        }
+        if (gate.x < -90) {
+          gate.x = W + 850 + Math.random() * 320;
+          gate.y = 110 + Math.random() * 320;
+          gate.used = false;
+        }
+      });
+
+      beams.forEach((beam) => {
+        enemies.forEach((enemy) => {
+          if (enemy.alive && Math.hypot(beam.x - enemy.x, beam.y - enemy.y) < enemy.r + 8) {
+            enemy.alive = false;
+            beam.life = 0;
+            score += 120;
+            explode(enemy.x, enemy.y, "#2dd4bf");
+          }
+        });
+      });
+
+      bursts.forEach((burst) => {
+        burst.r += 86 * dt;
+        burst.life -= dt;
+      });
+      bursts = bursts.filter((burst) => burst.life > 0);
+
+      if (enemies.every((enemy) => !enemy.alive)) {
+        stage += 1;
+        score += 350;
+        spawnStage();
+      }
+      updateHud();
+    }
+
+    function drawShuttle() {
+      ctx.save();
+      ctx.translate(shuttle.x, shuttle.y);
+      ctx.globalAlpha = shuttle.invuln > 0 && Math.floor(shuttle.invuln * 14) % 2 ? 0.42 : 1;
+      ctx.fillStyle = "#5eead4";
+      ctx.beginPath();
+      ctx.moveTo(0, 5);
+      ctx.lineTo(34, 0);
+      ctx.lineTo(54, 12);
+      ctx.lineTo(34, 24);
+      ctx.lineTo(0, 19);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#cffafe";
+      ctx.fillRect(29, 8, 9, 7);
+      ctx.fillStyle = "#f59e0b";
+      ctx.beginPath();
+      ctx.moveTo(-2, 8);
+      ctx.lineTo(-16 - Math.random() * 6, 12);
+      ctx.lineTo(-2, 16);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawRocks() {
+      ctx.strokeStyle = "#94a3b8";
+      ctx.lineWidth = 2;
+      rocks.forEach((rock) => {
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+          const a = rock.spin + (i / 8) * TAU;
+          const r = rock.r * (0.75 + (i % 3) * 0.12);
+          const x = rock.x + Math.cos(a) * r;
+          const y = rock.y + Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      });
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy) => {
+        if (!enemy.alive) return;
+        ctx.fillStyle = "#f472b6";
+        ctx.beginPath();
+        ctx.moveTo(enemy.x - 16, enemy.y);
+        ctx.lineTo(enemy.x + 16, enemy.y - 11);
+        ctx.lineTo(enemy.x + 8, enemy.y);
+        ctx.lineTo(enemy.x + 16, enemy.y + 11);
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+
+    function drawGates() {
+      gates.forEach((gate) => {
+        if (gate.used) return;
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(gate.x, gate.y, gate.r, 0, TAU);
+        ctx.stroke();
+        ctx.strokeStyle = "#a78bfa";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(gate.x, gate.y, gate.r * 0.62, 0, TAU);
+        ctx.stroke();
+      });
+    }
+
+    function draw() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, W, H);
+      stars.forEach((star) => {
+        ctx.fillStyle = "rgba(204, 251, 241, 0.65)";
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, TAU);
+        ctx.fill();
+      });
+      drawGates();
+      drawRocks();
+      drawEnemies();
+      ctx.fillStyle = "#99f6e4";
+      beams.forEach((beam) => ctx.fillRect(beam.x, beam.y - 2, 20, 4));
+      bursts.forEach((burst) => {
+        ctx.globalAlpha = Math.max(0, burst.life / 0.34);
+        ctx.strokeStyle = burst.color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(burst.x, burst.y, burst.r, 0, TAU);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+      drawShuttle();
+    }
+
+    function loop(time) {
+      if (!lastTime) lastTime = time;
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      keys.add(event.code);
+      if (event.code === "Space") {
+        event.preventDefault();
+        fire();
+      }
+      if (event.code === "Enter") reset();
+    });
+
+    document.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
