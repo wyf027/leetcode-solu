@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Lines of Action</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl shadow-black/30">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-cyan-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold text-white">Mini Lines of Action</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-neutral-300">
+            棋子沿八方向移动，步数等于该行、列或斜线上的棋子总数。谁先让自己的所有棋子连成一片，谁获胜。
+          </p>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-cyan-300 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-cyan-200">
+          重新开始
+        </button>
+      </div>
+    </section>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_17rem]">
+      <div class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 gap-1"></div>
+      </div>
+
+      <aside class="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-neutral-400">当前回合</p>
+            <p id="turnLabel" class="mt-1 text-2xl font-bold text-white">玩家 A</p>
+          </div>
+          <div class="rounded-md bg-neutral-800 p-3">
+            <p id="status" class="text-sm leading-6 text-neutral-200">选择己方棋子查看可走位置。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded-md border border-cyan-500/40 bg-cyan-500/10 p-2 text-cyan-100">玩家 A：青子</div>
+            <div class="rounded-md border border-rose-500/40 bg-rose-500/10 p-2 text-rose-100">玩家 B：红子</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const turnLabel = document.getElementById('turnLabel');
+    const statusEl = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const size = 6;
+    const players = [
+      { mark: 'A', name: '玩家 A', text: 'text-cyan-100', bg: 'bg-cyan-500/25', border: 'border-cyan-300' },
+      { mark: 'B', name: '玩家 B', text: 'text-rose-100', bg: 'bg-rose-500/25', border: 'border-rose-300' }
+    ];
+    const dirs = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1], [0, 1],
+      [1, -1], [1, 0], [1, 1]
+    ];
+
+    let board = [];
+    let player = 0;
+    let selected = null;
+    let moves = [];
+    let ended = false;
+
+    function startGame() {
+      board = Array(size * size).fill('');
+      for (let col = 1; col < size - 1; col += 1) {
+        board[idx(0, col)] = 'B';
+        board[idx(size - 1, col)] = 'B';
+      }
+      for (let row = 1; row < size - 1; row += 1) {
+        board[idx(row, 0)] = 'A';
+        board[idx(row, size - 1)] = 'A';
+      }
+      player = 0;
+      selected = null;
+      moves = [];
+      ended = false;
+      statusEl.textContent = '选择己方棋子查看可走位置。';
+      render();
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const index = idx(row, col);
+          const mark = board[index];
+          const owner = players.find(item => item.mark === mark);
+          const isSelected = selected === index;
+          const isMove = moves.includes(index);
+          const button = document.createElement('button');
+          button.className = [
+            'flex aspect-square items-center justify-center rounded-md border text-xl font-black transition sm:text-3xl',
+            owner ? `${owner.bg} ${owner.text} ${owner.border}` : 'border-neutral-700 bg-neutral-800 text-neutral-500',
+            isSelected ? 'ring-4 ring-yellow-300' : '',
+            isMove ? 'ring-4 ring-emerald-300' : '',
+            !ended ? 'hover:border-cyan-300' : 'cursor-default'
+          ].join(' ');
+          button.textContent = mark;
+          button.disabled = ended;
+          button.setAttribute('aria-label', mark ? `${mark} at ${row + 1}-${col + 1}` : `空格 ${row + 1}-${col + 1}`);
+          button.addEventListener('click', () => handleCell(index));
+          boardEl.appendChild(button);
+        }
+      }
+      turnLabel.textContent = ended ? '本局结束' : players[player].name;
+    }
+
+    function handleCell(index) {
+      if (ended) {
+        return;
+      }
+
+      const mark = players[player].mark;
+      if (selected !== null && moves.includes(index)) {
+        board[index] = mark;
+        board[selected] = '';
+        selected = null;
+        moves = [];
+        if (isConnected(mark)) {
+          ended = true;
+          statusEl.textContent = `${players[player].name} 的棋子已经全部连通，赢得本局。`;
+        } else {
+          player = 1 - player;
+          statusEl.textContent = `轮到 ${players[player].name}。`;
+        }
+      } else if (board[index] === mark) {
+        selected = index;
+        moves = legalMoves(index);
+        statusEl.textContent = moves.length ? '点击高亮格移动。' : '这个棋子暂无合法移动。';
+      } else {
+        selected = null;
+        moves = [];
+        statusEl.textContent = '请选择己方棋子，或点击高亮格移动。';
+      }
+      render();
+    }
+
+    function legalMoves(index) {
+      const mark = board[index];
+      const row = rowOf(index);
+      const col = colOf(index);
+      return dirs.map(([dr, dc]) => {
+        const count = countLine(row, col, dr, dc);
+        const toRow = row + dr * count;
+        const toCol = col + dc * count;
+        if (!inBounds(toRow, toCol)) {
+          return null;
+        }
+        const target = idx(toRow, toCol);
+        if (board[target] === mark || blockedByEnemy(row, col, dr, dc, count, mark)) {
+          return null;
+        }
+        return target;
+      }).filter(item => item !== null);
+    }
+
+    function countLine(row, col, dr, dc) {
+      let total = 1;
+      total += countDirection(row, col, dr, dc);
+      total += countDirection(row, col, -dr, -dc);
+      return total;
+    }
+
+    function countDirection(row, col, dr, dc) {
+      let total = 0;
+      let nextRow = row + dr;
+      let nextCol = col + dc;
+      while (inBounds(nextRow, nextCol)) {
+        if (board[idx(nextRow, nextCol)]) {
+          total += 1;
+        }
+        nextRow += dr;
+        nextCol += dc;
+      }
+      return total;
+    }
+
+    function blockedByEnemy(row, col, dr, dc, count, mark) {
+      for (let step = 1; step < count; step += 1) {
+        const cell = board[idx(row + dr * step, col + dc * step)];
+        if (cell && cell !== mark) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function isConnected(mark) {
+      const pieces = board.map((cell, index) => cell === mark ? index : -1).filter(index => index >= 0);
+      if (pieces.length <= 1) {
+        return true;
+      }
+      const seen = new Set([pieces[0]]);
+      const stack = [pieces[0]];
+      while (stack.length) {
+        const current = stack.pop();
+        const row = rowOf(current);
+        const col = colOf(current);
+        for (const [dr, dc] of dirs) {
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (inBounds(nextRow, nextCol)) {
+            const next = idx(nextRow, nextCol);
+            if (board[next] === mark && !seen.has(next)) {
+              seen.add(next);
+              stack.push(next);
+            }
+          }
+        }
+      }
+      return seen.size === pieces.length;
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / size);
+    }
+
+    function colOf(index) {
+      return index % size;
+    }
+
+    function idx(row, col) {
+      return row * size + col;
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    resetBtn.addEventListener('click', startGame);
+    startGame();
+  </script>
+</body>
+</html>
