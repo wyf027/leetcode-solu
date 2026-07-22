@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Darts 501</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-emerald-300">Classic mini game</p>
+        <h1 class="mt-1 text-3xl font-bold">Mini Darts 501</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">New Game</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-4">
+        <canvas id="board" width="640" height="640" class="aspect-square w-full rounded bg-slate-950"></canvas>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p class="text-xs text-slate-400">Score</p>
+              <p id="score" class="text-3xl font-bold text-emerald-300">501</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400">Darts</p>
+              <p id="darts" class="text-3xl font-bold">3</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400">Round</p>
+              <p id="round" class="text-3xl font-bold">1</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <label class="block text-sm font-medium text-slate-300" for="target">Target sector</label>
+          <input id="target" type="number" min="1" max="20" value="20" class="mt-2 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-lg font-semibold text-slate-100 outline-none focus:border-emerald-400">
+
+          <label class="mt-4 block text-sm font-medium text-slate-300" for="ring">Ring</label>
+          <select id="ring" class="mt-2 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-lg font-semibold text-slate-100 outline-none focus:border-emerald-400">
+            <option value="triple">Triple</option>
+            <option value="double">Double</option>
+            <option value="single">Single</option>
+            <option value="bull">Bull</option>
+          </select>
+
+          <button id="throwBtn" class="mt-4 w-full rounded bg-emerald-400 px-4 py-3 font-bold text-slate-950 hover:bg-emerald-300">Throw Dart</button>
+        </div>
+
+        <div class="rounded border border-slate-800 bg-slate-900 p-4">
+          <p id="message" class="min-h-12 text-sm leading-6 text-slate-300">Aim for a checkout. Busts restore the round score.</p>
+          <ol id="history" class="mt-3 max-h-52 space-y-2 overflow-auto text-sm text-slate-400"></ol>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const dartsEl = document.getElementById("darts");
+    const roundEl = document.getElementById("round");
+    const targetEl = document.getElementById("target");
+    const ringEl = document.getElementById("ring");
+    const throwBtn = document.getElementById("throwBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const messageEl = document.getElementById("message");
+    const historyEl = document.getElementById("history");
+
+    const sectors = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
+    const center = canvas.width / 2;
+    const radii = { bullInner: 28, bullOuter: 54, singleInner: 95, tripleInner: 160, tripleOuter: 190, doubleInner: 260, doubleOuter: 300 };
+    let score = 501;
+    let darts = 3;
+    let round = 1;
+    let roundStart = 501;
+    let lastHit = null;
+    let gameOver = false;
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let i = 0; i < 20; i += 1) {
+        const start = -Math.PI / 2 + (i - 0.5) * Math.PI / 10;
+        const end = start + Math.PI / 10;
+        drawSlice(start, end, radii.bullOuter, radii.tripleInner, i % 2 ? "#e2e8f0" : "#111827");
+        drawSlice(start, end, radii.tripleInner, radii.tripleOuter, i % 2 ? "#16a34a" : "#dc2626");
+        drawSlice(start, end, radii.tripleOuter, radii.doubleInner, i % 2 ? "#e2e8f0" : "#111827");
+        drawSlice(start, end, radii.doubleInner, radii.doubleOuter, i % 2 ? "#16a34a" : "#dc2626");
+
+        const labelAngle = (start + end) / 2;
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "bold 24px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(sectors[i], center + Math.cos(labelAngle) * 330, center + Math.sin(labelAngle) * 330);
+      }
+
+      drawCircle(radii.bullOuter, "#16a34a");
+      drawCircle(radii.bullInner, "#dc2626");
+      drawCircle(6, "#f8fafc");
+
+      if (lastHit) {
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(lastHit.x, lastHit.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawSlice(start, end, inner, outer, color) {
+      ctx.beginPath();
+      ctx.arc(center, center, outer, start, end);
+      ctx.arc(center, center, inner, end, start, true);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = "#334155";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    function drawCircle(radius, color) {
+      ctx.beginPath();
+      ctx.arc(center, center, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = "#f8fafc";
+      ctx.stroke();
+    }
+
+    function targetPoint() {
+      if (ringEl.value === "bull") {
+        return { angle: Math.random() * Math.PI * 2, radius: 18, intended: 50 };
+      }
+      const target = clamp(Number(targetEl.value) || 20, 1, 20);
+      const index = sectors.indexOf(target);
+      const angle = -Math.PI / 2 + index * Math.PI / 10;
+      const radiusByRing = { single: 125, triple: 175, double: 280 };
+      return { angle, radius: radiusByRing[ringEl.value], intended: target };
+    }
+
+    function throwDart() {
+      if (gameOver) return;
+      const aim = targetPoint();
+      const driftAngle = (Math.random() - 0.5) * 0.34;
+      const driftRadius = (Math.random() - 0.5) * 64;
+      const angle = aim.angle + driftAngle;
+      const radius = Math.max(0, aim.radius + driftRadius);
+      const x = center + Math.cos(angle) * radius;
+      const y = center + Math.sin(angle) * radius;
+      const hit = scorePoint(angle, radius);
+      lastHit = { x, y };
+
+      const next = score - hit.points;
+      const label = hit.label;
+      const isCheckoutHit = label.startsWith("Double ") || label === "Bull";
+      if (next < 0 || next === 1 || (next === 0 && !isCheckoutHit)) {
+        score = roundStart;
+        darts = 0;
+        log(`Bust on ${label}; round resets to ${score}.`);
+      } else {
+        score = next;
+        darts -= 1;
+        log(`${label} for ${hit.points}. Remaining ${score}.`);
+      }
+
+      if (score === 0) {
+        gameOver = true;
+        messageEl.textContent = `Checkout in round ${round}. New Game starts another leg.`;
+      } else if (darts === 0) {
+        round += 1;
+        darts = 3;
+        roundStart = score;
+        messageEl.textContent = `Round ${round} begins. Set up your next three darts.`;
+      } else {
+        messageEl.textContent = `${darts} dart${darts === 1 ? "" : "s"} left this round.`;
+      }
+
+      updateView();
+    }
+
+    function scorePoint(angle, radius) {
+      if (radius > radii.doubleOuter) return { points: 0, label: "Miss" };
+      if (radius <= radii.bullInner) return { points: 50, label: "Bull" };
+      if (radius <= radii.bullOuter) return { points: 25, label: "Outer bull" };
+
+      const normalized = (angle + Math.PI / 2 + Math.PI * 2 + Math.PI / 20) % (Math.PI * 2);
+      const sector = sectors[Math.floor(normalized / (Math.PI / 10)) % 20];
+      if (radius >= radii.doubleInner) return { points: sector * 2, label: `Double ${sector}` };
+      if (radius >= radii.tripleInner && radius <= radii.tripleOuter) return { points: sector * 3, label: `Triple ${sector}` };
+      return { points: sector, label: `Single ${sector}` };
+    }
+
+    function log(text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      historyEl.prepend(item);
+      while (historyEl.children.length > 10) historyEl.lastChild.remove();
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function updateView() {
+      scoreEl.textContent = score;
+      dartsEl.textContent = darts;
+      roundEl.textContent = round;
+      targetEl.value = clamp(Number(targetEl.value) || 20, 1, 20);
+      drawBoard();
+    }
+
+    function resetGame() {
+      score = 501;
+      darts = 3;
+      round = 1;
+      roundStart = 501;
+      lastHit = null;
+      gameOver = false;
+      historyEl.innerHTML = "";
+      messageEl.textContent = "Aim for a checkout. Busts restore the round score.";
+      updateView();
+    }
+
+    throwBtn.addEventListener("click", throwDart);
+    resetBtn.addEventListener("click", resetGame);
+    targetEl.addEventListener("change", updateView);
+    ringEl.addEventListener("change", updateView);
+    updateView();
+  </script>
+</body>
+</html>
