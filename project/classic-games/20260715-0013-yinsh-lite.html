@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini YINSH</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-indigo-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-violet-200">Mini YINSH</h1>
+        <p class="mt-1 text-sm text-indigo-300">移动己方环，沿途翻转标记；率先连成五枚标记者获胜。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-indigo-700 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-400">当前</div>
+          <div id="turn" class="text-lg font-bold text-violet-200">White</div>
+        </div>
+        <div class="rounded border border-indigo-700 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-400">White</div>
+          <div id="whiteScore" class="text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-indigo-700 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-400">Black</div>
+          <div id="blackScore" class="text-lg font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_280px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[640px] grid-cols-7 gap-1 rounded bg-indigo-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-indigo-300">状态</h2>
+          <p id="message" class="mt-3 min-h-24 text-sm leading-6 text-indigo-100">选择己方环，再沿直线或斜线移动到空格。</p>
+          <button id="reset" class="mt-4 w-full rounded bg-violet-300 px-4 py-2 font-semibold text-indigo-950 hover:bg-violet-200">重新开局</button>
+        </div>
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4 text-sm leading-6 text-indigo-200">
+          <div class="font-semibold text-indigo-50">记号</div>
+          <div class="mt-2">◎ / ◉ 代表环</div>
+          <div>○ / ● 代表标记</div>
+          <div>移动后会在起点留下己方标记。</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const boardEl = document.getElementById('board');
+    const turnEl = document.getElementById('turn');
+    const whiteScoreEl = document.getElementById('whiteScore');
+    const blackScoreEl = document.getElementById('blackScore');
+    const msgEl = document.getElementById('message');
+    const resetBtn = document.getElementById('reset');
+
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]];
+    let board;
+    let current;
+    let selected;
+    let gameOver;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array.from({ length: size }, () => ({ ring: '', marker: '' })));
+      board[0][1].ring = 'B';
+      board[0][5].ring = 'B';
+      board[1][3].ring = 'B';
+      board[6][1].ring = 'W';
+      board[6][5].ring = 'W';
+      board[5][3].ring = 'W';
+      current = 'W';
+      selected = null;
+      gameOver = false;
+      msgEl.textContent = '选择己方环，再沿直线或斜线移动到空格。';
+      render();
+    }
+
+    function playerName(mark) {
+      return mark === 'W' ? 'White' : 'Black';
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function isLine(from, to) {
+      const dr = to.row - from.row;
+      const dc = to.col - from.col;
+      return dr === 0 || dc === 0 || Math.abs(dr) === Math.abs(dc);
+    }
+
+    function stepFor(from, to) {
+      return [Math.sign(to.row - from.row), Math.sign(to.col - from.col)];
+    }
+
+    function canMove(from, to) {
+      if (!inBounds(to.row, to.col) || !isLine(from, to)) return false;
+      if (board[to.row][to.col].ring) return false;
+      const [sr, sc] = stepFor(from, to);
+      let row = from.row + sr;
+      let col = from.col + sc;
+      while (row !== to.row || col !== to.col) {
+        if (board[row][col].ring) return false;
+        row += sr;
+        col += sc;
+      }
+      return true;
+    }
+
+    function flipPath(from, to) {
+      const [sr, sc] = stepFor(from, to);
+      let row = from.row + sr;
+      let col = from.col + sc;
+      while (row !== to.row || col !== to.col) {
+        if (board[row][col].marker) board[row][col].marker = board[row][col].marker === 'W' ? 'B' : 'W';
+        row += sr;
+        col += sc;
+      }
+    }
+
+    function markerCount(mark) {
+      return board.flat().filter((cell) => cell.marker === mark).length;
+    }
+
+    function findWinner() {
+      const lines = [];
+      for (let i = 0; i < size; i += 1) {
+        lines.push(board[i]);
+        lines.push(board.map((row) => row[i]));
+      }
+      for (let start = 0; start < size; start += 1) {
+        lines.push(diagonal(start, 0, 1, 1));
+        lines.push(diagonal(0, start, 1, 1));
+        lines.push(diagonal(start, size - 1, 1, -1));
+        lines.push(diagonal(0, start, 1, -1));
+      }
+      for (const line of lines) {
+        let streak = '';
+        let count = 0;
+        for (const cell of line) {
+          if (cell.marker && cell.marker === streak) count += 1;
+          else {
+            streak = cell.marker;
+            count = cell.marker ? 1 : 0;
+          }
+          if (count >= 5) return streak;
+        }
+      }
+      return '';
+    }
+
+    function diagonal(row, col, dr, dc) {
+      const result = [];
+      while (inBounds(row, col)) {
+        result.push(board[row][col]);
+        row += dr;
+        col += dc;
+      }
+      return result;
+    }
+
+    function render() {
+      turnEl.textContent = playerName(current);
+      turnEl.className = current === 'W' ? 'text-lg font-bold text-indigo-50' : 'text-lg font-bold text-slate-950';
+      whiteScoreEl.textContent = markerCount('W');
+      blackScoreEl.textContent = markerCount('B');
+      boardEl.innerHTML = '';
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const cell = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = cell.ring ? (cell.ring === 'W' ? '◎' : '◉') : cell.marker ? (cell.marker === 'W' ? '○' : '●') : '';
+          btn.className = [
+            'aspect-square rounded border text-2xl font-black transition',
+            (row + col) % 2 === 0 ? 'bg-indigo-800' : 'bg-indigo-700',
+            cell.ring === 'W' ? 'border-indigo-50 text-indigo-50' : '',
+            cell.ring === 'B' ? 'border-slate-950 text-slate-950' : '',
+            !cell.ring && cell.marker === 'W' ? 'border-indigo-200 text-indigo-100' : '',
+            !cell.ring && cell.marker === 'B' ? 'border-slate-950 text-slate-950' : '',
+            !cell.ring && !cell.marker ? 'border-indigo-600 hover:border-violet-200' : '',
+            active ? 'outline outline-4 outline-violet-200' : ''
+          ].join(' ');
+          btn.addEventListener('click', () => handleCell(row, col));
+          boardEl.appendChild(btn);
+        }
+      }
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      const cell = board[row][col];
+      if (!selected) {
+        if (cell.ring !== current) {
+          msgEl.textContent = '请选择己方环。';
+          return;
+        }
+        selected = { row, col };
+        msgEl.textContent = '已选择环，点击同一直线或斜线上的空格。';
+        render();
+        return;
+      }
+      const target = { row, col };
+      if (!canMove(selected, target)) {
+        msgEl.textContent = '目标必须是无环阻挡的直线或斜线空格。';
+        return;
+      }
+      board[selected.row][selected.col].ring = '';
+      board[selected.row][selected.col].marker = current;
+      flipPath(selected, target);
+      board[row][col].ring = current;
+      selected = null;
+
+      const winner = findWinner();
+      if (winner) {
+        gameOver = true;
+        msgEl.textContent = `${playerName(winner)} 连成五枚标记，赢得本局。`;
+      } else {
+        current = current === 'W' ? 'B' : 'W';
+        msgEl.textContent = `轮到 ${playerName(current)}。`;
+      }
+      render();
+    }
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
