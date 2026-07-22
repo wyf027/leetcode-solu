@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Depth Charge</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-sky-950 text-sky-50">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-normal text-cyan-200">Mini Depth Charge</h1>
+        <p class="mt-1 text-sm text-sky-300">驾驶驱逐舰投放深水炸弹，击沉潜艇。</p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-xs md:w-[28rem]">
+        <div class="rounded border border-sky-800 bg-sky-900 px-3 py-2">
+          <div class="text-sky-400">船体</div>
+          <div id="hullLabel" class="text-lg font-semibold text-cyan-100">3</div>
+        </div>
+        <div class="rounded border border-sky-800 bg-sky-900 px-3 py-2">
+          <div class="text-sky-400">击沉</div>
+          <div id="sinkLabel" class="text-lg font-semibold text-rose-100">0</div>
+        </div>
+        <div class="rounded border border-sky-800 bg-sky-900 px-3 py-2">
+          <div class="text-sky-400">鱼雷</div>
+          <div id="torpedoLabel" class="text-lg font-semibold text-violet-100">0</div>
+        </div>
+        <div class="rounded border border-sky-800 bg-sky-900 px-3 py-2">
+          <div class="text-sky-400">分数</div>
+          <div id="scoreLabel" class="text-lg font-semibold text-amber-100">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <div class="rounded border border-sky-800 bg-sky-900 p-2">
+        <canvas id="game" width="760" height="500" class="block aspect-[38/25] w-full bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-sky-800 bg-sky-900 p-4 text-sm text-sky-100">
+        <div id="status" class="mb-4 rounded bg-sky-950 px-3 py-2 text-cyan-100">击沉 8 艘潜艇即可完成巡航。</div>
+        <dl class="space-y-3">
+          <div>
+            <dt class="text-sky-400">移动</dt>
+            <dd>A/D 或 左右键</dd>
+          </div>
+          <div>
+            <dt class="text-sky-400">投弹</dt>
+            <dd>Space</dd>
+          </div>
+          <div>
+            <dt class="text-sky-400">重开</dt>
+            <dd>R</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const hullLabel = document.getElementById('hullLabel');
+    const sinkLabel = document.getElementById('sinkLabel');
+    const torpedoLabel = document.getElementById('torpedoLabel');
+    const scoreLabel = document.getElementById('scoreLabel');
+    const statusLabel = document.getElementById('status');
+    const keys = new Set();
+
+    let ship;
+    let charges;
+    let subs;
+    let torpedoes;
+    let splashes;
+    let score;
+    let sinks;
+    let state;
+    let spawnTimer;
+    let lastTime;
+
+    const waterLine = 96;
+
+    function setupGame() {
+      ship = { x: 345, y: 58, w: 70, h: 22, hull: 3, cooldown: 0, invuln: 0 };
+      charges = [];
+      subs = [];
+      torpedoes = [];
+      splashes = [];
+      score = 0;
+      sinks = 0;
+      state = 'playing';
+      spawnTimer = 0.4;
+      lastTime = performance.now();
+      statusLabel.textContent = '击沉 8 艘潜艇即可完成巡航。';
+      updateLabels();
+    }
+
+    function updateLabels() {
+      hullLabel.textContent = ship.hull;
+      sinkLabel.textContent = sinks;
+      torpedoLabel.textContent = torpedoes.length;
+      scoreLabel.textContent = score;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function moveShip(dt) {
+      let vx = 0;
+      if (keys.has('ArrowLeft') || keys.has('a')) vx -= 1;
+      if (keys.has('ArrowRight') || keys.has('d')) vx += 1;
+      ship.x = clamp(ship.x + vx * 260 * dt, 16, canvas.width - ship.w - 16);
+      ship.cooldown = Math.max(0, ship.cooldown - dt);
+      ship.invuln = Math.max(0, ship.invuln - dt);
+    }
+
+    function dropCharge() {
+      if (state !== 'playing' || ship.cooldown > 0) return;
+      charges.push({ x: ship.x + 16, y: ship.y + ship.h, w: 8, h: 12, vy: 135 });
+      charges.push({ x: ship.x + ship.w - 24, y: ship.y + ship.h, w: 8, h: 12, vy: 135 });
+      ship.cooldown = 0.5;
+    }
+
+    function spawnSub() {
+      const fromLeft = Math.random() < 0.5;
+      const depth = waterLine + 55 + Math.random() * 300;
+      subs.push({
+        x: fromLeft ? -70 : canvas.width + 70,
+        y: depth,
+        w: 58,
+        h: 20,
+        vx: (fromLeft ? 1 : -1) * (45 + Math.random() * 55 + sinks * 3),
+        fire: 1.2 + Math.random() * 1.8
+      });
+    }
+
+    function updateSubs(dt) {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0 && subs.length < 5 && sinks < 8) {
+        spawnSub();
+        spawnTimer = Math.max(0.65, 1.7 - sinks * 0.08);
+      }
+      subs.forEach((sub) => {
+        sub.x += sub.vx * dt;
+        sub.fire -= dt;
+        if (sub.fire <= 0) {
+          torpedoes.push({ x: sub.x + sub.w / 2 - 3, y: sub.y - 10, w: 6, h: 16, vy: -160 - sinks * 6 });
+          sub.fire = 2.1 + Math.random() * 1.6;
+        }
+      });
+      subs = subs.filter((sub) => sub.x > -100 && sub.x < canvas.width + 100);
+    }
+
+    function updateCharges(dt) {
+      charges.forEach((charge) => {
+        charge.y += charge.vy * dt;
+        charge.vy += 35 * dt;
+      });
+      charges = charges.filter((charge) => {
+        if (charge.y > canvas.height + 20) return false;
+        const hitIndex = subs.findIndex((sub) => rectsOverlap(charge, sub));
+        if (hitIndex >= 0) {
+          const sub = subs[hitIndex];
+          subs.splice(hitIndex, 1);
+          sinks += 1;
+          score += 150 + Math.floor((canvas.height - sub.y) / 4);
+          splash(sub.x + sub.w / 2, sub.y, '#fb7185');
+          statusLabel.textContent = sinks >= 8 ? '巡航完成，胜利！按 R 再玩。' : '命中潜艇。继续压制。';
+          if (sinks >= 8) state = 'won';
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function updateTorpedoes(dt) {
+      torpedoes.forEach((torpedo) => {
+        torpedo.y += torpedo.vy * dt;
+      });
+      torpedoes = torpedoes.filter((torpedo) => {
+        if (torpedo.y + torpedo.h < 0) return false;
+        const shipBox = { x: ship.x, y: ship.y, w: ship.w, h: ship.h };
+        if (rectsOverlap(torpedo, shipBox)) {
+          damageShip('鱼雷击中船体。');
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function damageShip(message) {
+      if (ship.invuln > 0 || state !== 'playing') return;
+      ship.hull -= 1;
+      ship.invuln = 1;
+      statusLabel.textContent = message;
+      splash(ship.x + ship.w / 2, ship.y + ship.h, '#fbbf24');
+      if (ship.hull <= 0) {
+        state = 'lost';
+        statusLabel.textContent = '驱逐舰沉没。按 R 重开。';
+      }
+    }
+
+    function splash(x, y, color) {
+      for (let i = 0; i < 16; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 35 + Math.random() * 120;
+        splashes.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0.5, color });
+      }
+    }
+
+    function updateSplashes(dt) {
+      splashes.forEach((drop) => {
+        drop.x += drop.vx * dt;
+        drop.y += drop.vy * dt;
+        drop.life -= dt;
+      });
+      splashes = splashes.filter((drop) => drop.life > 0);
+    }
+
+    function drawSea() {
+      ctx.fillStyle = '#082f49';
+      ctx.fillRect(0, 0, canvas.width, waterLine);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, waterLine, canvas.width, canvas.height - waterLine);
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let x = 0; x <= canvas.width; x += 12) {
+        const y = waterLine + Math.sin((x + performance.now() / 30) / 22) * 4;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(125, 211, 252, 0.12)';
+      for (let y = waterLine + 55; y < canvas.height; y += 58) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.globalAlpha = ship.invuln > 0 && Math.floor(performance.now() / 90) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillRect(ship.x + 8, ship.y, ship.w - 16, 13);
+      ctx.fillStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y + 12);
+      ctx.lineTo(ship.x + ship.w, ship.y + 12);
+      ctx.lineTo(ship.x + ship.w - 12, ship.y + ship.h);
+      ctx.lineTo(ship.x + 12, ship.y + ship.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawSubs() {
+      subs.forEach((sub) => {
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(sub.x + 8, sub.y, sub.w - 16, sub.h);
+        ctx.beginPath();
+        ctx.arc(sub.x + 8, sub.y + sub.h / 2, sub.h / 2, Math.PI / 2, Math.PI * 1.5);
+        ctx.arc(sub.x + sub.w - 8, sub.y + sub.h / 2, sub.h / 2, -Math.PI / 2, Math.PI / 2);
+        ctx.fill();
+        ctx.fillStyle = '#bae6fd';
+        ctx.fillRect(sub.x + sub.w / 2 - 4, sub.y - 8, 8, 8);
+      });
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = '#fde68a';
+      charges.forEach((charge) => ctx.fillRect(charge.x, charge.y, charge.w, charge.h));
+      ctx.fillStyle = '#c084fc';
+      torpedoes.forEach((torpedo) => ctx.fillRect(torpedo.x, torpedo.y, torpedo.w, torpedo.h));
+      splashes.forEach((drop) => {
+        ctx.globalAlpha = Math.max(0, drop.life * 2);
+        ctx.fillStyle = drop.color;
+        ctx.fillRect(drop.x, drop.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawBanner() {
+      if (state === 'playing') return;
+      ctx.fillStyle = 'rgba(8, 47, 73, 0.78)';
+      ctx.fillRect(0, 200, canvas.width, 96);
+      ctx.fillStyle = state === 'won' ? '#bae6fd' : '#fecaca';
+      ctx.font = 'bold 32px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(state === 'won' ? 'PATROL COMPLETE' : 'DESTROYER LOST', canvas.width / 2, 257);
+      ctx.textAlign = 'start';
+    }
+
+    function draw() {
+      drawSea();
+      drawShip();
+      drawSubs();
+      drawProjectiles();
+      drawBanner();
+    }
+
+    function tick(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000);
+      lastTime = time;
+      if (state === 'playing') {
+        moveShip(dt);
+        updateSubs(dt);
+        updateCharges(dt);
+        updateTorpedoes(dt);
+      }
+      updateSplashes(dt);
+      updateLabels();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.preventDefault();
+      if (event.key === ' ') dropCharge();
+      if (event.key.toLowerCase() === 'r') setupGame();
+      keys.add(event.key);
+      keys.add(event.key.toLowerCase());
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    setupGame();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
