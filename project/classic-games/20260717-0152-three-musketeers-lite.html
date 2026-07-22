@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Three Musketeers</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-stone-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-amber-300">classic board game</p>
+        <h1 class="text-3xl font-bold text-white">Mini Three Musketeers</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-200">Reset</button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-stone-800 bg-stone-900 p-3">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-1"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="text-sm text-stone-400">Turn</p>
+          <p id="turnLabel" class="mt-1 text-xl font-bold text-white"></p>
+          <p id="status" class="mt-3 min-h-12 text-sm leading-6 text-stone-300"></p>
+        </div>
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="font-semibold text-white">Rules</p>
+          <ul class="mt-3 space-y-2 text-sm leading-6 text-stone-300">
+            <li>Musketeers move onto adjacent guards and capture them.</li>
+            <li>Guards move onto adjacent empty squares.</li>
+            <li>Guards win by lining all musketeers in one row or column.</li>
+            <li>Musketeers win when they have no legal capture moves.</li>
+          </ul>
+        </div>
+        <div class="rounded border border-stone-800 bg-stone-900 p-4">
+          <p class="font-semibold text-white">Counts</p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="rounded bg-stone-800 p-3">
+              <p class="text-stone-400">Musketeers</p>
+              <p id="musketeerCount" class="text-2xl font-bold text-sky-300"></p>
+            </div>
+            <div class="rounded bg-stone-800 p-3">
+              <p class="text-stone-400">Guards</p>
+              <p id="guardCount" class="text-2xl font-bold text-rose-300"></p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 5;
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const statusEl = document.getElementById("status");
+    const musketeerCount = document.getElementById("musketeerCount");
+    const guardCount = document.getElementById("guardCount");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board = [];
+    let turn = "M";
+    let selected = null;
+    let gameOver = false;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill("G"));
+      board[0][0] = "M";
+      board[2][2] = "M";
+      board[4][4] = "M";
+      turn = "M";
+      selected = null;
+      gameOver = false;
+      render("Musketeers begin. Select a blue piece and capture an adjacent guard.");
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function legalMoves(row, col) {
+      const piece = board[row][col];
+      if (!piece || piece !== turn || gameOver) return [];
+      const steps = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      return steps
+        .map(([dr, dc]) => [row + dr, col + dc])
+        .filter(([nextRow, nextCol]) => {
+          if (!inBounds(nextRow, nextCol)) return false;
+          return piece === "M" ? board[nextRow][nextCol] === "G" : board[nextRow][nextCol] === "";
+        });
+    }
+
+    function allMoves(side) {
+      const previousTurn = turn;
+      turn = side;
+      const moves = [];
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          if (piece === side) {
+            legalMoves(rowIndex, colIndex).forEach((move) => moves.push([[rowIndex, colIndex], move]));
+          }
+        });
+      });
+      turn = previousTurn;
+      return moves;
+    }
+
+    function musketeersAligned() {
+      const musketeers = [];
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          if (piece === "M") musketeers.push([rowIndex, colIndex]);
+        });
+      });
+      if (musketeers.length !== 3) return false;
+      return musketeers.every(([row]) => row === musketeers[0][0]) ||
+        musketeers.every(([, col]) => col === musketeers[0][1]);
+    }
+
+    function finishTurn() {
+      if (musketeersAligned()) {
+        gameOver = true;
+        render("Guards win by forcing the three musketeers into one line.");
+        return;
+      }
+      if (allMoves("M").length === 0) {
+        gameOver = true;
+        render("Musketeers win. No legal capture moves remain.");
+        return;
+      }
+      turn = turn === "M" ? "G" : "M";
+      selected = null;
+      render(turn === "M" ? "Musketeers must capture an adjacent guard." : "Guards move into adjacent empty squares.");
+    }
+
+    function handleCell(row, col) {
+      if (gameOver) return;
+      const piece = board[row][col];
+      if (piece === turn) {
+        selected = [row, col];
+        render(turn === "M" ? "Choose an adjacent guard to capture." : "Choose an adjacent empty square.");
+        return;
+      }
+      if (!selected) return;
+      const moves = legalMoves(selected[0], selected[1]);
+      const isLegal = moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col);
+      if (!isLegal) return;
+      const movingPiece = board[selected[0]][selected[1]];
+      board[selected[0]][selected[1]] = "";
+      board[row][col] = movingPiece;
+      finishTurn();
+    }
+
+    function cellClasses(row, col) {
+      const piece = board[row][col];
+      const moves = selected ? legalMoves(selected[0], selected[1]) : [];
+      const isMove = moves.some(([moveRow, moveCol]) => moveRow === row && moveCol === col);
+      const isSelected = selected && selected[0] === row && selected[1] === col;
+      const base = "flex aspect-square items-center justify-center rounded border text-3xl font-black transition";
+      const color = piece === "M"
+        ? "border-sky-500 bg-sky-950 text-sky-200"
+        : piece === "G"
+          ? "border-rose-500 bg-rose-950 text-rose-200"
+          : "border-stone-700 bg-stone-800 text-stone-500";
+      const state = isSelected ? " ring-4 ring-amber-300" : isMove ? " ring-4 ring-emerald-300" : " hover:border-amber-300";
+      return `${base} ${color}${state}`;
+    }
+
+    function render(message) {
+      boardEl.innerHTML = "";
+      board.forEach((row, rowIndex) => {
+        row.forEach((piece, colIndex) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = cellClasses(rowIndex, colIndex);
+          button.textContent = piece === "M" ? "M" : piece === "G" ? "G" : "";
+          button.setAttribute("aria-label", `row ${rowIndex + 1} column ${colIndex + 1}`);
+          button.addEventListener("click", () => handleCell(rowIndex, colIndex));
+          boardEl.appendChild(button);
+        });
+      });
+      turnLabel.textContent = gameOver ? "Game over" : turn === "M" ? "Musketeers" : "Guards";
+      statusEl.textContent = message;
+      musketeerCount.textContent = board.flat().filter((piece) => piece === "M").length;
+      guardCount.textContent = board.flat().filter((piece) => piece === "G").length;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
