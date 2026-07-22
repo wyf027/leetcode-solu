@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Ataxx</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">classic games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Ataxx</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-emerald-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-200">New game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[34rem] grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-slate-800 bg-slate-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs uppercase text-slate-400">Turn</div>
+            <div id="turnLabel" class="mt-1 text-lg font-bold text-white">Green</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs uppercase text-slate-400">Moves</div>
+            <div id="moveCount" class="mt-1 text-lg font-bold text-white">0</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs uppercase text-slate-400">Green</div>
+            <div id="greenScore" class="mt-1 text-lg font-bold text-emerald-300">2</div>
+          </div>
+          <div class="rounded bg-slate-800 p-3">
+            <div class="text-xs uppercase text-slate-400">Violet</div>
+            <div id="violetScore" class="mt-1 text-lg font-bold text-violet-300">2</div>
+          </div>
+        </div>
+
+        <div id="message" class="mt-4 rounded border border-slate-700 bg-slate-800 p-3 text-sm font-semibold text-slate-100"></div>
+        <div class="mt-4 rounded bg-slate-950 p-3 text-sm leading-6 text-slate-300">
+          Select one of your pieces, then move to an empty square up to two spaces away. A one-step move copies; a two-step move jumps. Adjacent enemy pieces convert.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const moveCountEl = document.getElementById("moveCount");
+    const greenScore = document.getElementById("greenScore");
+    const violetScore = document.getElementById("violetScore");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const players = {
+      G: { name: "Green", color: "bg-emerald-300 text-slate-950" },
+      V: { name: "Violet", color: "bg-violet-300 text-slate-950" }
+    };
+
+    let board;
+    let turn;
+    let selected;
+    let winner;
+    let moves;
+    let hints;
+
+    function startGame() {
+      board = Array(25).fill(null);
+      board[0] = "G";
+      board[24] = "G";
+      board[4] = "V";
+      board[20] = "V";
+      turn = "G";
+      selected = null;
+      winner = null;
+      moves = 0;
+      hints = [];
+      setMessage("Green selects a piece.");
+      render();
+    }
+
+    function rowOf(index) {
+      return Math.floor(index / 5);
+    }
+
+    function colOf(index) {
+      return index % 5;
+    }
+
+    function distance(a, b) {
+      return Math.max(Math.abs(rowOf(a) - rowOf(b)), Math.abs(colOf(a) - colOf(b)));
+    }
+
+    function emptyTargetsFrom(index) {
+      return board
+        .map((cell, target) => (!cell && distance(index, target) > 0 && distance(index, target) <= 2 ? target : null))
+        .filter((target) => target !== null);
+    }
+
+    function legalMovesFor(player) {
+      return board.flatMap((cell, index) => (cell === player ? emptyTargetsFrom(index).map((target) => [index, target]) : []));
+    }
+
+    function neighborIndexes(index) {
+      const row = rowOf(index);
+      const col = colOf(index);
+      const result = [];
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (nextRow >= 0 && nextRow < 5 && nextCol >= 0 && nextCol < 5) {
+            result.push(nextRow * 5 + nextCol);
+          }
+        }
+      }
+      return result;
+    }
+
+    function counts() {
+      return board.reduce((score, cell) => {
+        if (cell) score[cell] += 1;
+        return score;
+      }, { G: 0, V: 0 });
+    }
+
+    function opponent() {
+      return turn === "G" ? "V" : "G";
+    }
+
+    function checkGameOver() {
+      const score = counts();
+      const empty = board.some((cell) => !cell);
+      const next = opponent();
+      if (!empty || score.G === 0 || score.V === 0 || legalMovesFor(next).length === 0) {
+        winner = score.G === score.V ? "draw" : (score.G > score.V ? "G" : "V");
+        selected = null;
+        hints = [];
+        setMessage(winner === "draw" ? "Draw game." : `${players[winner].name} wins by majority.`);
+        return true;
+      }
+      return false;
+    }
+
+    function finishTurn() {
+      moves += 1;
+      if (!checkGameOver()) {
+        turn = opponent();
+        selected = null;
+        hints = [];
+        setMessage(`${players[turn].name} selects a piece.`);
+      }
+      render();
+    }
+
+    function selectPiece(index) {
+      if (board[index] !== turn) return;
+      selected = index;
+      hints = emptyTargetsFrom(index);
+      setMessage(`${players[turn].name} chooses a target.`);
+      render();
+    }
+
+    function makeMove(target) {
+      if (selected === null || !hints.includes(target)) return;
+      const jump = distance(selected, target) === 2;
+      if (jump) board[selected] = null;
+      board[target] = turn;
+      for (const neighbor of neighborIndexes(target)) {
+        if (board[neighbor] && board[neighbor] !== turn) board[neighbor] = turn;
+      }
+      finishTurn();
+    }
+
+    function handleCell(index) {
+      if (winner) return;
+      if (selected !== null && hints.includes(index)) makeMove(index);
+      else selectPiece(index);
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function renderCell(index) {
+      const cell = board[index];
+      const button = document.createElement("button");
+      const isSelected = selected === index;
+      const isHint = hints.includes(index);
+      button.className = [
+        "relative flex aspect-square items-center justify-center rounded border border-slate-700 bg-slate-800 transition hover:border-emerald-300",
+        isSelected ? "ring-4 ring-white" : "",
+        isHint ? "ring-4 ring-emerald-300" : ""
+      ].join(" ");
+      button.setAttribute("aria-label", `Cell ${index + 1}`);
+      button.addEventListener("click", () => handleCell(index));
+
+      if (cell) {
+        const token = document.createElement("span");
+        token.className = `flex h-12 w-12 items-center justify-center rounded-full text-lg font-black shadow ${players[cell].color}`;
+        token.textContent = cell;
+        button.appendChild(token);
+      } else {
+        const dot = document.createElement("span");
+        dot.className = "h-2 w-2 rounded-full bg-slate-600";
+        button.appendChild(dot);
+      }
+      return button;
+    }
+
+    function render() {
+      const score = counts();
+      boardEl.replaceChildren(...board.map((_, index) => renderCell(index)));
+      turnLabel.textContent = winner ? (winner === "draw" ? "Draw" : `${players[winner].name} wins`) : players[turn].name;
+      moveCountEl.textContent = moves;
+      greenScore.textContent = score.G;
+      violetScore.textContent = score.V;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
