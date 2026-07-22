@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gobblet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-neutral-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-[0.18em] text-orange-300">classic games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Gobblet</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-orange-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-orange-200">New game</button>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div id="board" class="mx-auto grid aspect-square w-full max-w-[32rem] grid-cols-3 gap-3"></div>
+      </div>
+
+      <aside class="rounded border border-neutral-800 bg-neutral-900 p-4">
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="rounded bg-neutral-800 p-3">
+            <div class="text-xs uppercase text-neutral-400">Turn</div>
+            <div id="turnLabel" class="mt-1 text-lg font-bold text-white">Orange</div>
+          </div>
+          <div class="rounded bg-neutral-800 p-3">
+            <div class="text-xs uppercase text-neutral-400">Moves</div>
+            <div id="moveCount" class="mt-1 text-lg font-bold text-white">0</div>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <div class="mb-2 text-sm font-semibold text-neutral-300">Available pieces</div>
+          <div id="rack" class="grid grid-cols-3 gap-2"></div>
+        </div>
+
+        <div id="message" class="mt-4 rounded border border-neutral-700 bg-neutral-800 p-3 text-sm font-semibold text-neutral-100"></div>
+        <div class="mt-4 rounded bg-neutral-950 p-3 text-sm leading-6 text-neutral-300">
+          Pick one of your unused pieces, then place it on an empty square or over a smaller visible piece. Three visible tops in a row wins.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const rackEl = document.getElementById("rack");
+    const turnLabel = document.getElementById("turnLabel");
+    const moveCountEl = document.getElementById("moveCount");
+    const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const players = {
+      O: { name: "Orange", mark: "O", color: "bg-orange-300 text-neutral-950" },
+      C: { name: "Cyan", mark: "C", color: "bg-cyan-300 text-neutral-950" }
+    };
+    const sizes = { S: 1, M: 2, L: 3 };
+    const labels = { S: "Small", M: "Medium", L: "Large" };
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+
+    let board;
+    let stock;
+    let turn;
+    let selectedSize;
+    let winner;
+    let moves;
+
+    function startGame() {
+      board = Array.from({ length: 9 }, () => []);
+      stock = {
+        O: { S: 2, M: 2, L: 2 },
+        C: { S: 2, M: 2, L: 2 }
+      };
+      turn = "O";
+      selectedSize = null;
+      winner = null;
+      moves = 0;
+      setMessage("Orange chooses a piece size.");
+      render();
+    }
+
+    function topPiece(index) {
+      const stack = board[index];
+      return stack[stack.length - 1] || null;
+    }
+
+    function canPlace(index, size) {
+      if (!size || stock[turn][size] < 1) return false;
+      const top = topPiece(index);
+      return !top || sizes[size] > sizes[top.size];
+    }
+
+    function getWinner() {
+      for (const line of lines) {
+        const tops = line.map(topPiece);
+        if (tops.every(Boolean) && tops.every((piece) => piece.player === tops[0].player)) {
+          return tops[0].player;
+        }
+      }
+      return null;
+    }
+
+    function switchTurn() {
+      turn = turn === "O" ? "C" : "O";
+      selectedSize = null;
+      setMessage(`${players[turn].name} chooses a piece size.`);
+    }
+
+    function chooseSize(size) {
+      if (winner || stock[turn][size] < 1) return;
+      selectedSize = size;
+      setMessage(`${players[turn].name} placing a ${labels[size].toLowerCase()} piece.`);
+      render();
+    }
+
+    function placePiece(index) {
+      if (winner) return;
+      if (!selectedSize) {
+        setMessage("Choose a piece size first.");
+        return;
+      }
+      if (!canPlace(index, selectedSize)) {
+        setMessage("That piece can only cover an empty square or a smaller top.");
+        return;
+      }
+
+      board[index].push({ player: turn, size: selectedSize });
+      stock[turn][selectedSize] -= 1;
+      moves += 1;
+      winner = getWinner();
+      if (winner) setMessage(`${players[winner].name} wins with three visible tops.`);
+      else switchTurn();
+      render();
+    }
+
+    function sizeClass(size) {
+      if (size === "L") return "h-16 w-16 text-lg";
+      if (size === "M") return "h-12 w-12 text-base";
+      return "h-8 w-8 text-sm";
+    }
+
+    function renderCell(index) {
+      const top = topPiece(index);
+      const button = document.createElement("button");
+      button.className = [
+        "relative flex aspect-square items-center justify-center rounded border border-neutral-700 bg-neutral-800 transition hover:border-orange-300",
+        selectedSize && canPlace(index, selectedSize) ? "ring-2 ring-orange-300" : ""
+      ].join(" ");
+      button.setAttribute("aria-label", `Square ${index + 1}`);
+      button.addEventListener("click", () => placePiece(index));
+
+      const stackCount = document.createElement("span");
+      stackCount.className = "absolute right-2 top-2 text-xs font-bold text-neutral-500";
+      stackCount.textContent = board[index].length || "";
+      button.appendChild(stackCount);
+
+      if (top) {
+        const token = document.createElement("span");
+        token.className = `z-10 flex items-center justify-center rounded-full font-black shadow ${players[top.player].color} ${sizeClass(top.size)}`;
+        token.textContent = top.size;
+        button.appendChild(token);
+      }
+      return button;
+    }
+
+    function renderRack() {
+      rackEl.replaceChildren(...["S", "M", "L"].map((size) => {
+        const button = document.createElement("button");
+        button.className = [
+          "rounded border border-neutral-700 bg-neutral-800 p-2 text-sm font-bold hover:border-orange-300",
+          selectedSize === size ? "ring-2 ring-orange-300" : "",
+          stock[turn][size] < 1 ? "opacity-40" : ""
+        ].join(" ");
+        button.disabled = Boolean(winner) || stock[turn][size] < 1;
+        button.innerHTML = `<div>${labels[size]}</div><div class="text-lg text-white">${stock[turn][size]}</div>`;
+        button.addEventListener("click", () => chooseSize(size));
+        return button;
+      }));
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function render() {
+      boardEl.replaceChildren(...board.map((_, index) => renderCell(index)));
+      renderRack();
+      turnLabel.textContent = winner ? `${players[winner].name} wins` : players[turn].name;
+      moveCountEl.textContent = moves;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
