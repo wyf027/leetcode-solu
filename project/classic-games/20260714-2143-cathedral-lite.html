@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Cathedral</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-rose-200">Mini Cathedral</h1>
+        <p class="mt-1 text-sm text-zinc-400">轮流旋转并摆放建筑，围绕中央教堂争夺最多占格。</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">当前</div>
+          <div id="turn" class="text-lg font-bold text-rose-200">Red</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">Red</div>
+          <div id="redScore" class="text-lg font-bold">0</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-500">Blue</div>
+          <div id="blueScore" class="text-lg font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_300px]">
+      <div class="flex justify-center">
+        <div id="board" class="grid aspect-square w-full max-w-[620px] grid-cols-7 gap-1 rounded bg-zinc-900 p-3 shadow-2xl shadow-black/40"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-zinc-400">建筑</h2>
+          <div id="pieces" class="mt-3 grid grid-cols-2 gap-2"></div>
+          <button id="rotate" class="mt-3 w-full rounded bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700">旋转选中建筑</button>
+        </div>
+
+        <div class="rounded border border-zinc-800 bg-zinc-900 p-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-zinc-400">状态</h2>
+          <p id="message" class="mt-3 min-h-16 text-sm leading-6 text-zinc-300">选择一个建筑，再点击棋盘放置。</p>
+          <button id="pass" class="mt-4 w-full rounded bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700">跳过</button>
+          <button id="reset" class="mt-2 w-full rounded bg-rose-300 px-4 py-2 font-semibold text-zinc-950 hover:bg-rose-200">重新开局</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 7;
+    const boardEl = document.getElementById('board');
+    const piecesEl = document.getElementById('pieces');
+    const msgEl = document.getElementById('message');
+    const turnEl = document.getElementById('turn');
+    const redScoreEl = document.getElementById('redScore');
+    const blueScoreEl = document.getElementById('blueScore');
+    const rotateBtn = document.getElementById('rotate');
+    const passBtn = document.getElementById('pass');
+    const resetBtn = document.getElementById('reset');
+
+    const basePieces = [
+      { id: 'tower', name: '高塔', cells: [[0, 0], [1, 0], [2, 0]] },
+      { id: 'chapel', name: '礼拜堂', cells: [[0, 0], [1, 0], [1, 1]] },
+      { id: 'hall', name: '大厅', cells: [[0, 0], [0, 1], [1, 0], [1, 1]] },
+      { id: 'gate', name: '城门', cells: [[0, 0], [0, 1], [0, 2], [1, 1]] },
+      { id: 'cloister', name: '回廊', cells: [[0, 1], [1, 0], [1, 1], [1, 2]] },
+      { id: 'house', name: '小屋', cells: [[0, 0], [0, 1]] }
+    ];
+
+    let board;
+    let current;
+    let selectedId;
+    let rotation;
+    let stock;
+    let gameOver;
+
+    function newStock() {
+      return {
+        Red: basePieces.map((piece) => piece.id),
+        Blue: basePieces.map((piece) => piece.id)
+      };
+    }
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(''));
+      board[3][3] = 'Cathedral';
+      current = 'Red';
+      selectedId = 'tower';
+      rotation = 0;
+      stock = newStock();
+      gameOver = false;
+      msgEl.textContent = '选择一个建筑，再点击棋盘放置。';
+      render();
+    }
+
+    function normalize(cells) {
+      const minRow = Math.min(...cells.map((cell) => cell[0]));
+      const minCol = Math.min(...cells.map((cell) => cell[1]));
+      return cells.map(([row, col]) => [row - minRow, col - minCol]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    }
+
+    function rotateCells(cells, turns) {
+      let rotated = cells.map((cell) => [...cell]);
+      for (let i = 0; i < turns; i += 1) {
+        rotated = normalize(rotated.map(([row, col]) => [col, -row]));
+      }
+      return normalize(rotated);
+    }
+
+    function activePiece() {
+      return basePieces.find((piece) => piece.id === selectedId);
+    }
+
+    function scoreFor(mark) {
+      return board.flat().filter((cell) => cell === mark).length;
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      const preview = activePiece() ? rotateCells(activePiece().cells, rotation) : [];
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const tile = document.createElement('button');
+          const value = board[row][col];
+          const isCenter = value === 'Cathedral';
+          tile.type = 'button';
+          tile.textContent = isCenter ? '✦' : value ? value[0] : '';
+          tile.title = preview.length ? '点击以左上角为锚点放置' : '';
+          tile.className = [
+            'aspect-square rounded border text-2xl font-black transition',
+            value === 'Red' ? 'border-rose-300 bg-rose-300 text-zinc-950' : '',
+            value === 'Blue' ? 'border-sky-300 bg-sky-300 text-zinc-950' : '',
+            isCenter ? 'border-amber-200 bg-amber-200 text-zinc-950' : '',
+            value === '' ? 'border-zinc-700 bg-zinc-800 hover:border-rose-200' : ''
+          ].join(' ');
+          tile.addEventListener('click', () => placeAt(row, col));
+          boardEl.appendChild(tile);
+        }
+      }
+    }
+
+    function renderPieces() {
+      piecesEl.innerHTML = '';
+      basePieces.forEach((piece) => {
+        const available = stock[current].includes(piece.id);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = `${piece.name} (${piece.cells.length})`;
+        btn.disabled = !available || gameOver;
+        btn.className = [
+          'rounded border px-3 py-2 text-sm font-semibold',
+          selectedId === piece.id ? 'border-rose-200 bg-rose-200 text-zinc-950' : 'border-zinc-700 bg-zinc-800 hover:border-rose-200',
+          !available ? 'cursor-not-allowed opacity-35' : ''
+        ].join(' ');
+        btn.addEventListener('click', () => {
+          selectedId = piece.id;
+          rotation = 0;
+          msgEl.textContent = `已选择${piece.name}，点击棋盘放置。`;
+          render();
+        });
+        piecesEl.appendChild(btn);
+      });
+    }
+
+    function render() {
+      turnEl.textContent = current;
+      turnEl.className = current === 'Red' ? 'text-lg font-bold text-rose-200' : 'text-lg font-bold text-sky-200';
+      redScoreEl.textContent = scoreFor('Red');
+      blueScoreEl.textContent = scoreFor('Blue');
+      renderBoard();
+      renderPieces();
+    }
+
+    function canPlace(row, col, cells) {
+      return cells.every(([dr, dc]) => {
+        const r = row + dr;
+        const c = col + dc;
+        return r >= 0 && r < size && c >= 0 && c < size && board[r][c] === '';
+      });
+    }
+
+    function hasMove(player) {
+      return stock[player].some((id) => {
+        const piece = basePieces.find((item) => item.id === id);
+        for (let turn = 0; turn < 4; turn += 1) {
+          const cells = rotateCells(piece.cells, turn);
+          for (let row = 0; row < size; row += 1) {
+            for (let col = 0; col < size; col += 1) {
+              if (canPlace(row, col, cells)) return true;
+            }
+          }
+        }
+        return false;
+      });
+    }
+
+    function placeAt(row, col) {
+      if (gameOver || !selectedId) return;
+      const piece = activePiece();
+      if (!stock[current].includes(piece.id)) return;
+      const cells = rotateCells(piece.cells, rotation);
+      if (!canPlace(row, col, cells)) {
+        msgEl.textContent = '这个位置放不下，试试旋转或换一个锚点。';
+        return;
+      }
+      cells.forEach(([dr, dc]) => {
+        board[row + dr][col + dc] = current;
+      });
+      stock[current] = stock[current].filter((id) => id !== piece.id);
+      advanceTurn(`${current} 放置了${piece.name}。`);
+    }
+
+    function advanceTurn(prefix) {
+      const next = current === 'Red' ? 'Blue' : 'Red';
+      if (!hasMove(next) && !hasMove(current)) {
+        finishGame();
+        return;
+      }
+      current = hasMove(next) ? next : current;
+      selectedId = stock[current][0] || '';
+      rotation = 0;
+      msgEl.textContent = `${prefix} 轮到 ${current}。`;
+      render();
+    }
+
+    function finishGame() {
+      gameOver = true;
+      const red = scoreFor('Red');
+      const blue = scoreFor('Blue');
+      if (red === blue) msgEl.textContent = `平局：双方各占 ${red} 格。`;
+      else msgEl.textContent = `${red > blue ? 'Red' : 'Blue'} 获胜：${red} - ${blue}。`;
+      render();
+    }
+
+    rotateBtn.addEventListener('click', () => {
+      if (gameOver || !selectedId) return;
+      rotation = (rotation + 1) % 4;
+      msgEl.textContent = `已旋转${activePiece().name}。`;
+      render();
+    });
+
+    passBtn.addEventListener('click', () => {
+      if (gameOver) return;
+      advanceTurn(`${current} 跳过。`);
+    });
+
+    resetBtn.addEventListener('click', resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
