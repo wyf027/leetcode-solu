@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kolowis Awithlaknannai</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-950 text-neutral-100">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-lime-300">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Kolowis Awithlaknannai</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-lime-300 px-4 py-2 font-semibold text-neutral-950 transition hover:bg-lime-200">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_270px]">
+        <div class="relative aspect-[4/3] w-full rounded-lg border border-neutral-700 bg-neutral-950">
+          <svg id="lines" class="absolute inset-0 h-full w-full" viewBox="0 0 100 75" aria-hidden="true"></svg>
+          <div id="board" class="absolute inset-0"></div>
+        </div>
+
+        <aside class="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-neutral-900 p-3">
+              <p class="text-xs text-neutral-400">日方吃子</p>
+              <p id="sunScore" class="text-2xl font-bold text-yellow-300">0</p>
+            </div>
+            <div class="rounded-md bg-neutral-900 p-3">
+              <p class="text-xs text-neutral-400">月方吃子</p>
+              <p id="moonScore" class="text-2xl font-bold text-indigo-300">0</p>
+            </div>
+          </div>
+          <p id="turnText" class="mt-4 rounded-md bg-neutral-900 p-3 text-sm leading-6 text-neutral-200"></p>
+          <p class="mt-4 text-sm leading-6 text-neutral-400">选中己方棋子，沿三角网格连线移动到相邻空点；若同一条线上的相邻点是对方棋子且下一点为空，可以跳过去吃子。</p>
+          <p class="mt-3 text-sm leading-6 text-neutral-400">先吃掉 4 子，或让对方无合法走法的一方获胜。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 50, y: 8, row: 0, col: 0 },
+      { x: 35, y: 24, row: 1, col: 0 },
+      { x: 65, y: 24, row: 1, col: 1 },
+      { x: 20, y: 42, row: 2, col: 0 },
+      { x: 50, y: 42, row: 2, col: 1 },
+      { x: 80, y: 42, row: 2, col: 2 },
+      { x: 8, y: 64, row: 3, col: 0 },
+      { x: 35, y: 64, row: 3, col: 1 },
+      { x: 65, y: 64, row: 3, col: 2 },
+      { x: 92, y: 64, row: 3, col: 3 }
+    ];
+
+    const rows = [
+      [0],
+      [1, 2],
+      [3, 4, 5],
+      [6, 7, 8, 9]
+    ];
+
+    const lines = [
+      [0, 1, 3, 6],
+      [0, 2, 5, 9],
+      [1, 2],
+      [3, 4, 5],
+      [6, 7, 8, 9],
+      [1, 4, 8],
+      [2, 4, 7],
+      [3, 7],
+      [5, 8]
+    ];
+
+    const neighbors = Array.from({ length: points.length }, () => new Set());
+    const jumps = new Map();
+
+    lines.forEach((line) => {
+      for (let i = 0; i < line.length - 1; i++) {
+        neighbors[line[i]].add(line[i + 1]);
+        neighbors[line[i + 1]].add(line[i]);
+      }
+      for (let i = 0; i < line.length - 2; i++) {
+        addJump(line[i], line[i + 1], line[i + 2]);
+        addJump(line[i + 2], line[i + 1], line[i]);
+      }
+    });
+
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const sunScore = document.getElementById("sunScore");
+    const moonScore = document.getElementById("moonScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function addJump(from, over, to) {
+      if (!jumps.has(from)) jumps.set(from, []);
+      jumps.get(from).push({ over, to });
+    }
+
+    function startGame() {
+      board = ["moon", "moon", "moon", null, null, null, "sun", "sun", "sun", "sun"];
+      turn = "sun";
+      selected = null;
+      captures = { sun: 0, moon: 0 };
+      winner = null;
+      render();
+    }
+
+    function drawLines() {
+      linesEl.innerHTML = "";
+      const pairs = new Set();
+      lines.forEach((line) => {
+        for (let i = 0; i < line.length - 1; i++) {
+          pairs.add([line[i], line[i + 1]].sort((a, b) => a - b).join("-"));
+        }
+      });
+      pairs.forEach((pair) => {
+        const [from, to] = pair.split("-").map(Number);
+        const a = points[from];
+        const b = points[to];
+        const segment = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        segment.setAttribute("x1", a.x);
+        segment.setAttribute("y1", a.y);
+        segment.setAttribute("x2", b.x);
+        segment.setAttribute("y2", b.y);
+        segment.setAttribute("stroke", "#404040");
+        segment.setAttribute("stroke-width", "1.6");
+        segment.setAttribute("stroke-linecap", "round");
+        linesEl.appendChild(segment);
+      });
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const piece = board[index];
+        const target = selected !== null && isLegalMove(selected, index);
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.setAttribute("aria-label", `point ${index + 1}`);
+        cell.className = [
+          "absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition sm:h-12 sm:w-12",
+          piece === "sun" ? "border-yellow-100 bg-yellow-300 text-neutral-950 shadow-lg shadow-yellow-950/50" : "",
+          piece === "moon" ? "border-indigo-100 bg-indigo-500 text-white shadow-lg shadow-indigo-950/60" : "",
+          !piece ? "border-neutral-600 bg-neutral-800 text-neutral-500" : "",
+          selected === index ? "ring-4 ring-white" : "",
+          target ? "border-emerald-100 bg-emerald-400 text-neutral-950" : ""
+        ].join(" ");
+        cell.style.left = `${point.x}%`;
+        cell.style.top = `${point.y}%`;
+        cell.textContent = piece ? (piece === "sun" ? "日" : "月") : "";
+        cell.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(cell);
+      });
+
+      sunScore.textContent = captures.sun;
+      moonScore.textContent = captures.moon;
+      turnText.textContent = winner
+        ? `${winner === "sun" ? "日方" : "月方"}获胜。`
+        : `${turn === "sun" ? "日方" : "月方"}行动：选择棋子后移动到高亮空点。`;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (selected === null || !isLegalMove(selected, index)) return;
+      movePiece(selected, index);
+      selected = null;
+      updateWinner();
+      if (!winner) turn = turn === "sun" ? "moon" : "sun";
+      render();
+    }
+
+    function isLegalMove(from, to) {
+      if (board[from] !== turn || board[to]) return false;
+      if (neighbors[from].has(to)) return true;
+      return getCapture(from, to) !== null;
+    }
+
+    function getCapture(from, to) {
+      const capture = (jumps.get(from) || []).find((item) => item.to === to);
+      if (!capture) return null;
+      const rival = turn === "sun" ? "moon" : "sun";
+      return board[capture.over] === rival ? capture : null;
+    }
+
+    function movePiece(from, to) {
+      const capture = getCapture(from, to);
+      board[to] = board[from];
+      board[from] = null;
+      if (capture) {
+        board[capture.over] = null;
+        captures[turn] += 1;
+      }
+    }
+
+    function updateWinner() {
+      const rival = turn === "sun" ? "moon" : "sun";
+      if (captures[turn] >= 4 || !hasMove(rival)) {
+        winner = turn;
+      }
+    }
+
+    function hasMove(player) {
+      const saved = turn;
+      turn = player;
+      const movable = board.some((piece, from) => piece === player && points.some((_, to) => isLegalMove(from, to)));
+      turn = saved;
+      return movable;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    drawLines();
+    startGame();
+  </script>
+</body>
+</html>
