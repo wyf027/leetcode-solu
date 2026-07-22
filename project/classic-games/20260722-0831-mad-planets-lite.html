@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Mad Planets Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-cyan-300">Classic Games</p>
+        <h1 class="text-2xl font-bold tracking-wide text-white">Mini Mad Planets</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-mono text-lg text-cyan-200">0</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Wave</div>
+          <div id="wave" class="font-mono text-lg text-cyan-200">1</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Shields</div>
+          <div id="shields" class="font-mono text-lg text-cyan-200">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <canvas id="game" width="720" height="720" class="h-auto w-full rounded bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+        <h2 class="mb-2 text-base font-semibold text-white">Controls</h2>
+        <p><span class="font-mono text-cyan-200">Left / Right</span> rotate cannon.</p>
+        <p><span class="font-mono text-cyan-200">Space</span> fires.</p>
+        <p><span class="font-mono text-cyan-200">Mouse / Touch</span> aim and fire.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-cyan-500 px-3 py-2 font-semibold text-slate-950 hover:bg-cyan-400">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-slate-700 bg-slate-950 p-3 text-cyan-100">Rotate, fire, and keep the mad planets away from the core.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const waveEl = document.getElementById("wave");
+    const shieldsEl = document.getElementById("shields");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const center = { x: canvas.width / 2, y: canvas.height / 2 };
+    const keys = new Set();
+    const bullets = [];
+    const planets = [];
+    const sparks = [];
+    const stars = [];
+    let angle = -Math.PI / 2;
+    let score = 0;
+    let wave = 1;
+    let shields = 3;
+    let cooldown = 0;
+    let spawnTimer = 0;
+    let waveQuota = 0;
+    let gameOver = false;
+    let lastTime = 0;
+
+    for (let i = 0; i < 120; i += 1) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.8 + 0.4,
+        a: Math.random() * 0.7 + 0.2
+      });
+    }
+
+    function reset() {
+      bullets.length = 0;
+      planets.length = 0;
+      sparks.length = 0;
+      score = 0;
+      wave = 1;
+      shields = 3;
+      angle = -Math.PI / 2;
+      cooldown = 0;
+      spawnTimer = 0;
+      gameOver = false;
+      startWave();
+      updateHud();
+      messageEl.textContent = "Rotate, fire, and keep the mad planets away from the core.";
+    }
+
+    function startWave() {
+      waveQuota = 5 + wave * 2;
+      spawnTimer = 0.35;
+      messageEl.textContent = `Wave ${wave}: clear ${waveQuota} incoming planets.`;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      waveEl.textContent = wave;
+      shieldsEl.textContent = shields;
+    }
+
+    function rand(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function spawnPlanet() {
+      const side = Math.floor(Math.random() * 4);
+      let x = 0;
+      let y = 0;
+      if (side === 0) {
+        x = rand(40, canvas.width - 40);
+        y = -40;
+      } else if (side === 1) {
+        x = canvas.width + 40;
+        y = rand(40, canvas.height - 40);
+      } else if (side === 2) {
+        x = rand(40, canvas.width - 40);
+        y = canvas.height + 40;
+      } else {
+        x = -40;
+        y = rand(40, canvas.height - 40);
+      }
+
+      const baseAngle = Math.atan2(y - center.y, x - center.x);
+      planets.push({
+        x,
+        y,
+        radius: rand(16, 28),
+        orbit: baseAngle,
+        spin: rand(-2.6, 2.6),
+        speed: rand(30, 48) + wave * 4,
+        wobble: rand(0, Math.PI * 2),
+        hue: Math.floor(rand(190, 330)),
+        hp: wave > 4 && Math.random() > 0.55 ? 2 : 1
+      });
+    }
+
+    function fire() {
+      if (cooldown > 0 || gameOver) return;
+      const muzzle = 42;
+      bullets.push({
+        x: center.x + Math.cos(angle) * muzzle,
+        y: center.y + Math.sin(angle) * muzzle,
+        vx: Math.cos(angle) * 520,
+        vy: Math.sin(angle) * 520,
+        life: 0.85
+      });
+      cooldown = Math.max(0.12, 0.24 - wave * 0.01);
+    }
+
+    function burst(x, y, color, count = 12) {
+      for (let i = 0; i < count; i += 1) {
+        const a = rand(0, Math.PI * 2);
+        const s = rand(60, 240);
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(a) * s,
+          vy: Math.sin(a) * s,
+          life: rand(0.25, 0.65),
+          max: 0.65,
+          color
+        });
+      }
+    }
+
+    function aimAt(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (clientX - rect.left) * scaleX;
+      const y = (clientY - rect.top) * scaleY;
+      angle = Math.atan2(y - center.y, x - center.x);
+    }
+
+    function update(dt) {
+      if (gameOver) return;
+
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) angle -= 3.7 * dt;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) angle += 3.7 * dt;
+      if (keys.has("Space")) fire();
+
+      cooldown = Math.max(0, cooldown - dt);
+      spawnTimer -= dt;
+      if (waveQuota > 0 && spawnTimer <= 0) {
+        spawnPlanet();
+        waveQuota -= 1;
+        spawnTimer = Math.max(0.26, 0.78 - wave * 0.04);
+      }
+
+      for (let i = bullets.length - 1; i >= 0; i -= 1) {
+        const b = bullets[i];
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.life -= dt;
+        if (b.life <= 0 || b.x < -20 || b.x > canvas.width + 20 || b.y < -20 || b.y > canvas.height + 20) {
+          bullets.splice(i, 1);
+        }
+      }
+
+      for (let i = planets.length - 1; i >= 0; i -= 1) {
+        const p = planets[i];
+        const dx = center.x - p.x;
+        const dy = center.y - p.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const pullX = dx / dist;
+        const pullY = dy / dist;
+        const tangentX = -pullY;
+        const tangentY = pullX;
+        p.wobble += dt * 4;
+        p.x += (pullX * p.speed + tangentX * p.spin * 16 + Math.cos(p.wobble) * 12) * dt;
+        p.y += (pullY * p.speed + tangentY * p.spin * 16 + Math.sin(p.wobble) * 12) * dt;
+        p.orbit += p.spin * dt;
+
+        if (dist < p.radius + 30) {
+          planets.splice(i, 1);
+          shields -= 1;
+          burst(p.x, p.y, "#f97316", 22);
+          updateHud();
+          if (shields <= 0) {
+            gameOver = true;
+            messageEl.textContent = "Core breached. Press Restart to try again.";
+          } else {
+            messageEl.textContent = "Impact on the core. Keep firing.";
+          }
+          continue;
+        }
+
+        for (let j = bullets.length - 1; j >= 0; j -= 1) {
+          const b = bullets[j];
+          if (Math.hypot(b.x - p.x, b.y - p.y) < p.radius + 5) {
+            bullets.splice(j, 1);
+            p.hp -= 1;
+            burst(b.x, b.y, "#67e8f9", 8);
+            if (p.hp <= 0) {
+              score += 80 + wave * 20;
+              burst(p.x, p.y, `hsl(${p.hue}, 90%, 60%)`, 18);
+              planets.splice(i, 1);
+              updateHud();
+            }
+            break;
+          }
+        }
+      }
+
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const s = sparks[i];
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.vx *= 0.97;
+        s.vy *= 0.97;
+        s.life -= dt;
+        if (s.life <= 0) sparks.splice(i, 1);
+      }
+
+      if (waveQuota <= 0 && planets.length === 0) {
+        score += 400 + wave * 100;
+        wave += 1;
+        updateHud();
+        startWave();
+      }
+    }
+
+    function drawStars() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const star of stars) {
+        ctx.globalAlpha = star.a;
+        ctx.fillStyle = "#dff7ff";
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawCore() {
+      const pulse = 1 + Math.sin(performance.now() / 180) * 0.06;
+      ctx.save();
+      ctx.translate(center.x, center.y);
+      ctx.strokeStyle = "#0891b2";
+      ctx.lineWidth = 2;
+      for (let r = 62; r <= 170; r += 36) {
+        ctx.globalAlpha = 0.14;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#0f172a";
+      ctx.strokeStyle = "#67e8f9";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 28 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.rotate(angle);
+      ctx.fillStyle = "#e0f2fe";
+      ctx.fillRect(0, -8, 48, 16);
+      ctx.fillStyle = "#22d3ee";
+      ctx.beginPath();
+      ctx.moveTo(54, 0);
+      ctx.lineTo(35, -14);
+      ctx.lineTo(35, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawPlanets() {
+      for (const p of planets) {
+        const grd = ctx.createRadialGradient(p.x - p.radius * 0.35, p.y - p.radius * 0.35, 3, p.x, p.y, p.radius);
+        grd.addColorStop(0, `hsl(${p.hue}, 95%, 75%)`);
+        grd.addColorStop(1, `hsl(${p.hue}, 70%, 30%)`);
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = p.hp > 1 ? "#fde68a" : "#0f172a";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(255,255,255,0.32)";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * 0.65, p.orbit, p.orbit + Math.PI * 1.2);
+        ctx.stroke();
+      }
+    }
+
+    function drawBullets() {
+      ctx.fillStyle = "#a5f3fc";
+      for (const b of bullets) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawSparks() {
+      for (const s of sparks) {
+        ctx.globalAlpha = Math.max(0, s.life / s.max);
+        ctx.fillStyle = s.color;
+        ctx.fillRect(s.x - 2, s.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawStars();
+      drawCore();
+      drawPlanets();
+      drawBullets();
+      drawSparks();
+      if (gameOver) {
+        ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 44px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER", center.x, center.y - 14);
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillStyle = "#67e8f9";
+        ctx.fillText("Press Restart to launch again", center.x, center.y + 26);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "Space", "KeyA", "KeyD"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      aimAt(event.clientX, event.clientY);
+    });
+
+    canvas.addEventListener("pointerdown", (event) => {
+      aimAt(event.clientX, event.clientY);
+      fire();
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
