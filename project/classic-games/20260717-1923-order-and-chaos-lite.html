@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Order and Chaos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 md:px-6">
+    <header class="flex flex-col gap-3 border-b border-emerald-800 pb-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.22em] text-amber-300">Classic Games</p>
+        <h1 class="mt-1 text-3xl font-bold text-white">Mini Order and Chaos</h1>
+      </div>
+      <button id="resetBtn" class="w-fit rounded bg-amber-300 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-amber-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div class="rounded border border-emerald-800 bg-emerald-900 p-3 shadow-2xl">
+        <div id="board" class="grid aspect-square w-full grid-cols-6 gap-2 rounded bg-emerald-800 p-2"></div>
+      </div>
+
+      <aside class="space-y-4">
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4">
+          <h2 class="text-lg font-semibold text-white">控制台</h2>
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <button id="xBtn" class="rounded bg-cyan-300 px-4 py-3 font-bold text-emerald-950">下 X</button>
+            <button id="oBtn" class="rounded bg-emerald-800 px-4 py-3 font-bold text-emerald-100">下 O</button>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded bg-emerald-800 p-3">
+              <p class="text-emerald-300">Order</p>
+              <p class="mt-1 text-xl font-bold text-cyan-300">你</p>
+            </div>
+            <div class="rounded bg-emerald-800 p-3">
+              <p class="text-emerald-300">Chaos</p>
+              <p class="mt-1 text-xl font-bold text-amber-300">电脑</p>
+            </div>
+          </div>
+          <p id="status" class="mt-4 min-h-12 rounded bg-emerald-800 p-3 text-sm leading-6 text-emerald-100"></p>
+        </div>
+
+        <div class="rounded border border-emerald-800 bg-emerald-900 p-4 text-sm leading-6 text-emerald-200">
+          <h2 class="text-lg font-semibold text-white">规则</h2>
+          <p class="mt-3">Order 试图让任意 5 个相同符号连成一线；Chaos 试图填满棋盘并阻止五连。</p>
+          <p class="mt-2">每回合可以选择落 X 或 O。你扮演 Order，电脑扮演 Chaos。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const size = 6;
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const resetBtn = document.getElementById("resetBtn");
+    const xBtn = document.getElementById("xBtn");
+    const oBtn = document.getElementById("oBtn");
+    let board;
+    let currentMark;
+    let gameOver;
+
+    function startGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      currentMark = "X";
+      gameOver = false;
+      setStatus("你是 Order。选择 X 或 O，然后点击空格，争取五连。");
+      render();
+    }
+
+    function setMark(mark) {
+      if (gameOver) return;
+      currentMark = mark;
+      setStatus(`当前选择 ${mark}。点击空格落子。`);
+      render();
+    }
+
+    function playCell(r, c) {
+      if (gameOver || board[r][c]) return;
+      board[r][c] = currentMark;
+      if (checkWin()) {
+        finish("Order 连成五枚，你获胜。");
+        return;
+      }
+      if (isFull()) {
+        finish("棋盘已满且没有五连，Chaos 获胜。");
+        return;
+      }
+      window.setTimeout(cpuMove, 320);
+      setStatus("Chaos 正在阻断五连...");
+      render();
+    }
+
+    function cpuMove() {
+      if (gameOver) return;
+      const empty = emptyCells();
+      const blocks = findThreats(empty);
+      const pool = blocks.length ? blocks : empty;
+      const choice = pool[Math.floor(Math.random() * pool.length)];
+      const saferMark = bestChaosMark(choice.r, choice.c);
+      board[choice.r][choice.c] = saferMark;
+      if (checkWin()) {
+        finish("Chaos 失手造出五连，Order 获胜。");
+        return;
+      }
+      if (isFull()) {
+        finish("棋盘已满且没有五连，Chaos 获胜。");
+        return;
+      }
+      setStatus("轮到你。选择 X 或 O 继续寻找五连。");
+      render();
+    }
+
+    function emptyCells() {
+      const cells = [];
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          if (!board[r][c]) cells.push({ r, c });
+        }
+      }
+      return cells;
+    }
+
+    function findThreats(empty) {
+      return empty.filter(cell => {
+        for (const mark of ["X", "O"]) {
+          board[cell.r][cell.c] = mark;
+          const wins = checkWin();
+          board[cell.r][cell.c] = "";
+          if (wins) return true;
+        }
+        return false;
+      });
+    }
+
+    function bestChaosMark(r, c) {
+      for (const mark of ["X", "O"]) {
+        board[r][c] = mark;
+        const bad = checkWin();
+        board[r][c] = "";
+        if (!bad) return mark;
+      }
+      return Math.random() > 0.5 ? "X" : "O";
+    }
+
+    function checkWin() {
+      const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]];
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const mark = board[r][c];
+          if (!mark) continue;
+          for (const [dr, dc] of dirs) {
+            let count = 1;
+            for (let i = 1; i < 5; i++) {
+              const nr = r + dr * i;
+              const nc = c + dc * i;
+              if (nr < 0 || nc < 0 || nr >= size || nc >= size || board[nr][nc] !== mark) break;
+              count++;
+            }
+            if (count >= 5) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function isFull() {
+      return board.every(row => row.every(Boolean));
+    }
+
+    function finish(message) {
+      gameOver = true;
+      setStatus(message);
+      render();
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      xBtn.className = currentMark === "X"
+        ? "rounded bg-cyan-300 px-4 py-3 font-bold text-emerald-950"
+        : "rounded bg-emerald-800 px-4 py-3 font-bold text-emerald-100";
+      oBtn.className = currentMark === "O"
+        ? "rounded bg-amber-300 px-4 py-3 font-bold text-emerald-950"
+        : "rounded bg-emerald-800 px-4 py-3 font-bold text-emerald-100";
+
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const mark = board[r][c];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = [
+            "aspect-square rounded border text-2xl font-black transition",
+            mark === "X" ? "border-cyan-200 bg-cyan-300 text-emerald-950" : "",
+            mark === "O" ? "border-amber-200 bg-amber-300 text-emerald-950" : "",
+            !mark ? "border-emerald-700 bg-emerald-800 hover:bg-emerald-700" : "",
+            gameOver ? "cursor-default" : ""
+          ].join(" ");
+          cell.textContent = mark;
+          cell.addEventListener("click", () => playCell(r, c));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    xBtn.addEventListener("click", () => setMark("X"));
+    oBtn.addEventListener("click", () => setMark("O"));
+    resetBtn.addEventListener("click", startGame);
+    startGame();
+  </script>
+</body>
+</html>
