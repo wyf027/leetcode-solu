@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Solomon's Key</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-emerald-200">Mini Solomon's Key</h1>
+        <p class="text-sm text-stone-400">Shape magic blocks, grab the key, and reach the door before the flames find you.</p>
+      </div>
+      <button id="startBtn" class="rounded-md bg-emerald-300 px-4 py-2 text-sm font-bold text-stone-950 shadow-lg shadow-emerald-300/20 transition hover:bg-emerald-200">
+        Start
+      </button>
+    </section>
+
+    <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="rounded-md border border-stone-800 bg-stone-900 p-3">
+        <p class="text-xs uppercase text-stone-500">Score</p>
+        <p id="score" class="text-xl font-bold text-white">0</p>
+      </div>
+      <div class="rounded-md border border-stone-800 bg-stone-900 p-3">
+        <p class="text-xs uppercase text-stone-500">Key</p>
+        <p id="keyState" class="text-xl font-bold text-white">No</p>
+      </div>
+      <div class="rounded-md border border-stone-800 bg-stone-900 p-3">
+        <p class="text-xs uppercase text-stone-500">Lives</p>
+        <p id="lives" class="text-xl font-bold text-white">3</p>
+      </div>
+      <div class="rounded-md border border-stone-800 bg-stone-900 p-3">
+        <p class="text-xs uppercase text-stone-500">Controls</p>
+        <p class="text-sm font-semibold text-white">Arrows/A-D, Space, X</p>
+      </div>
+    </section>
+
+    <section class="rounded-md border border-stone-800 bg-stone-900 p-3">
+      <canvas id="game" width="900" height="560" class="h-auto w-full rounded bg-stone-950"></canvas>
+    </section>
+    <p id="message" class="min-h-6 text-center text-sm font-semibold text-emerald-200">Press Start to open the chamber.</p>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("startBtn");
+    const scoreEl = document.getElementById("score");
+    const keyStateEl = document.getElementById("keyState");
+    const livesEl = document.getElementById("lives");
+    const messageEl = document.getElementById("message");
+
+    const tile = 40;
+    const cols = 20;
+    const rows = 12;
+    const offsetX = 50;
+    const offsetY = 38;
+    const keys = new Set();
+    const baseMap = [
+      "####################",
+      "#..............D...#",
+      "#..####............#",
+      "#...........###....#",
+      "#.....##...........#",
+      "#........K.....##..#",
+      "#..###.............#",
+      "#..........####....#",
+      "#....###...........#",
+      "#..............#...#",
+      "#P.................#",
+      "####################"
+    ];
+    let map;
+    let player;
+    let flames;
+    let score;
+    let lives;
+    let hasKey;
+    let running = false;
+    let won = false;
+    let lastTime = 0;
+    let jumpLock = false;
+    let castLock = false;
+
+    function resetPlayer() {
+      player = { x: 1.5 * tile, y: 9.75 * tile, w: 24, h: 32, vx: 0, vy: 0, dir: 1, grounded: false, invincible: 1.2 };
+    }
+
+    function reset() {
+      map = baseMap.map((row) => row.split(""));
+      resetPlayer();
+      flames = [
+        { x: 15.5 * tile, y: 9.5 * tile, vx: -85, min: 12, max: 18 },
+        { x: 5.5 * tile, y: 5.5 * tile, vx: 70, min: 3, max: 9 },
+        { x: 13.5 * tile, y: 3.5 * tile, vx: -75, min: 10, max: 17 }
+      ];
+      score = 0;
+      lives = 3;
+      hasKey = false;
+      running = true;
+      won = false;
+      jumpLock = false;
+      castLock = false;
+      messageEl.textContent = "Use X to create or remove a magic block in front of you.";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      keyStateEl.textContent = hasKey ? "Yes" : "No";
+      livesEl.textContent = lives;
+    }
+
+    function solidAt(col, row) {
+      if (col < 0 || col >= cols || row < 0 || row >= rows) return true;
+      return map[row][col] === "#" || map[row][col] === "B";
+    }
+
+    function tileAtPixel(x, y) {
+      return {
+        col: Math.floor(x / tile),
+        row: Math.floor(y / tile)
+      };
+    }
+
+    function canMoveTo(x, y) {
+      const left = x - player.w / 2;
+      const right = x + player.w / 2;
+      const top = y - player.h / 2;
+      const bottom = y + player.h / 2;
+      const a = tileAtPixel(left, top);
+      const b = tileAtPixel(right, top);
+      const c = tileAtPixel(left, bottom);
+      const d = tileAtPixel(right, bottom);
+      return !solidAt(a.col, a.row) && !solidAt(b.col, b.row) && !solidAt(c.col, c.row) && !solidAt(d.col, d.row);
+    }
+
+    function castBlock() {
+      const feet = tileAtPixel(player.x, player.y + player.h / 2 - 4);
+      const targetCol = feet.col + player.dir;
+      const targetRow = feet.row;
+      if (targetCol <= 0 || targetCol >= cols - 1 || targetRow <= 0 || targetRow >= rows - 1) return;
+      const target = map[targetRow][targetCol];
+      if (target === ".") {
+        map[targetRow][targetCol] = "B";
+        score += 15;
+        messageEl.textContent = "Magic block formed.";
+      } else if (target === "B") {
+        map[targetRow][targetCol] = ".";
+        score += 5;
+        messageEl.textContent = "Magic block removed.";
+      }
+    }
+
+    function collectAndExit() {
+      const center = tileAtPixel(player.x, player.y);
+      if (map[center.row] && map[center.row][center.col] === "K") {
+        map[center.row][center.col] = ".";
+        hasKey = true;
+        score += 300;
+        messageEl.textContent = "Key claimed. Reach the door.";
+      }
+      if (map[center.row] && map[center.row][center.col] === "D") {
+        if (hasKey) {
+          running = false;
+          won = true;
+          score += lives * 500;
+          messageEl.textContent = "Door opened. Chamber clear.";
+        } else {
+          messageEl.textContent = "The door needs the key.";
+        }
+      }
+    }
+
+    function loseLife() {
+      if (player.invincible > 0) return;
+      lives -= 1;
+      messageEl.textContent = lives > 0 ? "Flame hit. Try another route." : "Game over. Press Start to retry.";
+      if (lives <= 0) {
+        running = false;
+        return;
+      }
+      resetPlayer();
+    }
+
+    function updatePlayer(dt) {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const jump = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
+      const cast = keys.has("x") || keys.has("X");
+
+      player.vx = 0;
+      if (left) {
+        player.vx = -190;
+        player.dir = -1;
+      }
+      if (right) {
+        player.vx = 190;
+        player.dir = 1;
+      }
+      if (jump && !jumpLock && player.grounded) {
+        player.vy = -465;
+        player.grounded = false;
+        jumpLock = true;
+      }
+      if (!jump) jumpLock = false;
+      if (cast && !castLock) {
+        castBlock();
+        castLock = true;
+      }
+      if (!cast) castLock = false;
+
+      let nextX = player.x + player.vx * dt;
+      if (canMoveTo(nextX, player.y)) player.x = nextX;
+      player.vy += 980 * dt;
+      let nextY = player.y + player.vy * dt;
+      if (canMoveTo(player.x, nextY)) {
+        player.y = nextY;
+        player.grounded = false;
+      } else {
+        if (player.vy > 0) player.grounded = true;
+        player.vy = 0;
+      }
+      player.invincible = Math.max(0, player.invincible - dt);
+      collectAndExit();
+    }
+
+    function updateFlames(dt) {
+      flames.forEach((flame) => {
+        flame.x += flame.vx * dt;
+        const col = Math.round(flame.x / tile);
+        if (col < flame.min || col > flame.max || solidAt(tileAtPixel(flame.x, flame.y).col, tileAtPixel(flame.x, flame.y + 20).row)) {
+          flame.vx *= -1;
+          flame.x = Math.max(flame.min * tile, Math.min(flame.max * tile, flame.x));
+        }
+        const flameBox = { x: offsetX + flame.x - 16, y: offsetY + flame.y - 16, w: 32, h: 32 };
+        const playerBox = { x: player.x + offsetX - player.w / 2, y: player.y + offsetY - player.h / 2, w: player.w, h: player.h };
+        if (playerBox.x < flameBox.x + flameBox.w && playerBox.x + playerBox.w > flameBox.x && playerBox.y < flameBox.y + flameBox.h && playerBox.y + playerBox.h > flameBox.y) {
+          loseLife();
+        }
+      });
+    }
+
+    function update(dt) {
+      if (!running) return;
+      updatePlayer(dt);
+      updateFlames(dt);
+      updateHud();
+    }
+
+    function drawTile(ch, col, row) {
+      const x = offsetX + col * tile;
+      const y = offsetY + row * tile;
+      if (ch === "#") {
+        ctx.fillStyle = "#44403c";
+        ctx.fillRect(x, y, tile, tile);
+        ctx.fillStyle = "#57534e";
+        ctx.fillRect(x + 4, y + 4, tile - 8, 8);
+      } else if (ch === "B") {
+        ctx.fillStyle = "#10b981";
+        ctx.fillRect(x + 3, y + 3, tile - 6, tile - 6);
+        ctx.strokeStyle = "#a7f3d0";
+        ctx.strokeRect(x + 8, y + 8, tile - 16, tile - 16);
+      } else if (ch === "K") {
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(x + 18, y + 21, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(x + 24, y + 18, 12, 6);
+        ctx.fillRect(x + 32, y + 23, 4, 6);
+      } else if (ch === "D") {
+        ctx.fillStyle = hasKey ? "#34d399" : "#7c2d12";
+        ctx.fillRect(x + 7, y + 4, tile - 14, tile - 4);
+        ctx.fillStyle = "#fde68a";
+        ctx.fillRect(x + 27, y + 21, 5, 5);
+      }
+    }
+
+    function drawMap() {
+      ctx.fillStyle = "#1c1917";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#292524";
+      for (let i = 0; i < 36; i += 1) {
+        ctx.fillRect((i * 73) % canvas.width, 18 + ((i * 47) % 470), 3, 3);
+      }
+      map.forEach((row, y) => row.forEach((ch, x) => drawTile(ch, x, y)));
+    }
+
+    function drawPlayer() {
+      const x = offsetX + player.x;
+      const y = offsetY + player.y;
+      ctx.save();
+      ctx.globalAlpha = player.invincible > 0 && Math.floor(player.invincible * 12) % 2 === 0 ? 0.45 : 1;
+      ctx.translate(x, y);
+      ctx.scale(player.dir, 1);
+      ctx.fillStyle = "#e7e5e4";
+      ctx.fillRect(-12, -16, 24, 30);
+      ctx.fillStyle = "#60a5fa";
+      ctx.fillRect(-9, -22, 18, 8);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(3, -8, 4, 5);
+      ctx.restore();
+    }
+
+    function drawFlames() {
+      flames.forEach((flame) => {
+        const x = offsetX + flame.x;
+        const y = offsetY + flame.y;
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#f97316";
+        ctx.beginPath();
+        ctx.arc(x + 2, y - 2, 8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawOverlay() {
+      if (running) return;
+      ctx.fillStyle = "rgba(28, 25, 23, 0.75)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = won ? "#a7f3d0" : "#e7e5e4";
+      ctx.font = "bold 34px system-ui, sans-serif";
+      ctx.fillText(won ? "Door Opened" : "Mini Solomon's Key", canvas.width / 2, 250);
+      ctx.font = "18px system-ui, sans-serif";
+      ctx.fillStyle = "#d6d3d1";
+      ctx.fillText(won ? "Press Start for another chamber." : "Press Start to begin.", canvas.width / 2, 284);
+    }
+
+    function draw() {
+      drawMap();
+      drawFlames();
+      drawPlayer();
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", reset);
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    reset();
+    running = false;
+    draw();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
