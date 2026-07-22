@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Neutron</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-indigo-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col gap-5 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-indigo-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-teal-300">Classic Game</p>
+        <h1 class="text-3xl font-bold">Mini Neutron</h1>
+      </div>
+      <button id="resetBtn" class="rounded bg-teal-300 px-4 py-2 text-sm font-semibold text-indigo-950 hover:bg-teal-200">
+        重新开始
+      </button>
+    </header>
+
+    <section class="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+        <div id="board" class="grid aspect-square w-full grid-cols-5 gap-2"></div>
+      </div>
+
+      <aside class="flex flex-col gap-4">
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-indigo-300">当前玩家</span>
+            <span id="turnBadge" class="rounded px-3 py-1 text-sm font-bold"></span>
+          </div>
+          <p id="statusText" class="min-h-20 text-sm leading-6 text-indigo-100"></p>
+        </div>
+
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4">
+          <p class="text-xs text-indigo-300">本回合阶段</p>
+          <p id="phaseText" class="mt-1 text-2xl font-bold text-teal-300">中子</p>
+        </div>
+
+        <div class="rounded border border-indigo-800 bg-indigo-900 p-4 text-sm leading-6 text-indigo-100">
+          <p>每回合先推动中子，再推动己方一枚棋子。棋子会沿直线滑到尽头或被阻挡前一格。</p>
+          <p class="mt-2">把中子带到自己的底线即获胜；无法移动中子则对手获胜。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const turnBadge = document.getElementById("turnBadge");
+    const statusText = document.getElementById("statusText");
+    const phaseText = document.getElementById("phaseText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const size = 5;
+    const players = {
+      A: { label: "北方", badge: "bg-cyan-300 text-indigo-950", piece: "bg-cyan-300", home: 4 },
+      B: { label: "南方", badge: "bg-rose-300 text-indigo-950", piece: "bg-rose-300", home: 0 }
+    };
+    const dirs = [
+      [-1, 0], [1, 0], [0, -1], [0, 1],
+      [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+
+    let board;
+    let current;
+    let phase;
+    let selected;
+    let winner;
+
+    function resetGame() {
+      board = Array.from({ length: size }, () => Array(size).fill(""));
+      for (let col = 0; col < size; col += 1) {
+        board[0][col] = "A";
+        board[4][col] = "B";
+      }
+      board[2][2] = "N";
+      current = "A";
+      phase = "neutron";
+      selected = null;
+      winner = "";
+      render();
+    }
+
+    function opponent(player) {
+      return player === "A" ? "B" : "A";
+    }
+
+    function inBounds(row, col) {
+      return row >= 0 && row < size && col >= 0 && col < size;
+    }
+
+    function findPiece(piece) {
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          if (board[row][col] === piece) return { row, col };
+        }
+      }
+      return null;
+    }
+
+    function slideTarget(row, col, dRow, dCol) {
+      let nextRow = row + dRow;
+      let nextCol = col + dCol;
+      if (!inBounds(nextRow, nextCol) || board[nextRow][nextCol]) return null;
+      while (inBounds(nextRow + dRow, nextCol + dCol) && !board[nextRow + dRow][nextCol + dCol]) {
+        nextRow += dRow;
+        nextCol += dCol;
+      }
+      return { row: nextRow, col: nextCol };
+    }
+
+    function legalMoves(row, col) {
+      return dirs.map(([dRow, dCol]) => slideTarget(row, col, dRow, dCol)).filter(Boolean);
+    }
+
+    function neutronMoves() {
+      const neutron = findPiece("N");
+      return neutron ? legalMoves(neutron.row, neutron.col) : [];
+    }
+
+    function checkWinner() {
+      const neutron = findPiece("N");
+      if (!neutron) return;
+      if (neutron.row === players.A.home) winner = "A";
+      if (neutron.row === players.B.home) winner = "B";
+      if (!winner && phase === "neutron" && neutronMoves().length === 0) {
+        winner = opponent(current);
+      }
+    }
+
+    function moveSelected(toRow, toCol) {
+      const piece = board[selected.row][selected.col];
+      board[toRow][toCol] = piece;
+      board[selected.row][selected.col] = "";
+      selected = null;
+      if (piece === "N") {
+        phase = "piece";
+      } else {
+        current = opponent(current);
+        phase = "neutron";
+      }
+      checkWinner();
+      render();
+    }
+
+    function selectablePiece(row, col) {
+      if (phase === "neutron") return board[row][col] === "N";
+      return board[row][col] === current;
+    }
+
+    function handleCell(row, col) {
+      if (winner) return;
+      if (selected) {
+        if (selected.row === row && selected.col === col) {
+          selected = null;
+          render();
+          return;
+        }
+        const target = legalMoves(selected.row, selected.col).find((move) => move.row === row && move.col === col);
+        if (target) moveSelected(row, col);
+        return;
+      }
+      if (selectablePiece(row, col) && legalMoves(row, col).length > 0) {
+        selected = { row, col };
+        render();
+      }
+    }
+
+    function targetCells() {
+      return selected ? legalMoves(selected.row, selected.col) : [];
+    }
+
+    function statusMessage() {
+      if (winner) return `${players[winner].label}把中子带到底线，获得胜利。`;
+      if (selected) return "点击高亮空格，棋子会滑到该位置。";
+      if (phase === "neutron") return `${players[current].label}先移动中子。`;
+      return `${players[current].label}再移动一枚己方棋子。`;
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      checkWinner();
+      const targets = targetCells();
+      turnBadge.textContent = winner ? players[winner].label : players[current].label;
+      turnBadge.className = `rounded px-3 py-1 text-sm font-bold ${players[winner || current].badge}`;
+      statusText.textContent = statusMessage();
+      phaseText.textContent = phase === "neutron" ? "中子" : "己方棋";
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const piece = board[row][col];
+          const active = selected && selected.row === row && selected.col === col;
+          const target = targets.some((move) => move.row === row && move.col === col);
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.setAttribute("aria-label", `row ${row + 1} column ${col + 1}`);
+          cell.className = [
+            "flex aspect-square items-center justify-center rounded border transition",
+            row === 0 || row === 4 ? "border-indigo-600 bg-indigo-800" : "border-indigo-700 bg-indigo-900",
+            active ? "border-teal-200 bg-teal-300/20" : "",
+            target ? "border-yellow-200 bg-yellow-300/20" : "",
+            !winner ? "hover:border-teal-200" : "opacity-80"
+          ].join(" ");
+          cell.addEventListener("click", () => handleCell(row, col));
+
+          if (piece) {
+            const marker = document.createElement("span");
+            marker.className = piece === "N"
+              ? "block h-3/5 w-3/5 rounded-full bg-white shadow"
+              : `block h-3/5 w-3/5 rounded shadow ${players[piece].piece}`;
+            cell.appendChild(marker);
+          } else {
+            const dot = document.createElement("span");
+            dot.className = "block h-2 w-2 rounded-full bg-indigo-600";
+            cell.appendChild(dot);
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    resetBtn.addEventListener("click", resetGame);
+    resetGame();
+  </script>
+</body>
+</html>
