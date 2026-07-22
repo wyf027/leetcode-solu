@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Cant Stop</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-5">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-amber-300">Classic dice climber</p>
+        <h1 class="text-3xl font-bold">Mini Cant Stop</h1>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="rollBtn" class="rounded bg-amber-300 px-4 py-2 font-semibold text-slate-950 hover:bg-amber-200">Roll</button>
+        <button id="bankBtn" class="rounded bg-emerald-400 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-300">Stop</button>
+        <button id="newBtn" class="rounded border border-slate-600 px-4 py-2 font-semibold hover:bg-slate-800">New game</button>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div class="rounded border border-slate-800 bg-slate-900/70 p-4">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Tracks</h2>
+            <p id="status" class="text-sm text-slate-300">Roll the dice to start a turn.</p>
+          </div>
+          <div class="text-right text-sm">
+            <p>Claimed tracks</p>
+            <p><span id="claimedCount" class="font-bold text-amber-300">0</span> / 3</p>
+          </div>
+        </div>
+        <div id="tracks" class="grid grid-cols-11 items-end gap-2"></div>
+      </div>
+
+      <aside class="rounded border border-slate-800 bg-slate-900/70 p-4">
+        <div class="mb-4 grid grid-cols-4 gap-2 text-center" id="dice"></div>
+        <div class="mb-4">
+          <h2 class="mb-2 text-lg font-semibold">Move choices</h2>
+          <div id="choices" class="grid gap-2"></div>
+        </div>
+        <div class="rounded bg-slate-950 p-3 text-sm text-slate-300">
+          Pick one pairing after every roll. This turn can climb at most three different tracks. Stop to bank progress; roll with no legal move and the turn busts.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const tracks = {
+      2: 3, 3: 5, 4: 7, 5: 9, 6: 11, 7: 13, 8: 11, 9: 9, 10: 7, 11: 5, 12: 3
+    };
+
+    const state = {
+      permanent: {},
+      turn: {},
+      active: new Set(),
+      claimed: new Set(),
+      dice: [],
+      choices: [],
+      message: "Roll the dice to start a turn.",
+      rolling: true,
+      gameOver: false
+    };
+
+    const trackEl = document.getElementById("tracks");
+    const diceEl = document.getElementById("dice");
+    const choicesEl = document.getElementById("choices");
+    const statusEl = document.getElementById("status");
+    const claimedCountEl = document.getElementById("claimedCount");
+    const rollBtn = document.getElementById("rollBtn");
+    const bankBtn = document.getElementById("bankBtn");
+    const newBtn = document.getElementById("newBtn");
+
+    function setupState() {
+      Object.keys(tracks).forEach((key) => {
+        state.permanent[key] = 0;
+        state.turn[key] = 0;
+      });
+      state.active = new Set();
+      state.claimed = new Set();
+      state.dice = [];
+      state.choices = [];
+      state.message = "Roll the dice to start a turn.";
+      state.rolling = true;
+      state.gameOver = false;
+      render();
+    }
+
+    function rollDice() {
+      if (!state.rolling || state.gameOver) return;
+      state.dice = Array.from({ length: 4 }, () => Math.floor(Math.random() * 6) + 1);
+      state.choices = buildChoices(state.dice).filter((choice) => canApplyChoice(choice));
+      if (state.choices.length === 0) {
+        Object.keys(state.turn).forEach((key) => state.turn[key] = 0);
+        state.active.clear();
+        state.message = "Bust. No legal pairing could climb, so this turn's progress is lost.";
+        state.rolling = true;
+      } else {
+        state.message = "Choose a pairing to climb.";
+        state.rolling = false;
+      }
+      render();
+    }
+
+    function buildChoices(dice) {
+      const pairings = [
+        [[0, 1], [2, 3]],
+        [[0, 2], [1, 3]],
+        [[0, 3], [1, 2]]
+      ];
+      const seen = new Set();
+      return pairings.map((pairs) => pairs.map((pair) => dice[pair[0]] + dice[pair[1]]).sort((a, b) => a - b))
+        .filter((choice) => {
+          const key = choice.join("-");
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    }
+
+    function canApplyChoice(choice) {
+      const nextActive = new Set(state.active);
+      return choice.every((track) => {
+        if (state.claimed.has(track)) return false;
+        nextActive.add(track);
+        const current = state.permanent[track] + state.turn[track];
+        return nextActive.size <= 3 && current < tracks[track];
+      });
+    }
+
+    function applyChoice(index) {
+      const choice = state.choices[index];
+      if (!choice || !canApplyChoice(choice)) return;
+      choice.forEach((track) => {
+        state.active.add(track);
+        state.turn[track] = Math.min(tracks[track] - state.permanent[track], state.turn[track] + 1);
+      });
+      state.choices = [];
+      state.rolling = true;
+      state.message = "Progress made. Roll again or stop to bank it.";
+      render();
+    }
+
+    function bankTurn() {
+      if (state.gameOver) return;
+      let gained = false;
+      Object.keys(state.turn).forEach((key) => {
+        if (state.turn[key] > 0) {
+          gained = true;
+          state.permanent[key] += state.turn[key];
+          state.turn[key] = 0;
+          if (state.permanent[key] >= tracks[key]) {
+            state.claimed.add(Number(key));
+          }
+        }
+      });
+      state.active.clear();
+      state.choices = [];
+      state.rolling = true;
+      state.message = gained ? "Progress banked. Start the next turn." : "Roll first, then stop to bank progress.";
+      if (state.claimed.size >= 3) {
+        state.gameOver = true;
+        state.message = "You claimed three tracks. Victory.";
+      }
+      render();
+    }
+
+    function renderTracks() {
+      trackEl.innerHTML = "";
+      Object.keys(tracks).forEach((key) => {
+        const number = Number(key);
+        const height = tracks[key];
+        const total = state.permanent[key] + state.turn[key];
+        const col = document.createElement("div");
+        col.className = "flex flex-col items-center gap-1";
+        const cells = document.createElement("div");
+        cells.className = "flex h-72 w-full flex-col-reverse gap-1";
+        for (let step = 1; step <= height; step++) {
+          const cell = document.createElement("div");
+          const banked = step <= state.permanent[key];
+          const temp = step > state.permanent[key] && step <= total;
+          cell.className = "h-full min-h-3 rounded border border-slate-700 " +
+            (state.claimed.has(number) ? "bg-amber-300" : temp ? "bg-cyan-300" : banked ? "bg-emerald-400" : "bg-slate-800");
+          cells.appendChild(cell);
+        }
+        const label = document.createElement("div");
+        label.className = "w-full rounded bg-slate-950 py-1 text-center text-sm font-bold";
+        label.textContent = key;
+        col.append(cells, label);
+        trackEl.appendChild(col);
+      });
+    }
+
+    function renderDice() {
+      diceEl.innerHTML = "";
+      const values = state.dice.length ? state.dice : ["-", "-", "-", "-"];
+      values.forEach((value) => {
+        const die = document.createElement("div");
+        die.className = "rounded border border-slate-700 bg-slate-950 py-4 text-2xl font-bold";
+        die.textContent = value;
+        diceEl.appendChild(die);
+      });
+    }
+
+    function renderChoices() {
+      choicesEl.innerHTML = "";
+      if (state.choices.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "text-sm text-slate-400";
+        empty.textContent = state.rolling ? "No pending choice." : "No legal choices.";
+        choicesEl.appendChild(empty);
+        return;
+      }
+      state.choices.forEach((choice, index) => {
+        const button = document.createElement("button");
+        button.className = "rounded border border-slate-600 bg-slate-950 px-3 py-2 text-left font-semibold hover:border-amber-300";
+        button.textContent = `${choice[0]} + ${choice[1]}`;
+        button.addEventListener("click", () => applyChoice(index));
+        choicesEl.appendChild(button);
+      });
+    }
+
+    function render() {
+      renderTracks();
+      renderDice();
+      renderChoices();
+      statusEl.textContent = state.message;
+      claimedCountEl.textContent = state.claimed.size;
+      rollBtn.disabled = !state.rolling || state.gameOver;
+      bankBtn.disabled = state.gameOver;
+      rollBtn.classList.toggle("opacity-50", rollBtn.disabled);
+      bankBtn.classList.toggle("opacity-50", bankBtn.disabled);
+    }
+
+    rollBtn.addEventListener("click", rollDice);
+    bankBtn.addEventListener("click", bankTurn);
+    newBtn.addEventListener("click", setupState);
+    setupState();
+  </script>
+</body>
+</html>
