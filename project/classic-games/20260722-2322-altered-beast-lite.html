@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Altered Beast 兽化战士</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-orange-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Altered Beast 兽化战士</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">分数</div>
+          <div id="score" class="text-xl font-bold text-orange-300">0</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">体力</div>
+          <div id="health" class="text-xl font-bold text-emerald-300">100</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">兽化</div>
+          <div id="power" class="text-xl font-bold text-yellow-300">0/3</div>
+        </div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="520" class="w-full rounded border border-stone-700 bg-stone-900 shadow-2xl shadow-black"></canvas>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-3 text-sm text-stone-300">
+        <p>方向键或 WASD 移动，W/↑/空格跳跃，J 攻击。击败白狼收集 3 个魂球完成兽化，再击倒魔王。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="jumpBtn" class="rounded bg-yellow-400 px-4 py-2 font-semibold text-stone-950 hover:bg-yellow-300">跳跃</button>
+        <button id="attackBtn" class="rounded bg-orange-500 px-4 py-2 font-semibold text-white hover:bg-orange-400">攻击</button>
+        <button id="restartBtn" class="rounded bg-stone-700 px-4 py-2 font-semibold text-white hover:bg-stone-600">重开</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const healthEl = document.getElementById("health");
+    const powerEl = document.getElementById("power");
+    const keys = new Set();
+    const groundY = 420;
+    const hero = { x: 90, y: groundY - 76, w: 38, h: 76, vy: 0, facing: 1, attackT: 0, hurtT: 0 };
+    let score = 0;
+    let health = 100;
+    let power = 0;
+    let bossHp = 12;
+    let spawnT = 0;
+    let enemies = [];
+    let orbs = [];
+    let effects = [];
+    let boss = null;
+    let state = "play";
+
+    function reset() {
+      hero.x = 90;
+      hero.y = groundY - hero.h;
+      hero.vy = 0;
+      hero.facing = 1;
+      hero.attackT = 0;
+      hero.hurtT = 0;
+      score = 0;
+      health = 100;
+      power = 0;
+      bossHp = 12;
+      spawnT = 24;
+      enemies = [];
+      orbs = [];
+      effects = [];
+      boss = null;
+      state = "play";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      healthEl.textContent = Math.max(0, Math.ceil(health));
+      powerEl.textContent = `${power}/3`;
+    }
+
+    function jump() {
+      if (state === "play" && hero.y + hero.h >= groundY - 1) hero.vy = power >= 3 ? -16 : -13.5;
+    }
+
+    function attack() {
+      if (state !== "play" || hero.attackT > 0 || hero.hurtT > 0) return;
+      hero.attackT = power >= 3 ? 22 : 16;
+    }
+
+    function attackBox() {
+      const reach = power >= 3 ? 78 : 48;
+      return {
+        x: hero.facing > 0 ? hero.x + hero.w - 2 : hero.x - reach,
+        y: hero.y + 18,
+        w: reach,
+        h: power >= 3 ? 46 : 30
+      };
+    }
+
+    function spawnEnemy() {
+      if (power >= 3 && boss) return;
+      const wolf = Math.random() > 0.65 || power < 3;
+      enemies.push({
+        x: 930,
+        y: wolf ? groundY - 42 : groundY - 62,
+        w: wolf ? 42 : 34,
+        h: wolf ? 42 : 62,
+        hp: wolf ? 1 : 2,
+        kind: wolf ? "wolf" : "guard",
+        speed: wolf ? 2.2 : 1.4,
+        hurtT: 0
+      });
+    }
+
+    function spawnBoss() {
+      if (boss) return;
+      boss = { x: 720, y: groundY - 116, w: 82, h: 116, swingT: 55, hurtT: 0 };
+      effects.push({ x: 760, y: 260, t: 48, color: "#f97316", size: 100 });
+    }
+
+    function rectsTouch(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function hurtHero(amount) {
+      if (hero.hurtT > 0) return;
+      health -= amount;
+      hero.hurtT = 52;
+      hero.x = Math.max(28, hero.x - hero.facing * 46);
+      hero.vy = -7;
+      effects.push({ x: hero.x + hero.w / 2, y: hero.y + 24, t: 24, color: "#38bdf8", size: 34 });
+      if (health <= 0) state = "lost";
+      updateHud();
+    }
+
+    function hitEnemy(enemy) {
+      enemy.hp -= power >= 3 ? 2 : 1;
+      enemy.hurtT = 12;
+      effects.push({ x: enemy.x + enemy.w / 2, y: enemy.y + 20, t: 18, color: "#fbbf24", size: 30 });
+      if (enemy.hp <= 0) {
+        score += enemy.kind === "wolf" ? 110 : 160;
+        if (enemy.kind === "wolf" && power < 3) orbs.push({ x: enemy.x + 12, y: enemy.y - 8, w: 18, h: 18, vy: -2 });
+        enemies = enemies.filter((item) => item !== enemy);
+      }
+      updateHud();
+    }
+
+    function hitBoss() {
+      if (!boss || boss.hurtT > 0) return;
+      bossHp -= power >= 3 ? 2 : 1;
+      boss.hurtT = 18;
+      effects.push({ x: boss.x + 42, y: boss.y + 34, t: 24, color: "#fb923c", size: 48 });
+      score += 80;
+      if (bossHp <= 0) {
+        boss = null;
+        state = "won";
+        score += 1000;
+      }
+      updateHud();
+    }
+
+    function collectOrb(orb) {
+      power += 1;
+      score += 200;
+      orbs = orbs.filter((item) => item !== orb);
+      effects.push({ x: hero.x + 20, y: hero.y, t: 30, color: "#fde047", size: 45 });
+      if (power >= 3) spawnBoss();
+      updateHud();
+    }
+
+    function updateHero() {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
+      if (left) {
+        hero.x -= power >= 3 ? 5 : 4;
+        hero.facing = -1;
+      }
+      if (right) {
+        hero.x += power >= 3 ? 5 : 4;
+        hero.facing = 1;
+      }
+      if (up) jump();
+      hero.x = Math.max(28, Math.min(835, hero.x));
+      hero.vy += 0.72;
+      hero.y += hero.vy;
+      if (hero.y + hero.h > groundY) {
+        hero.y = groundY - hero.h;
+        hero.vy = 0;
+      }
+      if (hero.attackT > 0) hero.attackT -= 1;
+      if (hero.hurtT > 0) hero.hurtT -= 1;
+    }
+
+    function updateEnemies() {
+      const box = hero.attackT > 6 ? attackBox() : null;
+      for (const enemy of [...enemies]) {
+        enemy.x -= enemy.speed;
+        if (enemy.hurtT > 0) enemy.hurtT -= 1;
+        if (rectsTouch(hero, enemy)) hurtHero(enemy.kind === "wolf" ? 8 : 12);
+        if (box && rectsTouch(box, enemy)) hitEnemy(enemy);
+      }
+      enemies = enemies.filter((enemy) => enemy.x > -70);
+    }
+
+    function updateOrbs() {
+      for (const orb of [...orbs]) {
+        orb.vy += 0.22;
+        orb.y += orb.vy;
+        if (orb.y > groundY - 24) {
+          orb.y = groundY - 24;
+          orb.vy = 0;
+        }
+        if (rectsTouch(hero, orb)) collectOrb(orb);
+      }
+    }
+
+    function updateBoss() {
+      if (!boss) return;
+      const dx = hero.x - boss.x;
+      boss.x += Math.sign(dx) * 0.8;
+      boss.swingT -= 1;
+      if (boss.hurtT > 0) boss.hurtT -= 1;
+      const hit = { x: boss.x - 24, y: boss.y + 42, w: boss.w + 48, h: 38 };
+      if (boss.swingT <= 0) {
+        if (rectsTouch(hero, hit)) hurtHero(16);
+        boss.swingT = 56;
+      }
+      const box = hero.attackT > 6 ? attackBox() : null;
+      if (box && rectsTouch(box, boss)) hitBoss();
+    }
+
+    function update() {
+      if (state !== "play") return;
+      updateHero();
+      updateEnemies();
+      updateOrbs();
+      updateBoss();
+      spawnT -= 1;
+      if (spawnT <= 0 && power < 3) {
+        spawnEnemy();
+        spawnT = Math.max(36, 80 - power * 12 - Math.random() * 18);
+      }
+      effects = effects.filter((effect) => {
+        effect.t -= 1;
+        return effect.t > 0;
+      });
+    }
+
+    function drawWorld() {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#1c1917");
+      bg.addColorStop(0.5, "#292524");
+      bg.addColorStop(1, "#0c0a09");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#44403c";
+      for (let x = 0; x < 950; x += 130) {
+        ctx.fillRect(x, 210, 74, 210);
+        ctx.fillStyle = "#78350f";
+        ctx.fillRect(x - 8, 198, 90, 18);
+        ctx.fillStyle = "#44403c";
+      }
+      ctx.fillStyle = "#14532d";
+      ctx.fillRect(0, groundY, 900, 54);
+      ctx.fillStyle = "#713f12";
+      ctx.fillRect(0, groundY + 28, 900, 48);
+      ctx.fillStyle = "#f59e0b";
+      ctx.fillText(`魔王 ${Math.max(0, bossHp)}/12`, 760, 36);
+    }
+
+    function drawHero() {
+      ctx.save();
+      ctx.translate(hero.x + hero.w / 2, hero.y);
+      ctx.scale(hero.facing, 1);
+      ctx.globalAlpha = hero.hurtT > 0 && hero.hurtT % 8 < 4 ? 0.45 : 1;
+      ctx.fillStyle = power >= 3 ? "#fed7aa" : "#fde68a";
+      ctx.fillRect(-10, 0, 20, 18);
+      ctx.fillStyle = power >= 3 ? "#7c2d12" : "#2563eb";
+      ctx.fillRect(-18, 18, 36, 36);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-16, 54, 10, 22);
+      ctx.fillRect(7, 54, 10, 22);
+      ctx.strokeStyle = power >= 3 ? "#fb923c" : "#e5e7eb";
+      ctx.lineWidth = power >= 3 ? 8 : 6;
+      ctx.beginPath();
+      ctx.moveTo(14, 28);
+      ctx.lineTo(hero.attackT > 6 ? 64 : 34, hero.attackT > 6 ? 20 : 33);
+      ctx.moveTo(-14, 29);
+      ctx.lineTo(-30, 39);
+      ctx.stroke();
+      if (power >= 3) {
+        ctx.fillStyle = "#f97316";
+        ctx.fillRect(-24, -8, 12, 16);
+        ctx.fillRect(12, -8, 12, 16);
+      }
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.globalAlpha = enemy.hurtT > 0 && enemy.hurtT % 6 < 3 ? 0.55 : 1;
+      ctx.fillStyle = enemy.kind === "wolf" ? "#e5e7eb" : "#991b1b";
+      ctx.fillRect(4, 4, enemy.w - 8, enemy.h - 8);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(enemy.w - 12, 12, 6, 6);
+      ctx.fillRect(5, enemy.h - 10, 12, 10);
+      ctx.fillRect(enemy.w - 17, enemy.h - 10, 12, 10);
+      ctx.restore();
+    }
+
+    function drawBoss() {
+      if (!boss) return;
+      ctx.save();
+      ctx.translate(boss.x, boss.y);
+      ctx.globalAlpha = boss.hurtT > 0 && boss.hurtT % 6 < 3 ? 0.5 : 1;
+      ctx.fillStyle = "#7f1d1d";
+      ctx.fillRect(14, 0, 54, 34);
+      ctx.fillStyle = "#450a0a";
+      ctx.fillRect(0, 34, boss.w, 64);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(12, 98, 18, 18);
+      ctx.fillRect(52, 98, 18, 18);
+      ctx.strokeStyle = "#f97316";
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(0, 56);
+      ctx.lineTo(boss.swingT < 18 ? -34 : -14, boss.swingT < 18 ? 48 : 76);
+      ctx.moveTo(82, 56);
+      ctx.lineTo(boss.swingT < 18 ? 116 : 96, boss.swingT < 18 ? 48 : 76);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWorld();
+      orbs.forEach((orb) => {
+        ctx.fillStyle = "#fde047";
+        ctx.beginPath();
+        ctx.arc(orb.x + 9, orb.y + 9, 10, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      enemies.forEach(drawEnemy);
+      drawBoss();
+      drawHero();
+      if (hero.attackT > 6) {
+        const box = attackBox();
+        ctx.strokeStyle = power >= 3 ? "#fb923c" : "#fbbf24";
+        ctx.strokeRect(box.x, box.y, box.w, box.h);
+      }
+      for (const effect of effects) {
+        ctx.globalAlpha = effect.t / 48;
+        ctx.fillStyle = effect.color;
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, effect.size * (1 - effect.t / 56), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (state !== "play") {
+        ctx.fillStyle = "rgba(12,10,9,0.78)";
+        ctx.fillRect(0, 0, 900, 520);
+        ctx.fillStyle = state === "won" ? "#86efac" : "#fca5a5";
+        ctx.font = "bold 52px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state === "won" ? "兽化胜利!" : "被魔物击倒", 450, 235);
+        ctx.fillStyle = "#f5f5f4";
+        ctx.font = "22px sans-serif";
+        ctx.fillText("按 R 或点击重开", 450, 282);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+      if (event.key === " " || event.key.toLowerCase() === "j") attack();
+      if (event.key.toLowerCase() === "r") reset();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    document.getElementById("jumpBtn").addEventListener("click", jump);
+    document.getElementById("attackBtn").addEventListener("click", attack);
+    document.getElementById("restartBtn").addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
