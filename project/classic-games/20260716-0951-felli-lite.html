@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Felli</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-cyan-950 text-cyan-50">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-5 px-4 py-8">
+    <section class="rounded-lg border border-cyan-800 bg-cyan-900 p-5 shadow-2xl">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm uppercase tracking-[0.18em] text-rose-200">Classic Mini Game</p>
+          <h1 class="mt-1 text-3xl font-bold">Felli</h1>
+        </div>
+        <button id="resetBtn" class="rounded-md bg-rose-200 px-4 py-2 font-semibold text-cyan-950 transition hover:bg-rose-100">重新开始</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_260px]">
+        <div class="relative aspect-[4/3] rounded-lg border border-cyan-700 bg-cyan-950">
+          <svg id="lines" class="absolute inset-0 h-full w-full" viewBox="0 0 100 75" aria-hidden="true"></svg>
+          <div id="board" class="absolute inset-0"></div>
+        </div>
+
+        <aside class="rounded-lg border border-cyan-800 bg-cyan-950 p-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-cyan-900 p-3">
+              <p class="text-xs text-cyan-300">红方吃子</p>
+              <p id="redScore" class="text-2xl font-bold text-rose-200">0</p>
+            </div>
+            <div class="rounded-md bg-cyan-900 p-3">
+              <p class="text-xs text-cyan-300">白方吃子</p>
+              <p id="whiteScore" class="text-2xl font-bold text-white">0</p>
+            </div>
+          </div>
+          <p id="turnText" class="mt-4 rounded-md bg-cyan-900 p-3 text-sm leading-6 text-cyan-100"></p>
+          <p class="mt-4 text-sm leading-6 text-cyan-200/80">选择己方棋子沿线走到相邻空点；如果相邻点是对方棋子且同线下一点为空，可以跳吃。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const points = [
+      { x: 50, y: 8 },
+      { x: 25, y: 32 },
+      { x: 75, y: 32 },
+      { x: 8, y: 64 },
+      { x: 50, y: 64 },
+      { x: 92, y: 64 },
+      { x: 50, y: 32 }
+    ];
+    const lines = [
+      [0, 1, 3],
+      [0, 2, 5],
+      [3, 4, 5],
+      [1, 6, 2],
+      [0, 6, 4],
+      [1, 4, 2]
+    ];
+
+    const neighbors = Array.from({ length: points.length }, () => new Set());
+    const jumps = new Map();
+    lines.forEach((line) => {
+      for (let i = 0; i < line.length - 1; i++) {
+        neighbors[line[i]].add(line[i + 1]);
+        neighbors[line[i + 1]].add(line[i]);
+      }
+      for (let i = 0; i < line.length - 2; i++) {
+        addJump(line[i], line[i + 1], line[i + 2]);
+        addJump(line[i + 2], line[i + 1], line[i]);
+      }
+    });
+
+    let board;
+    let turn;
+    let selected;
+    let captures;
+    let winner;
+
+    const boardEl = document.getElementById("board");
+    const linesEl = document.getElementById("lines");
+    const turnText = document.getElementById("turnText");
+    const redScore = document.getElementById("redScore");
+    const whiteScore = document.getElementById("whiteScore");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function addJump(from, over, to) {
+      if (!jumps.has(from)) jumps.set(from, []);
+      jumps.get(from).push({ over, to });
+    }
+
+    function startGame() {
+      board = ["red", "red", "red", "white", "white", "white", null];
+      turn = "red";
+      selected = null;
+      captures = { red: 0, white: 0 };
+      winner = null;
+      render();
+    }
+
+    function drawLines() {
+      linesEl.innerHTML = "";
+      const pairs = new Set();
+      lines.forEach((line) => {
+        for (let i = 0; i < line.length - 1; i++) {
+          pairs.add([line[i], line[i + 1]].sort((a, b) => a - b).join("-"));
+        }
+      });
+      pairs.forEach((pair) => {
+        const [from, to] = pair.split("-").map(Number);
+        const a = points[from];
+        const b = points[to];
+        const segment = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        segment.setAttribute("x1", a.x);
+        segment.setAttribute("y1", a.y);
+        segment.setAttribute("x2", b.x);
+        segment.setAttribute("y2", b.y);
+        segment.setAttribute("stroke", "#155e75");
+        segment.setAttribute("stroke-width", "1.8");
+        segment.setAttribute("stroke-linecap", "round");
+        linesEl.appendChild(segment);
+      });
+    }
+
+    function render() {
+      boardEl.innerHTML = "";
+      points.forEach((point, index) => {
+        const piece = board[index];
+        const target = selected !== null && isLegalMove(selected, index);
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.setAttribute("aria-label", `point ${index + 1}`);
+        cell.className = [
+          "absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition",
+          piece === "red" ? "border-rose-100 bg-rose-500 text-white shadow-lg shadow-rose-950/50" : "",
+          piece === "white" ? "border-white bg-slate-100 text-cyan-950 shadow-lg shadow-slate-950/50" : "",
+          !piece ? "border-cyan-500 bg-cyan-900 text-cyan-400" : "",
+          selected === index ? "ring-4 ring-yellow-200" : "",
+          target ? "border-emerald-100 bg-emerald-400 text-cyan-950" : ""
+        ].join(" ");
+        cell.style.left = `${point.x}%`;
+        cell.style.top = `${point.y}%`;
+        cell.textContent = piece ? (piece === "red" ? "红" : "白") : "";
+        cell.addEventListener("click", () => handlePoint(index));
+        boardEl.appendChild(cell);
+      });
+      redScore.textContent = captures.red;
+      whiteScore.textContent = captures.white;
+      turnText.textContent = winner
+        ? `${winner === "red" ? "红方" : "白方"}获胜。`
+        : `${turn === "red" ? "红方" : "白方"}行动：选择棋子后移动到高亮点。`;
+    }
+
+    function handlePoint(index) {
+      if (winner) return;
+      if (board[index] === turn) {
+        selected = index;
+        render();
+        return;
+      }
+      if (selected === null || !isLegalMove(selected, index)) return;
+      movePiece(selected, index);
+      selected = null;
+      updateWinner();
+      if (!winner) turn = turn === "red" ? "white" : "red";
+      render();
+    }
+
+    function isLegalMove(from, to) {
+      if (board[from] !== turn || board[to]) return false;
+      if (neighbors[from].has(to)) return true;
+      return getCapture(from, to) !== null;
+    }
+
+    function getCapture(from, to) {
+      const capture = (jumps.get(from) || []).find((item) => item.to === to);
+      if (!capture) return null;
+      const rival = turn === "red" ? "white" : "red";
+      return board[capture.over] === rival ? capture : null;
+    }
+
+    function movePiece(from, to) {
+      const capture = getCapture(from, to);
+      board[to] = board[from];
+      board[from] = null;
+      if (capture) {
+        board[capture.over] = null;
+        captures[turn] += 1;
+      }
+    }
+
+    function updateWinner() {
+      const rival = turn === "red" ? "white" : "red";
+      if (captures[turn] >= 3 || !hasMove(rival)) winner = turn;
+    }
+
+    function hasMove(side) {
+      const saved = turn;
+      turn = side;
+      const movable = board.some((piece, from) => piece === side && points.some((_, to) => isLegalMove(from, to)));
+      turn = saved;
+      return movable;
+    }
+
+    resetBtn.addEventListener("click", startGame);
+    drawLines();
+    startGame();
+  </script>
+</body>
+</html>
