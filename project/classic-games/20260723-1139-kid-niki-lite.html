@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Kid Niki 忍者小子</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-widest text-red-300">Classic Games</p>
+        <h1 class="text-3xl font-black text-white sm:text-4xl">Mini Kid Niki 忍者小子</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">分数</div>
+          <div id="score" class="text-xl font-black text-amber-200">0</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">生命</div>
+          <div id="lives" class="text-xl font-black text-emerald-200">3</div>
+        </div>
+        <div class="rounded border border-stone-700 bg-stone-900 px-3 py-2">
+          <div class="text-stone-400">卷轴</div>
+          <div id="scrolls" class="text-xl font-black text-sky-200">0/6</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_260px]">
+      <div class="rounded border border-stone-700 bg-stone-900 p-3">
+        <canvas id="game" width="920" height="520" class="aspect-[16/9] w-full rounded bg-slate-900"></canvas>
+      </div>
+      <aside class="rounded border border-stone-700 bg-stone-900 p-4">
+        <h2 class="text-lg font-black text-red-200">任务</h2>
+        <p class="mt-2 text-sm leading-6 text-stone-300">穿过旧街道，击退巡逻敌人，收集 6 个忍法卷轴，到达右侧鸟居。</p>
+        <div class="mt-4 space-y-2 text-sm text-stone-300">
+          <p><span class="font-bold text-white">移动：</span>A/D 或方向键</p>
+          <p><span class="font-bold text-white">跳跃：</span>W/上/空格</p>
+          <p><span class="font-bold text-white">斩击：</span>J 或 X</p>
+          <p><span class="font-bold text-white">重开：</span>R</p>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-red-500 px-4 py-2 font-bold text-white hover:bg-red-400">重新开始</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-stone-700 bg-stone-950 p-3 text-sm leading-6 text-amber-100">按 J 挥刀，掌握距离是关键。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const scrollsEl = document.getElementById('scrolls');
+    const messageEl = document.getElementById('message');
+    const keys = new Set();
+
+    const state = {
+      camera: 0,
+      width: 2600,
+      gravity: 0.72,
+      score: 0,
+      scrolls: 0,
+      neededScrolls: 6,
+      running: true,
+      won: false,
+      hitFlash: 0,
+      time: 0
+    };
+
+    const player = {
+      x: 72,
+      y: 330,
+      w: 36,
+      h: 54,
+      vx: 0,
+      vy: 0,
+      facing: 1,
+      grounded: false,
+      lives: 3,
+      invuln: 0,
+      slash: 0,
+      cooldown: 0
+    };
+
+    let platforms = [];
+    let enemies = [];
+    let scrollItems = [];
+    let dust = [];
+
+    function spawnLevel() {
+      state.camera = 0;
+      state.score = 0;
+      state.scrolls = 0;
+      state.running = true;
+      state.won = false;
+      state.hitFlash = 0;
+      state.time = 0;
+      Object.assign(player, {
+        x: 72, y: 330, vx: 0, vy: 0, facing: 1, grounded: false,
+        lives: 3, invuln: 0, slash: 0, cooldown: 0
+      });
+      platforms = [
+        { x: 0, y: 438, w: 620, h: 82 },
+        { x: 690, y: 438, w: 420, h: 82 },
+        { x: 1190, y: 438, w: 560, h: 82 },
+        { x: 1830, y: 438, w: 770, h: 82 },
+        { x: 360, y: 338, w: 170, h: 22 },
+        { x: 820, y: 310, w: 170, h: 22 },
+        { x: 1320, y: 330, w: 190, h: 22 },
+        { x: 1670, y: 270, w: 170, h: 22 },
+        { x: 2060, y: 326, w: 180, h: 22 }
+      ];
+      enemies = [
+        makeEnemy(430, 384, 330, 570, 'runner'),
+        makeEnemy(840, 384, 720, 1050, 'guard'),
+        makeEnemy(1280, 384, 1210, 1500, 'runner'),
+        makeEnemy(1540, 384, 1300, 1740, 'guard'),
+        makeEnemy(1980, 384, 1860, 2220, 'runner'),
+        makeEnemy(2290, 384, 2100, 2500, 'captain')
+      ];
+      scrollItems = [
+        { x: 420, y: 296, got: false },
+        { x: 910, y: 268, got: false },
+        { x: 1160, y: 382, got: false },
+        { x: 1410, y: 288, got: false },
+        { x: 1760, y: 228, got: false },
+        { x: 2150, y: 284, got: false }
+      ];
+      dust = [];
+      setMessage('收集卷轴并抵达鸟居。J / X 挥刀。');
+      updateHud();
+    }
+
+    function makeEnemy(x, y, min, max, type) {
+      return {
+        x, y,
+        w: type === 'captain' ? 44 : 34,
+        h: type === 'captain' ? 58 : 42,
+        vx: type === 'guard' ? -1 : -1.5,
+        min, max, type,
+        alive: true,
+        stun: 0
+      };
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = player.lives;
+      scrollsEl.textContent = `${state.scrolls}/${state.neededScrolls}`;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function swordBox() {
+      return {
+        x: player.facing > 0 ? player.x + player.w - 2 : player.x - 34,
+        y: player.y + 12,
+        w: 36,
+        h: 28
+      };
+    }
+
+    function slash() {
+      if (player.cooldown > 0 || !state.running) return;
+      player.slash = 12;
+      player.cooldown = 24;
+      for (let i = 0; i < 10; i++) {
+        dust.push({
+          x: player.x + player.w / 2 + player.facing * 25,
+          y: player.y + 24,
+          vx: player.facing * (1.5 + Math.random() * 3),
+          vy: -2 + Math.random() * 4,
+          life: 18
+        });
+      }
+    }
+
+    function hurtPlayer() {
+      if (player.invuln > 0 || !state.running) return;
+      player.lives -= 1;
+      player.invuln = 80;
+      state.hitFlash = 12;
+      player.vx = -player.facing * 5;
+      player.vy = -7;
+      if (player.lives <= 0) {
+        state.running = false;
+        setMessage('倒下了。按 R 重新挑战忍者街。');
+      } else {
+        setMessage('被碰到了，拉开距离再出刀。');
+      }
+      updateHud();
+    }
+
+    function updatePlayer() {
+      const left = keys.has('ArrowLeft') || keys.has('a');
+      const right = keys.has('ArrowRight') || keys.has('d');
+      const jump = keys.has('ArrowUp') || keys.has('w') || keys.has(' ');
+      player.vx *= 0.78;
+      if (left) {
+        player.vx -= 0.9;
+        player.facing = -1;
+      }
+      if (right) {
+        player.vx += 0.9;
+        player.facing = 1;
+      }
+      player.vx = Math.max(-5.2, Math.min(5.2, player.vx));
+      if (jump && player.grounded) {
+        player.vy = -13;
+        player.grounded = false;
+      }
+
+      player.vy += state.gravity;
+      player.x += player.vx;
+      collideHorizontal();
+      player.y += player.vy;
+      collideVertical();
+
+      if (player.x < 0) player.x = 0;
+      if (player.x > state.width - player.w) player.x = state.width - player.w;
+      if (player.y > canvas.height + 80) {
+        player.x = Math.max(50, player.x - 220);
+        player.y = 250;
+        player.vy = 0;
+        hurtPlayer();
+      }
+      if (player.slash > 0) player.slash -= 1;
+      if (player.cooldown > 0) player.cooldown -= 1;
+      if (player.invuln > 0) player.invuln -= 1;
+    }
+
+    function collideHorizontal() {
+      for (const p of platforms) {
+        if (!rectsOverlap(player, p)) continue;
+        if (player.vx > 0) player.x = p.x - player.w;
+        if (player.vx < 0) player.x = p.x + p.w;
+        player.vx = 0;
+      }
+    }
+
+    function collideVertical() {
+      player.grounded = false;
+      for (const p of platforms) {
+        if (!rectsOverlap(player, p)) continue;
+        if (player.vy > 0) {
+          player.y = p.y - player.h;
+          player.vy = 0;
+          player.grounded = true;
+        } else if (player.vy < 0) {
+          player.y = p.y + p.h;
+          player.vy = 0;
+        }
+      }
+    }
+
+    function updateEnemies() {
+      const blade = player.slash > 0 ? swordBox() : null;
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        if (enemy.stun > 0) {
+          enemy.stun -= 1;
+          continue;
+        }
+        enemy.x += enemy.vx;
+        if (enemy.x < enemy.min || enemy.x > enemy.max) {
+          enemy.vx *= -1;
+          enemy.x = Math.max(enemy.min, Math.min(enemy.max, enemy.x));
+        }
+        if (blade && rectsOverlap(blade, enemy)) {
+          enemy.alive = false;
+          state.score += enemy.type === 'captain' ? 500 : 180;
+          setMessage(enemy.type === 'captain' ? '击败头目，冲向鸟居！' : '斩落敌人！');
+          for (let i = 0; i < 14; i++) {
+            dust.push({ x: enemy.x + enemy.w / 2, y: enemy.y + 20, vx: -3 + Math.random() * 6, vy: -4 + Math.random() * 5, life: 24 });
+          }
+          updateHud();
+          continue;
+        }
+        if (rectsOverlap(player, enemy)) {
+          if (player.vy > 2 && player.y + player.h - enemy.y < 18) {
+            enemy.alive = false;
+            player.vy = -9;
+            state.score += 120;
+            setMessage('踏击成功，再接一刀。');
+            updateHud();
+          } else {
+            player.facing = player.x < enemy.x ? -1 : 1;
+            hurtPlayer();
+          }
+        }
+      }
+    }
+
+    function updateScrolls() {
+      for (const item of scrollItems) {
+        if (item.got) continue;
+        if (rectsOverlap(player, { x: item.x, y: item.y, w: 28, h: 28 })) {
+          item.got = true;
+          state.scrolls += 1;
+          state.score += 250;
+          setMessage(state.scrolls === state.neededScrolls ? '卷轴齐了，去右侧鸟居！' : '取得忍法卷轴。');
+          updateHud();
+        }
+      }
+      if (player.x > state.width - 150 && state.scrolls >= state.neededScrolls) {
+        state.running = false;
+        state.won = true;
+        state.score += 1000;
+        setMessage('通关！忍者小子抵达鸟居。按 R 再玩一次。');
+        updateHud();
+      } else if (player.x > state.width - 150 && state.scrolls < state.neededScrolls) {
+        setMessage('鸟居需要 6 个卷轴才能开启。');
+      }
+    }
+
+    function updateDust() {
+      for (const d of dust) {
+        d.x += d.vx;
+        d.y += d.vy;
+        d.vy += 0.15;
+        d.life -= 1;
+      }
+      dust = dust.filter(d => d.life > 0);
+    }
+
+    function updateCamera() {
+      state.camera += ((player.x - canvas.width * 0.42) - state.camera) * 0.08;
+      state.camera = Math.max(0, Math.min(state.width - canvas.width, state.camera));
+    }
+
+    function update() {
+      state.time += 1;
+      if (state.running) {
+        updatePlayer();
+        updateEnemies();
+        updateScrolls();
+      }
+      updateDust();
+      updateCamera();
+      if (state.hitFlash > 0) state.hitFlash -= 1;
+    }
+
+    function drawBackground() {
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, '#172554');
+      sky.addColorStop(0.55, '#312e81');
+      sky.addColorStop(1, '#1c1917');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(-state.camera * 0.25, 0);
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.arc(760, 86, 42, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+      for (let i = 0; i < 18; i++) {
+        const x = i * 180;
+        ctx.fillRect(x, 250 - (i % 4) * 18, 110, 210);
+        ctx.fillRect(x + 12, 230 - (i % 3) * 20, 86, 26);
+      }
+      ctx.restore();
+    }
+
+    function drawLevel() {
+      ctx.save();
+      ctx.translate(-state.camera, 0);
+      for (const p of platforms) {
+        ctx.fillStyle = '#57534e';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = '#a8a29e';
+        ctx.fillRect(p.x, p.y, p.w, 8);
+        ctx.fillStyle = '#292524';
+        for (let x = p.x + 18; x < p.x + p.w; x += 52) ctx.fillRect(x, p.y + 18, 24, 8);
+      }
+      drawGate();
+      for (const item of scrollItems) drawScroll(item);
+      for (const enemy of enemies) drawEnemy(enemy);
+      drawPlayer();
+      drawDust();
+      ctx.restore();
+    }
+
+    function drawGate() {
+      const x = state.width - 105;
+      ctx.fillStyle = state.scrolls >= state.neededScrolls ? '#ef4444' : '#7f1d1d';
+      ctx.fillRect(x, 244, 22, 194);
+      ctx.fillRect(x + 66, 244, 22, 194);
+      ctx.fillRect(x - 18, 236, 124, 20);
+      ctx.fillRect(x - 8, 206, 104, 26);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(x + 22, 286, 44, 152);
+    }
+
+    function drawScroll(item) {
+      if (item.got) return;
+      const bob = Math.sin((state.time + item.x) / 18) * 4;
+      ctx.fillStyle = '#fef3c7';
+      ctx.fillRect(item.x, item.y + bob, 28, 22);
+      ctx.fillStyle = '#0f766e';
+      ctx.fillRect(item.x + 6, item.y + 4 + bob, 16, 14);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(item.x - 3, item.y + 2 + bob, 6, 18);
+      ctx.fillRect(item.x + 25, item.y + 2 + bob, 6, 18);
+    }
+
+    function drawEnemy(enemy) {
+      if (!enemy.alive) return;
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.fillStyle = enemy.type === 'captain' ? '#7f1d1d' : enemy.type === 'guard' ? '#365314' : '#1e3a8a';
+      ctx.fillRect(0, 10, enemy.w, enemy.h - 10);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(8, 0, enemy.w - 16, 18);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(enemy.vx > 0 ? enemy.w - 8 : 5, 6, 4, 4);
+      ctx.fillStyle = '#d1d5db';
+      ctx.fillRect(enemy.vx > 0 ? enemy.w - 2 : -18, 26, 20, 5);
+      ctx.restore();
+    }
+
+    function drawPlayer() {
+      if (player.invuln > 0 && Math.floor(state.time / 5) % 2 === 0) return;
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(7, 15, 22, 34);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(5, 2, 26, 18);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(12, 6, 14, 10);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(player.facing > 0 ? 23 : 10, 10, 3, 3);
+      ctx.fillStyle = '#991b1b';
+      ctx.fillRect(player.facing > 0 ? -4 : 28, 4, 12, 5);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(8, 49, 8, 10);
+      ctx.fillRect(22, 49, 8, 10);
+      if (player.slash > 0) {
+        const b = swordBox();
+        ctx.translate(-player.x, -player.y);
+        ctx.fillStyle = 'rgba(226, 232, 240, 0.9)';
+        ctx.fillRect(b.x, b.y + 10, b.w, 6);
+        ctx.fillStyle = 'rgba(248, 250, 252, 0.5)';
+        ctx.fillRect(b.x + (player.facing > 0 ? 18 : -8), b.y, 18, 26);
+      }
+      ctx.restore();
+    }
+
+    function drawDust() {
+      for (const d of dust) {
+        ctx.globalAlpha = Math.max(0, d.life / 24);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(d.x, d.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state.hitFlash > 0) {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      if (!state.running) {
+        ctx.fillStyle = 'rgba(12, 10, 9, 0.72)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff7ed';
+        ctx.textAlign = 'center';
+        ctx.font = '900 44px system-ui';
+        ctx.fillText(state.won ? '任务完成' : '挑战失败', canvas.width / 2, 220);
+        ctx.font = '700 18px system-ui';
+        ctx.fillText('按 R 或点击重新开始', canvas.width / 2, 260);
+        ctx.textAlign = 'start';
+      }
+    }
+
+    function draw() {
+      drawBackground();
+      drawLevel();
+      drawOverlay();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'a', 'd', 'w', 'j', 'x', 'r'].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === 'j' || key === 'x') slash();
+      if (key === 'r') spawnLevel();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      keys.delete(key);
+    });
+
+    document.getElementById('restart').addEventListener('click', spawnLevel);
+
+    spawnLevel();
+    loop();
+  </script>
+</body>
+</html>
