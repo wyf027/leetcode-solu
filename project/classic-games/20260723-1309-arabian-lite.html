@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Arabian 阿拉伯冒险</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-indigo-950 text-amber-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-widest text-amber-300">Classic Games</p>
+        <h1 class="text-3xl font-black text-white sm:text-4xl">Mini Arabian 阿拉伯冒险</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-indigo-700 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-200">分数</div>
+          <div id="score" class="text-xl font-black text-amber-200">0</div>
+        </div>
+        <div class="rounded border border-indigo-700 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-200">生命</div>
+          <div id="lives" class="text-xl font-black text-emerald-200">3</div>
+        </div>
+        <div class="rounded border border-indigo-700 bg-indigo-900 px-3 py-2">
+          <div class="text-indigo-200">字母</div>
+          <div id="letters" class="text-xl font-black text-sky-200">0/5</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_260px]">
+      <div class="rounded border border-indigo-700 bg-indigo-900 p-3">
+        <canvas id="game" width="920" height="520" class="aspect-[16/9] w-full rounded bg-slate-950"></canvas>
+      </div>
+      <aside class="rounded border border-indigo-700 bg-indigo-900 p-4">
+        <h2 class="text-lg font-black text-amber-200">任务</h2>
+        <p class="mt-2 text-sm leading-6 text-indigo-100">收集 MAGIC 五个字母，躲开守卫和飞毯，到达右侧神灯。</p>
+        <div class="mt-4 space-y-2 text-sm text-indigo-100">
+          <p><span class="font-bold text-white">移动：</span>A/D 或方向键</p>
+          <p><span class="font-bold text-white">跳跃：</span>W/上/空格/J/X</p>
+          <p><span class="font-bold text-white">重开：</span>R</p>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-amber-400 px-4 py-2 font-bold text-indigo-950 hover:bg-amber-300">重新开始</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-indigo-700 bg-indigo-950 p-3 text-sm leading-6 text-amber-100">先收集字母，再去右侧神灯。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const lettersEl = document.getElementById('letters');
+    const messageEl = document.getElementById('message');
+    const keys = new Set();
+
+    const state = {
+      width: 2300,
+      camera: 0,
+      score: 0,
+      lives: 3,
+      letters: 0,
+      totalLetters: 5,
+      time: 0,
+      running: true,
+      won: false,
+      hitFlash: 0
+    };
+
+    const player = {
+      x: 80,
+      y: 356,
+      w: 30,
+      h: 48,
+      vx: 0,
+      vy: 0,
+      facing: 1,
+      grounded: false,
+      invuln: 0,
+      jumpLock: false
+    };
+
+    let platforms = [];
+    let letters = [];
+    let guards = [];
+    let carpets = [];
+    let sparks = [];
+
+    function setupLevel() {
+      platforms = [
+        { x: 0, y: 438, w: 480, h: 82 },
+        { x: 560, y: 438, w: 360, h: 82 },
+        { x: 1010, y: 438, w: 420, h: 82 },
+        { x: 1530, y: 438, w: 770, h: 82 },
+        { x: 250, y: 346, w: 170, h: 24 },
+        { x: 650, y: 300, w: 170, h: 24 },
+        { x: 1040, y: 334, w: 180, h: 24 },
+        { x: 1330, y: 262, w: 180, h: 24 },
+        { x: 1710, y: 322, w: 180, h: 24 },
+        { x: 1930, y: 248, w: 170, h: 24 }
+      ];
+      letters = [
+        makeLetter('M', 318, 306),
+        makeLetter('A', 728, 260),
+        makeLetter('G', 1110, 294),
+        makeLetter('I', 1396, 222),
+        makeLetter('C', 1996, 208)
+      ];
+      guards = [
+        makeGuard(370, 392, 60, 455),
+        makeGuard(730, 392, 585, 900),
+        makeGuard(1160, 392, 1030, 1410),
+        makeGuard(1690, 392, 1540, 1890),
+        makeGuard(2110, 392, 1920, 2260)
+      ];
+      carpets = [
+        { x: 510, y: 190, w: 74, h: 22, vx: 2.1, min: 420, max: 820 },
+        { x: 1240, y: 182, w: 74, h: 22, vx: -2.4, min: 1040, max: 1450 },
+        { x: 1750, y: 170, w: 74, h: 22, vx: 2.3, min: 1600, max: 2070 }
+      ];
+      sparks = [];
+    }
+
+    function makeLetter(char, x, y) {
+      return { char, x, y, w: 30, h: 36, got: false };
+    }
+
+    function makeGuard(x, y, min, max) {
+      return { x, y, w: 34, h: 46, vx: -1.35, min, max, alive: true };
+    }
+
+    function resetGame() {
+      state.camera = 0;
+      state.score = 0;
+      state.lives = 3;
+      state.letters = 0;
+      state.time = 0;
+      state.running = true;
+      state.won = false;
+      state.hitFlash = 0;
+      Object.assign(player, { x: 80, y: 356, vx: 0, vy: 0, facing: 1, grounded: false, invuln: 0, jumpLock: false });
+      setupLevel();
+      setMessage('收集 MAGIC 五个字母后去右侧神灯。');
+      updateHud();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      lettersEl.textContent = `${state.letters}/${state.totalLetters}`;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function jumpPlayer() {
+      if (!state.running || player.jumpLock || !player.grounded) return;
+      player.vy = -13.2;
+      player.grounded = false;
+      player.jumpLock = true;
+      burst(player.x + player.w / 2, player.y + player.h, '#fde68a');
+    }
+
+    function updatePlayer() {
+      const left = keys.has('ArrowLeft') || keys.has('a');
+      const right = keys.has('ArrowRight') || keys.has('d');
+      const jump = keys.has('ArrowUp') || keys.has('w') || keys.has(' ') || keys.has('j') || keys.has('x');
+
+      player.vx *= 0.78;
+      if (left) {
+        player.vx -= 0.75;
+        player.facing = -1;
+      }
+      if (right) {
+        player.vx += 0.75;
+        player.facing = 1;
+      }
+      player.vx = Math.max(-4.8, Math.min(4.8, player.vx));
+      if (jump) jumpPlayer();
+      if (!jump) player.jumpLock = false;
+
+      player.vy += 0.68;
+      player.x += player.vx;
+      collideHorizontal();
+      player.y += player.vy;
+      collideVertical();
+
+      if (player.x < 0) player.x = 0;
+      if (player.x > state.width - player.w) player.x = state.width - player.w;
+      if (player.y > canvas.height + 70) loseLife('掉进沙谷了，从最近的城门重新出发。');
+      if (player.invuln > 0) player.invuln--;
+    }
+
+    function collideHorizontal() {
+      for (const platform of platforms) {
+        if (!rectsOverlap(player, platform)) continue;
+        if (player.vx > 0) player.x = platform.x - player.w;
+        if (player.vx < 0) player.x = platform.x + platform.w;
+        player.vx = 0;
+      }
+    }
+
+    function collideVertical() {
+      player.grounded = false;
+      for (const platform of platforms) {
+        if (!rectsOverlap(player, platform)) continue;
+        if (player.vy > 0) {
+          player.y = platform.y - player.h;
+          player.vy = 0;
+          player.grounded = true;
+        } else if (player.vy < 0) {
+          player.y = platform.y + platform.h;
+          player.vy = 0;
+        }
+      }
+      for (const carpet of carpets) {
+        const top = { x: carpet.x, y: carpet.y - 2, w: carpet.w, h: 10 };
+        if (player.vy >= 0 && rectsOverlap(player, top) && player.y + player.h < carpet.y + 16) {
+          player.y = carpet.y - player.h;
+          player.vy = 0;
+          player.grounded = true;
+          player.x += carpet.vx;
+        }
+      }
+    }
+
+    function updateGuards() {
+      for (const guard of guards) {
+        if (!guard.alive) continue;
+        guard.x += guard.vx;
+        if (guard.x < guard.min || guard.x > guard.max) {
+          guard.vx *= -1;
+          guard.x = Math.max(guard.min, Math.min(guard.max, guard.x));
+        }
+        if (rectsOverlap(player, guard)) {
+          if (player.vy > 2 && player.y + player.h - guard.y < 18) {
+            guard.alive = false;
+            player.vy = -9.5;
+            state.score += 150;
+            burst(guard.x + 16, guard.y + 20, '#f97316');
+            setMessage('踏过守卫，继续前进。');
+            updateHud();
+          } else {
+            loseLife('被宫殿守卫抓住了。');
+          }
+        }
+      }
+    }
+
+    function updateCarpets() {
+      for (const carpet of carpets) {
+        carpet.x += carpet.vx;
+        if (carpet.x < carpet.min || carpet.x > carpet.max) carpet.vx *= -1;
+        if (rectsOverlap(player, carpet) && player.y + player.h > carpet.y + 18) {
+          loseLife('被飞毯撞到了。');
+        }
+      }
+    }
+
+    function collectLetters() {
+      for (const item of letters) {
+        if (item.got) continue;
+        if (rectsOverlap(player, item)) {
+          item.got = true;
+          state.letters++;
+          state.score += 300;
+          burst(item.x + 15, item.y + 18, '#38bdf8');
+          setMessage(state.letters === state.totalLetters ? 'MAGIC 集齐了，去右侧神灯！' : `拿到字母 ${item.char}。`);
+          updateHud();
+        }
+      }
+    }
+
+    function checkWin() {
+      const lamp = { x: state.width - 120, y: 370, w: 70, h: 68 };
+      if (state.letters >= state.totalLetters && rectsOverlap(player, lamp)) {
+        state.running = false;
+        state.won = true;
+        state.score += 1500;
+        setMessage('通关！阿拉伯冒险完成。按 R 再玩一次。');
+        updateHud();
+      } else if (rectsOverlap(player, lamp)) {
+        setMessage('神灯需要 MAGIC 五个字母才能点亮。');
+      }
+    }
+
+    function loseLife(text) {
+      if (player.invuln > 0 || !state.running) return;
+      state.lives--;
+      state.hitFlash = 14;
+      player.invuln = 88;
+      Object.assign(player, { x: Math.max(60, player.x - 160), y: 330, vx: 0, vy: 0, grounded: false });
+      setMessage(state.lives <= 0 ? '冒险失败。按 R 重新开始。' : text);
+      if (state.lives <= 0) state.running = false;
+      updateHud();
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 14; i++) {
+        sparks.push({ x, y, vx: -3 + Math.random() * 6, vy: -3 + Math.random() * 6, life: 22, color });
+      }
+    }
+
+    function updateSparks() {
+      for (const spark of sparks) {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.vy += 0.08;
+        spark.life--;
+      }
+      sparks = sparks.filter(spark => spark.life > 0);
+    }
+
+    function updateCamera() {
+      state.camera += ((player.x - canvas.width * 0.42) - state.camera) * 0.08;
+      state.camera = Math.max(0, Math.min(state.width - canvas.width, state.camera));
+    }
+
+    function updateGame() {
+      state.time++;
+      if (state.running) {
+        updatePlayer();
+        updateGuards();
+        updateCarpets();
+        collectLetters();
+        checkWin();
+      }
+      updateSparks();
+      updateCamera();
+      if (state.hitFlash > 0) state.hitFlash--;
+    }
+
+    function drawBackground() {
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, '#312e81');
+      sky.addColorStop(0.55, '#7c2d12');
+      sky.addColorStop(1, '#451a03');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(-state.camera * 0.25, 0);
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.arc(710, 92, 44, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(67, 56, 202, 0.45)';
+      for (let i = 0; i < 12; i++) {
+        const x = i * 220;
+        ctx.fillRect(x, 260, 118, 220);
+        ctx.beginPath();
+        ctx.arc(x + 59, 260, 59, Math.PI, 0);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawPlatforms() {
+      ctx.save();
+      ctx.translate(-state.camera, 0);
+      for (const platform of platforms) {
+        ctx.fillStyle = '#92400e';
+        ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(platform.x, platform.y, platform.w, 8);
+        ctx.fillStyle = '#451a03';
+        for (let x = platform.x + 18; x < platform.x + platform.w; x += 48) {
+          ctx.fillRect(x, platform.y + 20, 24, 8);
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawLetters() {
+      ctx.save();
+      ctx.translate(-state.camera, 0);
+      for (const item of letters) {
+        if (item.got) continue;
+        const bob = Math.sin((state.time + item.x) / 16) * 4;
+        ctx.fillStyle = '#0ea5e9';
+        ctx.fillRect(item.x, item.y + bob, item.w, item.h);
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = '900 24px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.char, item.x + item.w / 2, item.y + 26 + bob);
+        ctx.textAlign = 'start';
+      }
+      ctx.restore();
+    }
+
+    function drawGuards() {
+      ctx.save();
+      ctx.translate(-state.camera, 0);
+      for (const guard of guards) {
+        if (!guard.alive) continue;
+        ctx.fillStyle = '#7f1d1d';
+        ctx.fillRect(guard.x + 6, guard.y + 12, 22, 32);
+        ctx.fillStyle = '#fde68a';
+        ctx.fillRect(guard.x + 8, guard.y, 18, 14);
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(guard.vx > 0 ? guard.x + 22 : guard.x + 10, guard.y + 5, 3, 3);
+        ctx.fillStyle = '#e5e7eb';
+        ctx.fillRect(guard.vx > 0 ? guard.x + 26 : guard.x - 10, guard.y + 22, 18, 5);
+      }
+      ctx.restore();
+    }
+
+    function drawCarpets() {
+      ctx.save();
+      ctx.translate(-state.camera, 0);
+      for (const carpet of carpets) {
+        const wave = Math.sin((state.time + carpet.x) / 10) * 4;
+        ctx.fillStyle = '#be123c';
+        ctx.fillRect(carpet.x, carpet.y + wave, carpet.w, carpet.h);
+        ctx.fillStyle = '#fde047';
+        for (let x = 4; x < carpet.w; x += 16) ctx.fillRect(carpet.x + x, carpet.y + 5 + wave, 8, 5);
+      }
+      ctx.restore();
+    }
+
+    function drawLamp() {
+      ctx.save();
+      ctx.translate(-state.camera, 0);
+      const x = state.width - 110;
+      const y = 382;
+      ctx.fillStyle = state.letters >= state.totalLetters ? '#facc15' : '#78716c';
+      ctx.fillRect(x, y + 26, 58, 20);
+      ctx.beginPath();
+      ctx.arc(x + 20, y + 22, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(x + 52, y + 20, 24, 8);
+      ctx.fillStyle = 'rgba(125, 211, 252, 0.45)';
+      if (state.letters >= state.totalLetters) {
+        ctx.beginPath();
+        ctx.arc(x + 18, y - 6, 22 + Math.sin(state.time / 10) * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawPlayer() {
+      if (player.invuln > 0 && Math.floor(state.time / 5) % 2 === 0) return;
+      ctx.save();
+      ctx.translate(player.x - state.camera, player.y);
+      ctx.fillStyle = '#2563eb';
+      ctx.fillRect(6, 15, 18, 28);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(8, 4, 15, 13);
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(3, 1, 24, 5);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(player.facing > 0 ? 20 : 9, 9, 3, 3);
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(5, 42, 8, 8);
+      ctx.fillRect(18, 42, 8, 8);
+      ctx.restore();
+    }
+
+    function drawSparks() {
+      ctx.save();
+      ctx.translate(-state.camera, 0);
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life / 22);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function drawOverlay() {
+      if (state.hitFlash > 0) {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      if (!state.running) {
+        ctx.fillStyle = 'rgba(30, 27, 75, 0.76)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = '900 44px system-ui';
+        ctx.fillText(state.won ? '神灯点亮' : '冒险失败', canvas.width / 2, 232);
+        ctx.font = '700 18px system-ui';
+        ctx.fillText('按 R 或点击重新开始', canvas.width / 2, 274);
+        ctx.textAlign = 'start';
+      }
+    }
+
+    function drawGame() {
+      drawBackground();
+      drawPlatforms();
+      drawLamp();
+      drawLetters();
+      drawCarpets();
+      drawGuards();
+      drawPlayer();
+      drawSparks();
+      drawOverlay();
+    }
+
+    function gameLoop() {
+      updateGame();
+      drawGame();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'w', 'a', 'd', 'j', 'x', 'r'].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === 'r') resetGame();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    document.getElementById('restart').addEventListener('click', resetGame);
+    resetGame();
+    gameLoop();
+  </script>
+</body>
+</html>
