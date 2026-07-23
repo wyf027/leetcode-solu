@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Parodius 梦幻兵蜂</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-fuchsia-950 text-fuchsia-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-pink-300/40 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-pink-200">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Parodius 梦幻兵蜂</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="border border-pink-300/40 bg-fuchsia-900/70 px-3 py-2">
+          <div class="text-pink-100">分数</div>
+          <div id="score" class="text-xl font-bold">0</div>
+        </div>
+        <div class="border border-pink-300/40 bg-fuchsia-900/70 px-3 py-2">
+          <div class="text-pink-100">护盾</div>
+          <div id="shield" class="text-xl font-bold">3</div>
+        </div>
+        <div class="border border-pink-300/40 bg-fuchsia-900/70 px-3 py-2">
+          <div class="text-pink-100">铃铛</div>
+          <div id="bells" class="text-xl font-bold">0</div>
+        </div>
+        <div class="border border-pink-300/40 bg-fuchsia-900/70 px-3 py-2">
+          <div class="text-pink-100">火力</div>
+          <div id="power" class="text-xl font-bold">1</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="760" height="480" class="h-auto w-full border border-pink-300/40 bg-pink-200"></canvas>
+      <aside class="space-y-3 text-sm text-fuchsia-100">
+        <div class="border border-fuchsia-500 bg-fuchsia-900/80 p-3">
+          <h2 class="mb-2 font-semibold text-pink-100">操作</h2>
+          <p>方向键 / WASD：移动</p>
+          <p>空格：射击</p>
+          <p>R：重新开始</p>
+        </div>
+        <div class="border border-fuchsia-500 bg-fuchsia-900/80 p-3">
+          <h2 class="mb-2 font-semibold text-pink-100">目标</h2>
+          <p>击落糖果敌人，收集铃铛升级火力，最后击破企鹅 Boss。</p>
+        </div>
+        <button id="restart" class="w-full border border-pink-200 bg-pink-300 px-4 py-2 font-bold text-fuchsia-950 hover:bg-pink-100">
+          重新开始
+        </button>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const shieldEl = document.getElementById("shield");
+    const bellsEl = document.getElementById("bells");
+    const powerEl = document.getElementById("power");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const player = { x: 76, y: 224, w: 42, h: 26, shield: 3, power: 1, bells: 0, fire: 0, invuln: 0 };
+    let bullets = [];
+    let enemies = [];
+    let notes = [];
+    let bells = [];
+    let decorations = [];
+    let boss = null;
+    let score = 0;
+    let kills = 0;
+    let spawnTimer = 0;
+    let frame = 0;
+    let state = "playing";
+    let lastTime = 0;
+
+    function resetGame() {
+      player.x = 76;
+      player.y = 224;
+      player.shield = 3;
+      player.power = 1;
+      player.bells = 0;
+      player.fire = 0;
+      player.invuln = 0;
+      bullets = [];
+      enemies = [];
+      notes = [];
+      bells = [];
+      boss = null;
+      score = 0;
+      kills = 0;
+      spawnTimer = 30;
+      frame = 0;
+      state = "playing";
+      decorations = Array.from({ length: 24 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: 4 + Math.random() * 8,
+        s: 0.8 + Math.random() * 1.6,
+        color: ["#f9a8d4", "#fde68a", "#a7f3d0", "#bfdbfe"][Math.floor(Math.random() * 4)],
+      }));
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      shieldEl.textContent = player.shield;
+      bellsEl.textContent = player.bells;
+      powerEl.textContent = player.power;
+    }
+
+    function rectsHit(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function shoot() {
+      if (player.fire > 0) return;
+      const lanes = player.power >= 3 ? [-10, 0, 10] : player.power >= 2 ? [-7, 7] : [0];
+      lanes.forEach((offset) => bullets.push({ x: player.x + player.w, y: player.y + 11 + offset, w: 18, h: 5, vx: 8.8 }));
+      player.fire = Math.max(5, 13 - player.power * 2);
+    }
+
+    function spawnEnemy() {
+      enemies.push({
+        x: canvas.width + 36,
+        y: 48 + Math.random() * (canvas.height - 96),
+        w: 34,
+        h: 28,
+        hp: kills > 10 ? 2 : 1,
+        vx: -2.3 - Math.random() * 1.6,
+        phase: Math.random() * Math.PI * 2,
+        fire: 50 + Math.random() * 80,
+        kind: Math.random() < 0.5 ? "candy" : "cake",
+      });
+    }
+
+    function spawnBoss() {
+      boss = { x: canvas.width + 110, y: 156, w: 118, h: 116, hp: 30, phase: 0, fire: 38 };
+    }
+
+    function hurtPlayer() {
+      if (player.invuln > 0 || state !== "playing") return;
+      player.shield -= 1;
+      player.power = Math.max(1, player.power - 1);
+      player.invuln = 80;
+      if (player.shield <= 0) state = "lost";
+      updateHud();
+    }
+
+    function update() {
+      if (state !== "playing") return;
+      frame += 1;
+      const speed = 4.2;
+      if (keys.has("ArrowUp") || keys.has("w")) player.y -= speed;
+      if (keys.has("ArrowDown") || keys.has("s")) player.y += speed;
+      if (keys.has("ArrowLeft") || keys.has("a")) player.x -= speed;
+      if (keys.has("ArrowRight") || keys.has("d")) player.x += speed;
+      if (keys.has(" ")) shoot();
+      player.x = Math.max(12, Math.min(canvas.width - player.w - 16, player.x));
+      player.y = Math.max(18, Math.min(canvas.height - player.h - 18, player.y));
+      player.fire = Math.max(0, player.fire - 1);
+      player.invuln = Math.max(0, player.invuln - 1);
+
+      decorations.forEach((dot) => {
+        dot.x -= dot.s;
+        if (dot.x < -20) {
+          dot.x = canvas.width + 20;
+          dot.y = Math.random() * canvas.height;
+        }
+      });
+
+      if (!boss) {
+        spawnTimer -= 1;
+        if (spawnTimer <= 0 && kills < 20) {
+          spawnEnemy();
+          spawnTimer = Math.max(26, 66 - kills);
+        }
+        if (kills >= 20) spawnBoss();
+      }
+
+      bullets.forEach((b) => (b.x += b.vx));
+      bullets = bullets.filter((b) => b.x < canvas.width + 40);
+      enemies.forEach((enemy) => {
+        enemy.x += enemy.vx;
+        enemy.phase += 0.06;
+        enemy.y += Math.sin(enemy.phase) * 1.8;
+        enemy.fire -= 1;
+        if (enemy.fire <= 0) {
+          notes.push({ x: enemy.x + 4, y: enemy.y + 13, w: 13, h: 12, vx: -4.6, vy: Math.sin(enemy.phase) * 1.5 });
+          enemy.fire = 70 + Math.random() * 70;
+        }
+      });
+      enemies = enemies.filter((enemy) => enemy.x > -80 && enemy.hp > 0);
+      notes.forEach((note) => {
+        note.x += note.vx;
+        note.y += note.vy;
+      });
+      notes = notes.filter((note) => note.x > -40 && note.y > -30 && note.y < canvas.height + 30);
+      bells.forEach((bell) => {
+        bell.x -= 2.1;
+        bell.y += Math.sin((frame + bell.phase) / 10) * 0.8;
+      });
+      bells = bells.filter((bell) => bell.x > -30);
+
+      if (boss) {
+        boss.x = Math.max(596, boss.x - 1.2);
+        boss.phase += 0.045;
+        boss.y = 156 + Math.sin(boss.phase) * 42;
+        boss.fire -= 1;
+        if (boss.fire <= 0) {
+          notes.push({ x: boss.x + 22, y: boss.y + 34, w: 14, h: 13, vx: -5.2, vy: -1.6 });
+          notes.push({ x: boss.x + 14, y: boss.y + 62, w: 14, h: 13, vx: -5.5, vy: 0 });
+          notes.push({ x: boss.x + 22, y: boss.y + 88, w: 14, h: 13, vx: -5.2, vy: 1.6 });
+          boss.fire = 42;
+        }
+      }
+
+      bullets.forEach((bullet) => {
+        enemies.forEach((enemy) => {
+          if (rectsHit(bullet, enemy)) {
+            bullet.x = canvas.width + 100;
+            enemy.hp -= 1;
+            if (enemy.hp <= 0) {
+              score += 100;
+              kills += 1;
+              if (Math.random() < 0.55) bells.push({ x: enemy.x + 8, y: enemy.y + 8, w: 18, h: 18, phase: Math.random() * 30 });
+            }
+          }
+        });
+        if (boss && rectsHit(bullet, { x: boss.x + 12, y: boss.y + 10, w: boss.w - 24, h: boss.h - 20 })) {
+          bullet.x = canvas.width + 100;
+          boss.hp -= 1;
+          score += 30;
+          if (boss.hp <= 0) {
+            score += 1600;
+            state = "won";
+          }
+        }
+      });
+
+      const ship = { x: player.x + 5, y: player.y + 4, w: player.w - 10, h: player.h - 8 };
+      enemies.forEach((enemy) => rectsHit(ship, enemy) && hurtPlayer());
+      if (boss && rectsHit(ship, { x: boss.x + 12, y: boss.y + 10, w: boss.w - 24, h: boss.h - 20 })) hurtPlayer();
+      notes.forEach((note) => {
+        if (rectsHit(ship, note)) {
+          note.x = -100;
+          hurtPlayer();
+        }
+      });
+      bells.forEach((bell) => {
+        if (rectsHit(ship, bell)) {
+          bell.x = -100;
+          player.bells += 1;
+          score += 80;
+          if (player.bells % 3 === 0) player.power = Math.min(3, player.power + 1);
+        }
+      });
+      updateHud();
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.globalAlpha = player.invuln > 0 && Math.floor(player.invuln / 5) % 2 === 0 ? 0.35 : 1;
+      ctx.fillStyle = "#fef08a";
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y + player.h / 2);
+      ctx.lineTo(player.x + 22, player.y);
+      ctx.lineTo(player.x + player.w, player.y + 10);
+      ctx.lineTo(player.x + player.w, player.y + player.h - 10);
+      ctx.lineTo(player.x + 22, player.y + player.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#ec4899";
+      ctx.fillRect(player.x + 16, player.y + 8, 12, 9);
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      if (enemy.kind === "candy") {
+        ctx.fillStyle = "#fb7185";
+        ctx.beginPath();
+        ctx.ellipse(enemy.x + 17, enemy.y + 14, 17, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fef3c7";
+        ctx.fillRect(enemy.x - 6, enemy.y + 9, 10, 10);
+        ctx.fillRect(enemy.x + 30, enemy.y + 9, 10, 10);
+      } else {
+        ctx.fillStyle = "#f9a8d4";
+        ctx.fillRect(enemy.x + 2, enemy.y + 7, 30, 17);
+        ctx.fillStyle = "#fde68a";
+        ctx.fillRect(enemy.x + 5, enemy.y + 2, 24, 7);
+      }
+    }
+
+    function drawBoss() {
+      if (!boss) return;
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.ellipse(boss.x + 60, boss.y + 58, 55, 52, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.ellipse(boss.x + 60, boss.y + 68, 40, 33, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fb7185";
+      ctx.beginPath();
+      ctx.arc(boss.x + 42, boss.y + 44, 7, 0, Math.PI * 2);
+      ctx.arc(boss.x + 78, boss.y + 44, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f59e0b";
+      ctx.beginPath();
+      ctx.moveTo(boss.x + 60, boss.y + 54);
+      ctx.lineTo(boss.x + 48, boss.y + 66);
+      ctx.lineTo(boss.x + 74, boss.y + 66);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fde047";
+      ctx.fillRect(boss.x + 12, boss.y - 12, Math.max(0, boss.hp) * 3, 6);
+    }
+
+    function drawOverlay() {
+      if (state === "playing") return;
+      ctx.fillStyle = "rgba(112, 26, 117, 0.82)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = state === "won" ? "#fde047" : "#fecdd3";
+      ctx.font = "bold 34px sans-serif";
+      ctx.fillText(state === "won" ? "企鹅 Boss 击破" : "护盾耗尽", canvas.width / 2, 220);
+      ctx.fillStyle = "#fce7f3";
+      ctx.font = "18px sans-serif";
+      ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 256);
+      ctx.textAlign = "left";
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bg = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      bg.addColorStop(0, "#f9a8d4");
+      bg.addColorStop(0.55, "#c4b5fd");
+      bg.addColorStop(1, "#93c5fd");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      decorations.forEach((dot) => {
+        ctx.fillStyle = dot.color;
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      bullets.forEach((bullet) => {
+        ctx.fillStyle = "#fef08a";
+        ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+      });
+      enemies.forEach(drawEnemy);
+      drawBoss();
+      bells.forEach((bell) => {
+        ctx.fillStyle = "#fde047";
+        ctx.beginPath();
+        ctx.arc(bell.x + 9, bell.y + 9, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#92400e";
+        ctx.fillRect(bell.x + 5, bell.y + 10, 8, 3);
+      });
+      notes.forEach((note) => {
+        ctx.fillStyle = "#7c3aed";
+        ctx.font = "bold 18px sans-serif";
+        ctx.fillText("♪", note.x, note.y + 13);
+      });
+      drawPlayer();
+      ctx.fillStyle = "#701a75";
+      ctx.font = "14px sans-serif";
+      ctx.fillText(boss ? `Boss HP ${Math.max(0, boss.hp)}` : `糖果敌人 ${kills}/20`, 16, 24);
+      drawOverlay();
+    }
+
+    function loop(time) {
+      if (time - lastTime > 16) {
+        update();
+        draw();
+        lastTime = time;
+      }
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.toLowerCase();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "w", "a", "s", "d"].includes(event.key) || ["w", "a", "s", "d"].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key);
+      keys.add(key);
+      if (key === "r") resetGame();
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
