@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+# git-commit/scripts/pre-commit
+# 覆盖：GC-01~GC-09（串联所有 skill 检查的 pre-commit 钩子）
+# 安装方式：bash <skills_root>/git-commit/scripts/pre-commit --install
+# 执行方式：由 git 在 commit 前自动调用
+
+set -euo pipefail
+
+# ────────────────────────────────────────────────
+# 安装模式
+# ────────────────────────────────────────────────
+if [[ "${1:-}" == "--install" ]]; then
+  GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  HOOKS_DIR="$GIT_ROOT/.git/hooks"
+  SKILL_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+  mkdir -p "$HOOKS_DIR"
+  cp "$0" "$HOOKS_DIR/pre-commit"
+  chmod +x "$HOOKS_DIR/pre-commit"
+
+  # commit-msg hook
+  cat > "$HOOKS_DIR/commit-msg" << 'HOOK_EOF'
+#!/usr/bin/env bash
+SKILL_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)/cursor/skills"
+bash "$SKILL_ROOT/git-commit/scripts/check-commit-msg.sh" "$1"
+HOOK_EOF
+  chmod +x "$HOOKS_DIR/commit-msg"
+
+  # 写入 SKILL_ROOT 到钩子配置
+  echo "SKILL_ROOT=$SKILL_ROOT" > "$HOOKS_DIR/.pre-commit-config"
+
+  echo "✅ pre-commit & commit-msg hooks 已安装到 $HOOKS_DIR"
+  echo "  Skill 根目录: $SKILL_ROOT"
+  exit 0
+fi
+
+# ────────────────────────────────────────────────
+# 确定 SKILL_ROOT
+# ────────────────────────────────────────────────
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_FILE="$HOOK_DIR/.pre-commit-config"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+  source "$CONFIG_FILE"
+else
+  # 回退：从 hook 目录推导（兼容直接复制场景）
+  SKILL_ROOT="$HOME/cursor/skills"
+fi
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+TOTAL_ERRORS=0
+TOTAL_WARNINGS=0
+
+section() { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
+pass()    { echo -e "${GREEN}  ✅ $*${NC}"; }
+fail()    { echo -e "${RED}  ❌ $*${NC}"; ((TOTAL_ERRORS++)) || true; }
+warn()    { echo -e "${YELLOW}  🟡 $*${NC}"; ((TOTAL_WARNINGS++)) || true; }
+
+echo ""
+echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║      Java 微服务 pre-commit 检查         ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
+
+# ────────────────────────────────────────────────
+# GC-01  受保护分支检查
+# ────────────────────────────────────────────────
+section "GC-01 受保护分支检查"
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "unknown")
+PROTECTED_BRANCHES="main master release"
+for pb in $PROTECTED_BRANCHES; do
+  if [[ "$BRANCH" == "$pb" ]]; then
+    fail "当前分支为受保护分支 [$BRANCH]，禁止直接提交！请切换到功能分支后再提交。"
+    echo -e "${RED}提交已阻断。${NC}"
+    exit 1
+  fi
+done
+pass "当前分支：$BRANCH（允许提交）"
+
+# ────────────────────────────────────────────────
+# GC-02  暂存区检查
+# ────────────────────────────────────────────────
+section "GC-02 暂存区文件清单"
+git diff --cached --name-status | head -30
+STAGED_COUNT=$(git diff --cached --name-only | wc -l | tr -d ' ')
+echo -e "  共 ${STAGED_COUNT} 个文件待提交"
+
+# ────────────────────────────────────────────────
+# GC-04 & GC-05  变更统计
+# ────────────────────────────────────────────────
+section "GC-04/GC-05 增删行数统计"
+git diff --cached --stat | tail -1
+
+# ────────────────────────────────────────────────
+# GC-09  增量扫描：获取变更 Java 文件
+# ────────────────────────────────────────────────
+section "GC-09 增量扫描范围"
+CHANGED_JAVA_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.java$' || true)
+CHANGED_XML_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.xml$' || true)
+CHANGED_SQL_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.sql$' || true)
+CHANGED_YML_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(yml|yaml|properties)$' || true)
+ALL_CHANGED=$(git diff --cached --name-only --diff-filter=ACM || true)
+
+JAVA_COUNT=$(echo "$CHANGED_JAVA_FILES" | grep -c '.' 2>/dev/null || echo 0)
+echo "  Java 文件：$JAVA_COUNT 个"
+
+if [[ -n "$CHANGED_JAVA_FILES" ]]; then
+  echo "$CHANGED_JAVA_FILES" | sed 's/^/    /'
+fi
+
+# ────────────────────────────────────────────────
+# 运行各 skill 检查脚本（增量模式）
+# ────────────────────────────────────────────────
+
+run_check() {
+  local script="$1"; shift
+  local files_arg="$*"
+  local script_path="$SKILL_ROOT/$script"
+
+  if [[ ! -f "$script_path" ]]; then
+    echo -e "${YELLOW}  🟡 脚本不存在，跳过：$script_path${NC}"
+    return 0
+  fi
+
+  if [[ -z "$files_arg" ]]; then
+    return 0
+  fi
+
+  # 运行检查脚本
+  if bash "$script_path" --files "$files_arg" 2>&1; then
+    return 0
+  else
+    local exit_code=$?
+    ((TOTAL_ERRORS++)) || true
+    return 0
+  fi
+}
+
+# 安全检查（全局，所有变更文件）
+if [[ -n "$ALL_CHANGED" ]]; then
+  section "check-secrets.sh（安全扫描）"
+  run_check "git-commit/scripts/check-secrets.sh" "$ALL_CHANGED"
+fi
+
+# 推送目标分支检查（Markdown / Shell 等文档与脚本）
+if [[ -n "$ALL_CHANGED" ]]; then
+  section "check-push-target.sh（推送目标分支检查）"
+  run_check "git-commit/scripts/check-push-target.sh" "$ALL_CHANGED"
+fi
+
+# 全局禁令（Java 文件）
+if [[ -n "$CHANGED_JAVA_FILES" ]]; then
+  section "check-global-bans.sh（全局禁令）"
+  run_check "java-code-review/scripts/check-global-bans.sh" "$CHANGED_JAVA_FILES"
+fi
+
+# common 模块标准用法（Java 文件）
+if [[ -n "$CHANGED_JAVA_FILES" ]]; then
+  section "check-common-usage.sh（common 模块规范）"
+  run_check "java-code-review/scripts/check-common-usage.sh" "$CHANGED_JAVA_FILES"
+fi
+
+# common 模块复用检查（Java 文件）
+if [[ -n "$CHANGED_JAVA_FILES" ]]; then
+  section "check-code-reuse.py（common 复用规范）"
+  run_check "java-code-review/scripts/check-code-reuse.py" "$CHANGED_JAVA_FILES"
+fi
+
+# Lombok 规范（Entity/DTO/VO/Controller 文件变更时触发）
+LOMBOK_FILES=$(echo "$CHANGED_JAVA_FILES" | grep -E '(Entity|DTO|VO|Controller|ServiceImpl)\.java' || true)
+if [[ -n "$LOMBOK_FILES" ]]; then
+  section "check-lombok.sh（Lombok 规范）"
+  run_check "java-code-review/scripts/check-lombok.sh" "$LOMBOK_FILES"
+fi
+
+# Controller 层检查
+CONTROLLER_FILES=$(echo "$CHANGED_JAVA_FILES" | grep 'Controller\.java' || true)
+if [[ -n "$CONTROLLER_FILES" ]]; then
+  section "check-controller.sh（Controller 层）"
+  run_check "java-controller/scripts/check-controller.sh" "$CONTROLLER_FILES"
+fi
+
+# Service 层检查
+SERVICE_FILES=$(echo "$CHANGED_JAVA_FILES" | grep -E 'Service(Impl)?\.java' || true)
+if [[ -n "$SERVICE_FILES" ]]; then
+  section "check-service.sh（Service 层）"
+  run_check "java-service/scripts/check-service.sh" "$SERVICE_FILES"
+fi
+
+# Convert 接口检查（Convert 文件或 ServiceImpl 文件变更时触发）
+CONVERT_TRIGGER=$(echo "$CHANGED_JAVA_FILES" | grep -E '(Convert|ServiceImpl)\.java' || true)
+if [[ -n "$CONVERT_TRIGGER" ]]; then
+  section "check-convert.sh（Convert 规范）"
+  run_check "java-service/scripts/check-convert.sh" "$CONVERT_TRIGGER"
+fi
+
+# MQ Listener 检查
+LISTENER_FILES=$(echo "$CHANGED_JAVA_FILES" | grep -i 'Listener\.java' || true)
+if [[ -n "$LISTENER_FILES" ]]; then
+  section "check-mq.sh（MQ Listener 层）"
+  run_check "java-mq/scripts/check-mq.sh" "$LISTENER_FILES"
+fi
+
+# Redis 相关检查
+REDIS_FILES=$(echo "$CHANGED_JAVA_FILES" | grep -i 'Redis\|Cache\|CacheConst' || true)
+if [[ -z "$REDIS_FILES" ]]; then
+  # 无 Redis 专属文件时，对 Service 文件也跑 Redis 检查
+  REDIS_FILES="$SERVICE_FILES"
+fi
+if [[ -n "$REDIS_FILES" ]]; then
+  section "check-redis.sh（Redis 使用规范）"
+  run_check "java-redis/scripts/check-redis.sh" "$REDIS_FILES"
+fi
+
+# XML / SQL 文件检查
+SQL_TARGETS=""
+[[ -n "$CHANGED_XML_FILES" ]] && SQL_TARGETS="$CHANGED_XML_FILES"
+[[ -n "$CHANGED_SQL_FILES" ]] && SQL_TARGETS="$SQL_TARGETS $CHANGED_SQL_FILES"
+SQL_TARGETS=$(echo "$SQL_TARGETS" | xargs || true)
+if [[ -n "$SQL_TARGETS" ]]; then
+  section "check-sql.sh（SQL/XML 规范）"
+  run_check "java-database/scripts/check-sql.sh" "$SQL_TARGETS"
+fi
+
+# Enum / 错误码检查
+ENUM_FILES=$(echo "$CHANGED_JAVA_FILES" | grep -E '(Enum|ErrorCode)\.java' || true)
+if [[ -n "$ENUM_FILES" ]]; then
+  section "check-enum.sh（枚举/错误码规范）"
+  run_check "java-enum/scripts/check-enum.sh" "$ENUM_FILES"
+fi
+
+# Mapper 层检查
+MAPPER_FILES=$(echo "$CHANGED_JAVA_FILES" | grep 'Mapper\.java' || true)
+if [[ -n "$MAPPER_FILES" ]]; then
+  section "check-mapper.sh（Mapper 层规范）"
+  run_check "java-mapper/scripts/check-mapper.sh" "$MAPPER_FILES"
+fi
+
+# API 模块检查
+API_FILES=$(echo "$CHANGED_JAVA_FILES" | grep -E '(FeignClient|Api\.java|Message\.java)' || true)
+if [[ -n "$API_FILES" ]]; then
+  section "check-api.sh（API 模块规范）"
+  run_check "java-api/scripts/check-api.sh" "$API_FILES"
+fi
+
+# POJO 边界检查（Entity/VO/DTO 文件）
+POJO_FILES=$(echo "$CHANGED_JAVA_FILES" | grep -E '(Entity|VO|DTO)\.java' || true)
+if [[ -n "$POJO_FILES" ]]; then
+  section "check-pojo.sh（POJO 边界规范）"
+  run_check "java-pojo/scripts/check-pojo.sh" "$POJO_FILES"
+fi
+
+# POM 文件检查（pom.xml 变更时触发）
+CHANGED_POM_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep 'pom\.xml$' || true)
+if [[ -n "$CHANGED_POM_FILES" ]]; then
+  section "check-pom.py（POM 依赖规范）"
+  GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  POM_SCRIPT="$SKILL_ROOT/java-project-structure/scripts/check-pom.py"
+  if [[ -f "$POM_SCRIPT" ]]; then
+    if ! python3 "$POM_SCRIPT" "$GIT_ROOT" 2>&1; then
+      ((TOTAL_ERRORS++)) || true
+    fi
+  else
+    echo -e "${YELLOW}  🟡 脚本不存在，跳过：$POM_SCRIPT${NC}"
+  fi
+fi
+
+# ────────────────────────────────────────────────
+# 行数限制检查（Python 脚本）
+# ────────────────────────────────────────────────
+if [[ -n "$CHANGED_JAVA_FILES" ]]; then
+  SIZE_SCRIPT="$SKILL_ROOT/java-code-review/scripts/check-size.py"
+  if [[ -f "$SIZE_SCRIPT" ]]; then
+    section "check-size.py（文件/方法行数）"
+    while IFS= read -r f; do
+      [[ -f "$f" ]] || continue
+      if ! python3 "$SIZE_SCRIPT" "$f" 2>&1; then
+        ((TOTAL_ERRORS++)) || true
+      fi
+    done <<< "$CHANGED_JAVA_FILES"
+  fi
+fi
+
+# ────────────────────────────────────────────────
+# 汇总
+# ────────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║              检查结果汇总                ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
+
+if [[ $TOTAL_ERRORS -gt 0 ]]; then
+  echo -e "${RED}❌ 发现 $TOTAL_ERRORS 个阻断错误，$TOTAL_WARNINGS 个警告${NC}"
+  echo -e "${RED}   提交已被阻断，请修复以上问题后重新提交${NC}"
+  exit 1
+elif [[ $TOTAL_WARNINGS -gt 0 ]]; then
+  echo -e "${YELLOW}🟡 通过（$TOTAL_WARNINGS 个警告，请关注）${NC}"
+  exit 0
+else
+  echo -e "${GREEN}✅ 全部检查通过，允许提交！${NC}"
+  exit 0
+fi
