@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Snow Bros 雪人兄弟</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-cyan-50 text-slate-900">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-cyan-700">Classic Games</p>
+        <h1 class="text-3xl font-bold text-slate-950">Mini Snow Bros 雪人兄弟</h1>
+        <p class="mt-1 max-w-2xl text-sm text-slate-600">
+          单屏平台雪球战斗：跳上平台、发射雪球，把敌人裹成雪球后撞飞清场。
+        </p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded-md bg-white px-3 py-2 shadow-sm">
+          <div class="text-xs text-slate-500">Score</div>
+          <div id="score" class="font-bold">0</div>
+        </div>
+        <div class="rounded-md bg-white px-3 py-2 shadow-sm">
+          <div class="text-xs text-slate-500">Wave</div>
+          <div id="wave" class="font-bold">1</div>
+        </div>
+        <div class="rounded-md bg-white px-3 py-2 shadow-sm">
+          <div class="text-xs text-slate-500">Lives</div>
+          <div id="lives" class="font-bold">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-lg border border-cyan-200 bg-white p-3 shadow-sm">
+      <canvas id="game" width="900" height="540" class="block h-auto w-full rounded-md bg-cyan-100"></canvas>
+    </section>
+
+    <footer class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+      <div>方向键 / A D 移动，W / ↑ / Space 跳跃，J / X 发射雪球，R 重新开始</div>
+      <button id="restart" class="rounded-md bg-cyan-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-cyan-700">
+        重新开始
+      </button>
+    </footer>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const waveEl = document.getElementById("wave");
+    const livesEl = document.getElementById("lives");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const gravity = 0.55;
+    const platforms = [
+      { x: 0, y: 502, w: 900, h: 38 },
+      { x: 70, y: 398, w: 230, h: 18 },
+      { x: 600, y: 398, w: 230, h: 18 },
+      { x: 260, y: 300, w: 380, h: 18 },
+      { x: 80, y: 205, w: 230, h: 18 },
+      { x: 590, y: 205, w: 230, h: 18 }
+    ];
+
+    const player = {
+      x: 90,
+      y: 450,
+      w: 34,
+      h: 46,
+      vx: 0,
+      vy: 0,
+      face: 1,
+      onGround: false,
+      cooldown: 0,
+      lives: 3,
+      invincible: 0
+    };
+
+    let snowballs = [];
+    let enemies = [];
+    let bursts = [];
+    let score = 0;
+    let wave = 1;
+    let frame = 0;
+    let gameOver = false;
+    let clearMessage = 0;
+
+    function resetGame() {
+      player.x = 90;
+      player.y = 450;
+      player.vx = 0;
+      player.vy = 0;
+      player.face = 1;
+      player.lives = 3;
+      player.cooldown = 0;
+      player.invincible = 0;
+      score = 0;
+      wave = 1;
+      frame = 0;
+      gameOver = false;
+      clearMessage = 0;
+      snowballs = [];
+      bursts = [];
+      spawnWave();
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      waveEl.textContent = wave;
+      livesEl.textContent = player.lives;
+    }
+
+    function spawnWave() {
+      const count = Math.min(3 + wave, 7);
+      enemies = Array.from({ length: count }, (_, i) => ({
+        x: 190 + (i % 4) * 165,
+        y: i < 4 ? 160 : 350,
+        w: 32,
+        h: 34,
+        vx: i % 2 === 0 ? 1.1 + wave * 0.12 : -1.1 - wave * 0.12,
+        vy: 0,
+        snow: 0,
+        frozen: false,
+        rolling: false,
+        rollSpeed: 0,
+        onGround: false
+      }));
+    }
+
+    function shootSnowball() {
+      if (player.cooldown > 0 || gameOver) return;
+      snowballs.push({
+        x: player.x + player.w / 2 + player.face * 22,
+        y: player.y + 18,
+        r: 9,
+        vx: player.face * 6.8,
+        life: 62
+      });
+      player.cooldown = 18;
+    }
+
+    function addBurst(x, y, color) {
+      for (let i = 0; i < 16; i++) {
+        bursts.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: (Math.random() - 0.7) * 5,
+          life: 20 + Math.random() * 16,
+          color
+        });
+      }
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function circleHitsRect(circle, rect) {
+      const cx = Math.max(rect.x, Math.min(circle.x, rect.x + rect.w));
+      const cy = Math.max(rect.y, Math.min(circle.y, rect.y + rect.h));
+      return Math.hypot(circle.x - cx, circle.y - cy) <= circle.r;
+    }
+
+    function applyPlatforms(actor) {
+      actor.onGround = false;
+      actor.vy += gravity;
+      actor.y += actor.vy;
+      for (const platform of platforms) {
+        const falling = actor.vy >= 0;
+        const feet = actor.y + actor.h;
+        const prevFeet = feet - actor.vy;
+        if (
+          falling &&
+          actor.x + actor.w > platform.x &&
+          actor.x < platform.x + platform.w &&
+          feet >= platform.y &&
+          prevFeet <= platform.y + 4
+        ) {
+          actor.y = platform.y - actor.h;
+          actor.vy = 0;
+          actor.onGround = true;
+        }
+      }
+      if (actor.y > canvas.height + 80) {
+        actor.y = 40;
+        actor.vy = 0;
+      }
+    }
+
+    function hitPlayer() {
+      if (player.invincible > 0 || gameOver) return;
+      player.lives -= 1;
+      player.invincible = 100;
+      player.x = 90;
+      player.y = 450;
+      player.vx = 0;
+      player.vy = 0;
+      addBurst(player.x + 18, player.y + 20, "#ef4444");
+      if (player.lives <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function defeatEnemy(enemy) {
+      enemy.dead = true;
+      score += enemy.rolling ? 300 : 120;
+      addBurst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#38bdf8");
+      updateHud();
+    }
+
+    function updatePlayer() {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      if (left) {
+        player.vx = -4.4;
+        player.face = -1;
+      } else if (right) {
+        player.vx = 4.4;
+        player.face = 1;
+      } else {
+        player.vx *= 0.78;
+      }
+      if ((keys.has("ArrowUp") || keys.has("w") || keys.has(" ")) && player.onGround) {
+        player.vy = -11.2;
+      }
+      if (keys.has("j") || keys.has("x")) shootSnowball();
+      player.x += player.vx;
+      player.x = Math.max(8, Math.min(canvas.width - player.w - 8, player.x));
+      applyPlatforms(player);
+      player.cooldown = Math.max(0, player.cooldown - 1);
+      player.invincible = Math.max(0, player.invincible - 1);
+    }
+
+    function updateSnowballs() {
+      snowballs.forEach((ball) => {
+        ball.x += ball.vx;
+        ball.life -= 1;
+        enemies.forEach((enemy) => {
+          if (!enemy.dead && !enemy.rolling && circleHitsRect(ball, enemy)) {
+            ball.dead = true;
+            enemy.snow += 1;
+            if (enemy.snow >= 3) {
+              enemy.frozen = true;
+              enemy.vx = 0;
+            }
+            addBurst(ball.x, ball.y, "#e0f2fe");
+          }
+        });
+      });
+      snowballs = snowballs.filter((ball) => !ball.dead && ball.life > 0 && ball.x > -20 && ball.x < canvas.width + 20);
+    }
+
+    function updateEnemies() {
+      enemies.forEach((enemy) => {
+        if (enemy.dead) return;
+
+        if (enemy.frozen && !enemy.rolling && rectsOverlap(player, enemy)) {
+          enemy.rolling = true;
+          enemy.frozen = false;
+          enemy.rollSpeed = player.face * 8.2;
+          enemy.vx = enemy.rollSpeed;
+        }
+
+        if (enemy.rolling) {
+          enemy.x += enemy.vx;
+          enemies.forEach((other) => {
+            if (other !== enemy && !other.dead && rectsOverlap(enemy, other)) defeatEnemy(other);
+          });
+          if (enemy.x < -50 || enemy.x > canvas.width + 50) defeatEnemy(enemy);
+          return;
+        }
+
+        if (!enemy.frozen) {
+          enemy.x += enemy.vx;
+          if (enemy.x < 10 || enemy.x + enemy.w > canvas.width - 10) enemy.vx *= -1;
+          if (frame % 110 === 0 && Math.random() < 0.55 && enemy.onGround) enemy.vy = -8;
+        }
+
+        applyPlatforms(enemy);
+        if (!enemy.frozen && rectsOverlap(player, enemy)) hitPlayer();
+      });
+      enemies = enemies.filter((enemy) => !enemy.dead);
+
+      if (enemies.length === 0 && !gameOver) {
+        clearMessage = 90;
+        wave += 1;
+        score += 500;
+        spawnWave();
+        updateHud();
+      }
+    }
+
+    function updateBursts() {
+      bursts.forEach((burst) => {
+        burst.x += burst.vx;
+        burst.y += burst.vy;
+        burst.vy += 0.15;
+        burst.life -= 1;
+      });
+      bursts = bursts.filter((burst) => burst.life > 0);
+      clearMessage = Math.max(0, clearMessage - 1);
+    }
+
+    function update() {
+      frame += 1;
+      if (!gameOver) {
+        updatePlayer();
+        updateSnowballs();
+        updateEnemies();
+      }
+      updateBursts();
+    }
+
+    function drawBackground() {
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, "#ecfeff");
+      sky.addColorStop(0.6, "#bae6fd");
+      sky.addColorStop(1, "#cffafe");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      for (let i = 0; i < 70; i++) {
+        const x = (i * 73 + frame * 0.55) % canvas.width;
+        const y = (i * 41 + frame * 0.25) % canvas.height;
+        ctx.fillRect(x, y, 3, 3);
+      }
+
+      platforms.forEach((platform) => {
+        ctx.fillStyle = "#0e7490";
+        ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(platform.x, platform.y, platform.w, 6);
+      });
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      if (player.invincible > 0 && Math.floor(frame / 5) % 2 === 0) ctx.globalAlpha = 0.45;
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(17, 14, 14, 0, Math.PI * 2);
+      ctx.arc(17, 32, 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(player.face === 1 ? 22 : 9, 10, 4, 4);
+      ctx.fillStyle = "#fb923c";
+      ctx.beginPath();
+      ctx.moveTo(17 + player.face * 6, 18);
+      ctx.lineTo(17 + player.face * 19, 22);
+      ctx.lineTo(17 + player.face * 6, 25);
+      ctx.fill();
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(7, 2, 20, 5);
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      if (enemy.rolling || enemy.frozen) {
+        const radius = enemy.rolling ? 22 : 19 + enemy.snow * 2;
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(16, 17, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#7dd3fc";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "#a855f7";
+        ctx.fillRect(2, 6, 28, 26);
+        ctx.fillStyle = "#fef3c7";
+        ctx.fillRect(8, 12, 5, 5);
+        ctx.fillRect(20, 12, 5, 5);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(10, 25, 12, 4);
+        if (enemy.snow > 0) {
+          ctx.fillStyle = "rgba(248,250,252,0.85)";
+          ctx.beginPath();
+          ctx.arc(16, 17, 9 + enemy.snow * 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawProjectiles() {
+      snowballs.forEach((ball) => {
+        ctx.fillStyle = "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#67e8f9";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    function drawBursts() {
+      bursts.forEach((burst) => {
+        ctx.globalAlpha = Math.max(0, burst.life / 28);
+        ctx.fillStyle = burst.color;
+        ctx.fillRect(burst.x, burst.y, 5, 5);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawOverlay() {
+      if (clearMessage > 0) {
+        ctx.fillStyle = "#155e75";
+        ctx.textAlign = "center";
+        ctx.font = "800 34px system-ui, sans-serif";
+        ctx.fillText("Wave Clear!", canvas.width / 2, 86);
+        ctx.textAlign = "left";
+      }
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(15,23,42,0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.font = "800 42px system-ui, sans-serif";
+        ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 24);
+        ctx.font = "500 18px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, canvas.height / 2 + 20);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function draw() {
+      drawBackground();
+      drawProjectiles();
+      enemies.forEach(drawEnemy);
+      drawPlayer();
+      drawBursts();
+      drawOverlay();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>
