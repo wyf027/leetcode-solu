@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Rampage</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100 antialiased">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-5">
+      <header class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-lime-300">Classic Games</p>
+          <h1 class="text-3xl font-bold md:text-4xl">Mini Rampage</h1>
+          <p class="mt-2 max-w-2xl text-sm text-zinc-400">
+            扮演城市怪兽，左右移动、跳跃和出拳拆楼，避开巡逻坦克。
+          </p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2">
+            <p class="text-xs text-zinc-400">Score</p>
+            <p id="score" class="text-xl font-bold text-lime-200">0</p>
+          </div>
+          <div class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2">
+            <p class="text-xs text-zinc-400">Health</p>
+            <p id="health" class="text-xl font-bold text-rose-200">5</p>
+          </div>
+          <div class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2">
+            <p class="text-xs text-zinc-400">Blocks</p>
+            <p id="blocks" class="text-xl font-bold text-sky-200">0</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-3 shadow-xl shadow-black/30">
+          <canvas
+            id="game"
+            width="780"
+            height="500"
+            class="block w-full rounded-md bg-gradient-to-b from-indigo-950 via-zinc-950 to-stone-900"
+          ></canvas>
+        </div>
+
+        <aside class="grid content-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div class="grid grid-cols-2 gap-2">
+            <button id="left" class="h-11 rounded-md bg-lime-400 font-bold text-zinc-950 hover:bg-lime-300">
+              A / ←
+            </button>
+            <button id="right" class="h-11 rounded-md bg-lime-400 font-bold text-zinc-950 hover:bg-lime-300">
+              D / →
+            </button>
+          </div>
+          <button id="jump" class="h-11 rounded-md bg-sky-400 font-bold text-zinc-950 hover:bg-sky-300">
+            W / ↑ 跳跃
+          </button>
+          <button id="punch" class="h-11 rounded-md bg-rose-400 font-bold text-zinc-950 hover:bg-rose-300">
+            Space 出拳
+          </button>
+          <button
+            id="restart"
+            class="h-11 rounded-md border border-zinc-700 bg-zinc-950 text-sm font-semibold hover:border-lime-300 hover:text-lime-200"
+          >
+            重新开始
+          </button>
+          <p id="message" class="min-h-20 rounded-md bg-zinc-950 p-3 text-sm text-zinc-300">
+            靠近楼体后出拳拆砖，清空所有砖块即可胜利。
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.querySelector("#game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.querySelector("#score");
+      const healthEl = document.querySelector("#health");
+      const blocksEl = document.querySelector("#blocks");
+      const messageEl = document.querySelector("#message");
+      const leftBtn = document.querySelector("#left");
+      const rightBtn = document.querySelector("#right");
+      const jumpBtn = document.querySelector("#jump");
+      const punchBtn = document.querySelector("#punch");
+      const restartBtn = document.querySelector("#restart");
+
+      const keys = new Set();
+      const groundY = 410;
+      const state = {
+        score: 0,
+        health: 5,
+        done: false,
+        punchFlash: 0,
+        lastHit: 0,
+        lastTime: 0,
+        monster: { x: 92, y: groundY, vx: 0, vy: 0, facing: 1 },
+        tank: { x: 660, dir: -1, cooldown: 0 },
+        buildings: [],
+      };
+
+      const makeBuildings = () => {
+        state.buildings = [
+          { x: 200, y: 154, cols: 4, rows: 5, hp: [] },
+          { x: 390, y: 122, cols: 5, rows: 6, hp: [] },
+          { x: 610, y: 186, cols: 3, rows: 4, hp: [] },
+        ];
+        state.buildings.forEach((building) => {
+          building.hp = Array.from({ length: building.cols * building.rows }, () => 1);
+        });
+      };
+
+      const remainingBlocks = () => {
+        return state.buildings.reduce((sum, building) => {
+          return sum + building.hp.filter(Boolean).length;
+        }, 0);
+      };
+
+      const updateHud = () => {
+        scoreEl.textContent = state.score;
+        healthEl.textContent = state.health;
+        blocksEl.textContent = remainingBlocks();
+      };
+
+      const setMessage = (text) => {
+        messageEl.textContent = text;
+      };
+
+      const reset = () => {
+        state.score = 0;
+        state.health = 5;
+        state.done = false;
+        state.punchFlash = 0;
+        state.lastHit = 0;
+        state.monster = { x: 92, y: groundY, vx: 0, vy: 0, facing: 1 };
+        state.tank = { x: 660, dir: -1, cooldown: 0 };
+        makeBuildings();
+        setMessage("靠近楼体后出拳拆砖，注意避开坦克。");
+        updateHud();
+      };
+
+      const damageMonster = () => {
+        const now = performance.now();
+        if (now - state.lastHit < 850 || state.done) return;
+        state.lastHit = now;
+        state.health -= 1;
+        setMessage("被坦克撞到了，生命 -1。");
+        if (state.health <= 0) {
+          state.done = true;
+          setMessage("城市守军挡住了你，按重新开始再来。");
+        }
+        updateHud();
+      };
+
+      const punch = () => {
+        if (state.done) {
+          reset();
+          return;
+        }
+        state.punchFlash = 10;
+        const reachX = state.monster.x + state.monster.facing * 48;
+        const reachY = state.monster.y - 72;
+        let hit = false;
+        for (const building of state.buildings) {
+          const cellW = 34;
+          const cellH = 34;
+          for (let row = building.rows - 1; row >= 0; row -= 1) {
+            for (let col = 0; col < building.cols; col += 1) {
+              const index = row * building.cols + col;
+              if (!building.hp[index]) continue;
+              const bx = building.x + col * cellW;
+              const by = building.y + row * cellH;
+              if (reachX >= bx - 18 && reachX <= bx + cellW + 18 && reachY >= by - 36 && reachY <= by + cellH + 40) {
+                building.hp[index] = 0;
+                state.score += 50;
+                hit = true;
+                setMessage("砖块被砸碎，继续拆楼。");
+                break;
+              }
+            }
+            if (hit) break;
+          }
+          if (hit) break;
+        }
+        if (!hit) setMessage("没有打到楼体，贴近一点。");
+        if (remainingBlocks() === 0) {
+          state.done = true;
+          setMessage("楼体全拆完，怪兽胜利！");
+        }
+        updateHud();
+      };
+
+      const jump = () => {
+        if (state.done) return;
+        if (state.monster.y >= groundY) state.monster.vy = -13;
+      };
+
+      const drawBuildings = () => {
+        const cellW = 34;
+        const cellH = 34;
+        state.buildings.forEach((building, buildingIndex) => {
+          for (let row = 0; row < building.rows; row += 1) {
+            for (let col = 0; col < building.cols; col += 1) {
+              const index = row * building.cols + col;
+              if (!building.hp[index]) continue;
+              const x = building.x + col * cellW;
+              const y = building.y + row * cellH;
+              ctx.fillStyle = buildingIndex === 1 ? "#475569" : "#57534e";
+              ctx.fillRect(x, y, cellW - 2, cellH - 2);
+              ctx.fillStyle = "#facc15";
+              ctx.fillRect(x + 9, y + 9, 8, 8);
+              ctx.fillRect(x + 22, y + 20, 7, 7);
+            }
+          }
+        });
+      };
+
+      const drawMonster = () => {
+        const monster = state.monster;
+        ctx.save();
+        ctx.translate(monster.x, monster.y);
+        ctx.scale(monster.facing, 1);
+        ctx.fillStyle = "#84cc16";
+        ctx.beginPath();
+        ctx.roundRect(-26, -102, 52, 76, 16);
+        ctx.fill();
+        ctx.fillStyle = "#bef264";
+        ctx.beginPath();
+        ctx.arc(0, -120, 27, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(9, -127, 6, 5);
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(13, -108, 18, 6);
+        ctx.strokeStyle = "#84cc16";
+        ctx.lineWidth = 10;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(-20, -86);
+        ctx.lineTo(-44, -56);
+        ctx.moveTo(20, -86);
+        ctx.lineTo(state.punchFlash > 0 ? 72 : 42, -68);
+        ctx.moveTo(-12, -28);
+        ctx.lineTo(-24, 0);
+        ctx.moveTo(12, -28);
+        ctx.lineTo(27, 0);
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      const drawTank = () => {
+        const tank = state.tank;
+        ctx.fillStyle = "#334155";
+        ctx.fillRect(tank.x - 28, groundY - 22, 56, 22);
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillRect(tank.x - 10, groundY - 38, 34, 16);
+        ctx.fillRect(tank.x + tank.dir * 14, groundY - 33, tank.dir * 28, 5);
+        ctx.fillStyle = "#020617";
+        ctx.beginPath();
+        ctx.arc(tank.x - 16, groundY + 1, 7, 0, Math.PI * 2);
+        ctx.arc(tank.x + 16, groundY + 1, 7, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      const drawScene = () => {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#172554";
+        ctx.fillRect(0, 0, canvas.width, 250);
+        ctx.fillStyle = "#292524";
+        ctx.fillRect(0, groundY, canvas.width, 90);
+        ctx.strokeStyle = "#f97316";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, groundY);
+        ctx.lineTo(canvas.width, groundY);
+        ctx.stroke();
+        drawBuildings();
+        drawTank();
+        drawMonster();
+        if (state.done) {
+          ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = "#d9f99d";
+          ctx.font = "bold 34px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(state.health > 0 ? "Rampage Complete" : "Game Over", canvas.width / 2, 220);
+          ctx.font = "18px system-ui, sans-serif";
+          ctx.fillText("按 Space 或重新开始按钮再来一局", canvas.width / 2, 260);
+        }
+      };
+
+      const update = (delta) => {
+        const monster = state.monster;
+        if (!state.done) {
+          monster.vx = 0;
+          if (keys.has("left")) {
+            monster.vx = -4.2;
+            monster.facing = -1;
+          }
+          if (keys.has("right")) {
+            monster.vx = 4.2;
+            monster.facing = 1;
+          }
+          monster.x = Math.max(36, Math.min(canvas.width - 36, monster.x + monster.vx * delta));
+          monster.vy += 0.65 * delta;
+          monster.y = Math.min(groundY, monster.y + monster.vy * delta);
+          if (monster.y >= groundY) monster.vy = 0;
+          if (state.punchFlash > 0) state.punchFlash -= 1;
+
+          state.tank.x += state.tank.dir * 2.1 * delta;
+          if (state.tank.x < 55 || state.tank.x > canvas.width - 55) state.tank.dir *= -1;
+          if (Math.abs(state.tank.x - monster.x) < 46 && Math.abs(monster.y - groundY) < 24) {
+            damageMonster();
+          }
+        }
+      };
+
+      const tick = (time) => {
+        const delta = Math.min(2, (time - (state.lastTime || time)) / 16);
+        state.lastTime = time;
+        update(delta);
+        drawScene();
+        requestAnimationFrame(tick);
+      };
+
+      const setKey = (key, active) => {
+        if (active) keys.add(key);
+        else keys.delete(key);
+      };
+
+      leftBtn.addEventListener("pointerdown", () => setKey("left", true));
+      leftBtn.addEventListener("pointerup", () => setKey("left", false));
+      rightBtn.addEventListener("pointerdown", () => setKey("right", true));
+      rightBtn.addEventListener("pointerup", () => setKey("right", false));
+      jumpBtn.addEventListener("click", jump);
+      punchBtn.addEventListener("click", punch);
+      restartBtn.addEventListener("click", reset);
+      document.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (key === "a" || event.key === "ArrowLeft") setKey("left", true);
+        if (key === "d" || event.key === "ArrowRight") setKey("right", true);
+        if (key === "w" || event.key === "ArrowUp") jump();
+        if (key === " ") punch();
+      });
+      document.addEventListener("keyup", (event) => {
+        const key = event.key.toLowerCase();
+        if (key === "a" || event.key === "ArrowLeft") setKey("left", false);
+        if (key === "d" || event.key === "ArrowRight") setKey("right", false);
+      });
+
+      reset();
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>
