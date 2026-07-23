@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Choplifter Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.24em] text-cyan-300">Classic rescue arcade</p>
+        <h1 class="text-2xl font-bold text-white">Mini Choplifter</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Saved</p>
+          <p id="saved" class="text-lg font-bold text-emerald-300">0</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Onboard</p>
+          <p id="cargo" class="text-lg font-bold text-amber-300">0</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Lives</p>
+          <p id="lives" class="text-lg font-bold text-rose-300">3</p>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <p class="text-slate-400">Stage</p>
+          <p id="stage" class="text-lg font-bold text-cyan-300">1</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="rounded border border-slate-700 bg-slate-900 p-3 shadow-2xl shadow-cyan-950/30">
+      <canvas id="game" width="960" height="540" class="block w-full rounded bg-slate-950"></canvas>
+    </div>
+
+    <section class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
+      <p>Arrow keys/WASD move. Land near hostages to board them. Return to the left base to unload.</p>
+      <button id="restart" class="rounded bg-cyan-400 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-300">Restart</button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const savedEl = document.getElementById("saved");
+    const cargoEl = document.getElementById("cargo");
+    const livesEl = document.getElementById("lives");
+    const stageEl = document.getElementById("stage");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const groundY = 452;
+    const base = { x: 22, y: groundY - 24, w: 132, h: 24 };
+    const heli = { x: 98, y: 320, vx: 0, vy: 0, w: 52, h: 22, face: 1, inv: 0 };
+    let hostages = [];
+    let tanks = [];
+    let shells = [];
+    let sparks = [];
+    let saved = 0;
+    let cargo = 0;
+    let lives = 3;
+    let stage = 1;
+    let message = "Rescue 8 stranded hostages";
+    let gameOver = false;
+    let lastTime = 0;
+
+    function resetActors() {
+      hostages = Array.from({ length: 8 + Math.min(stage, 4) }, (_, i) => ({
+        x: 260 + i * 72 + (i % 2) * 18,
+        y: groundY - 9,
+        r: 6,
+        rescued: false,
+        walk: i % 2 ? 1 : -1,
+        wait: Math.random() * 2
+      }));
+      tanks = Array.from({ length: 3 + Math.min(stage, 3) }, (_, i) => ({
+        x: 370 + i * 145,
+        y: groundY - 18,
+        w: 34,
+        h: 18,
+        cool: 0.8 + i * 0.42,
+        dir: i % 2 ? -1 : 1
+      }));
+      shells = [];
+      sparks = [];
+    }
+
+    function reset() {
+      heli.x = 98;
+      heli.y = 320;
+      heli.vx = 0;
+      heli.vy = 0;
+      heli.face = 1;
+      heli.inv = 0;
+      saved = 0;
+      cargo = 0;
+      lives = 3;
+      stage = 1;
+      message = "Rescue 8 stranded hostages";
+      gameOver = false;
+      resetActors();
+      updateHud();
+    }
+
+    function resetHeli() {
+      heli.x = 98;
+      heli.y = 320;
+      heli.vx = 0;
+      heli.vy = 0;
+      heli.inv = 2;
+      cargo = Math.max(0, cargo - 1);
+      updateHud();
+    }
+
+    function updateHud() {
+      savedEl.textContent = saved;
+      cargoEl.textContent = cargo;
+      livesEl.textContent = lives;
+      stageEl.textContent = stage;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function isLanded() {
+      return heli.y + heli.h >= groundY - 4 && Math.abs(heli.vy) < 28;
+    }
+
+    function boardHostages(dt) {
+      if (!isLanded() || cargo >= 4) return;
+      for (const h of hostages) {
+        if (h.rescued) continue;
+        if (Math.abs((heli.x + heli.w / 2) - h.x) < 46) {
+          h.wait -= dt;
+          if (h.wait <= 0) {
+            h.rescued = true;
+            cargo += 1;
+            message = "Hostage aboard. Capacity 4.";
+            updateHud();
+          }
+          break;
+        }
+      }
+    }
+
+    function unloadAtBase() {
+      if (!isLanded() || cargo === 0) return;
+      const onBase = heli.x < base.x + base.w && heli.x + heli.w > base.x;
+      if (!onBase) return;
+      saved += cargo;
+      cargo = 0;
+      message = saved >= hostages.length ? "Zone clear. New wave inbound." : "Passengers safe. Return for more.";
+      updateHud();
+      if (saved >= hostages.length) {
+        stage += 1;
+        setTimeout(() => {
+          if (gameOver) return;
+          saved = 0;
+          cargo = 0;
+          message = "New wave: faster fire, tighter rescues.";
+          heli.x = 98;
+          heli.y = 320;
+          resetActors();
+          updateHud();
+        }, 650);
+      }
+    }
+
+    function fireShell(tank) {
+      const hx = heli.x + heli.w / 2;
+      const hy = heli.y + heli.h / 2;
+      const tx = tank.x + tank.w / 2;
+      const ty = tank.y;
+      const angle = Math.atan2(hy - ty, hx - tx);
+      const speed = 160 + stage * 18;
+      shells.push({
+        x: tx,
+        y: ty,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        r: 4,
+        life: 4
+      });
+    }
+
+    function damageHeli() {
+      if (heli.inv > 0 || gameOver) return;
+      lives -= 1;
+      message = lives > 0 ? "Hit! Regroup at base." : "Rescue failed. Press restart.";
+      sparks.push({ x: heli.x + heli.w / 2, y: heli.y + heli.h / 2, life: 0.55 });
+      updateHud();
+      if (lives <= 0) {
+        gameOver = true;
+      } else {
+        resetHeli();
+      }
+    }
+
+    function updateHostages(dt) {
+      for (const h of hostages) {
+        if (h.rescued) continue;
+        h.x += h.walk * 12 * dt;
+        if (h.x < 240 || h.x > 900) h.walk *= -1;
+        if (rectsOverlap({ x: h.x - 5, y: h.y - 9, w: 10, h: 14 }, heli) && !isLanded()) {
+          damageHeli();
+        }
+      }
+    }
+
+    function updateTanks(dt) {
+      for (const tank of tanks) {
+        tank.x += tank.dir * (14 + stage * 2) * dt;
+        if (tank.x < 330 || tank.x > 910) tank.dir *= -1;
+        tank.cool -= dt;
+        if (tank.cool <= 0) {
+          fireShell(tank);
+          tank.cool = Math.max(0.62, 1.85 - stage * 0.12 + Math.random() * 0.65);
+        }
+        if (rectsOverlap(tank, heli)) damageHeli();
+      }
+    }
+
+    function updateShells(dt) {
+      for (const s of shells) {
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.life -= dt;
+        if (s.x > heli.x && s.x < heli.x + heli.w && s.y > heli.y && s.y < heli.y + heli.h) {
+          s.life = 0;
+          damageHeli();
+        }
+      }
+      shells = shells.filter((s) => s.life > 0 && s.x > -20 && s.x < canvas.width + 20 && s.y > -20 && s.y < canvas.height + 20);
+    }
+
+    function updateHeli(dt) {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w");
+      const down = keys.has("ArrowDown") || keys.has("s");
+      const ax = (right ? 1 : 0) - (left ? 1 : 0);
+      const ay = (down ? 1 : 0) - (up ? 1 : 0);
+      heli.vx += ax * 360 * dt;
+      heli.vy += ay * 300 * dt + 58 * dt;
+      heli.vx *= 0.94;
+      heli.vy *= 0.95;
+      heli.x += heli.vx * dt;
+      heli.y += heli.vy * dt;
+      if (ax) heli.face = ax;
+      heli.x = Math.max(8, Math.min(canvas.width - heli.w - 8, heli.x));
+      heli.y = Math.max(64, Math.min(groundY - heli.h, heli.y));
+      if (heli.y + heli.h >= groundY) heli.vy = Math.min(0, heli.vy);
+      heli.inv = Math.max(0, heli.inv - dt);
+    }
+
+    function update(dt) {
+      if (gameOver) return;
+      updateHeli(dt);
+      updateHostages(dt);
+      updateTanks(dt);
+      updateShells(dt);
+      boardHostages(dt);
+      unloadAtBase();
+      for (const p of sparks) p.life -= dt;
+      sparks = sparks.filter((p) => p.life > 0);
+    }
+
+    function drawSky() {
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, "#0f172a");
+      gradient.addColorStop(0.55, "#12334a");
+      gradient.addColorStop(1, "#1f2937");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(125, 211, 252, 0.16)";
+      for (let i = 0; i < 7; i++) {
+        ctx.fillRect((i * 157 + stage * 11) % canvas.width, 72 + i * 21, 62, 3);
+      }
+    }
+
+    function drawGround() {
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+      ctx.fillStyle = "#475569";
+      for (let x = 0; x < canvas.width; x += 48) ctx.fillRect(x, groundY + 22 + (x % 96 ? 8 : 0), 30, 4);
+      ctx.fillStyle = "#0f766e";
+      ctx.fillRect(base.x, base.y, base.w, base.h);
+      ctx.fillStyle = "#67e8f9";
+      ctx.fillRect(base.x + 12, base.y + 6, base.w - 24, 5);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "bold 14px system-ui";
+      ctx.fillText("BASE", base.x + 47, base.y - 8);
+    }
+
+    function drawHeli() {
+      ctx.save();
+      ctx.translate(heli.x + heli.w / 2, heli.y + heli.h / 2);
+      ctx.scale(heli.face, 1);
+      ctx.globalAlpha = heli.inv > 0 && Math.floor(heli.inv * 10) % 2 ? 0.45 : 1;
+      ctx.strokeStyle = "#bae6fd";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-30, -15);
+      ctx.lineTo(24, -15);
+      ctx.stroke();
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.beginPath();
+      ctx.moveTo(-6, -15);
+      ctx.lineTo(0, -26);
+      ctx.moveTo(-18, -26);
+      ctx.lineTo(18, -26);
+      ctx.stroke();
+      ctx.fillStyle = "#22d3ee";
+      ctx.fillRect(-26, -10, 44, 20);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, -6, 13, 8);
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(-38, -4, 13, 5);
+      ctx.fillStyle = "#f97316";
+      ctx.fillRect(18, 0, 10, 6);
+      ctx.restore();
+    }
+
+    function drawHostages() {
+      for (const h of hostages) {
+        if (h.rescued) continue;
+        ctx.fillStyle = "#fde68a";
+        ctx.beginPath();
+        ctx.arc(h.x, h.y - 10, h.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(h.x - 4, h.y - 4, 8, 13);
+      }
+    }
+
+    function drawTanks() {
+      for (const tank of tanks) {
+        ctx.fillStyle = "#64748b";
+        ctx.fillRect(tank.x, tank.y, tank.w, tank.h);
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillRect(tank.x + 9, tank.y - 7, 16, 8);
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(tank.x + 17, tank.y - 5);
+        ctx.lineTo(tank.x + 17 + tank.dir * 23, tank.y - 11);
+        ctx.stroke();
+      }
+    }
+
+    function drawShells() {
+      ctx.fillStyle = "#fb7185";
+      for (const s of shells) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawSparks() {
+      for (const p of sparks) {
+        ctx.strokeStyle = `rgba(251, 191, 36, ${p.life * 1.7})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 40 * (1 - p.life), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function draw() {
+      drawSky();
+      drawGround();
+      drawHostages();
+      drawTanks();
+      drawShells();
+      drawHeli();
+      drawSparks();
+      ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+      ctx.fillRect(18, 18, 440, 34);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "16px system-ui";
+      ctx.fillText(message, 30, 41);
+      if (gameOver) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.76)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 44px system-ui";
+        ctx.fillText("Mission Over", 345, 250);
+        ctx.font = "20px system-ui";
+        ctx.fillText("Press Restart to launch another rescue.", 315, 286);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+      keys.add(event.key);
+    });
+    addEventListener("keyup", (event) => keys.delete(event.key));
+    restartBtn.addEventListener("click", reset);
+    canvas.addEventListener("pointermove", (event) => {
+      if (!event.buttons) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width * canvas.width;
+      const y = (event.clientY - rect.top) / rect.height * canvas.height;
+      heli.vx += (x - heli.x - heli.w / 2) * 0.02;
+      heli.vy += (y - heli.y - heli.h / 2) * 0.02;
+    });
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
