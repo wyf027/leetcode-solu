@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Xevious</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-emerald-200">Mini Xevious</h1>
+        <p class="text-sm text-stone-400">Strafe through the valley, shoot fighters, and bomb ground bases.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <div class="rounded border border-stone-700 px-3 py-2">Score <span id="score" class="font-mono text-emerald-200">0</span></div>
+        <div class="rounded border border-stone-700 px-3 py-2">Lives <span id="lives" class="font-mono text-rose-200">3</span></div>
+        <div class="rounded border border-stone-700 px-3 py-2">Wave <span id="wave" class="font-mono text-amber-200">1</span></div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <canvas id="game" width="520" height="720" class="h-[78vh] min-h-[34rem] w-full rounded border border-emerald-900 bg-black object-contain"></canvas>
+      <aside class="space-y-3 text-sm text-stone-300">
+        <div class="rounded border border-stone-800 bg-stone-900/70 p-3">
+          <div class="mb-2 font-semibold text-stone-100">Controls</div>
+          <p>Arrow keys or WASD move. Space fires forward. X drops a bomb. Tap the lower screen to move on touch screens.</p>
+        </div>
+        <button id="start" class="w-full rounded bg-emerald-500 px-4 py-2 font-semibold text-stone-950 hover:bg-emerald-300">Start</button>
+        <div id="message" class="rounded border border-stone-800 bg-stone-900/70 p-3 text-stone-200">Press Start to launch.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const waveEl = document.getElementById("wave");
+    const messageEl = document.getElementById("message");
+    const startBtn = document.getElementById("start");
+    const keys = new Set();
+
+    const ship = { x: 260, y: 610, w: 30, h: 34 };
+    let bullets = [];
+    let bombs = [];
+    let enemies = [];
+    let bases = [];
+    let blasts = [];
+    let stars = [];
+    let score = 0;
+    let lives = 3;
+    let wave = 1;
+    let scroll = 0;
+    let fireCooldown = 0;
+    let bombCooldown = 0;
+    let spawnTimer = 0;
+    let baseTimer = 0;
+    let running = false;
+    let lastTime = 0;
+
+    function reset() {
+      ship.x = 260;
+      ship.y = 610;
+      bullets = [];
+      bombs = [];
+      enemies = [];
+      bases = [];
+      blasts = [];
+      stars = Array.from({ length: 70 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: 1 + Math.random() * 1.8
+      }));
+      score = 0;
+      lives = 3;
+      wave = 1;
+      scroll = 0;
+      fireCooldown = 0;
+      bombCooldown = 0;
+      spawnTimer = 0;
+      baseTimer = 0.7;
+      running = true;
+      messageEl.textContent = "Air targets need shots. Ground bases need bombs.";
+      syncHud();
+    }
+
+    function syncHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      waveEl.textContent = wave;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function hitBox(a, b) {
+      return Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
+    }
+
+    function spawnEnemy() {
+      enemies.push({
+        x: 42 + Math.random() * 436,
+        y: -28,
+        w: 28,
+        h: 24,
+        vx: (Math.random() - 0.5) * (50 + wave * 8),
+        vy: 92 + wave * 12,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    function spawnBase() {
+      bases.push({
+        x: 48 + Math.random() * 424,
+        y: -34,
+        w: 38,
+        h: 32,
+        alive: true
+      });
+    }
+
+    function fire() {
+      if (!running || fireCooldown > 0) return;
+      bullets.push({ x: ship.x, y: ship.y - 24, w: 5, h: 18, vy: -520 });
+      fireCooldown = 0.16;
+    }
+
+    function dropBomb() {
+      if (!running || bombCooldown > 0) return;
+      bombs.push({ x: ship.x, y: ship.y - 8, w: 12, h: 12, vy: -190, scale: 1 });
+      bombCooldown = 0.7;
+    }
+
+    function explode(x, y, color) {
+      blasts.push({ x, y, radius: 4, life: 0.45, color });
+    }
+
+    function loseLife() {
+      lives -= 1;
+      syncHud();
+      explode(ship.x, ship.y, "#fb7185");
+      ship.x = 260;
+      ship.y = 610;
+      if (lives <= 0) {
+        running = false;
+        messageEl.textContent = `Mission failed. Final score: ${score}.`;
+      }
+    }
+
+    function updatePlayer(dt) {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+      const speed = 245;
+      ship.x = clamp(ship.x + dx * speed * dt, 28, canvas.width - 28);
+      ship.y = clamp(ship.y + dy * speed * dt, 420, canvas.height - 42);
+      if (keys.has(" ")) fire();
+      if (keys.has("x")) dropBomb();
+    }
+
+    function update(dt) {
+      if (!running) return;
+      scroll += dt * (88 + wave * 7);
+      updatePlayer(dt);
+      fireCooldown = Math.max(0, fireCooldown - dt);
+      bombCooldown = Math.max(0, bombCooldown - dt);
+
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = Math.max(0.34, 1.05 - wave * 0.06);
+      }
+      baseTimer -= dt;
+      if (baseTimer <= 0) {
+        spawnBase();
+        baseTimer = Math.max(1.1, 2.6 - wave * 0.08);
+      }
+
+      for (const bullet of bullets) bullet.y += bullet.vy * dt;
+      for (const bomb of bombs) {
+        bomb.y += bomb.vy * dt;
+        bomb.scale += dt * 1.8;
+        bomb.w = 12 + bomb.scale * 14;
+        bomb.h = 12 + bomb.scale * 14;
+      }
+      for (const enemy of enemies) {
+        enemy.phase += dt * 4;
+        enemy.x += (enemy.vx + Math.sin(enemy.phase) * 42) * dt;
+        enemy.y += enemy.vy * dt;
+      }
+      for (const base of bases) base.y += (92 + wave * 7) * dt;
+
+      for (const bullet of bullets) {
+        for (const enemy of enemies) {
+          if (!enemy.hit && hitBox(bullet, enemy)) {
+            enemy.hit = true;
+            bullet.hit = true;
+            score += 120;
+            explode(enemy.x, enemy.y, "#67e8f9");
+          }
+        }
+      }
+      for (const bomb of bombs) {
+        for (const base of bases) {
+          if (!base.hit && hitBox(bomb, base)) {
+            base.hit = true;
+            bomb.hit = true;
+            score += 180;
+            explode(base.x, base.y, "#fbbf24");
+          }
+        }
+      }
+      for (const enemy of enemies) {
+        if (!enemy.hit && hitBox(ship, enemy)) {
+          enemy.hit = true;
+          loseLife();
+        }
+      }
+      for (const base of bases) {
+        if (!base.hit && hitBox(ship, base)) {
+          base.hit = true;
+          loseLife();
+        }
+      }
+
+      bullets = bullets.filter((bullet) => !bullet.hit && bullet.y > -30);
+      bombs = bombs.filter((bomb) => !bomb.hit && bomb.y > -40);
+      enemies = enemies.filter((enemy) => !enemy.hit && enemy.y < canvas.height + 50);
+      bases = bases.filter((base) => !base.hit && base.y < canvas.height + 50);
+
+      if (score >= wave * 900) {
+        wave += 1;
+        syncHud();
+      } else {
+        syncHud();
+      }
+      for (const blast of blasts) {
+        blast.radius += dt * 90;
+        blast.life -= dt;
+      }
+      blasts = blasts.filter((blast) => blast.life > 0);
+    }
+
+    function drawGround() {
+      ctx.fillStyle = "#10261c";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(187, 247, 208, 0.22)";
+      ctx.lineWidth = 2;
+      for (let y = -80 + (scroll % 80); y < canvas.height + 80; y += 80) {
+        ctx.beginPath();
+        ctx.moveTo(70, y);
+        ctx.bezierCurveTo(145, y + 34, 210, y - 28, 300, y + 18);
+        ctx.bezierCurveTo(390, y + 58, 440, y - 24, 508, y + 22);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(52, 211, 153, 0.18)";
+      for (const star of stars) {
+        star.y += 1.6;
+        if (star.y > canvas.height) star.y = 0;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.fillStyle = "#f8fafc";
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, -24);
+      ctx.lineTo(19, 19);
+      ctx.lineTo(0, 10);
+      ctx.lineTo(-19, 19);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawShots() {
+      ctx.fillStyle = "#bfdbfe";
+      for (const bullet of bullets) ctx.fillRect(bullet.x - bullet.w / 2, bullet.y - bullet.h / 2, bullet.w, bullet.h);
+      ctx.strokeStyle = "#fde68a";
+      ctx.lineWidth = 3;
+      for (const bomb of bombs) {
+        ctx.beginPath();
+        ctx.arc(bomb.x, bomb.y, bomb.w / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.fillStyle = "#f43f5e";
+        ctx.strokeStyle = "#fecdd3";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 16);
+        ctx.lineTo(18, -10);
+        ctx.lineTo(0, -3);
+        ctx.lineTo(-18, -10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+      for (const base of bases) {
+        ctx.fillStyle = "#78350f";
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(base.x - 19, base.y - 16, 38, 32, 6);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(base.x - 4, base.y - 24, 8, 18);
+      }
+    }
+
+    function drawBlasts() {
+      for (const blast of blasts) {
+        ctx.globalAlpha = Math.max(0, blast.life * 2.2);
+        ctx.strokeStyle = blast.color;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(blast.x, blast.y, blast.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawGround();
+      drawShots();
+      drawEnemies();
+      drawBlasts();
+      drawShip();
+      if (!running) {
+        ctx.fillStyle = "rgba(12, 10, 9, 0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#d1fae5";
+        ctx.font = "bold 34px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Mini Xevious", canvas.width / 2, canvas.height / 2 - 16);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("Press Start", canvas.width / 2, canvas.height / 2 + 22);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", reset);
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "x", "a", "d", "w", "s"].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key));
+    canvas.addEventListener("pointerdown", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      ship.x = clamp(((event.clientX - rect.left) / rect.width) * canvas.width, 28, canvas.width - 28);
+      fire();
+    });
+
+    syncHud();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
