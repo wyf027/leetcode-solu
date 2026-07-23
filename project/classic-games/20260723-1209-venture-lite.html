@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Venture 地牢探宝</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-widest text-amber-300">Classic Games</p>
+        <h1 class="text-3xl font-black text-white sm:text-4xl">Mini Venture 地牢探宝</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">分数</div>
+          <div id="score" class="text-xl font-black text-amber-200">0</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">生命</div>
+          <div id="lives" class="text-xl font-black text-emerald-200">3</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">宝物</div>
+          <div id="treasures" class="text-xl font-black text-sky-200">0/4</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_260px]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+        <canvas id="game" width="900" height="560" class="aspect-[16/10] w-full rounded bg-slate-950"></canvas>
+      </div>
+      <aside class="rounded border border-zinc-700 bg-zinc-900 p-4">
+        <h2 class="text-lg font-black text-amber-200">任务</h2>
+        <p class="mt-2 text-sm leading-6 text-zinc-300">探索 4 个房间，拿到钥匙，夺走全部宝物后回到中央出口。</p>
+        <div class="mt-4 space-y-2 text-sm text-zinc-300">
+          <p><span class="font-bold text-white">移动：</span>WASD 或方向键</p>
+          <p><span class="font-bold text-white">射箭：</span>J / X</p>
+          <p><span class="font-bold text-white">重开：</span>R</p>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-amber-500 px-4 py-2 font-bold text-zinc-950 hover:bg-amber-300">重新开始</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-zinc-700 bg-zinc-950 p-3 text-sm leading-6 text-amber-100">先拿钥匙，再取宝物。别让怪物贴身。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const treasuresEl = document.getElementById('treasures');
+    const messageEl = document.getElementById('message');
+    const keys = new Set();
+
+    const tile = 40;
+    const rooms = {
+      hub: [
+        '######################',
+        '#........##..........#',
+        '#........##..........#',
+        '#...N....##....N.....#',
+        '#....................#',
+        '####....####....######',
+        '#....................#',
+        '#....N........N......#',
+        '#....................#',
+        '#..........E.........#',
+        '#....................#',
+        '######################'
+      ],
+      north: [
+        '######################',
+        '#....K...............#',
+        '#.......####.........#',
+        '#..M....#..#....M....#',
+        '#.......####.........#',
+        '#....................#',
+        '#....######..........#',
+        '#....................#',
+        '#......T.............#',
+        '#....................#',
+        '#..........S.........#',
+        '######################'
+      ],
+      east: [
+        '######################',
+        '#....................#',
+        '#..####.......####...#',
+        '#.....M.......M......#',
+        '#..........T.........#',
+        '#..####.......####...#',
+        '#....................#',
+        '#....M..........M....#',
+        '#....................#',
+        '#W...................#',
+        '#....................#',
+        '######################'
+      ],
+      south: [
+        '######################',
+        '#..........N.........#',
+        '#....................#',
+        '#....######....####..#',
+        '#....#....#....#.....#',
+        '#....#....M....#..T..#',
+        '#....#.........#.....#',
+        '#....######....####..#',
+        '#....................#',
+        '#..........N.........#',
+        '#..........N.........#',
+        '######################'
+      ],
+      west: [
+        '######################',
+        '#....................#',
+        '#...T.........M......#',
+        '#....................#',
+        '#..####..######..####',
+        '#....................#',
+        '#....M.........M.....#',
+        '#....................#',
+        '#....######..........#',
+        '#...................E#',
+        '#....................#',
+        '######################'
+      ]
+    };
+
+    const exits = {
+      hub: { N: 'north', E: 'east', S: 'south', W: 'west' },
+      north: { S: 'hub' },
+      east: { W: 'hub' },
+      south: { N: 'hub' },
+      west: { E: 'hub' }
+    };
+
+    const state = {
+      room: 'hub',
+      score: 0,
+      lives: 3,
+      treasures: 0,
+      totalTreasures: 4,
+      hasKey: false,
+      running: true,
+      won: false,
+      time: 0,
+      hitFlash: 0
+    };
+
+    const player = {
+      x: 420,
+      y: 420,
+      w: 24,
+      h: 24,
+      vx: 0,
+      vy: 0,
+      dir: 'up',
+      cooldown: 0,
+      invuln: 0
+    };
+
+    let roomMap = [];
+    let monsters = [];
+    let treasures = [];
+    let arrows = [];
+    let sparks = [];
+    let collected = new Set();
+
+    function buildRoom(name, spawnGate = '') {
+      state.room = name;
+      roomMap = rooms[name].map(row => row.split(''));
+      monsters = [];
+      treasures = [];
+      arrows = [];
+      for (let y = 0; y < roomMap.length; y++) {
+        for (let x = 0; x < roomMap[y].length; x++) {
+          const cell = roomMap[y][x];
+          const px = x * tile;
+          const py = y * tile + 40;
+          if (cell === 'M' || cell === 'N') {
+            monsters.push(makeMonster(px + 8, py + 8, cell === 'N' ? 'crawler' : 'orb'));
+            roomMap[y][x] = '.';
+          }
+          if (cell === 'T' && !collected.has(`${name}-${x}-${y}`)) {
+            treasures.push({ id: `${name}-${x}-${y}`, x: px + 8, y: py + 8, w: 24, h: 24, type: 'treasure' });
+            roomMap[y][x] = '.';
+          }
+          if (cell === 'K' && !state.hasKey) {
+            treasures.push({ id: `${name}-${x}-${y}`, x: px + 8, y: py + 8, w: 24, h: 24, type: 'key' });
+            roomMap[y][x] = '.';
+          }
+        }
+      }
+      placePlayerFromGate(spawnGate);
+      setMessage(roomLabel(name));
+      updateHud();
+    }
+
+    function roomLabel(name) {
+      const labels = {
+        hub: '中央大厅：收齐宝物后回到出口。',
+        north: '北侧宝库：钥匙就在这里。',
+        east: '东侧密室：怪物会横向巡逻。',
+        south: '南侧迷宫：墙角很窄，注意走位。',
+        west: '西侧密室：先清怪再拿宝物。'
+      };
+      return labels[name];
+    }
+
+    function placePlayerFromGate(gate) {
+      const spots = {
+        N: { x: 420, y: 398, dir: 'up' },
+        S: { x: 420, y: 78, dir: 'down' },
+        E: { x: 56, y: 398, dir: 'right' },
+        W: { x: 790, y: 398, dir: 'left' }
+      };
+      const spot = spots[gate] || { x: 420, y: 420, dir: 'up' };
+      Object.assign(player, { x: spot.x, y: spot.y, vx: 0, vy: 0, dir: spot.dir, cooldown: 0, invuln: 0 });
+    }
+
+    function makeMonster(x, y, type) {
+      const horizontal = Math.random() > 0.5;
+      return {
+        x,
+        y,
+        w: 26,
+        h: 26,
+        type,
+        vx: horizontal ? (type === 'orb' ? 1.2 : 0.8) : 0,
+        vy: horizontal ? 0 : (type === 'orb' ? 1.2 : 0.8),
+        alive: true,
+        turn: Math.floor(Math.random() * 60)
+      };
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      treasuresEl.textContent = `${state.treasures}/${state.totalTreasures}`;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function wallAt(px, py) {
+      const x = Math.floor(px / tile);
+      const y = Math.floor((py - 40) / tile);
+      if (!roomMap[y] || !roomMap[y][x]) return true;
+      return roomMap[y][x] === '#';
+    }
+
+    function blocked(rect) {
+      return wallAt(rect.x, rect.y) ||
+        wallAt(rect.x + rect.w, rect.y) ||
+        wallAt(rect.x, rect.y + rect.h) ||
+        wallAt(rect.x + rect.w, rect.y + rect.h);
+    }
+
+    function shootArrow() {
+      if (!state.running || player.cooldown > 0) return;
+      const dirs = {
+        up: { vx: 0, vy: -7, w: 5, h: 14 },
+        down: { vx: 0, vy: 7, w: 5, h: 14 },
+        left: { vx: -7, vy: 0, w: 14, h: 5 },
+        right: { vx: 7, vy: 0, w: 14, h: 5 }
+      };
+      const d = dirs[player.dir];
+      arrows.push({
+        x: player.x + player.w / 2 - d.w / 2,
+        y: player.y + player.h / 2 - d.h / 2,
+        w: d.w,
+        h: d.h,
+        vx: d.vx,
+        vy: d.vy,
+        life: 56
+      });
+      player.cooldown = 18;
+    }
+
+    function updatePlayer() {
+      let ax = 0;
+      let ay = 0;
+      if (keys.has('ArrowLeft') || keys.has('a')) {
+        ax -= 1;
+        player.dir = 'left';
+      }
+      if (keys.has('ArrowRight') || keys.has('d')) {
+        ax += 1;
+        player.dir = 'right';
+      }
+      if (keys.has('ArrowUp') || keys.has('w')) {
+        ay -= 1;
+        player.dir = 'up';
+      }
+      if (keys.has('ArrowDown') || keys.has('s')) {
+        ay += 1;
+        player.dir = 'down';
+      }
+      const speed = ax && ay ? 2.55 : 3.6;
+      const nextX = { ...player, x: player.x + ax * speed };
+      if (!blocked(nextX)) player.x = nextX.x;
+      const nextY = { ...player, y: player.y + ay * speed };
+      if (!blocked(nextY)) player.y = nextY.y;
+      if (player.cooldown > 0) player.cooldown--;
+      if (player.invuln > 0) player.invuln--;
+      checkGate();
+    }
+
+    function checkGate() {
+      const x = Math.floor((player.x + player.w / 2) / tile);
+      const y = Math.floor((player.y + player.h / 2 - 40) / tile);
+      const cell = roomMap[y] && roomMap[y][x];
+      if ('NESW'.includes(cell || '')) {
+        if (state.room === 'hub' && cell === 'E' && state.treasures >= state.totalTreasures && state.hasKey) {
+          state.running = false;
+          state.won = true;
+          state.score += 1500;
+          setMessage('通关！地牢探宝完成。按 R 再玩一次。');
+          updateHud();
+          return;
+        }
+        const nextRoom = exits[state.room][cell];
+        if (nextRoom) buildRoom(nextRoom, oppositeGate(cell));
+      }
+    }
+
+    function oppositeGate(gate) {
+      return { N: 'S', S: 'N', E: 'W', W: 'E' }[gate];
+    }
+
+    function updateMonsters() {
+      for (const monster of monsters) {
+        if (!monster.alive) continue;
+        monster.turn++;
+        if (monster.turn > 100 && Math.random() < 0.04) {
+          monster.turn = 0;
+          if (Math.random() > 0.5) {
+            monster.vx = Math.sign(player.x - monster.x) * (monster.type === 'orb' ? 1.4 : 0.9);
+            monster.vy = 0;
+          } else {
+            monster.vx = 0;
+            monster.vy = Math.sign(player.y - monster.y) * (monster.type === 'orb' ? 1.4 : 0.9);
+          }
+        }
+        const nx = { ...monster, x: monster.x + monster.vx };
+        if (blocked(nx)) monster.vx *= -1;
+        else monster.x = nx.x;
+        const ny = { ...monster, y: monster.y + monster.vy };
+        if (blocked(ny)) monster.vy *= -1;
+        else monster.y = ny.y;
+        if (rectsOverlap(player, monster)) hurtPlayer();
+      }
+    }
+
+    function updateArrows() {
+      for (const arrow of arrows) {
+        arrow.x += arrow.vx;
+        arrow.y += arrow.vy;
+        arrow.life--;
+        if (blocked(arrow)) arrow.life = 0;
+        for (const monster of monsters) {
+          if (!monster.alive || arrow.life <= 0) continue;
+          if (rectsOverlap(arrow, monster)) {
+            monster.alive = false;
+            arrow.life = 0;
+            state.score += monster.type === 'orb' ? 160 : 110;
+            burst(monster.x + 13, monster.y + 13, '#f97316');
+            updateHud();
+          }
+        }
+      }
+      arrows = arrows.filter(arrow => arrow.life > 0);
+    }
+
+    function updateTreasures() {
+      for (const item of treasures) {
+        if (rectsOverlap(player, item)) {
+          if (item.type === 'key') {
+            state.hasKey = true;
+            state.score += 300;
+            setMessage('拿到钥匙！现在可以带走宝物。');
+          } else if (!state.hasKey) {
+            setMessage('宝箱锁住了，先去北侧房间找钥匙。');
+            continue;
+          } else {
+            state.treasures++;
+            state.score += 500;
+            collected.add(item.id);
+            setMessage(state.treasures >= state.totalTreasures ? '宝物齐了，回中央大厅出口！' : '宝物到手，继续探索。');
+          }
+          burst(item.x + 12, item.y + 12, item.type === 'key' ? '#facc15' : '#38bdf8');
+          item.gone = true;
+          updateHud();
+        }
+      }
+      treasures = treasures.filter(item => !item.gone);
+    }
+
+    function hurtPlayer() {
+      if (player.invuln > 0 || !state.running) return;
+      state.lives--;
+      state.hitFlash = 12;
+      player.invuln = 80;
+      player.x = Math.max(60, player.x - 18);
+      player.y = Math.max(82, player.y - 18);
+      setMessage(state.lives <= 0 ? '探险失败。按 R 重开。' : '被怪物碰到了，保持距离射箭。');
+      if (state.lives <= 0) state.running = false;
+      updateHud();
+    }
+
+    function burst(x, y, color) {
+      for (let i = 0; i < 14; i++) {
+        sparks.push({ x, y, vx: -3 + Math.random() * 6, vy: -3 + Math.random() * 6, life: 22, color });
+      }
+    }
+
+    function updateSparks() {
+      for (const spark of sparks) {
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.vx *= 0.94;
+        spark.vy *= 0.94;
+        spark.life--;
+      }
+      sparks = sparks.filter(spark => spark.life > 0);
+    }
+
+    function update() {
+      state.time++;
+      if (state.running) {
+        updatePlayer();
+        updateMonsters();
+        updateArrows();
+        updateTreasures();
+      }
+      updateSparks();
+      if (state.hitFlash > 0) state.hitFlash--;
+    }
+
+    function drawMap() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, canvas.width, 40);
+      ctx.fillStyle = '#fef3c7';
+      ctx.font = '700 16px system-ui';
+      ctx.fillText(`房间：${state.room.toUpperCase()}  ${state.hasKey ? '钥匙：已获得' : '钥匙：未获得'}`, 18, 25);
+
+      for (let y = 0; y < roomMap.length; y++) {
+        for (let x = 0; x < roomMap[y].length; x++) {
+          const cell = roomMap[y][x];
+          const px = x * tile;
+          const py = y * tile + 40;
+          if (cell === '#') {
+            ctx.fillStyle = '#3f3f46';
+            ctx.fillRect(px, py, tile, tile);
+            ctx.fillStyle = '#71717a';
+            ctx.fillRect(px, py, tile, 5);
+            ctx.fillStyle = '#27272a';
+            ctx.fillRect(px + 8, py + 18, 20, 4);
+          } else {
+            ctx.fillStyle = ((x + y) % 2 === 0) ? '#0f172a' : '#111827';
+            ctx.fillRect(px, py, tile, tile);
+          }
+          if ('NESW'.includes(cell)) drawGate(cell, px, py);
+        }
+      }
+    }
+
+    function drawGate(cell, x, y) {
+      const ready = state.room !== 'hub' || cell !== 'E' || (state.hasKey && state.treasures >= state.totalTreasures);
+      ctx.fillStyle = ready ? '#f59e0b' : '#78350f';
+      ctx.fillRect(x + 6, y + 6, tile - 12, tile - 12);
+      ctx.fillStyle = '#111827';
+      ctx.font = '900 16px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(cell, x + tile / 2, y + 26);
+      ctx.textAlign = 'start';
+    }
+
+    function drawItems() {
+      for (const item of treasures) {
+        const bob = Math.sin((state.time + item.x) / 15) * 3;
+        if (item.type === 'key') {
+          ctx.fillStyle = '#fde047';
+          ctx.fillRect(item.x + 3, item.y + 11 + bob, 18, 5);
+          ctx.beginPath();
+          ctx.arc(item.x + 7, item.y + 10 + bob, 6, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = state.hasKey ? '#38bdf8' : '#475569';
+          ctx.fillRect(item.x + 1, item.y + 8 + bob, 22, 16);
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillRect(item.x + 8, item.y + 5 + bob, 8, 22);
+        }
+      }
+    }
+
+    function drawMonsters() {
+      for (const monster of monsters) {
+        if (!monster.alive) continue;
+        ctx.fillStyle = monster.type === 'orb' ? '#ef4444' : '#84cc16';
+        ctx.beginPath();
+        ctx.arc(monster.x + 13, monster.y + 13, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(monster.x + 7, monster.y + 9, 4, 4);
+        ctx.fillRect(monster.x + 16, monster.y + 9, 4, 4);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(monster.x + 7, monster.y + 19, 12, 3);
+      }
+    }
+
+    function drawPlayer() {
+      if (player.invuln > 0 && Math.floor(state.time / 5) % 2 === 0) return;
+      ctx.save();
+      ctx.translate(player.x + 12, player.y + 12);
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(-10, -10, 20, 20);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-7, -14, 14, 7);
+      ctx.fillStyle = '#0f172a';
+      if (player.dir === 'up') ctx.fillRect(-3, -19, 6, 10);
+      if (player.dir === 'down') ctx.fillRect(-3, 9, 6, 10);
+      if (player.dir === 'left') ctx.fillRect(-19, -3, 10, 6);
+      if (player.dir === 'right') ctx.fillRect(9, -3, 10, 6);
+      ctx.restore();
+    }
+
+    function drawArrows() {
+      ctx.fillStyle = '#f8fafc';
+      for (const arrow of arrows) ctx.fillRect(arrow.x, arrow.y, arrow.w, arrow.h);
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life / 22);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x, spark.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (state.hitFlash > 0) {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      if (!state.running) {
+        ctx.fillStyle = 'rgba(3, 7, 18, 0.76)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = '900 44px system-ui';
+        ctx.fillText(state.won ? '探宝成功' : '探宝失败', canvas.width / 2, 252);
+        ctx.font = '700 18px system-ui';
+        ctx.fillText('按 R 或点击重新开始', canvas.width / 2, 292);
+        ctx.textAlign = 'start';
+      }
+    }
+
+    function draw() {
+      drawMap();
+      drawItems();
+      drawMonsters();
+      drawArrows();
+      drawPlayer();
+      drawSparks();
+      drawOverlay();
+    }
+
+    function resetGame() {
+      state.score = 0;
+      state.lives = 3;
+      state.treasures = 0;
+      state.hasKey = false;
+      state.running = true;
+      state.won = false;
+      state.time = 0;
+      state.hitFlash = 0;
+      collected = new Set();
+      buildRoom('hub');
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'w', 'a', 's', 'd', 'j', 'x', 'r'].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === 'j' || key === 'x') shootArrow();
+      if (key === 'r') resetGame();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    document.getElementById('restart').addEventListener('click', resetGame);
+
+    resetGame();
+    gameLoop();
+  </script>
+</body>
+</html>
