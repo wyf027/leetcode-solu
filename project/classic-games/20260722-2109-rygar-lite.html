@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Rygar 勇士飞盘</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-lime-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Rygar 勇士飞盘</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">分数</div>
+          <div id="score" class="text-xl font-bold text-lime-300">0</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">生命</div>
+          <div id="lives" class="text-xl font-bold text-rose-300">3</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">距离</div>
+          <div id="distance" class="text-xl font-bold text-cyan-300">0</div>
+        </div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="520" class="w-full rounded border border-slate-700 bg-slate-900 shadow-2xl shadow-black"></canvas>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3 text-sm text-slate-300">
+        <p>方向键或 WASD 移动，W/↑/空格跳跃，J 发射飞盘。穿越遗迹、击退怪物并跑满 900 米获胜。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="jumpBtn" class="rounded bg-cyan-400 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-300">跳跃</button>
+        <button id="throwBtn" class="rounded bg-lime-400 px-4 py-2 font-semibold text-slate-950 hover:bg-lime-300">飞盘</button>
+        <button id="restartBtn" class="rounded bg-slate-700 px-4 py-2 font-semibold text-white hover:bg-slate-600">重开</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const distanceEl = document.getElementById("distance");
+    const keys = new Set();
+    const groundY = 414;
+    const hero = { x: 100, y: groundY - 70, w: 38, h: 70, vy: 0, facing: 1, inv: 0, cool: 0 };
+    let score = 0;
+    let lives = 3;
+    let distance = 0;
+    let speed = 2.7;
+    let spawnT = 0;
+    let enemies = [];
+    let disks = [];
+    let bursts = [];
+    let state = "play";
+
+    function reset() {
+      hero.x = 100;
+      hero.y = groundY - hero.h;
+      hero.vy = 0;
+      hero.facing = 1;
+      hero.inv = 0;
+      hero.cool = 0;
+      score = 0;
+      lives = 3;
+      distance = 0;
+      speed = 2.7;
+      spawnT = 35;
+      enemies = [];
+      disks = [];
+      bursts = [];
+      state = "play";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      distanceEl.textContent = Math.floor(distance);
+    }
+
+    function jump() {
+      if (state === "play" && hero.y + hero.h >= groundY - 1) hero.vy = -14;
+    }
+
+    function throwDisk() {
+      if (state !== "play" || hero.cool > 0) return;
+      hero.cool = 18;
+      disks.push({
+        x: hero.x + (hero.facing > 0 ? hero.w : -16),
+        y: hero.y + 28,
+        vx: hero.facing * 9,
+        r: 11,
+        life: 58
+      });
+    }
+
+    function spawnEnemy() {
+      const runner = Math.random() > 0.35;
+      enemies.push({
+        x: 930,
+        y: runner ? groundY - 48 : groundY - 78,
+        w: runner ? 38 : 48,
+        h: runner ? 48 : 78,
+        hp: runner ? 1 : 2,
+        kind: runner ? "runner" : "brute",
+        step: Math.random() * Math.PI * 2
+      });
+    }
+
+    function collide(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function hurtHero() {
+      if (hero.inv > 0) return;
+      lives -= 1;
+      hero.inv = 80;
+      hero.x = Math.max(40, hero.x - 65);
+      hero.vy = -8;
+      bursts.push({ x: hero.x + 18, y: hero.y + 22, t: 26, color: "#fb7185" });
+      if (lives <= 0) state = "lost";
+      updateHud();
+    }
+
+    function hitEnemy(enemy, disk) {
+      enemy.hp -= 1;
+      disk.life = 0;
+      bursts.push({ x: enemy.x + enemy.w / 2, y: enemy.y + 24, t: 20, color: "#bef264" });
+      if (enemy.hp <= 0) {
+        score += enemy.kind === "brute" ? 220 : 120;
+        enemies = enemies.filter((item) => item !== enemy);
+      }
+      updateHud();
+    }
+
+    function update() {
+      if (state !== "play") return;
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
+      if (left) {
+        hero.x -= 4.2;
+        hero.facing = -1;
+      }
+      if (right) {
+        hero.x += 4.2;
+        hero.facing = 1;
+      }
+      if (up) jump();
+      hero.x = Math.max(28, Math.min(500, hero.x));
+      hero.vy += 0.75;
+      hero.y += hero.vy;
+      if (hero.y + hero.h > groundY) {
+        hero.y = groundY - hero.h;
+        hero.vy = 0;
+      }
+      if (hero.inv > 0) hero.inv -= 1;
+      if (hero.cool > 0) hero.cool -= 1;
+
+      distance += speed * 0.16;
+      speed = Math.min(5.2, speed + 0.0009);
+      if (distance >= 900) state = "won";
+
+      spawnT -= 1;
+      if (spawnT <= 0) {
+        spawnEnemy();
+        spawnT = Math.max(36, 95 - speed * 8 - Math.random() * 18);
+      }
+
+      disks.forEach((disk) => {
+        disk.x += disk.vx;
+        disk.life -= 1;
+      });
+      disks = disks.filter((disk) => disk.life > 0 && disk.x > -30 && disk.x < 930);
+
+      enemies.forEach((enemy) => {
+        enemy.x -= speed + (enemy.kind === "runner" ? 1.3 : 0.4);
+        enemy.step += 0.18;
+        if (enemy.kind === "runner") enemy.y = groundY - 48 + Math.sin(enemy.step) * 4;
+        if (collide(hero, enemy)) hurtHero();
+        disks.forEach((disk) => {
+          const hitBox = { x: disk.x - disk.r, y: disk.y - disk.r, w: disk.r * 2, h: disk.r * 2 };
+          if (disk.life > 0 && collide(hitBox, enemy)) hitEnemy(enemy, disk);
+        });
+      });
+      enemies = enemies.filter((enemy) => enemy.x > -80);
+
+      bursts = bursts.filter((burst) => {
+        burst.t -= 1;
+        return burst.t > 0;
+      });
+      updateHud();
+    }
+
+    function drawHero() {
+      ctx.save();
+      ctx.translate(hero.x + hero.w / 2, hero.y);
+      ctx.scale(hero.facing, 1);
+      ctx.globalAlpha = hero.inv > 0 && hero.inv % 10 < 5 ? 0.45 : 1;
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-10, 0, 20, 18);
+      ctx.fillStyle = "#84cc16";
+      ctx.fillRect(-16, 18, 32, 33);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(-14, 51, 10, 19);
+      ctx.fillRect(5, 51, 10, 19);
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(13, 25);
+      ctx.lineTo(34, 31);
+      ctx.moveTo(-13, 27);
+      ctx.lineTo(-30, 36);
+      ctx.stroke();
+      ctx.strokeStyle = "#bef264";
+      ctx.beginPath();
+      ctx.arc(38, 31, 10, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.fillStyle = enemy.kind === "brute" ? "#a855f7" : "#f97316";
+      ctx.fillRect(8, 0, enemy.w - 16, 18);
+      ctx.fillRect(3, 17, enemy.w - 6, enemy.h - 22);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(7, enemy.h - 12, 10, 12);
+      ctx.fillRect(enemy.w - 17, enemy.h - 12, 10, 12);
+      ctx.fillStyle = "#f8fafc";
+      for (let i = 0; i < enemy.hp; i += 1) ctx.fillRect(8 + i * 10, -8, 7, 3);
+      ctx.restore();
+    }
+
+    function drawDisk(disk) {
+      ctx.save();
+      ctx.translate(disk.x, disk.y);
+      ctx.rotate((60 - disk.life) * 0.4);
+      ctx.strokeStyle = "#bef264";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(0, 0, disk.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-2, -disk.r, 4, disk.r * 2);
+      ctx.restore();
+    }
+
+    function drawWorld() {
+      const offset = (distance * 8) % 180;
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#0f172a");
+      bg.addColorStop(0.55, "#1e293b");
+      bg.addColorStop(1, "#020617");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#334155";
+      for (let x = -offset; x < 950; x += 180) {
+        ctx.fillRect(x, 245, 54, 169);
+        ctx.fillRect(x - 14, 230, 82, 18);
+        ctx.fillStyle = "#475569";
+        ctx.fillRect(x + 12, 280, 14, 40);
+        ctx.fillRect(x + 30, 280, 14, 40);
+        ctx.fillStyle = "#334155";
+      }
+      ctx.fillStyle = "#14532d";
+      ctx.fillRect(0, groundY, 900, 58);
+      ctx.fillStyle = "#713f12";
+      ctx.fillRect(0, groundY + 24, 900, 42);
+      ctx.strokeStyle = "#a3e635";
+      ctx.lineWidth = 2;
+      for (let x = -((distance * 20) % 48); x < 930; x += 48) {
+        ctx.beginPath();
+        ctx.moveTo(x, groundY + 10);
+        ctx.lineTo(x + 18, groundY + 2);
+        ctx.lineTo(x + 34, groundY + 10);
+        ctx.stroke();
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWorld();
+      disks.forEach(drawDisk);
+      enemies.forEach(drawEnemy);
+      drawHero();
+      bursts.forEach((burst) => {
+        ctx.globalAlpha = burst.t / 26;
+        ctx.fillStyle = burst.color;
+        ctx.beginPath();
+        ctx.arc(burst.x, burst.y, 24 - burst.t / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "16px sans-serif";
+      ctx.fillText("目标 900m", 750, 34);
+      ctx.fillStyle = "#84cc16";
+      ctx.fillRect(750, 48, Math.min(120, distance / 900 * 120), 10);
+      ctx.strokeStyle = "#64748b";
+      ctx.strokeRect(750, 48, 120, 10);
+
+      if (state !== "play") {
+        ctx.fillStyle = "rgba(2,6,23,0.78)";
+        ctx.fillRect(0, 0, 900, 520);
+        ctx.fillStyle = state === "won" ? "#bef264" : "#fb7185";
+        ctx.font = "bold 52px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state === "won" ? "遗迹通关!" : "冒险失败", 450, 235);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "22px sans-serif";
+        ctx.fillText("按 R 或点击重开", 450, 282);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+      if (event.key.toLowerCase() === "j") throwDisk();
+      if (event.key.toLowerCase() === "r") reset();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    document.getElementById("jumpBtn").addEventListener("click", jump);
+    document.getElementById("throwBtn").addEventListener("click", throwDisk);
+    document.getElementById("restartBtn").addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
