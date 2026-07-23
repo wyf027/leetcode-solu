@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Timber</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-stone-950 text-stone-100 antialiased">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-5">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-amber-300">
+            Classic Games
+          </p>
+          <h1 class="text-3xl font-bold sm:text-4xl">Mini Timber</h1>
+          <p class="mt-2 max-w-2xl text-sm text-stone-400">
+            左右换边砍树，避开即将落下的树枝，在时间耗尽前拿高分。
+          </p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="rounded-md border border-stone-700 bg-stone-900 px-3 py-2">
+            <p class="text-xs text-stone-400">Score</p>
+            <p id="score" class="text-xl font-bold text-amber-200">0</p>
+          </div>
+          <div class="rounded-md border border-stone-700 bg-stone-900 px-3 py-2">
+            <p class="text-xs text-stone-400">Best</p>
+            <p id="best" class="text-xl font-bold text-emerald-200">0</p>
+          </div>
+          <div class="rounded-md border border-stone-700 bg-stone-900 px-3 py-2">
+            <p class="text-xs text-stone-400">Side</p>
+            <p id="side-label" class="text-xl font-bold text-sky-200">左</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
+        <div class="rounded-lg border border-stone-800 bg-stone-900 p-3 shadow-xl shadow-black/30">
+          <canvas
+            id="game"
+            width="720"
+            height="540"
+            class="block w-full rounded-md bg-gradient-to-b from-sky-950 via-stone-950 to-stone-900"
+          ></canvas>
+        </div>
+
+        <aside class="grid content-start gap-3 rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <div>
+            <p class="text-sm font-semibold text-stone-200">操作</p>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <button
+                id="left-btn"
+                class="h-12 rounded-md bg-amber-400 px-3 font-bold text-stone-950 hover:bg-amber-300"
+              >
+                ← 左砍
+              </button>
+              <button
+                id="right-btn"
+                class="h-12 rounded-md bg-amber-400 px-3 font-bold text-stone-950 hover:bg-amber-300"
+              >
+                右砍 →
+              </button>
+            </div>
+            <p class="mt-2 text-xs text-stone-400">键盘 A / ← 与 D / → 也可操作。</p>
+          </div>
+
+          <button
+            id="restart"
+            class="h-11 rounded-md border border-stone-700 bg-stone-950 px-3 text-sm font-semibold text-stone-100 hover:border-amber-300 hover:text-amber-200"
+          >
+            重新开始
+          </button>
+
+          <div class="rounded-md border border-stone-700 bg-stone-950 p-3">
+            <p class="text-xs font-semibold uppercase tracking-wide text-stone-400">Time</p>
+            <div class="mt-2 h-3 overflow-hidden rounded-full bg-stone-800">
+              <div id="time-bar" class="h-full rounded-full bg-emerald-400"></div>
+            </div>
+          </div>
+
+          <p id="message" class="min-h-12 rounded-md bg-stone-950 p-3 text-sm text-stone-300">
+            连续砍树会补充时间，站在有树枝的一侧会被击中。
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.querySelector("#game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.querySelector("#score");
+      const bestEl = document.querySelector("#best");
+      const sideLabel = document.querySelector("#side-label");
+      const timeBar = document.querySelector("#time-bar");
+      const messageEl = document.querySelector("#message");
+      const leftBtn = document.querySelector("#left-btn");
+      const rightBtn = document.querySelector("#right-btn");
+      const restartBtn = document.querySelector("#restart");
+
+      const WIDTH = canvas.width;
+      const HEIGHT = canvas.height;
+      const trunkX = WIDTH / 2;
+      const trunkW = 92;
+      const segmentH = 62;
+      const segmentCount = 9;
+      const maxTime = 100;
+      const branchSides = ["left", "right", "none"];
+      const state = {
+        score: 0,
+        best: Number(localStorage.getItem("mini-timber-best") || 0),
+        time: 78,
+        playerSide: "left",
+        branches: [],
+        running: true,
+        flash: 0,
+        lastTime: 0,
+      };
+
+      const randomBranch = (index) => {
+        if (index < 2) return "none";
+        return branchSides[Math.floor(Math.random() * branchSides.length)];
+      };
+
+      const fillBranches = () => {
+        state.branches = Array.from({ length: segmentCount }, (_, index) => randomBranch(index));
+      };
+
+      const reset = () => {
+        state.score = 0;
+        state.time = 78;
+        state.playerSide = "left";
+        state.running = true;
+        state.flash = 0;
+        messageEl.textContent = "连砍会加时间，换边躲开低处树枝。";
+        fillBranches();
+        updateHud();
+      };
+
+      const updateHud = () => {
+        scoreEl.textContent = state.score;
+        bestEl.textContent = state.best;
+        sideLabel.textContent = state.playerSide === "left" ? "左" : "右";
+        timeBar.style.width = Math.max(0, state.time) + "%";
+        timeBar.className =
+          "h-full rounded-full " +
+          (state.time > 45 ? "bg-emerald-400" : state.time > 20 ? "bg-amber-400" : "bg-red-400");
+      };
+
+      const gameOver = (text) => {
+        state.running = false;
+        state.best = Math.max(state.best, state.score);
+        localStorage.setItem("mini-timber-best", String(state.best));
+        messageEl.textContent = text + " 按重新开始再来一局。";
+        updateHud();
+      };
+
+      const chop = (side) => {
+        if (!state.running) {
+          reset();
+          return;
+        }
+
+        state.playerSide = side;
+        state.score += 1;
+        state.time = Math.min(maxTime, state.time + 7);
+        state.flash = 8;
+        state.branches.shift();
+        state.branches.push(randomBranch(segmentCount - 1));
+
+        if (state.branches[0] === state.playerSide) {
+          gameOver("树枝砸中了你。");
+          return;
+        }
+
+        messageEl.textContent = state.score % 10 === 0 ? "节奏很好，继续换边判断。" : "砍下一段。";
+        updateHud();
+      };
+
+      const drawRoundedRect = (x, y, w, h, radius) => {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + w - radius, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+        ctx.lineTo(x + w, y + h - radius);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+        ctx.lineTo(x + radius, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.fill();
+      };
+
+      const drawBackground = () => {
+        ctx.fillStyle = "#0c0a09";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT * 0.55);
+        ctx.fillStyle = "#1c1917";
+        ctx.fillRect(0, HEIGHT - 82, WIDTH, 82);
+        ctx.fillStyle = "#14532d";
+        for (let i = 0; i < 12; i += 1) {
+          const x = i * 70 - 20;
+          ctx.beginPath();
+          ctx.moveTo(x, HEIGHT - 82);
+          ctx.lineTo(x + 34, HEIGHT - 145 - (i % 3) * 16);
+          ctx.lineTo(x + 72, HEIGHT - 82);
+          ctx.fill();
+        }
+      };
+
+      const drawTree = () => {
+        const baseY = HEIGHT - 92;
+        for (let i = 0; i < segmentCount; i += 1) {
+          const y = baseY - i * segmentH;
+          ctx.fillStyle = i % 2 ? "#92400e" : "#a16207";
+          drawRoundedRect(trunkX - trunkW / 2, y - segmentH, trunkW, segmentH + 3, 8);
+          ctx.fillStyle = "rgba(254, 243, 199, 0.18)";
+          ctx.fillRect(trunkX - 18, y - segmentH + 7, 9, segmentH - 12);
+
+          const side = state.branches[i];
+          if (side !== "none") {
+            const branchY = y - segmentH + 18;
+            ctx.fillStyle = "#78350f";
+            if (side === "left") {
+              drawRoundedRect(trunkX - trunkW / 2 - 126, branchY, 130, 20, 9);
+              ctx.fillStyle = "#365314";
+              drawRoundedRect(trunkX - trunkW / 2 - 154, branchY - 17, 42, 46, 12);
+            } else {
+              drawRoundedRect(trunkX + trunkW / 2 - 4, branchY, 130, 20, 9);
+              ctx.fillStyle = "#365314";
+              drawRoundedRect(trunkX + trunkW / 2 + 112, branchY - 17, 42, 46, 12);
+            }
+          }
+        }
+      };
+
+      const drawPlayer = () => {
+        const x = state.playerSide === "left" ? trunkX - 138 : trunkX + 94;
+        const y = HEIGHT - 150;
+        ctx.fillStyle = "#fbbf24";
+        drawRoundedRect(x, y + 34, 42, 44, 10);
+        ctx.fillStyle = "#fed7aa";
+        ctx.beginPath();
+        ctx.arc(x + 21, y + 20, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(x + (state.playerSide === "left" ? 2 : 28), y + 18, 6, 4);
+        ctx.strokeStyle = "#fef3c7";
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        const axeStart = state.playerSide === "left" ? x + 8 : x + 34;
+        const axeEnd = state.playerSide === "left" ? x + 67 : x - 25;
+        ctx.moveTo(axeStart, y + 48);
+        ctx.lineTo(axeEnd, y + 30 - state.flash);
+        ctx.stroke();
+        ctx.fillStyle = "#d1d5db";
+        drawRoundedRect(axeEnd - 13, y + 22 - state.flash, 26, 14, 4);
+      };
+
+      const drawOverlay = () => {
+        if (state.running) return;
+        ctx.fillStyle = "rgba(12, 10, 9, 0.72)";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#fde68a";
+        ctx.font = "bold 38px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over", WIDTH / 2, HEIGHT / 2 - 18);
+        ctx.fillStyle = "#e7e5e4";
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("点击左右按钮或按 A / D 重新开始", WIDTH / 2, HEIGHT / 2 + 24);
+      };
+
+      const draw = () => {
+        drawBackground();
+        drawTree();
+        drawPlayer();
+        drawOverlay();
+      };
+
+      const tick = (time) => {
+        const delta = Math.min(32, time - (state.lastTime || time));
+        state.lastTime = time;
+        if (state.running) {
+          state.time -= delta * 0.018;
+          if (state.flash > 0) state.flash -= 1;
+          if (state.time <= 0) gameOver("时间耗尽。");
+          updateHud();
+        }
+        draw();
+        requestAnimationFrame(tick);
+      };
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") chop("left");
+        if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") chop("right");
+      });
+      leftBtn.addEventListener("click", () => chop("left"));
+      rightBtn.addEventListener("click", () => chop("right"));
+      restartBtn.addEventListener("click", reset);
+
+      fillBranches();
+      updateHud();
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>
