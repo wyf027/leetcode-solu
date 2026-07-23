@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Metal Slug 合金弹头</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-yellow-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Metal Slug 合金弹头</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">分数</div>
+          <div id="score" class="text-xl font-bold text-yellow-300">0</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">生命</div>
+          <div id="lives" class="text-xl font-bold text-rose-300">3</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">载具</div>
+          <div id="armor" class="text-xl font-bold text-emerald-300">100</div>
+        </div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="520" class="w-full rounded border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black"></canvas>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto]">
+      <div class="rounded border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-300">
+        <p>方向键或 WASD 移动，W/↑/空格跳跃，J 机枪，K 炮弹。摧毁 3 辆敌车即可胜利。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="jumpBtn" class="rounded bg-sky-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-sky-300">跳跃</button>
+        <button id="shootBtn" class="rounded bg-yellow-400 px-4 py-2 font-semibold text-zinc-950 hover:bg-yellow-300">机枪</button>
+        <button id="cannonBtn" class="rounded bg-red-500 px-4 py-2 font-semibold text-white hover:bg-red-400">炮弹</button>
+        <button id="restartBtn" class="rounded bg-zinc-700 px-4 py-2 font-semibold text-white hover:bg-zinc-600">重开</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const armorEl = document.getElementById("armor");
+    const keys = new Set();
+    const groundY = 420;
+    const tank = { x: 80, y: groundY - 58, w: 78, h: 58, vy: 0, cool: 0, cannonCool: 0, inv: 0 };
+    let score = 0;
+    let lives = 3;
+    let armor = 100;
+    let destroyed = 0;
+    let scroll = 0;
+    let spawnT = 35;
+    let enemies = [];
+    let bullets = [];
+    let blasts = [];
+    let state = "play";
+
+    function reset() {
+      tank.x = 80;
+      tank.y = groundY - tank.h;
+      tank.vy = 0;
+      tank.cool = 0;
+      tank.cannonCool = 0;
+      tank.inv = 0;
+      score = 0;
+      lives = 3;
+      armor = 100;
+      destroyed = 0;
+      scroll = 0;
+      spawnT = 35;
+      enemies = [];
+      bullets = [];
+      blasts = [];
+      state = "play";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      armorEl.textContent = Math.max(0, Math.ceil(armor));
+    }
+
+    function jump() {
+      if (state === "play" && tank.y + tank.h >= groundY - 1) tank.vy = -11.8;
+    }
+
+    function shoot() {
+      if (state !== "play" || tank.cool > 0) return;
+      tank.cool = 7;
+      bullets.push({ x: tank.x + tank.w - 3, y: tank.y + 22, vx: 12, vy: 0, w: 18, h: 5, type: "gun", player: true });
+    }
+
+    function cannon() {
+      if (state !== "play" || tank.cannonCool > 0) return;
+      tank.cannonCool = 38;
+      bullets.push({ x: tank.x + tank.w - 5, y: tank.y + 34, vx: 7.5, vy: -3.8, w: 16, h: 12, type: "shell", player: true });
+    }
+
+    function spawnEnemy() {
+      const truck = Math.random() > 0.45;
+      enemies.push({
+        x: 930,
+        y: truck ? groundY - 46 : groundY - 66,
+        w: truck ? 64 : 34,
+        h: truck ? 46 : 66,
+        hp: truck ? 5 : 2,
+        kind: truck ? "truck" : "soldier",
+        shootT: truck ? 52 : 0,
+        speed: truck ? 1.3 : 2.3,
+        hurtT: 0
+      });
+    }
+
+    function rectsTouch(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function hurtTank(amount) {
+      if (tank.inv > 0) return;
+      armor -= amount;
+      tank.inv = 35;
+      blasts.push({ x: tank.x + tank.w / 2, y: tank.y + 22, t: 28, color: "#38bdf8", size: 42 });
+      if (armor <= 0) {
+        lives -= 1;
+        armor = 100;
+        tank.x = 80;
+        tank.y = groundY - tank.h;
+        if (lives <= 0) state = "lost";
+      }
+      updateHud();
+    }
+
+    function damageEnemy(enemy, bullet) {
+      enemy.hp -= bullet.type === "shell" ? 3 : 1;
+      enemy.hurtT = 10;
+      bullet.dead = true;
+      blasts.push({ x: enemy.x + enemy.w / 2, y: enemy.y + 22, t: 20, color: bullet.type === "shell" ? "#fb7185" : "#facc15", size: bullet.type === "shell" ? 48 : 25 });
+      if (enemy.hp <= 0) {
+        score += enemy.kind === "truck" ? 400 : 140;
+        if (enemy.kind === "truck") destroyed += 1;
+        enemies = enemies.filter((item) => item !== enemy);
+        if (destroyed >= 3) state = "won";
+      }
+      updateHud();
+    }
+
+    function updateTank() {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
+      if (left) tank.x -= 3.8;
+      if (right) tank.x += 4.4;
+      if (up) jump();
+      tank.x = Math.max(24, Math.min(760, tank.x));
+      tank.vy += 0.68;
+      tank.y += tank.vy;
+      if (tank.y + tank.h > groundY) {
+        tank.y = groundY - tank.h;
+        tank.vy = 0;
+      }
+      if (tank.cool > 0) tank.cool -= 1;
+      if (tank.cannonCool > 0) tank.cannonCool -= 1;
+      if (tank.inv > 0) tank.inv -= 1;
+      scroll += right ? 1.7 : 0.8;
+    }
+
+    function updateBullets() {
+      for (const bullet of bullets) {
+        bullet.x += bullet.vx;
+        bullet.y += bullet.vy;
+        if (bullet.type === "shell") bullet.vy += 0.22;
+      }
+      bullets = bullets.filter((bullet) => !bullet.dead && bullet.x > -40 && bullet.x < 950 && bullet.y < 460);
+      for (const bullet of bullets.filter((item) => !item.player)) {
+        if (rectsTouch(tank, bullet)) {
+          bullet.dead = true;
+          hurtTank(16);
+        }
+      }
+    }
+
+    function updateEnemies() {
+      for (const enemy of [...enemies]) {
+        enemy.x -= enemy.speed;
+        if (enemy.hurtT > 0) enemy.hurtT -= 1;
+        if (rectsTouch(tank, enemy)) hurtTank(enemy.kind === "truck" ? 22 : 12);
+        if (enemy.kind === "truck") {
+          enemy.shootT -= 1;
+          if (enemy.shootT <= 0) {
+            bullets.push({ x: enemy.x - 10, y: enemy.y + 18, vx: -6.5, vy: 0, w: 18, h: 7, type: "enemy", player: false });
+            enemy.shootT = 70 + Math.floor(Math.random() * 36);
+          }
+        }
+        for (const bullet of bullets.filter((item) => item.player)) {
+          if (!bullet.dead && rectsTouch(bullet, enemy)) damageEnemy(enemy, bullet);
+        }
+      }
+      enemies = enemies.filter((enemy) => enemy.x > -90);
+    }
+
+    function update() {
+      if (state !== "play") return;
+      updateTank();
+      updateBullets();
+      updateEnemies();
+      spawnT -= 1;
+      if (spawnT <= 0) {
+        spawnEnemy();
+        spawnT = Math.max(40, 94 - destroyed * 12 - Math.random() * 20);
+      }
+      blasts = blasts.filter((blast) => {
+        blast.t -= 1;
+        return blast.t > 0;
+      });
+    }
+
+    function drawWorld() {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#18181b");
+      bg.addColorStop(0.52, "#3f3f46");
+      bg.addColorStop(1, "#09090b");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const offset = scroll % 140;
+      for (let x = -offset; x < 950; x += 140) {
+        ctx.fillStyle = "#52525b";
+        ctx.fillRect(x + 18, 245, 74, 175);
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(x + 38, 280, 16, 26);
+        ctx.fillRect(x + 64, 280, 16, 26);
+      }
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(0, groundY, 900, 54);
+      ctx.fillStyle = "#713f12";
+      ctx.fillRect(0, groundY + 24, 900, 48);
+      ctx.fillStyle = "#facc15";
+      ctx.fillText(`敌车 ${destroyed}/3`, 28, 36);
+    }
+
+    function drawTank() {
+      ctx.save();
+      ctx.globalAlpha = tank.inv > 0 && tank.inv % 8 < 4 ? 0.45 : 1;
+      ctx.fillStyle = "#166534";
+      ctx.fillRect(tank.x + 6, tank.y + 18, 62, 28);
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(tank.x + 20, tank.y + 2, 34, 22);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(tank.x, tank.y + 43, 78, 15);
+      ctx.fillStyle = "#0f172a";
+      for (let i = 0; i < 4; i += 1) ctx.beginPath(), ctx.arc(tank.x + 13 + i * 17, tank.y + 51, 7, 0, Math.PI * 2), ctx.fill();
+      ctx.fillStyle = "#d1d5db";
+      ctx.fillRect(tank.x + 52, tank.y + 14, 36, 7);
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.globalAlpha = enemy.hurtT > 0 && enemy.hurtT % 4 < 2 ? 0.55 : 1;
+      if (enemy.kind === "truck") {
+        ctx.fillStyle = "#7f1d1d";
+        ctx.fillRect(0, 14, enemy.w, 25);
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(22, 0, 28, 18);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(7, 36, 14, 10);
+        ctx.fillRect(42, 36, 14, 10);
+      } else {
+        ctx.fillStyle = "#fca5a5";
+        ctx.fillRect(9, 0, 16, 17);
+        ctx.fillStyle = "#a16207";
+        ctx.fillRect(4, 17, 28, 31);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(7, 48, 8, 10);
+        ctx.fillRect(21, 48, 8, 10);
+      }
+      ctx.restore();
+    }
+
+    function drawBullet(bullet) {
+      ctx.fillStyle = bullet.player ? (bullet.type === "shell" ? "#fb7185" : "#facc15") : "#f97316";
+      ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWorld();
+      bullets.forEach(drawBullet);
+      enemies.forEach(drawEnemy);
+      drawTank();
+      for (const blast of blasts) {
+        ctx.globalAlpha = blast.t / 28;
+        ctx.fillStyle = blast.color;
+        ctx.beginPath();
+        ctx.arc(blast.x, blast.y, blast.size * (1 - blast.t / 38), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (state !== "play") {
+        ctx.fillStyle = "rgba(9,9,11,0.78)";
+        ctx.fillRect(0, 0, 900, 520);
+        ctx.fillStyle = state === "won" ? "#86efac" : "#fca5a5";
+        ctx.font = "bold 52px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state === "won" ? "装甲突破!" : "载具损毁", 450, 235);
+        ctx.fillStyle = "#f4f4f5";
+        ctx.font = "22px sans-serif";
+        ctx.fillText("按 R 或点击重开", 450, 282);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+      if (event.key.toLowerCase() === "j") shoot();
+      if (event.key.toLowerCase() === "k") cannon();
+      if (event.key.toLowerCase() === "r") reset();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    document.getElementById("jumpBtn").addEventListener("click", jump);
+    document.getElementById("shootBtn").addEventListener("click", shoot);
+    document.getElementById("cannonBtn").addEventListener("click", cannon);
+    document.getElementById("restartBtn").addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
