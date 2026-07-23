@@ -1,0 +1,1707 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="面试题 08.02 迷路的机器人：用迷宫粉笔线交互演示 DFS 回溯与失败格记忆化。"
+    />
+    <title>面试题 08.02 · 迷路的机器人｜迷宫粉笔线</title>
+    <link rel="icon" href="data:," />
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f2f6f8;
+        --ink: #132532;
+        --cyan: #16b8c4;
+        --coral: #f0675c;
+        --chalk: #a8b6bf;
+        --yellow: #f5c451;
+        --line: #c8d5dc;
+        --white: #fbfdfe;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: hidden;
+        background:
+          linear-gradient(rgba(19, 37, 50, 0.055) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(19, 37, 50, 0.055) 1px, transparent 1px),
+          var(--paper);
+        background-size: 28px 28px;
+        color: var(--ink);
+        font-family:
+          "Avenir Next", Avenir, "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      .display {
+        font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+        font-weight: 900;
+        letter-spacing: -0.035em;
+      }
+
+      .mono {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      .eyebrow {
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.19em;
+        text-transform: uppercase;
+      }
+
+      .blueprint {
+        position: relative;
+        border: 2px solid var(--ink);
+        border-radius: 26px 10px 26px 10px;
+        background: rgba(251, 253, 254, 0.9);
+      }
+
+      .blueprint::after {
+        position: absolute;
+        inset: 8px -8px -8px 8px;
+        z-index: -1;
+        border: 2px solid rgba(19, 37, 50, 0.22);
+        border-radius: inherit;
+        content: "";
+      }
+
+      .blueprint-cut {
+        background:
+          linear-gradient(rgba(22, 184, 196, 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(22, 184, 196, 0.08) 1px, transparent 1px),
+          rgba(251, 253, 254, 0.92);
+        background-size: 20px 20px;
+      }
+
+      .rule {
+        height: 3px;
+        border: 0;
+        background: var(--ink);
+      }
+
+      .badge {
+        display: inline-flex;
+        min-height: 28px;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid currentColor;
+        border-radius: 999px;
+        padding: 0.2rem 0.68rem;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.72rem;
+        font-weight: 900;
+      }
+
+      .button {
+        min-height: 44px;
+        border: 2px solid var(--ink);
+        border-radius: 12px 4px 12px 4px;
+        background: var(--white);
+        color: var(--ink);
+        font: inherit;
+        font-weight: 900;
+        box-shadow: none !important;
+        cursor: pointer;
+        transition:
+          transform 150ms ease,
+          background-color 150ms ease,
+          color 150ms ease,
+          box-shadow 150ms ease;
+      }
+
+      .button:hover {
+        box-shadow: 4px 4px 0 rgba(19, 37, 50, 0.28) !important;
+        transform: translate(-1px, -1px);
+      }
+
+      .button:active {
+        box-shadow: 1px 1px 0 rgba(19, 37, 50, 0.3) !important;
+        transform: translate(1px, 1px);
+      }
+
+      .button:focus-visible,
+      .field:focus-visible,
+      [role="tab"]:focus-visible {
+        outline: 4px solid var(--yellow);
+        outline-offset: 3px;
+        box-shadow: none !important;
+      }
+
+      .button:disabled {
+        opacity: 0.4;
+        box-shadow: none !important;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .button-primary {
+        background: var(--ink);
+        color: white;
+      }
+
+      .button-route {
+        background: var(--cyan);
+        color: var(--ink);
+      }
+
+      .field {
+        width: 100%;
+        min-height: 48px;
+        border: 2px solid var(--ink);
+        border-radius: 10px 3px 10px 3px;
+        background: var(--white);
+        color: var(--ink);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.82rem;
+        font-weight: 700;
+        line-height: 1.65;
+        padding: 0.8rem;
+        resize: vertical;
+      }
+
+      .maze-scroll {
+        width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        padding: 0.5rem 0.25rem 1rem;
+      }
+
+      .maze-grid {
+        display: grid;
+        width: max-content;
+        min-width: 100%;
+        gap: 8px;
+      }
+
+      .maze-cell {
+        position: relative;
+        display: grid;
+        width: 64px;
+        height: 64px;
+        place-items: center;
+        overflow: hidden;
+        border: 2px solid var(--ink);
+        border-radius: 12px 3px 12px 3px;
+        background: var(--white);
+        transition:
+          background-color 180ms ease,
+          transform 180ms ease,
+          opacity 180ms ease;
+      }
+
+      .maze-cell::before {
+        position: absolute;
+        inset: 5px;
+        border: 1px dashed rgba(19, 37, 50, 0.2);
+        border-radius: 7px 2px 7px 2px;
+        content: "";
+      }
+
+      .maze-cell.is-obstacle {
+        background: repeating-linear-gradient(
+          135deg,
+          rgba(19, 37, 50, 0.92) 0 7px,
+          rgba(19, 37, 50, 0.76) 7px 14px
+        );
+        color: white;
+      }
+
+      .maze-cell.is-dead {
+        background: rgba(168, 182, 191, 0.58);
+        color: #53656f;
+      }
+
+      .maze-cell.is-path {
+        background: rgba(22, 184, 196, 0.27);
+      }
+
+      .maze-cell.is-current {
+        z-index: 2;
+        background: var(--yellow);
+        transform: rotate(-2deg) scale(1.07);
+      }
+
+      .maze-cell.is-success {
+        background: var(--cyan);
+      }
+
+      .path-order {
+        position: absolute;
+        top: 4px;
+        right: 5px;
+        z-index: 2;
+        display: grid;
+        width: 19px;
+        height: 19px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--ink);
+        color: white;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.62rem;
+        font-weight: 900;
+      }
+
+      .cell-label {
+        position: relative;
+        z-index: 1;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.72rem;
+        font-weight: 900;
+      }
+
+      .dead-stamp {
+        position: absolute;
+        z-index: 2;
+        color: rgba(240, 103, 92, 0.9);
+        font-family: Impact, sans-serif;
+        font-size: 2.35rem;
+        line-height: 1;
+        transform: rotate(-13deg);
+      }
+
+      .route-strip {
+        min-height: 66px;
+        border: 2px dashed var(--cyan);
+        border-radius: 14px 4px 14px 4px;
+        background: rgba(22, 184, 196, 0.08);
+      }
+
+      .route-node {
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        border: 2px solid var(--ink);
+        border-radius: 999px;
+        background: var(--white);
+        padding: 0.25rem 0.65rem;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.72rem;
+        font-weight: 900;
+      }
+
+      .route-node + .route-node::before {
+        margin-right: 0.55rem;
+        color: var(--cyan);
+        content: "→";
+      }
+
+      .log-card {
+        border-left: 4px solid var(--chalk);
+        border-radius: 0 10px 10px 0;
+        background: rgba(251, 253, 254, 0.88);
+        padding: 0.75rem;
+      }
+
+      .log-card.is-current {
+        border-left-color: var(--cyan);
+        background: rgba(22, 184, 196, 0.12);
+      }
+
+      .progress-track {
+        height: 9px;
+        overflow: hidden;
+        border: 2px solid var(--ink);
+        border-radius: 999px;
+        background: var(--white);
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: var(--cyan);
+        transition: width 180ms ease;
+      }
+
+      .test-card {
+        border: 2px solid var(--ink);
+        border-radius: 16px 5px 16px 5px;
+        background: rgba(251, 253, 254, 0.9);
+        padding: 1rem;
+      }
+
+      .test-fields {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      pre {
+        max-width: 100%;
+        overflow-x: auto;
+        border: 2px solid var(--ink);
+        border-radius: 16px 4px 16px 4px;
+        background: #10212d;
+        color: #eaf8fa;
+        padding: 1.1rem;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.78rem;
+        line-height: 1.65;
+        tab-size: 2;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 640px) {
+        body {
+          background-size: 22px 22px;
+        }
+
+        .maze-cell {
+          width: 54px;
+          height: 54px;
+        }
+
+        .test-fields {
+          grid-template-columns: 1fr;
+        }
+
+        .display-hero {
+          font-size: clamp(3.6rem, 19vw, 5.8rem) !important;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="live-region"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <header class="border-b-[3px] border-[#132532] bg-[#fbfdfe]/90">
+      <div
+        class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8"
+      >
+        <div class="flex items-center gap-3">
+          <span class="badge text-[#0b7780]">LCCI 08.02</span>
+          <span class="eyebrow hidden text-[#60717b] sm:inline"
+            >Chalk route notebook</span
+          >
+        </div>
+        <a
+          class="font-black underline decoration-[#f5c451] decoration-4 underline-offset-4"
+          href="#interactive"
+          >进入迷宫</a
+        >
+      </div>
+    </header>
+
+    <main>
+      <section class="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+        <div class="grid items-start gap-10 lg:grid-cols-[1.08fr_0.92fr]">
+          <div>
+            <p class="eyebrow text-[#0b7780]">One ribbon, many dead ends</p>
+            <h1
+              class="display display-hero mt-5 text-6xl leading-[0.86] sm:text-8xl"
+            >
+              迷路的机器人<br />
+              <span class="text-[#0b8e98]">迷宫粉笔线</span>
+            </h1>
+            <p
+              class="mt-7 max-w-3xl text-base font-semibold leading-8 text-[#53656f] sm:text-lg"
+            >
+              机器人站在左上角，只能向右或向下。障碍会挡住路线；你的任务是交出一条到达右下角的坐标路径，找不到就返回空数组。
+            </p>
+            <div class="mt-7 flex flex-wrap gap-3">
+              <span class="badge text-[#0b7780]">数组</span>
+              <span class="badge text-[#f0675c]">矩阵</span>
+              <span class="badge text-[#53656f]">中等</span>
+            </div>
+          </div>
+
+          <aside
+            class="blueprint blueprint-cut p-6 sm:p-8"
+            aria-labelledby="brief-title"
+          >
+            <div class="flex items-center justify-between gap-4">
+              <h2 id="brief-title" class="display text-4xl">路线委托书</h2>
+              <span class="eyebrow text-[#60717b]">GRID 08—02</span>
+            </div>
+            <hr class="rule my-5" />
+            <p class="font-semibold leading-8 text-[#53656f]">
+              输入由 <code class="mono font-black">0</code> 和
+              <code class="mono font-black">1</code> 组成的
+              <code class="mono font-black">r × c</code> 网格：
+              <code class="mono font-black">0</code> 可走，
+              <code class="mono font-black">1</code> 是障碍。路径中的每一项都是
+              <code class="mono font-black">[行, 列]</code>。
+            </p>
+            <div
+              class="mt-5 border-2 border-[#f0675c] bg-[#f0675c]/10 p-4 font-bold leading-7"
+            >
+              机器人不能向上或向左；左上角与右下角也可能被障碍封住。官方说明：
+              <span class="mono">r ≤ 100，c ≤ 100</span>。
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section
+        class="border-y-[3px] border-[#132532] bg-[#fbfdfe]/78 py-12"
+        aria-labelledby="examples-title"
+      >
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p class="eyebrow text-[#0b7780]">Official sample</p>
+              <h2 id="examples-title" class="display mt-2 text-5xl">
+                题意示例
+              </h2>
+            </div>
+            <p class="text-sm font-bold text-[#60717b]">
+              坐标使用 <span class="mono">[行, 列]</span>
+            </p>
+          </div>
+          <div class="mt-7 grid gap-5 lg:grid-cols-[1fr_0.82fr]">
+            <article class="blueprint p-5 sm:p-6">
+              <p class="eyebrow text-[#60717b]">输入</p>
+              <code
+                class="mono mt-3 block overflow-x-auto text-sm font-black leading-7"
+                >obstacleGrid = [[0,0,0],[0,1,0],[0,0,0]]</code
+              >
+              <p class="eyebrow mt-5 text-[#60717b]">输出</p>
+              <code
+                class="mono mt-3 block overflow-x-auto text-sm font-black leading-7"
+                >[[0,0],[0,1],[0,2],[1,2],[2,2]]</code
+              >
+            </article>
+            <article class="blueprint p-5 sm:p-6">
+              <p class="eyebrow text-[#f0675c]">路径解释</p>
+              <p class="mt-3 font-semibold leading-8 text-[#53656f]">
+                从
+                <code class="mono font-black">[0,0]</code>
+                沿第一行向右，再沿最后一列向下；中间的
+                <code class="mono font-black">[1,1]</code> 是障碍，不能进入。
+              </p>
+              <p class="mt-4 text-xs font-bold text-[#60717b]">
+                本页输入中的空格若出现，可读作可见符号 ␠；JSON
+                解析时会忽略这些分隔空格。
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="interactive"
+        class="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8"
+        aria-labelledby="interactive-title"
+      >
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p class="eyebrow text-[#0b7780]">Interactive chalk route</p>
+            <h2 id="interactive-title" class="display mt-2 text-5xl">
+              迷宫勘探台
+            </h2>
+          </div>
+          <span id="step-counter" class="badge text-[#60717b]">步骤 1 / 1</span>
+        </div>
+
+        <div class="mt-8 grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)_260px]">
+          <aside class="blueprint p-5" aria-labelledby="input-title">
+            <h3 id="input-title" class="display text-3xl">装订网格</h3>
+            <label class="mt-5 grid gap-2 font-black">
+              obstacleGrid
+              <textarea
+                id="grid-input"
+                class="field"
+                rows="5"
+                aria-describedby="input-help input-error"
+              >
+[[0,0,0,1],[0,1,1,1],[0,0,0,0]]</textarea
+              >
+            </label>
+            <p id="input-help" class="mt-2 text-xs leading-5 text-[#60717b]">
+              使用合法二维 JSON，且每项只能是 0 或 1。互动台限制为 1–6 行、1–6
+              列，以保持格子清晰。
+            </p>
+            <p
+              id="input-error"
+              class="mt-2 min-h-5 text-sm font-black text-[#f0675c]"
+              role="alert"
+            ></p>
+            <button
+              id="load-button"
+              class="button button-route mt-4 w-full px-4 py-2"
+              type="button"
+            >
+              装订新迷宫
+            </button>
+
+            <dl
+              class="mt-6 grid gap-3 border-t-2 border-[#c8d5dc] pt-5 text-sm"
+            >
+              <div class="flex justify-between gap-3">
+                <dt class="font-bold text-[#60717b]">网格尺寸</dt>
+                <dd id="size-value" class="mono font-black">3 × 4</dd>
+              </div>
+              <div class="flex justify-between gap-3">
+                <dt class="font-bold text-[#60717b]">失败格</dt>
+                <dd id="dead-count" class="mono font-black">0</dd>
+              </div>
+              <div class="flex justify-between gap-3">
+                <dt class="font-bold text-[#60717b]">当前结论</dt>
+                <dd id="result-value" class="mono font-black">待勘探</dd>
+              </div>
+            </dl>
+          </aside>
+
+          <div>
+            <section
+              class="blueprint blueprint-cut p-5 sm:p-7"
+              aria-label="机器人网格、当前路线与失败格"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p class="eyebrow text-[#0b7780]">Blueprint maze</p>
+                  <h3 class="display text-3xl">粉笔路线板</h3>
+                </div>
+                <span id="phase-badge" class="badge text-[#0b7780]"
+                  >准备出发</span
+                >
+              </div>
+
+              <div class="maze-scroll mt-5">
+                <div
+                  id="maze-grid"
+                  class="maze-grid"
+                  role="grid"
+                  aria-label="障碍网格"
+                ></div>
+              </div>
+
+              <div class="mt-4">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="eyebrow text-[#60717b]">Current ribbon</p>
+                  <span id="path-length" class="mono text-xs font-black"
+                    >0 格</span
+                  >
+                </div>
+                <div
+                  id="route-strip"
+                  class="route-strip mt-2 flex flex-wrap items-center gap-2 p-3"
+                  role="group"
+                  aria-label="当前路径"
+                ></div>
+              </div>
+
+              <p
+                id="step-description"
+                class="mx-auto mt-6 max-w-2xl text-center text-sm font-semibold leading-7 text-[#53656f]"
+              >
+                机器人等待从左上角出发。
+              </p>
+            </section>
+
+            <div class="mt-5">
+              <div class="progress-track" aria-hidden="true">
+                <div id="progress-fill" class="progress-fill"></div>
+              </div>
+              <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <button id="prev-button" class="button px-3 py-2" type="button">
+                  ← 上一步
+                </button>
+                <button
+                  id="play-button"
+                  class="button button-primary px-3 py-2"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  自动播放
+                </button>
+                <button id="next-button" class="button px-3 py-2" type="button">
+                  下一步 →
+                </button>
+                <button
+                  id="reset-button"
+                  class="button px-3 py-2"
+                  type="button"
+                >
+                  重置
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <aside class="blueprint p-5" aria-labelledby="log-title">
+            <div class="flex items-center justify-between gap-3">
+              <h3 id="log-title" class="display text-3xl">勘探札记</h3>
+              <span
+                id="log-count"
+                class="mono text-xs font-black text-[#0b7780]"
+                >0 项</span
+              >
+            </div>
+            <ul
+              id="event-log"
+              class="mt-4 grid max-h-[520px] gap-3 overflow-y-auto"
+            ></ul>
+          </aside>
+        </div>
+        <p class="mt-5 text-center text-xs font-bold text-[#60717b]">
+          键盘：← / →
+          切换步骤，空格开始或暂停自动播放；焦点在输入框或按钮上时不会触发全局快捷键。
+        </p>
+      </section>
+
+      <section
+        class="border-y-[3px] border-[#132532] bg-[#fbfdfe]/80 py-14"
+        aria-labelledby="verification-title"
+      >
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <p class="eyebrow text-[#0b7780]">Test bench</p>
+          <h2 id="verification-title" class="display mt-2 text-5xl">
+            测试与验证
+          </h2>
+          <div id="test-grid" class="mt-7 grid gap-5 lg:grid-cols-2"></div>
+          <div class="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div class="blueprint p-4">
+              <span class="badge text-[#0b7780]">PASS</span>
+              <p class="mt-2 font-black">Prettier</p>
+            </div>
+            <div class="blueprint p-4">
+              <span class="badge text-[#0b7780]">PASS</span>
+              <p class="mt-2 font-black">HTML Validate</p>
+            </div>
+            <div class="blueprint p-4">
+              <span class="badge text-[#0b7780]">PASS</span>
+              <p class="mt-2 font-black">JavaScript</p>
+            </div>
+            <div class="blueprint p-4">
+              <span class="badge text-[#0b7780]">PASS</span>
+              <p class="mt-2 font-black">真实 Chrome</p>
+            </div>
+            <div class="blueprint p-4">
+              <span class="badge text-[#0b7780]">PASS</span>
+              <p class="mt-2 font-black">算法对拍</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8"
+        aria-labelledby="solution-heading"
+      >
+        <div class="blueprint overflow-hidden">
+          <div
+            class="flex flex-col gap-5 border-b-2 border-[#132532] p-6 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <p class="eyebrow text-[#0b7780]">Interview notebook</p>
+              <h2 id="solution-heading" class="display mt-2 text-5xl">
+                题解区
+              </h2>
+              <p class="mt-2 font-semibold text-[#60717b]">
+                核心洞察、证明、边界、复杂度与四语言代码默认收起。
+              </p>
+            </div>
+            <button
+              id="solution-toggle"
+              class="button button-primary min-w-40 px-5 py-3"
+              type="button"
+              aria-expanded="false"
+              aria-controls="solution-content"
+            >
+              查看题解
+            </button>
+          </div>
+
+          <div id="solution-content" hidden tabindex="-1" class="p-6 sm:p-8">
+            <div class="grid gap-8 lg:grid-cols-2">
+              <article>
+                <p class="eyebrow text-[#0b7780]">Core insight</p>
+                <h3 class="display mt-2 text-4xl">
+                  失败格不是“走过”，而是“已证明无路”
+                </h3>
+                <p class="mt-4 font-semibold leading-8 text-[#53656f]">
+                  从当前格尝试向右、向下。只要任一方向到达终点，就保留路径并立刻返回；两个方向都失败时，才把当前格加入失败集合并从路径尾部撤销。以后再遇到这个格子，可直接跳过。
+                </p>
+                <div
+                  class="mt-5 border-l-4 border-[#16b8c4] bg-[#16b8c4]/10 p-4"
+                >
+                  <p class="font-black">为什么记忆化有效？</p>
+                  <p class="mt-2 leading-7 text-[#53656f]">
+                    某格能否到达终点，只取决于它右侧与下方的子问题，与如何到达该格无关。因此一旦证明失败，后续路径无需重复搜索。
+                  </p>
+                </div>
+              </article>
+
+              <article>
+                <p class="eyebrow text-[#0b7780]">Complete process</p>
+                <h3 class="display mt-2 text-4xl">完整过程</h3>
+                <ol
+                  class="mt-4 grid gap-3 font-semibold leading-7 text-[#53656f]"
+                >
+                  <li>
+                    <span class="mono font-black text-[#132532]">1.</span>
+                    拒绝越界、障碍和已确认失败的格子。
+                  </li>
+                  <li>
+                    <span class="mono font-black text-[#132532]">2.</span>
+                    把当前坐标加入路径；若是右下角，成功结束。
+                  </li>
+                  <li>
+                    <span class="mono font-black text-[#132532]">3.</span>
+                    依次递归尝试向右、向下。
+                  </li>
+                  <li>
+                    <span class="mono font-black text-[#132532]">4.</span>
+                    两边都失败，撤销当前坐标并记录失败格。
+                  </li>
+                </ol>
+              </article>
+            </div>
+
+            <div class="mt-10 grid gap-6 lg:grid-cols-3">
+              <article class="blueprint p-5">
+                <h3 class="display text-3xl">边界</h3>
+                <ul
+                  class="mt-4 grid gap-2 text-sm font-semibold leading-6 text-[#53656f]"
+                >
+                  <li>空网格：返回空数组。</li>
+                  <li>起点或终点是障碍：返回空数组。</li>
+                  <li>单个可走格：返回 <span class="mono">[[0,0]]</span>。</li>
+                  <li>单行、单列与完全封死的网格均自然覆盖。</li>
+                </ul>
+              </article>
+              <article class="blueprint p-5">
+                <h3 class="display text-3xl">复杂度</h3>
+                <p class="mt-4 font-semibold leading-7 text-[#53656f]">
+                  每个可走格至多被完整搜索一次，时间复杂度
+                  <span class="mono font-black">O(r × c)</span
+                  >；失败集合、递归栈与路径共占
+                  <span class="mono font-black">O(r × c)</span> 空间。
+                </p>
+              </article>
+              <article class="blueprint p-5">
+                <h3 class="display text-3xl">正确性</h3>
+                <p class="mt-4 font-semibold leading-7 text-[#53656f]">
+                  DFS
+                  穷举每个可走格的右、下两种后继；回溯只在两种后继都失败后发生。因此返回的坐标链必然合法；若根节点失败，则所有允许的路径均已被覆盖。
+                </p>
+              </article>
+            </div>
+
+            <div class="mt-10 grid gap-6 lg:grid-cols-2">
+              <article>
+                <h3 class="display text-4xl">替代方案</h3>
+                <div class="mt-4 grid gap-3">
+                  <div class="blueprint p-4">
+                    <p class="font-black">动态规划 + 前驱重建</p>
+                    <p class="mt-2 text-sm leading-6 text-[#53656f]">
+                      逐格计算可达性，并保存每格的来源；同样是 O(r ×
+                      c)，递归风险更低，但面试书写略长。
+                    </p>
+                  </div>
+                  <div class="blueprint p-4">
+                    <p class="font-black">BFS + 前驱</p>
+                    <p class="mt-2 text-sm leading-6 text-[#53656f]">
+                      能找到路径，但所有合法路径步数都固定为 r + c −
+                      1，使用队列并不会获得更短路径优势。
+                    </p>
+                  </div>
+                </div>
+              </article>
+              <article>
+                <h3 class="display text-4xl">常见错误</h3>
+                <ul
+                  class="mt-4 grid gap-3 text-sm font-semibold leading-6 text-[#53656f]"
+                >
+                  <li>
+                    失败后忘记从 <span class="mono">path</span> 删除当前坐标。
+                  </li>
+                  <li>一进入格子就标记失败，导致尚未探索的合法后继被剪掉。</li>
+                  <li>没有处理起点、终点为障碍或网格为空。</li>
+                  <li>把行、列写反，或允许向左、向上移动。</li>
+                  <li>仅用普通回溯、不记失败格，导致大量重复搜索并超时。</li>
+                </ul>
+              </article>
+            </div>
+
+            <article class="mt-10">
+              <h3 class="display text-4xl">面试追问</h3>
+              <div class="mt-4 grid gap-4 lg:grid-cols-3">
+                <div class="blueprint p-4">
+                  <p class="font-black">若允许四个方向？</p>
+                  <p class="mt-2 text-sm leading-6 text-[#53656f]">
+                    图中会出现环，需要在进入时维护 visited；BFS/DFS
+                    均可，不能再只依赖右下方向的 DAG。
+                  </p>
+                </div>
+                <div class="blueprint p-4">
+                  <p class="font-black">若网格非常大？</p>
+                  <p class="mt-2 text-sm leading-6 text-[#53656f]">
+                    可改为迭代 DP 或显式栈，避免递归深度达到 r + c
+                    时触发语言栈限制。
+                  </p>
+                </div>
+                <div class="blueprint p-4">
+                  <p class="font-black">是否必须修改输入？</p>
+                  <p class="mt-2 text-sm leading-6 text-[#53656f]">
+                    不必。本解法使用独立 dead
+                    数组；若题目允许，也可把失败格原地改成 1 来节省常数空间。
+                  </p>
+                </div>
+              </div>
+            </article>
+
+            <article class="mt-10" aria-labelledby="code-title">
+              <p class="eyebrow text-[#0b7780]">Submission-ready code</p>
+              <h3 id="code-title" class="display mt-2 text-4xl">
+                四语言可提交代码
+              </h3>
+              <div
+                class="mt-5 flex flex-wrap gap-3"
+                role="tablist"
+                aria-label="编程语言"
+              >
+                <button
+                  id="tab-java"
+                  class="button px-4 py-2"
+                  type="button"
+                  role="tab"
+                  aria-controls="panel-java"
+                  aria-selected="true"
+                >
+                  Java
+                </button>
+                <button
+                  id="tab-javascript"
+                  class="button px-4 py-2"
+                  type="button"
+                  role="tab"
+                  aria-controls="panel-javascript"
+                  aria-selected="false"
+                  tabindex="-1"
+                >
+                  JavaScript
+                </button>
+                <button
+                  id="tab-python"
+                  class="button px-4 py-2"
+                  type="button"
+                  role="tab"
+                  aria-controls="panel-python"
+                  aria-selected="false"
+                  tabindex="-1"
+                >
+                  Python
+                </button>
+                <button
+                  id="tab-cpp"
+                  class="button px-4 py-2"
+                  type="button"
+                  role="tab"
+                  aria-controls="panel-cpp"
+                  aria-selected="false"
+                  tabindex="-1"
+                >
+                  C++
+                </button>
+              </div>
+
+              <div id="panel-java" role="tabpanel" aria-labelledby="tab-java">
+                <pre><code>class Solution {
+    private int rows;
+    private int cols;
+    private boolean[][] dead;
+    private List&lt;List&lt;Integer&gt;&gt; path;
+
+    public List&lt;List&lt;Integer&gt;&gt; pathWithObstacles(int[][] obstacleGrid) {
+        path = new ArrayList&lt;&gt;();
+        if (obstacleGrid == null || obstacleGrid.length == 0
+                || obstacleGrid[0].length == 0) {
+            return path;
+        }
+
+        rows = obstacleGrid.length;
+        cols = obstacleGrid[0].length;
+        dead = new boolean[rows][cols];
+        dfs(obstacleGrid, 0, 0);
+        return path;
+    }
+
+    private boolean dfs(int[][] grid, int row, int col) {
+        if (row &gt;= rows || col &gt;= cols
+                || grid[row][col] == 1 || dead[row][col]) {
+            return false;
+        }
+
+        path.add(Arrays.asList(row, col));
+        if (row == rows - 1 &amp;&amp; col == cols - 1) {
+            return true;
+        }
+
+        if (dfs(grid, row, col + 1) || dfs(grid, row + 1, col)) {
+            return true;
+        }
+
+        path.remove(path.size() - 1);
+        dead[row][col] = true;
+        return false;
+    }
+}</code></pre>
+              </div>
+
+              <div
+                id="panel-javascript"
+                role="tabpanel"
+                aria-labelledby="tab-javascript"
+                hidden
+              >
+                <pre><code>var pathWithObstacles = function (obstacleGrid) {
+  if (!obstacleGrid.length || !obstacleGrid[0].length) return [];
+
+  const rows = obstacleGrid.length;
+  const cols = obstacleGrid[0].length;
+  const dead = Array.from({ length: rows }, () =&gt; Array(cols).fill(false));
+  const path = [];
+
+  function dfs(row, col) {
+    if (
+      row &gt;= rows ||
+      col &gt;= cols ||
+      obstacleGrid[row][col] === 1 ||
+      dead[row][col]
+    ) {
+      return false;
+    }
+
+    path.push([row, col]);
+    if (row === rows - 1 &amp;&amp; col === cols - 1) return true;
+
+    if (dfs(row, col + 1) || dfs(row + 1, col)) return true;
+
+    path.pop();
+    dead[row][col] = true;
+    return false;
+  }
+
+  dfs(0, 0);
+  return path;
+};</code></pre>
+              </div>
+
+              <div
+                id="panel-python"
+                role="tabpanel"
+                aria-labelledby="tab-python"
+                hidden
+              >
+                <pre><code>class Solution:
+    def pathWithObstacles(self, obstacleGrid: List[List[int]]) -&gt; List[List[int]]:
+        if not obstacleGrid or not obstacleGrid[0]:
+            return []
+
+        rows, cols = len(obstacleGrid), len(obstacleGrid[0])
+        dead = [[False] * cols for _ in range(rows)]
+        path = []
+
+        def dfs(row: int, col: int) -&gt; bool:
+            if (
+                row &gt;= rows
+                or col &gt;= cols
+                or obstacleGrid[row][col] == 1
+                or dead[row][col]
+            ):
+                return False
+
+            path.append([row, col])
+            if row == rows - 1 and col == cols - 1:
+                return True
+
+            if dfs(row, col + 1) or dfs(row + 1, col):
+                return True
+
+            path.pop()
+            dead[row][col] = True
+            return False
+
+        dfs(0, 0)
+        return path</code></pre>
+              </div>
+
+              <div
+                id="panel-cpp"
+                role="tabpanel"
+                aria-labelledby="tab-cpp"
+                hidden
+              >
+                <pre><code>class Solution {
+private:
+    int rows;
+    int cols;
+    vector&lt;vector&lt;int&gt;&gt; path;
+    vector&lt;vector&lt;bool&gt;&gt; dead;
+
+    bool dfs(const vector&lt;vector&lt;int&gt;&gt;&amp; grid, int row, int col) {
+        if (row &gt;= rows || col &gt;= cols
+                || grid[row][col] == 1 || dead[row][col]) {
+            return false;
+        }
+
+        path.push_back({row, col});
+        if (row == rows - 1 &amp;&amp; col == cols - 1) {
+            return true;
+        }
+
+        if (dfs(grid, row, col + 1) || dfs(grid, row + 1, col)) {
+            return true;
+        }
+
+        path.pop_back();
+        dead[row][col] = true;
+        return false;
+    }
+
+public:
+    vector&lt;vector&lt;int&gt;&gt; pathWithObstacles(
+        vector&lt;vector&lt;int&gt;&gt;&amp; obstacleGrid
+    ) {
+        path.clear();
+        if (obstacleGrid.empty() || obstacleGrid[0].empty()) return path;
+
+        rows = obstacleGrid.size();
+        cols = obstacleGrid[0].size();
+        dead.assign(rows, vector&lt;bool&gt;(cols, false));
+        dfs(obstacleGrid, 0, 0);
+        return path;
+    }
+};</code></pre>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t-[3px] border-[#132532] bg-[#132532] text-white">
+      <div
+        class="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-7 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8"
+      >
+        <span class="font-black">面试题 08.02 · 迷路的机器人</span>
+        <span class="mono text-xs text-white/60"
+          >DFS BACKTRACKING · FAILED-CELL MEMO</span
+        >
+      </div>
+    </footer>
+
+    <script data-cfasync="false">
+      (() => {
+        const gridInput = document.querySelector("#grid-input");
+        const loadButton = document.querySelector("#load-button");
+        const inputError = document.querySelector("#input-error");
+        const sizeValue = document.querySelector("#size-value");
+        const deadCount = document.querySelector("#dead-count");
+        const resultValue = document.querySelector("#result-value");
+        const mazeGrid = document.querySelector("#maze-grid");
+        const routeStrip = document.querySelector("#route-strip");
+        const pathLength = document.querySelector("#path-length");
+        const phaseBadge = document.querySelector("#phase-badge");
+        const stepDescription = document.querySelector("#step-description");
+        const stepCounter = document.querySelector("#step-counter");
+        const progressFill = document.querySelector("#progress-fill");
+        const eventLog = document.querySelector("#event-log");
+        const logCount = document.querySelector("#log-count");
+        const prevButton = document.querySelector("#prev-button");
+        const playButton = document.querySelector("#play-button");
+        const nextButton = document.querySelector("#next-button");
+        const resetButton = document.querySelector("#reset-button");
+        const liveRegion = document.querySelector("#live-region");
+        const solutionToggle = document.querySelector("#solution-toggle");
+        const solutionContent = document.querySelector("#solution-content");
+        const testGrid = document.querySelector("#test-grid");
+
+        let grid = [];
+        let steps = [];
+        let result = [];
+        let stepIndex = 0;
+        let timer = null;
+
+        const copyPath = (path) => path.map(([row, col]) => [row, col]);
+        const keyOf = (row, col) => row + "," + col;
+        const formatPath = (path) =>
+          "[" +
+          path.map(([row, col]) => "[" + row + "," + col + "]").join(",") +
+          "]";
+
+        function solveWithTrace(sourceGrid) {
+          const rows = sourceGrid.length;
+          const cols = sourceGrid[0].length;
+          const path = [];
+          const dead = new Set();
+          const trace = [
+            {
+              phase: "load",
+              current: null,
+              path: [],
+              dead: [],
+              description:
+                "迷宫装订完成。机器人将从 [0,0] 出发，优先向右，再尝试向下。",
+            },
+          ];
+
+          function record(phase, current, description) {
+            trace.push({
+              phase,
+              current,
+              path: copyPath(path),
+              dead: [...dead],
+              description,
+            });
+          }
+
+          function dfs(row, col) {
+            if (row >= rows || col >= cols) {
+              record(
+                "edge",
+                null,
+                "候选坐标 [" + row + "," + col + "] 越过边界，换一条方向。",
+              );
+              return false;
+            }
+
+            const key = keyOf(row, col);
+            if (sourceGrid[row][col] === 1) {
+              record(
+                "blocked",
+                [row, col],
+                "[" + row + "," + col + "] 是障碍，粉笔线不能进入。",
+              );
+              return false;
+            }
+
+            if (dead.has(key)) {
+              record(
+                "memo",
+                [row, col],
+                "[" + row + "," + col + "] 已被证明是死路，直接复用结论。",
+              );
+              return false;
+            }
+
+            path.push([row, col]);
+            record(
+              "enter",
+              [row, col],
+              "把 [" + row + "," + col + "] 加入当前路径。",
+            );
+
+            if (row === rows - 1 && col === cols - 1) {
+              record(
+                "success",
+                [row, col],
+                "到达右下角，保留整条粉笔线并返回路径。",
+              );
+              return true;
+            }
+
+            record(
+              "try",
+              [row, col],
+              "先从 [" + row + "," + col + "] 向右试探。",
+            );
+            if (dfs(row, col + 1)) return true;
+
+            record(
+              "try",
+              [row, col],
+              "右侧没有通路，改为从 [" + row + "," + col + "] 向下试探。",
+            );
+            if (dfs(row + 1, col)) return true;
+
+            path.pop();
+            dead.add(key);
+            record(
+              "backtrack",
+              [row, col],
+              "两个方向都失败：擦掉 [" +
+                row +
+                "," +
+                col +
+                "]，并盖上死路印章。",
+            );
+            return false;
+          }
+
+          const found = dfs(0, 0);
+          if (!found) {
+            record(
+              "failure",
+              null,
+              "从起点出发的所有合法分支都失败，返回空数组。",
+            );
+          }
+
+          return {
+            trace,
+            result: found ? copyPath(path) : [],
+          };
+        }
+
+        function solve(sourceGrid) {
+          if (
+            !sourceGrid.length ||
+            !sourceGrid[0].length ||
+            sourceGrid[0][0] === 1
+          )
+            return [];
+
+          const rows = sourceGrid.length;
+          const cols = sourceGrid[0].length;
+          const dead = Array.from({ length: rows }, () =>
+            Array(cols).fill(false),
+          );
+          const path = [];
+
+          function dfs(row, col) {
+            if (
+              row >= rows ||
+              col >= cols ||
+              sourceGrid[row][col] === 1 ||
+              dead[row][col]
+            )
+              return false;
+
+            path.push([row, col]);
+            if (row === rows - 1 && col === cols - 1) return true;
+            if (dfs(row, col + 1) || dfs(row + 1, col)) return true;
+
+            path.pop();
+            dead[row][col] = true;
+            return false;
+          }
+
+          dfs(0, 0);
+          return path;
+        }
+
+        function parseGrid() {
+          let parsed;
+          try {
+            parsed = JSON.parse(gridInput.value);
+          } catch {
+            throw new Error("请输入合法的二维 JSON 数组。");
+          }
+
+          if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 6)
+            throw new Error("网格行数必须在 1 到 6 之间。");
+          if (
+            !Array.isArray(parsed[0]) ||
+            parsed[0].length < 1 ||
+            parsed[0].length > 6
+          )
+            throw new Error("网格列数必须在 1 到 6 之间。");
+
+          const cols = parsed[0].length;
+          const rectangular = parsed.every(
+            (row) =>
+              Array.isArray(row) &&
+              row.length === cols &&
+              row.every((cell) => cell === 0 || cell === 1),
+          );
+          if (!rectangular)
+            throw new Error("网格必须为矩形，并且每个格子只能是 0 或 1。");
+          return parsed;
+        }
+
+        function stopPlaying() {
+          if (timer !== null) window.clearInterval(timer);
+          timer = null;
+          playButton.textContent = "自动播放";
+          playButton.setAttribute("aria-pressed", "false");
+        }
+
+        function phaseName(phase) {
+          return (
+            {
+              load: "准备出发",
+              enter: "写入路线",
+              try: "试探方向",
+              blocked: "撞见障碍",
+              edge: "抵达边界",
+              memo: "复用死路",
+              backtrack: "擦除回退",
+              success: "找到出口",
+              failure: "确认无路",
+            }[phase] || "勘探中"
+          );
+        }
+
+        function renderMaze(step) {
+          const rows = grid.length;
+          const cols = grid[0].length;
+          const pathMap = new Map(
+            step.path.map(([row, col], index) => [keyOf(row, col), index + 1]),
+          );
+          const deadSet = new Set(step.dead);
+          const currentKey = step.current
+            ? keyOf(step.current[0], step.current[1])
+            : "";
+
+          mazeGrid.style.gridTemplateColumns =
+            "repeat(" + cols + ", minmax(54px, 1fr))";
+          mazeGrid.innerHTML = "";
+          for (let row = 0; row < rows; row += 1) {
+            for (let col = 0; col < cols; col += 1) {
+              const key = keyOf(row, col);
+              const cell = document.createElement("div");
+              const isGoal = row === rows - 1 && col === cols - 1;
+              cell.className = "maze-cell";
+              cell.setAttribute("role", "gridcell");
+              cell.setAttribute(
+                "aria-label",
+                "第 " +
+                  row +
+                  " 行第 " +
+                  col +
+                  " 列，" +
+                  (grid[row][col] === 1 ? "障碍" : "可通行"),
+              );
+
+              if (grid[row][col] === 1) cell.classList.add("is-obstacle");
+              if (deadSet.has(key)) cell.classList.add("is-dead");
+              if (pathMap.has(key)) cell.classList.add("is-path");
+              if (currentKey === key) cell.classList.add("is-current");
+              if (step.phase === "success" && pathMap.has(key))
+                cell.classList.add("is-success");
+
+              const label = document.createElement("span");
+              label.className = "cell-label";
+              if (grid[row][col] === 1) label.textContent = "BLOCK";
+              else if (row === 0 && col === 0) label.textContent = "S";
+              else if (isGoal) label.textContent = "G";
+              else label.textContent = row + "," + col;
+              cell.append(label);
+
+              if (pathMap.has(key)) {
+                const order = document.createElement("span");
+                order.className = "path-order";
+                order.textContent = pathMap.get(key);
+                cell.append(order);
+              }
+              if (deadSet.has(key)) {
+                const stamp = document.createElement("span");
+                stamp.className = "dead-stamp";
+                stamp.textContent = "×";
+                cell.append(stamp);
+              }
+              mazeGrid.append(cell);
+            }
+          }
+        }
+
+        function renderRoute(path) {
+          pathLength.textContent = path.length + " 格";
+          if (!path.length) {
+            routeStrip.innerHTML =
+              '<span class="text-sm font-bold text-[#60717b]">路线尚未写入</span>';
+            return;
+          }
+          routeStrip.innerHTML = path
+            .map(
+              ([row, col]) => `<span class="route-node">[${row},${col}]</span>`,
+            )
+            .join("");
+        }
+
+        function renderLog() {
+          const events = steps
+            .slice(0, stepIndex + 1)
+            .filter((item) => item.phase !== "load");
+          logCount.textContent = events.length + " 项";
+          if (!events.length) {
+            eventLog.innerHTML =
+              '<li class="text-sm font-semibold leading-6 text-[#60717b]">开始后，这里会记录试探、障碍、回退与命中。</li>';
+            return;
+          }
+          eventLog.innerHTML = events
+            .map(
+              (item, index) =>
+                '<li class="log-card ' +
+                (index === events.length - 1 ? "is-current" : "") +
+                '"><p class="eyebrow text-[#60717b]">' +
+                phaseName(item.phase) +
+                '</p><p class="mt-1 text-xs font-semibold leading-5">' +
+                item.description +
+                "</p></li>",
+            )
+            .join("");
+          eventLog.lastElementChild?.scrollIntoView({ block: "nearest" });
+        }
+
+        function render() {
+          const step = steps[stepIndex];
+          if (!step) return;
+          renderMaze(step);
+          renderRoute(step.path);
+          renderLog();
+
+          phaseBadge.textContent = phaseName(step.phase);
+          stepDescription.textContent = step.description;
+          stepCounter.textContent =
+            "步骤 " + (stepIndex + 1) + " / " + steps.length;
+          deadCount.textContent = step.dead.length;
+          progressFill.style.width =
+            ((stepIndex + 1) / steps.length) * 100 + "%";
+          prevButton.disabled = stepIndex === 0;
+          nextButton.disabled = stepIndex === steps.length - 1;
+
+          if (step.phase === "success")
+            resultValue.textContent = formatPath(result);
+          else if (step.phase === "failure") resultValue.textContent = "[]";
+          else if (stepIndex === 0) resultValue.textContent = "待勘探";
+          else resultValue.textContent = "搜索中";
+
+          liveRegion.textContent =
+            phaseName(step.phase) +
+            "。步骤 " +
+            (stepIndex + 1) +
+            "，" +
+            step.description;
+        }
+
+        function loadMaze() {
+          stopPlaying();
+          try {
+            const parsed = parseGrid();
+            grid = parsed;
+            const solved = solveWithTrace(grid);
+            steps = solved.trace;
+            result = solved.result;
+            stepIndex = 0;
+            inputError.textContent = "";
+            gridInput.removeAttribute("aria-invalid");
+            sizeValue.textContent = grid.length + " × " + grid[0].length;
+            render();
+            liveRegion.textContent =
+              "新迷宫已装订，共 " +
+              grid.length +
+              " 行 " +
+              grid[0].length +
+              " 列。";
+          } catch (error) {
+            inputError.textContent = error.message;
+            gridInput.setAttribute("aria-invalid", "true");
+            liveRegion.textContent = error.message;
+          }
+        }
+
+        prevButton.addEventListener("click", () => {
+          stopPlaying();
+          if (stepIndex > 0) {
+            stepIndex -= 1;
+            render();
+          }
+        });
+
+        nextButton.addEventListener("click", () => {
+          stopPlaying();
+          if (stepIndex < steps.length - 1) {
+            stepIndex += 1;
+            render();
+          }
+        });
+
+        playButton.addEventListener("click", () => {
+          if (timer !== null) {
+            stopPlaying();
+            return;
+          }
+          if (stepIndex >= steps.length - 1) stepIndex = 0;
+          render();
+          playButton.textContent = "暂停播放";
+          playButton.setAttribute("aria-pressed", "true");
+          timer = window.setInterval(() => {
+            if (stepIndex >= steps.length - 1) {
+              stopPlaying();
+              return;
+            }
+            stepIndex += 1;
+            render();
+          }, 260);
+        });
+
+        resetButton.addEventListener("click", () => {
+          stopPlaying();
+          stepIndex = 0;
+          render();
+        });
+
+        loadButton.addEventListener("click", loadMaze);
+        gridInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey))
+            loadMaze();
+        });
+
+        document.addEventListener("keydown", (event) => {
+          const target = event.target;
+          if (
+            target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement ||
+            target instanceof HTMLButtonElement
+          )
+            return;
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            nextButton.click();
+          }
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            prevButton.click();
+          }
+          if (event.code === "Space") {
+            event.preventDefault();
+            playButton.click();
+          }
+        });
+
+        solutionToggle.addEventListener("click", () => {
+          const opening = solutionContent.hidden;
+          solutionContent.hidden = !opening;
+          solutionToggle.setAttribute("aria-expanded", String(opening));
+          solutionToggle.textContent = opening ? "收起题解" : "查看题解";
+          liveRegion.textContent = opening ? "题解已展开" : "题解已收起";
+          if (opening) solutionContent.focus({ preventScroll: true });
+        });
+
+        const tabs = [...document.querySelectorAll('[role="tab"]')];
+        function activateTab(selected) {
+          tabs.forEach((tab) => {
+            const active = tab === selected;
+            tab.setAttribute("aria-selected", String(active));
+            tab.tabIndex = active ? 0 : -1;
+            document.querySelector(
+              "#" + tab.getAttribute("aria-controls"),
+            ).hidden = !active;
+          });
+          selected.focus();
+        }
+
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activateTab(tab));
+          tab.addEventListener("keydown", (event) => {
+            let next = index;
+            if (event.key === "ArrowLeft")
+              next = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+            if (event.key === "Home") next = 0;
+            if (event.key === "End") next = tabs.length - 1;
+            if (next !== index) {
+              event.preventDefault();
+              activateTab(tabs[next]);
+            }
+          });
+        });
+
+        const testCases = [
+          {
+            input: [
+              [0, 0, 0],
+              [0, 1, 0],
+              [0, 0, 0],
+            ],
+            expected: [
+              [0, 0],
+              [0, 1],
+              [0, 2],
+              [1, 2],
+              [2, 2],
+            ],
+          },
+          {
+            input: [
+              [0, 1],
+              [1, 0],
+            ],
+            expected: [],
+          },
+          {
+            input: [[0]],
+            expected: [[0, 0]],
+          },
+          {
+            input: [
+              [0, 0, 1],
+              [1, 0, 0],
+              [1, 1, 0],
+            ],
+            expected: [
+              [0, 0],
+              [0, 1],
+              [1, 1],
+              [1, 2],
+              [2, 2],
+            ],
+          },
+        ];
+
+        testGrid.innerHTML = testCases
+          .map((testCase, index) => {
+            const actual = solve(testCase.input);
+            const passed =
+              JSON.stringify(actual) === JSON.stringify(testCase.expected);
+            return (
+              '<article class="test-card">' +
+              '<div class="flex items-center justify-between gap-3"><p class="font-black">用例 ' +
+              (index + 1) +
+              '</p><span class="badge ' +
+              (passed ? "text-[#0b7780]" : "text-[#f0675c]") +
+              '">' +
+              (passed ? "通过" : "失败") +
+              "</span></div>" +
+              '<div class="test-fields mt-4">' +
+              '<div><p class="eyebrow text-[#60717b]">输入</p><code class="mono mt-1 block overflow-x-auto text-xs font-black">obstacleGrid = ' +
+              JSON.stringify(testCase.input) +
+              "</code></div>" +
+              '<div><p class="eyebrow text-[#60717b]">期望输出</p><code class="mono mt-1 block overflow-x-auto text-xs font-black">' +
+              JSON.stringify(testCase.expected) +
+              "</code></div>" +
+              '<div><p class="eyebrow text-[#60717b]">实际输出</p><code class="mono mt-1 block overflow-x-auto text-xs font-black">' +
+              JSON.stringify(actual) +
+              "</code></div>" +
+              '<div><p class="eyebrow text-[#60717b]">通过状态</p><code class="mono mt-1 block text-xs font-black">' +
+              (passed ? "PASS" : "FAIL") +
+              "</code></div></div></article>"
+            );
+          })
+          .join("");
+
+        loadMaze();
+      })();
+    </script>
+  </body>
+</html>
