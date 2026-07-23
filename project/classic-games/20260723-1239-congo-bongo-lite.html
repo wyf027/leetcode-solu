@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Congo Bongo 刚果蹦跳</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-emerald-950 text-emerald-50">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-widest text-lime-300">Classic Games</p>
+        <h1 class="text-3xl font-black text-white sm:text-4xl">Mini Congo Bongo 刚果蹦跳</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-emerald-700 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-300">分数</div>
+          <div id="score" class="text-xl font-black text-yellow-200">0</div>
+        </div>
+        <div class="rounded border border-emerald-700 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-300">生命</div>
+          <div id="lives" class="text-xl font-black text-lime-200">3</div>
+        </div>
+        <div class="rounded border border-emerald-700 bg-emerald-900 px-3 py-2">
+          <div class="text-emerald-300">香蕉</div>
+          <div id="bananas" class="text-xl font-black text-amber-200">0/6</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_260px]">
+      <div class="rounded border border-emerald-700 bg-emerald-900 p-3">
+        <canvas id="game" width="900" height="560" class="aspect-[16/10] w-full rounded bg-sky-950"></canvas>
+      </div>
+      <aside class="rounded border border-emerald-700 bg-emerald-900 p-4">
+        <h2 class="text-lg font-black text-lime-200">任务</h2>
+        <p class="mt-2 text-sm leading-6 text-emerald-100">沿着等距台阶跳到山顶，收集香蕉，躲开滚石和猩猩投掷。</p>
+        <div class="mt-4 space-y-2 text-sm text-emerald-100">
+          <p><span class="font-bold text-white">移动：</span>方向键 / WASD</p>
+          <p><span class="font-bold text-white">跳跃：</span>空格 / J / X</p>
+          <p><span class="font-bold text-white">重开：</span>R</p>
+        </div>
+        <button id="restart" class="mt-5 w-full rounded bg-lime-400 px-4 py-2 font-bold text-emerald-950 hover:bg-lime-300">重新开始</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-emerald-700 bg-emerald-950 p-3 text-sm leading-6 text-lime-100">跳到更高的平台，别被滚石撞下山。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const bananasEl = document.getElementById('bananas');
+    const messageEl = document.getElementById('message');
+    const keys = new Set();
+
+    const state = {
+      score: 0,
+      lives: 3,
+      bananas: 0,
+      totalBananas: 6,
+      time: 0,
+      running: true,
+      won: false,
+      hitFlash: 0,
+      lastRock: 0
+    };
+
+    const player = {
+      x: 118,
+      y: 456,
+      w: 28,
+      h: 34,
+      vx: 0,
+      vy: 0,
+      grounded: false,
+      invuln: 0,
+      jumpLock: false
+    };
+
+    let platforms = [];
+    let bananas = [];
+    let rocks = [];
+    let coconuts = [];
+    let puffs = [];
+
+    function setupLevel() {
+      platforms = [
+        { x: 72, y: 498, w: 206, h: 38, slope: 0 },
+        { x: 196, y: 420, w: 220, h: 38, slope: -8 },
+        { x: 82, y: 342, w: 208, h: 38, slope: 8 },
+        { x: 308, y: 276, w: 226, h: 38, slope: -7 },
+        { x: 500, y: 206, w: 224, h: 38, slope: 8 },
+        { x: 620, y: 126, w: 206, h: 38, slope: 0 }
+      ];
+      bananas = [
+        makeBanana(230, 382),
+        makeBanana(132, 304),
+        makeBanana(462, 238),
+        makeBanana(588, 168),
+        makeBanana(750, 88),
+        makeBanana(710, 454)
+      ];
+      rocks = [];
+      coconuts = [];
+      puffs = [];
+    }
+
+    function makeBanana(x, y) {
+      return { x, y, w: 22, h: 28, got: false };
+    }
+
+    function resetGame() {
+      state.score = 0;
+      state.lives = 3;
+      state.bananas = 0;
+      state.time = 0;
+      state.running = true;
+      state.won = false;
+      state.hitFlash = 0;
+      state.lastRock = 0;
+      Object.assign(player, { x: 118, y: 456, vx: 0, vy: 0, grounded: false, invuln: 0, jumpLock: false });
+      setupLevel();
+      setMessage('收集香蕉，跳到山顶平台。');
+      updateHud();
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      bananasEl.textContent = `${state.bananas}/${state.totalBananas}`;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function platformHeightAt(platform, x) {
+      const t = Math.max(0, Math.min(1, (x - platform.x) / platform.w));
+      return platform.y + platform.slope * (t - 0.5);
+    }
+
+    function jumpPlayer() {
+      if (!state.running || player.jumpLock || !player.grounded) return;
+      player.vy = -12.6;
+      player.grounded = false;
+      player.jumpLock = true;
+      puff(player.x + player.w / 2, player.y + player.h, '#bbf7d0');
+    }
+
+    function updatePlayer() {
+      const left = keys.has('ArrowLeft') || keys.has('a');
+      const right = keys.has('ArrowRight') || keys.has('d');
+      const up = keys.has('ArrowUp') || keys.has('w');
+      const down = keys.has('ArrowDown') || keys.has('s');
+      const jump = keys.has(' ') || keys.has('j') || keys.has('x');
+
+      player.vx *= 0.77;
+      if (left) player.vx -= 0.65;
+      if (right) player.vx += 0.65;
+      if (up) player.vy -= player.grounded ? 0.08 : 0;
+      if (down && player.grounded) player.vx *= 0.82;
+      player.vx = Math.max(-4.4, Math.min(4.4, player.vx));
+      if (jump) jumpPlayer();
+      if (!jump) player.jumpLock = false;
+
+      player.vy += 0.62;
+      player.x += player.vx;
+      player.y += player.vy;
+      if (player.x < 12) player.x = 12;
+      if (player.x > canvas.width - player.w - 12) player.x = canvas.width - player.w - 12;
+
+      player.grounded = false;
+      for (const platform of platforms) {
+        const feetX = player.x + player.w / 2;
+        const top = platformHeightAt(platform, feetX);
+        const onX = feetX > platform.x && feetX < platform.x + platform.w;
+        const fallingOnto = player.vy >= 0 && player.y + player.h >= top && player.y + player.h <= top + 18;
+        if (onX && fallingOnto) {
+          player.y = top - player.h;
+          player.vy = 0;
+          player.grounded = true;
+        }
+      }
+      if (player.y > canvas.height + 20) loseLife('摔下山了，重新从山脚出发。');
+      if (player.invuln > 0) player.invuln--;
+    }
+
+    function spawnRock() {
+      if (state.time - state.lastRock < 82) return;
+      state.lastRock = state.time;
+      const lane = platforms[1 + Math.floor(Math.random() * (platforms.length - 1))];
+      rocks.push({
+        x: lane.x + lane.w - 22,
+        y: platformHeightAt(lane, lane.x + lane.w - 22) - 24,
+        w: 24,
+        h: 24,
+        vx: -2.8 - Math.random() * 0.9,
+        vy: 0,
+        platform: lane,
+        spin: 0
+      });
+    }
+
+    function throwCoconut() {
+      if (state.time % 145 !== 0) return;
+      coconuts.push({
+        x: 756,
+        y: 86,
+        w: 18,
+        h: 18,
+        vx: -3.6 - Math.random() * 1.2,
+        vy: 2.2 + Math.random() * 1.2
+      });
+    }
+
+    function updateHazards() {
+      spawnRock();
+      throwCoconut();
+      for (const rock of rocks) {
+        rock.x += rock.vx;
+        const top = platformHeightAt(rock.platform, rock.x + rock.w / 2);
+        rock.y += (top - rock.h - rock.y) * 0.35;
+        rock.spin += 0.3;
+        if (rectsOverlap(player, rock)) loseLife('被滚石撞到了。等它过去再跳。');
+      }
+      rocks = rocks.filter(rock => rock.x > -40);
+
+      for (const coconut of coconuts) {
+        coconut.x += coconut.vx;
+        coconut.y += coconut.vy;
+        coconut.vy += 0.12;
+        if (rectsOverlap(player, coconut)) loseLife('被猩猩扔出的果子击中。');
+      }
+      coconuts = coconuts.filter(coconut => coconut.x > -40 && coconut.y < canvas.height + 40);
+    }
+
+    function collectBananas() {
+      for (const banana of bananas) {
+        if (banana.got) continue;
+        if (rectsOverlap(player, banana)) {
+          banana.got = true;
+          state.bananas++;
+          state.score += 250;
+          puff(banana.x + 10, banana.y + 12, '#facc15');
+          setMessage(state.bananas === state.totalBananas ? '香蕉齐了，冲上山顶！' : '香蕉到手。');
+          updateHud();
+        }
+      }
+    }
+
+    function checkWin() {
+      const summit = { x: 646, y: 78, w: 152, h: 42 };
+      if (state.bananas >= state.totalBananas && rectsOverlap(player, summit)) {
+        state.running = false;
+        state.won = true;
+        state.score += 1500;
+        setMessage('通关！刚果蹦跳完成。按 R 再挑战一次。');
+        updateHud();
+      } else if (rectsOverlap(player, summit)) {
+        setMessage('山顶还需要 6 根香蕉。');
+      }
+    }
+
+    function loseLife(text) {
+      if (player.invuln > 0 || !state.running) return;
+      state.lives--;
+      state.hitFlash = 14;
+      player.invuln = 90;
+      Object.assign(player, { x: 118, y: 456, vx: 0, vy: 0, grounded: false });
+      setMessage(state.lives <= 0 ? '挑战失败。按 R 重开。' : text);
+      if (state.lives <= 0) state.running = false;
+      updateHud();
+    }
+
+    function puff(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        puffs.push({ x, y, vx: -2.5 + Math.random() * 5, vy: -2.5 + Math.random() * 5, life: 20, color });
+      }
+    }
+
+    function updatePuffs() {
+      for (const p of puffs) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.94;
+        p.vy *= 0.94;
+        p.life--;
+      }
+      puffs = puffs.filter(p => p.life > 0);
+    }
+
+    function updateGame() {
+      state.time++;
+      if (state.running) {
+        updatePlayer();
+        updateHazards();
+        collectBananas();
+        checkWin();
+      }
+      updatePuffs();
+      if (state.hitFlash > 0) state.hitFlash--;
+    }
+
+    function drawBackground() {
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, '#075985');
+      sky.addColorStop(0.5, '#047857');
+      sky.addColorStop(1, '#064e3b');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = 'rgba(6, 78, 59, 0.65)';
+      for (let i = 0; i < 7; i++) {
+        const x = i * 145 - 18;
+        ctx.beginPath();
+        ctx.moveTo(x, 560);
+        ctx.lineTo(x + 120, 255 - (i % 3) * 32);
+        ctx.lineTo(x + 250, 560);
+        ctx.fill();
+      }
+    }
+
+    function drawPlatform(platform) {
+      ctx.save();
+      ctx.translate(platform.x, platform.y);
+      ctx.beginPath();
+      ctx.moveTo(0, -platform.slope / 2);
+      ctx.lineTo(platform.w, platform.slope / 2);
+      ctx.lineTo(platform.w, platform.slope / 2 + platform.h);
+      ctx.lineTo(0, -platform.slope / 2 + platform.h);
+      ctx.closePath();
+      ctx.fillStyle = '#854d0e';
+      ctx.fill();
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = '#166534';
+      for (let x = 10; x < platform.w; x += 28) {
+        ctx.fillRect(x, platform.slope * (x / platform.w - 0.5) - 4, 18, 8);
+      }
+      ctx.restore();
+    }
+
+    function drawBananas() {
+      for (const banana of bananas) {
+        if (banana.got) continue;
+        const bob = Math.sin((state.time + banana.x) / 16) * 3;
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(banana.x + 12, banana.y + 11 + bob, 10, 0.25 * Math.PI, 1.25 * Math.PI);
+        ctx.stroke();
+        ctx.fillStyle = '#854d0e';
+        ctx.fillRect(banana.x + 15, banana.y + 20 + bob, 5, 4);
+      }
+    }
+
+    function drawApe() {
+      ctx.save();
+      ctx.translate(738, 78);
+      ctx.fillStyle = '#3f1f0f';
+      ctx.beginPath();
+      ctx.arc(28, 28, 25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(6, 36, 44, 34);
+      ctx.fillStyle = '#fef3c7';
+      ctx.fillRect(16, 22, 24, 14);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(20, 26, 4, 4);
+      ctx.fillRect(34, 26, 4, 4);
+      ctx.restore();
+    }
+
+    function drawHazards() {
+      for (const rock of rocks) {
+        ctx.save();
+        ctx.translate(rock.x + 12, rock.y + 12);
+        ctx.rotate(rock.spin);
+        ctx.fillStyle = '#57534e';
+        ctx.beginPath();
+        ctx.arc(0, 0, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#a8a29e';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-8, -2);
+        ctx.lineTo(8, 2);
+        ctx.moveTo(-2, -8);
+        ctx.lineTo(2, 8);
+        ctx.stroke();
+        ctx.restore();
+      }
+      for (const coconut of coconuts) {
+        ctx.fillStyle = '#78350f';
+        ctx.beginPath();
+        ctx.arc(coconut.x + 9, coconut.y + 9, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawPlayer() {
+      if (player.invuln > 0 && Math.floor(state.time / 5) % 2 === 0) return;
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(6, 10, 16, 20);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(7, 1, 14, 12);
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(player.vx >= 0 ? 18 : 8, 5, 3, 3);
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(4, 28, 7, 8);
+      ctx.fillRect(17, 28, 7, 8);
+      ctx.restore();
+    }
+
+    function drawPuffs() {
+      for (const p of puffs) {
+        ctx.globalAlpha = Math.max(0, p.life / 20);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      ctx.fillStyle = 'rgba(6, 78, 59, 0.82)';
+      ctx.fillRect(18, 18, 196, 34);
+      ctx.fillStyle = '#ecfccb';
+      ctx.font = '700 15px system-ui';
+      ctx.fillText('山顶需要全部香蕉', 34, 41);
+
+      if (state.hitFlash > 0) {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      if (!state.running) {
+        ctx.fillStyle = 'rgba(2, 44, 34, 0.76)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ecfccb';
+        ctx.font = '900 44px system-ui';
+        ctx.fillText(state.won ? '登顶成功' : '挑战失败', canvas.width / 2, 250);
+        ctx.font = '700 18px system-ui';
+        ctx.fillText('按 R 或点击重新开始', canvas.width / 2, 292);
+        ctx.textAlign = 'start';
+      }
+    }
+
+    function drawGame() {
+      drawBackground();
+      for (const platform of platforms) drawPlatform(platform);
+      drawApe();
+      drawBananas();
+      drawHazards();
+      drawPlayer();
+      drawPuffs();
+      drawOverlay();
+    }
+
+    function gameLoop() {
+      updateGame();
+      drawGame();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'w', 'a', 's', 'd', 'j', 'x', 'r'].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === 'r') resetGame();
+    });
+
+    window.addEventListener('keyup', (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    document.getElementById('restart').addEventListener('click', resetGame);
+
+    resetGame();
+    gameLoop();
+  </script>
+</body>
+</html>
