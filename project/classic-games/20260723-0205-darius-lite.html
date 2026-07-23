@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Darius 太空战机</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-col gap-3 border-b border-sky-400/30 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-widest text-sky-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Darius 太空战机</h1>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="border border-sky-400/30 bg-sky-950/40 px-3 py-2">
+          <div class="text-sky-200">分数</div>
+          <div id="score" class="text-xl font-bold">0</div>
+        </div>
+        <div class="border border-sky-400/30 bg-sky-950/40 px-3 py-2">
+          <div class="text-sky-200">护盾</div>
+          <div id="shield" class="text-xl font-bold">3</div>
+        </div>
+        <div class="border border-sky-400/30 bg-sky-950/40 px-3 py-2">
+          <div class="text-sky-200">能量</div>
+          <div id="power" class="text-xl font-bold">1</div>
+        </div>
+        <div class="border border-sky-400/30 bg-sky-950/40 px-3 py-2">
+          <div class="text-sky-200">击破</div>
+          <div id="kills" class="text-xl font-bold">0</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_220px]">
+      <canvas id="game" width="760" height="480" class="h-auto w-full border border-sky-400/40 bg-slate-900"></canvas>
+      <aside class="space-y-3 text-sm text-slate-300">
+        <div class="border border-slate-700 bg-slate-900/80 p-3">
+          <h2 class="mb-2 font-semibold text-sky-200">操作</h2>
+          <p>方向键 / WASD：移动</p>
+          <p>空格：射击</p>
+          <p>R：重新开始</p>
+        </div>
+        <div class="border border-slate-700 bg-slate-900/80 p-3">
+          <h2 class="mb-2 font-semibold text-sky-200">目标</h2>
+          <p>击破鱼群敌机，拾取红色能量球强化火力，最后摧毁机械鱼 Boss。</p>
+        </div>
+        <button id="restart" class="w-full border border-sky-300 bg-sky-400 px-4 py-2 font-bold text-slate-950 hover:bg-sky-200">
+          重新开始
+        </button>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const shieldEl = document.getElementById("shield");
+    const powerEl = document.getElementById("power");
+    const killsEl = document.getElementById("kills");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const player = { x: 78, y: 228, w: 42, h: 24, shield: 3, power: 1, fire: 0, invuln: 0 };
+    let bubbles = [];
+    let bullets = [];
+    let enemies = [];
+    let enemyShots = [];
+    let powerups = [];
+    let boss = null;
+    let score = 0;
+    let kills = 0;
+    let spawnTimer = 0;
+    let frame = 0;
+    let state = "playing";
+    let lastTime = 0;
+
+    function resetGame() {
+      player.x = 78;
+      player.y = 228;
+      player.shield = 3;
+      player.power = 1;
+      player.fire = 0;
+      player.invuln = 0;
+      bullets = [];
+      enemies = [];
+      enemyShots = [];
+      powerups = [];
+      boss = null;
+      score = 0;
+      kills = 0;
+      spawnTimer = 20;
+      frame = 0;
+      state = "playing";
+      bubbles = Array.from({ length: 70 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: 1 + Math.random() * 3,
+        s: 0.6 + Math.random() * 1.8,
+      }));
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      shieldEl.textContent = player.shield;
+      powerEl.textContent = player.power;
+      killsEl.textContent = boss ? "Boss" : `${kills}/20`;
+    }
+
+    function rectsHit(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function shoot() {
+      if (player.fire > 0) return;
+      const lanes = player.power >= 3 ? [-8, 8] : player.power >= 2 ? [-5, 5] : [0];
+      lanes.forEach((offset) => bullets.push({ x: player.x + player.w, y: player.y + 10 + offset, w: 18, h: 5, vx: 8.8 }));
+      player.fire = Math.max(5, 13 - player.power * 2);
+    }
+
+    function spawnEnemy() {
+      const y = 46 + Math.random() * (canvas.height - 92);
+      enemies.push({
+        x: canvas.width + 35,
+        y,
+        w: 42,
+        h: 24,
+        hp: kills > 10 ? 2 : 1,
+        vx: -2.4 - Math.random() * 1.7,
+        phase: Math.random() * Math.PI * 2,
+        fire: 60 + Math.random() * 90,
+      });
+    }
+
+    function spawnBoss() {
+      boss = { x: canvas.width + 90, y: 136, w: 130, h: 104, hp: 30, fire: 30, phase: 0 };
+    }
+
+    function hurtPlayer() {
+      if (player.invuln > 0 || state !== "playing") return;
+      player.shield -= 1;
+      player.power = Math.max(1, player.power - 1);
+      player.invuln = 80;
+      if (player.shield <= 0) state = "lost";
+      updateHud();
+    }
+
+    function update() {
+      if (state !== "playing") return;
+      frame += 1;
+      const speed = 4.1;
+      if (keys.has("ArrowUp") || keys.has("w")) player.y -= speed;
+      if (keys.has("ArrowDown") || keys.has("s")) player.y += speed;
+      if (keys.has("ArrowLeft") || keys.has("a")) player.x -= speed;
+      if (keys.has("ArrowRight") || keys.has("d")) player.x += speed;
+      if (keys.has(" ")) shoot();
+      player.x = Math.max(12, Math.min(canvas.width - player.w - 16, player.x));
+      player.y = Math.max(18, Math.min(canvas.height - player.h - 18, player.y));
+      player.fire = Math.max(0, player.fire - 1);
+      player.invuln = Math.max(0, player.invuln - 1);
+
+      bubbles.forEach((bubble) => {
+        bubble.x -= bubble.s;
+        bubble.y -= 0.12;
+        if (bubble.x < -10 || bubble.y < -10) {
+          bubble.x = canvas.width + Math.random() * 40;
+          bubble.y = Math.random() * canvas.height;
+        }
+      });
+
+      if (!boss) {
+        spawnTimer -= 1;
+        if (spawnTimer <= 0 && kills < 20) {
+          spawnEnemy();
+          spawnTimer = Math.max(26, 68 - kills);
+        }
+        if (kills >= 20) spawnBoss();
+      }
+
+      bullets.forEach((bullet) => (bullet.x += bullet.vx));
+      bullets = bullets.filter((bullet) => bullet.x < canvas.width + 40);
+      enemies.forEach((enemy) => {
+        enemy.x += enemy.vx;
+        enemy.phase += 0.055;
+        enemy.y += Math.sin(enemy.phase) * 1.6;
+        enemy.fire -= 1;
+        if (enemy.fire <= 0) {
+          enemyShots.push({ x: enemy.x + 4, y: enemy.y + 11, w: 12, h: 5, vx: -4.4, vy: Math.sin(enemy.phase) * 1.3 });
+          enemy.fire = 70 + Math.random() * 70;
+        }
+      });
+      enemies = enemies.filter((enemy) => enemy.x > -80 && enemy.hp > 0);
+      enemyShots.forEach((shot) => {
+        shot.x += shot.vx;
+        shot.y += shot.vy;
+      });
+      enemyShots = enemyShots.filter((shot) => shot.x > -40 && shot.y > -30 && shot.y < canvas.height + 30);
+      powerups.forEach((powerup) => {
+        powerup.x -= 2.2;
+        powerup.y += Math.sin((frame + powerup.phase) / 10) * 0.6;
+      });
+      powerups = powerups.filter((powerup) => powerup.x > -30);
+
+      if (boss) {
+        boss.x = Math.max(590, boss.x - 1.2);
+        boss.phase += 0.04;
+        boss.y = 136 + Math.sin(boss.phase) * 46;
+        boss.fire -= 1;
+        if (boss.fire <= 0) {
+          enemyShots.push({ x: boss.x + 12, y: boss.y + 28, w: 14, h: 5, vx: -5.2, vy: -1.4 });
+          enemyShots.push({ x: boss.x + 8, y: boss.y + 52, w: 14, h: 5, vx: -5.4, vy: 0 });
+          enemyShots.push({ x: boss.x + 12, y: boss.y + 76, w: 14, h: 5, vx: -5.2, vy: 1.4 });
+          boss.fire = 42;
+        }
+      }
+
+      bullets.forEach((bullet) => {
+        enemies.forEach((enemy) => {
+          if (rectsHit(bullet, enemy)) {
+            bullet.x = canvas.width + 100;
+            enemy.hp -= 1;
+            if (enemy.hp <= 0) {
+              score += 100;
+              kills += 1;
+              if (Math.random() < 0.5) powerups.push({ x: enemy.x + 16, y: enemy.y + 8, w: 16, h: 16, phase: Math.random() * 30 });
+            }
+          }
+        });
+        if (boss && rectsHit(bullet, { x: boss.x + 16, y: boss.y + 22, w: boss.w - 36, h: boss.h - 44 })) {
+          bullet.x = canvas.width + 100;
+          boss.hp -= 1;
+          score += 30;
+          if (boss.hp <= 0) {
+            score += 1500;
+            state = "won";
+          }
+        }
+      });
+
+      const playerBox = { x: player.x + 4, y: player.y + 4, w: player.w - 8, h: player.h - 8 };
+      enemies.forEach((enemy) => rectsHit(playerBox, enemy) && hurtPlayer());
+      if (boss && rectsHit(playerBox, { x: boss.x + 16, y: boss.y + 18, w: boss.w - 30, h: boss.h - 36 })) hurtPlayer();
+      enemyShots.forEach((shot) => {
+        if (rectsHit(playerBox, shot)) {
+          shot.x = -100;
+          hurtPlayer();
+        }
+      });
+      powerups.forEach((powerup) => {
+        if (rectsHit(playerBox, powerup)) {
+          powerup.x = -100;
+          player.power = Math.min(3, player.power + 1);
+          score += 60;
+        }
+      });
+      updateHud();
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.globalAlpha = player.invuln > 0 && Math.floor(player.invuln / 5) % 2 === 0 ? 0.35 : 1;
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y + player.h / 2);
+      ctx.lineTo(player.x + 18, player.y);
+      ctx.lineTo(player.x + player.w, player.y + 8);
+      ctx.lineTo(player.x + player.w, player.y + player.h - 8);
+      ctx.lineTo(player.x + 18, player.y + player.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#e0f2fe";
+      ctx.fillRect(player.x + 18, player.y + 8, 13, 7);
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.fillStyle = enemy.hp > 1 ? "#fb7185" : "#f97316";
+      ctx.beginPath();
+      ctx.ellipse(enemy.x + 20, enemy.y + 12, 21, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.moveTo(enemy.x + 38, enemy.y + 12);
+      ctx.lineTo(enemy.x + 52, enemy.y + 2);
+      ctx.lineTo(enemy.x + 52, enemy.y + 22);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#7f1d1d";
+      ctx.fillRect(enemy.x + 8, enemy.y + 8, 6, 4);
+    }
+
+    function drawBoss() {
+      if (!boss) return;
+      ctx.fillStyle = "#94a3b8";
+      ctx.beginPath();
+      ctx.ellipse(boss.x + 60, boss.y + 52, 66, 48, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#475569";
+      ctx.beginPath();
+      ctx.moveTo(boss.x + 105, boss.y + 52);
+      ctx.lineTo(boss.x + 138, boss.y + 18);
+      ctx.lineTo(boss.x + 136, boss.y + 86);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.arc(boss.x + 26, boss.y + 42, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f87171";
+      ctx.fillRect(boss.x + 18, boss.y - 12, Math.max(0, boss.hp) * 3, 6);
+    }
+
+    function drawOverlay() {
+      if (state === "playing") return;
+      ctx.fillStyle = "rgba(2, 6, 23, 0.82)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = state === "won" ? "#7dd3fc" : "#fb7185";
+      ctx.font = "bold 34px sans-serif";
+      ctx.fillText(state === "won" ? "机械鱼击破" : "护盾耗尽", canvas.width / 2, 220);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "18px sans-serif";
+      ctx.fillText("按 R 或点击重新开始", canvas.width / 2, 256);
+      ctx.textAlign = "left";
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const ocean = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      ocean.addColorStop(0, "#082f49");
+      ocean.addColorStop(1, "#020617");
+      ctx.fillStyle = ocean;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(125, 211, 252, 0.14)";
+      for (let y = 40; y < canvas.height; y += 44) {
+        ctx.beginPath();
+        for (let x = 0; x <= canvas.width; x += 30) {
+          const wy = y + Math.sin((x + frame * 2) / 40) * 6;
+          if (x === 0) ctx.moveTo(x, wy);
+          else ctx.lineTo(x, wy);
+        }
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(186, 230, 253, 0.55)";
+      bubbles.forEach((bubble) => {
+        ctx.beginPath();
+        ctx.arc(bubble.x, bubble.y, bubble.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      bullets.forEach((bullet) => {
+        ctx.fillStyle = "#fef08a";
+        ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+      });
+      enemies.forEach(drawEnemy);
+      drawBoss();
+      powerups.forEach((powerup) => {
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(powerup.x + 8, powerup.y + 8, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fee2e2";
+        ctx.fillRect(powerup.x + 4, powerup.y + 7, 8, 2);
+      });
+      enemyShots.forEach((shot) => {
+        ctx.fillStyle = "#fb7185";
+        ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
+      });
+      drawPlayer();
+      ctx.fillStyle = "#bae6fd";
+      ctx.font = "14px sans-serif";
+      ctx.fillText(boss ? `Boss HP ${Math.max(0, boss.hp)}` : `鱼群 ${kills}/20`, 16, 24);
+      drawOverlay();
+    }
+
+    function loop(time) {
+      if (time - lastTime > 16) {
+        update();
+        draw();
+        lastTime = time;
+      }
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const key = event.key.toLowerCase();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "w", "a", "s", "d"].includes(event.key) || ["w", "a", "s", "d"].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key);
+      keys.add(key);
+      if (key === "r") resetGame();
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key);
+      keys.delete(event.key.toLowerCase());
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
