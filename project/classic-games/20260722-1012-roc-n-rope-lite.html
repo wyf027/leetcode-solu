@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Roc N Rope Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-amber-300">Classic Games</p>
+        <h1 class="text-2xl font-bold tracking-wide text-white">Mini Roc N Rope</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Score</div>
+          <div id="score" class="font-mono text-lg text-amber-200">0</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Stage</div>
+          <div id="stage" class="font-mono text-lg text-amber-200">1</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">Lives</div>
+          <div id="lives" class="font-mono text-lg text-amber-200">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+      <div class="rounded border border-slate-800 bg-slate-900 p-3">
+        <canvas id="game" width="720" height="560" class="h-auto w-full rounded bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-slate-800 bg-slate-900 p-4 text-sm leading-6 text-slate-300">
+        <h2 class="mb-2 text-base font-semibold text-white">Controls</h2>
+        <p><span class="font-mono text-amber-200">Left / Right</span> run.</p>
+        <p><span class="font-mono text-amber-200">Up</span> jump.</p>
+        <p><span class="font-mono text-amber-200">Space</span> fire rope upward.</p>
+        <p><span class="font-mono text-amber-200">Mouse / Touch</span> move and rope.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-amber-400 px-3 py-2 font-semibold text-slate-950 hover:bg-amber-300">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-slate-700 bg-slate-950 p-3 text-amber-100">Fire a rope to climb, gather every relic, and reach the top ledge.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const stageEl = document.getElementById("stage");
+    const livesEl = document.getElementById("lives");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const platforms = [
+      { x: 52, y: 506, w: 616, h: 18 },
+      { x: 72, y: 414, w: 210, h: 16 },
+      { x: 438, y: 414, w: 210, h: 16 },
+      { x: 180, y: 322, w: 360, h: 16 },
+      { x: 70, y: 230, w: 220, h: 16 },
+      { x: 430, y: 230, w: 220, h: 16 },
+      { x: 238, y: 136, w: 244, h: 16 }
+    ];
+    const relics = [];
+    const enemies = [];
+    const sparks = [];
+    const stars = [];
+    const player = { x: 92, y: 466, w: 24, h: 34, vx: 0, vy: 0, grounded: false };
+    let rope = null;
+    let score = 0;
+    let stage = 1;
+    let lives = 3;
+    let invuln = 0;
+    let gameOver = false;
+    let lastTime = 0;
+
+    for (let i = 0; i < 90; i += 1) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.7 + 0.4,
+        a: Math.random() * 0.55 + 0.2
+      });
+    }
+
+    function resetStage() {
+      player.x = 92;
+      player.y = 466;
+      player.vx = 0;
+      player.vy = 0;
+      player.grounded = false;
+      rope = null;
+      invuln = 1.2;
+      relics.length = 0;
+      enemies.length = 0;
+      for (let i = 1; i < platforms.length; i += 1) {
+        const p = platforms[i];
+        relics.push({ x: p.x + p.w * 0.5, y: p.y - 24, got: false });
+      }
+      for (let i = 1; i < platforms.length - 1; i += 1) {
+        const p = platforms[i];
+        enemies.push({
+          x: p.x + 24,
+          y: p.y - 24,
+          w: 24,
+          h: 24,
+          min: p.x + 6,
+          max: p.x + p.w - 30,
+          dir: i % 2 ? 1 : -1,
+          speed: 68 + stage * 8
+        });
+      }
+      updateHud();
+    }
+
+    function reset() {
+      score = 0;
+      stage = 1;
+      lives = 3;
+      gameOver = false;
+      sparks.length = 0;
+      resetStage();
+      messageEl.textContent = "Fire a rope to climb, gather every relic, and reach the top ledge.";
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      stageEl.textContent = stage;
+      livesEl.textContent = lives;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rand(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function burst(x, y, color, count = 12) {
+      for (let i = 0; i < count; i += 1) {
+        const a = rand(0, Math.PI * 2);
+        const s = rand(45, 180);
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(a) * s,
+          vy: Math.sin(a) * s,
+          life: rand(0.25, 0.65),
+          max: 0.65,
+          color
+        });
+      }
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function currentPlatform() {
+      for (const p of platforms) {
+        const feet = player.y + player.h;
+        if (player.x + player.w > p.x && player.x < p.x + p.w && Math.abs(feet - p.y) < 5) {
+          return p;
+        }
+      }
+      return null;
+    }
+
+    function fireRope() {
+      if (rope || gameOver) return;
+      const baseX = player.x + player.w / 2;
+      let best = null;
+      for (const p of platforms) {
+        if (p.y < player.y && baseX >= p.x - 18 && baseX <= p.x + p.w + 18) {
+          if (!best || p.y > best.y) best = p;
+        }
+      }
+      if (!best) {
+        messageEl.textContent = "No ledge above. Move under a platform and fire again.";
+        return;
+      }
+      rope = { x: baseX, y1: player.y + 4, y2: player.y + 4, targetY: best.y, hooked: false };
+    }
+
+    function loseLife(text) {
+      if (invuln > 0 || gameOver) return;
+      lives -= 1;
+      updateHud();
+      burst(player.x + player.w / 2, player.y + player.h / 2, "#f87171", 20);
+      if (lives <= 0) {
+        gameOver = true;
+        messageEl.textContent = "Expedition over. Press Restart to try again.";
+      } else {
+        messageEl.textContent = text;
+        resetStage();
+      }
+    }
+
+    function updateRope(dt) {
+      if (!rope) return;
+      if (!rope.hooked) {
+        rope.y2 -= 620 * dt;
+        if (rope.y2 <= rope.targetY) {
+          rope.y2 = rope.targetY;
+          rope.hooked = true;
+          player.vy = -250;
+          messageEl.textContent = "Hooked. Climb to the ledge.";
+        }
+      } else {
+        player.y -= 190 * dt;
+        player.x = rope.x - player.w / 2;
+        if (player.y + player.h <= rope.targetY + 12) {
+          player.y = rope.targetY - player.h;
+          player.vy = 0;
+          player.grounded = true;
+          rope = null;
+          score += 60;
+          updateHud();
+        }
+      }
+    }
+
+    function update(dt) {
+      if (gameOver) return;
+      invuln = Math.max(0, invuln - dt);
+
+      const movingLeft = keys.has("ArrowLeft") || keys.has("KeyA");
+      const movingRight = keys.has("ArrowRight") || keys.has("KeyD");
+      player.vx = 0;
+      if (!rope || !rope.hooked) {
+        if (movingLeft) player.vx -= 210;
+        if (movingRight) player.vx += 210;
+      }
+      if ((keys.has("ArrowUp") || keys.has("KeyW")) && player.grounded && !rope) {
+        player.vy = -335;
+        player.grounded = false;
+      }
+      if (keys.has("Space")) fireRope();
+
+      updateRope(dt);
+      if (!rope || !rope.hooked) {
+        player.x += player.vx * dt;
+        player.vy += 760 * dt;
+        player.y += player.vy * dt;
+      }
+      player.x = clamp(player.x, 18, canvas.width - player.w - 18);
+      player.grounded = false;
+
+      for (const p of platforms) {
+        const wasAbove = player.y + player.h - player.vy * dt <= p.y;
+        if (player.x + player.w > p.x && player.x < p.x + p.w && player.y + player.h >= p.y && player.y + player.h <= p.y + p.h + 18 && player.vy >= 0 && wasAbove) {
+          player.y = p.y - player.h;
+          player.vy = 0;
+          player.grounded = true;
+        }
+      }
+
+      if (player.y > canvas.height + 40) {
+        loseLife("You missed the ledge.");
+      }
+
+      for (const enemy of enemies) {
+        enemy.x += enemy.dir * enemy.speed * dt;
+        if (enemy.x <= enemy.min || enemy.x >= enemy.max) enemy.dir *= -1;
+        if (rectsOverlap(player, enemy)) {
+          loseLife("A patrol caught you.");
+        }
+      }
+
+      for (const relic of relics) {
+        if (!relic.got && Math.abs(player.x + player.w / 2 - relic.x) < 24 && Math.abs(player.y + player.h / 2 - relic.y) < 30) {
+          relic.got = true;
+          score += 150;
+          burst(relic.x, relic.y, "#fbbf24", 16);
+          updateHud();
+        }
+      }
+
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.vx *= 0.97;
+        spark.vy *= 0.97;
+        spark.life -= dt;
+        if (spark.life <= 0) sparks.splice(i, 1);
+      }
+
+      const collected = relics.every((r) => r.got);
+      if (collected && player.y < 136 && player.x > 238 && player.x < 482) {
+        score += 700 + stage * 180;
+        stage += 1;
+        updateHud();
+        messageEl.textContent = "Top ledge reached. Next stage begins.";
+        resetStage();
+      }
+    }
+
+    function drawBackground() {
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, "#0f172a");
+      gradient.addColorStop(0.55, "#111827");
+      gradient.addColorStop(1, "#27170b");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const star of stars) {
+        ctx.globalAlpha = star.a;
+        ctx.fillStyle = "#fde68a";
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawPlatforms() {
+      for (const p of platforms) {
+        ctx.fillStyle = "#78350f";
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(p.x, p.y, p.w, 4);
+      }
+    }
+
+    function drawRelics() {
+      for (const relic of relics) {
+        if (relic.got) continue;
+        ctx.fillStyle = "#fde047";
+        ctx.beginPath();
+        ctx.moveTo(relic.x, relic.y - 12);
+        ctx.lineTo(relic.x + 10, relic.y);
+        ctx.lineTo(relic.x, relic.y + 12);
+        ctx.lineTo(relic.x - 10, relic.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+        ctx.fillStyle = "#fecaca";
+        ctx.fillRect(enemy.x + 5, enemy.y + 6, 5, 5);
+        ctx.fillRect(enemy.x + 14, enemy.y + 6, 5, 5);
+      }
+    }
+
+    function drawPlayer() {
+      if (invuln > 0 && Math.floor(invuln * 12) % 2 === 0) return;
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fillRect(player.x, player.y + 8, player.w, player.h - 8);
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(player.x + 4, player.y, player.w - 8, 12);
+      ctx.fillStyle = "#fbbf24";
+      ctx.fillRect(player.x + 7, player.y + 18, 10, 10);
+    }
+
+    function drawRope() {
+      if (!rope) return;
+      ctx.strokeStyle = rope.hooked ? "#fde68a" : "#fbbf24";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(rope.x, player.y + 4);
+      ctx.lineTo(rope.x, rope.y2);
+      ctx.stroke();
+      ctx.fillStyle = "#fef3c7";
+      ctx.fillRect(rope.x - 6, rope.y2 - 4, 12, 8);
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life / spark.max);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawBackground();
+      drawPlatforms();
+      drawRelics();
+      drawEnemies();
+      drawRope();
+      drawPlayer();
+      drawSparks();
+      if (gameOver) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.76)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#fef3c7";
+        ctx.font = "bold 42px system-ui, sans-serif";
+        ctx.fillText("EXPEDITION OVER", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("Press Restart to climb again", canvas.width / 2, canvas.height / 2 + 30);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "KeyA", "KeyD", "KeyW", "Space"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width * canvas.width;
+      player.x = clamp(x - player.w / 2, 18, canvas.width - player.w - 18);
+    });
+
+    canvas.addEventListener("pointerdown", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width * canvas.width;
+      player.x = clamp(x - player.w / 2, 18, canvas.width - player.w - 18);
+      fireRope();
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
