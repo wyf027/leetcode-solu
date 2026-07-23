@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bomb Jack</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-amber-200">Mini Bomb Jack</h1>
+        <p class="text-sm text-zinc-400">Jump between platforms, collect every bomb, and avoid the wandering sparks.</p>
+      </div>
+      <button id="startBtn" class="rounded-md bg-amber-300 px-4 py-2 text-sm font-bold text-zinc-950 shadow-lg shadow-amber-300/20 transition hover:bg-amber-200">
+        Start
+      </button>
+    </section>
+
+    <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="rounded-md border border-zinc-800 bg-zinc-900 p-3">
+        <p class="text-xs uppercase text-zinc-500">Score</p>
+        <p id="score" class="text-xl font-bold text-white">0</p>
+      </div>
+      <div class="rounded-md border border-zinc-800 bg-zinc-900 p-3">
+        <p class="text-xs uppercase text-zinc-500">Bombs</p>
+        <p id="bombs" class="text-xl font-bold text-white">0/0</p>
+      </div>
+      <div class="rounded-md border border-zinc-800 bg-zinc-900 p-3">
+        <p class="text-xs uppercase text-zinc-500">Lives</p>
+        <p id="lives" class="text-xl font-bold text-white">3</p>
+      </div>
+      <div class="rounded-md border border-zinc-800 bg-zinc-900 p-3">
+        <p class="text-xs uppercase text-zinc-500">Controls</p>
+        <p class="text-sm font-semibold text-white">A/D or Arrows, Space</p>
+      </div>
+    </section>
+
+    <section class="rounded-md border border-zinc-800 bg-zinc-900 p-3">
+      <canvas id="game" width="900" height="560" class="h-auto w-full rounded bg-zinc-950"></canvas>
+    </section>
+    <p id="message" class="min-h-6 text-center text-sm font-semibold text-amber-200">Press Start to take off.</p>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("startBtn");
+    const scoreEl = document.getElementById("score");
+    const bombsEl = document.getElementById("bombs");
+    const livesEl = document.getElementById("lives");
+    const messageEl = document.getElementById("message");
+
+    const keys = new Set();
+    const gravity = 1280;
+    const platforms = [
+      { x: 70, y: 505, w: 760, h: 18 },
+      { x: 115, y: 405, w: 170, h: 16 },
+      { x: 385, y: 405, w: 160, h: 16 },
+      { x: 640, y: 405, w: 145, h: 16 },
+      { x: 190, y: 310, w: 160, h: 16 },
+      { x: 510, y: 310, w: 180, h: 16 },
+      { x: 100, y: 215, w: 150, h: 16 },
+      { x: 365, y: 215, w: 150, h: 16 },
+      { x: 645, y: 215, w: 150, h: 16 },
+      { x: 305, y: 125, w: 285, h: 16 }
+    ];
+    const bombStarts = [
+      [120, 375], [225, 375], [445, 375], [705, 375],
+      [235, 280], [600, 280], [160, 185], [440, 185],
+      [715, 185], [355, 95], [535, 95], [820, 475]
+    ];
+    let player;
+    let enemies;
+    let bombs;
+    let score;
+    let lives;
+    let running = false;
+    let won = false;
+    let lastTime = 0;
+    let jumpLock = false;
+
+    function resetPlayer() {
+      player = { x: 95, y: 455, w: 26, h: 34, vx: 0, vy: 0, grounded: false, invincible: 1.2 };
+    }
+
+    function reset() {
+      resetPlayer();
+      bombs = bombStarts.map(([x, y], index) => ({ x, y, lit: index === 0, taken: false }));
+      enemies = [
+        { x: 790, y: 468, vx: -90, min: 92, max: 810, platform: 0 },
+        { x: 145, y: 178, vx: 80, min: 105, max: 245, platform: 6 },
+        { x: 670, y: 368, vx: -95, min: 640, max: 785, platform: 3 },
+        { x: 525, y: 88, vx: 70, min: 305, max: 590, platform: 9 }
+      ];
+      score = 0;
+      lives = 3;
+      running = true;
+      won = false;
+      jumpLock = false;
+      messageEl.textContent = "Collect the lit bomb first for a bonus chain.";
+      updateHud();
+    }
+
+    function updateHud() {
+      const collected = bombs.filter((bomb) => bomb.taken).length;
+      scoreEl.textContent = score;
+      bombsEl.textContent = collected + "/" + bombs.length;
+      livesEl.textContent = lives;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function nextLitBomb() {
+      const next = bombs.find((bomb) => !bomb.taken);
+      bombs.forEach((bomb) => {
+        bomb.lit = bomb === next;
+      });
+    }
+
+    function collectBombs() {
+      bombs.forEach((bomb) => {
+        if (!bomb.taken && Math.hypot(player.x + 13 - bomb.x, player.y + 14 - bomb.y) < 28) {
+          bomb.taken = true;
+          score += bomb.lit ? 250 : 100;
+          nextLitBomb();
+          messageEl.textContent = bomb.lit ? "Chain bonus." : "Bomb collected.";
+        }
+      });
+      if (bombs.every((bomb) => bomb.taken)) {
+        running = false;
+        won = true;
+        score += lives * 500;
+        messageEl.textContent = "Stage clear. All bombs collected.";
+      }
+    }
+
+    function loseLife() {
+      if (player.invincible > 0) return;
+      lives -= 1;
+      messageEl.textContent = lives > 0 ? "Spark hit. Re-launch." : "Game over. Press Start to retry.";
+      if (lives <= 0) {
+        running = false;
+        return;
+      }
+      resetPlayer();
+    }
+
+    function movePlayer(dt) {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const jumpPressed = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
+
+      player.vx = 0;
+      if (left) player.vx = -245;
+      if (right) player.vx = 245;
+      if (jumpPressed && !jumpLock && player.grounded) {
+        player.vy = -585;
+        player.grounded = false;
+        jumpLock = true;
+      }
+      if (!jumpPressed) jumpLock = false;
+
+      player.x += player.vx * dt;
+      player.x = Math.max(30, Math.min(canvas.width - player.w - 30, player.x));
+      player.vy += gravity * dt;
+      player.y += player.vy * dt;
+      player.grounded = false;
+
+      platforms.forEach((platform) => {
+        const wasAbove = player.y + player.h - player.vy * dt <= platform.y + 3;
+        const landsOnTop = player.x + player.w > platform.x && player.x < platform.x + platform.w && player.y + player.h >= platform.y && player.y + player.h <= platform.y + platform.h + 18;
+        if (player.vy >= 0 && wasAbove && landsOnTop) {
+          player.y = platform.y - player.h;
+          player.vy = 0;
+          player.grounded = true;
+        }
+      });
+
+      if (player.y > canvas.height + 30) {
+        loseLife();
+      }
+    }
+
+    function moveEnemies(dt) {
+      enemies.forEach((enemy) => {
+        enemy.x += enemy.vx * dt;
+        if (enemy.x < enemy.min || enemy.x > enemy.max) {
+          enemy.vx *= -1;
+          enemy.x = Math.max(enemy.min, Math.min(enemy.max, enemy.x));
+        }
+        const enemyBox = { x: enemy.x - 15, y: enemy.y - 14, w: 30, h: 28 };
+        if (rectsOverlap(player, enemyBox)) loseLife();
+      });
+    }
+
+    function update(dt) {
+      if (!running) return;
+      player.invincible = Math.max(0, player.invincible - dt);
+      movePlayer(dt);
+      moveEnemies(dt);
+      collectBombs();
+      updateHud();
+    }
+
+    function drawBackground() {
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, "#18181b");
+      sky.addColorStop(1, "#09090b");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#27272a";
+      for (let i = 0; i < 14; i += 1) {
+        const h = 70 + (i % 4) * 28;
+        ctx.fillRect(i * 70 - 12, 505 - h, 44, h);
+        ctx.fillStyle = "#fbbf24";
+        for (let y = 505 - h + 12; y < 495; y += 22) {
+          ctx.fillRect(i * 70, y, 7, 9);
+          ctx.fillRect(i * 70 + 18, y + 5, 7, 9);
+        }
+        ctx.fillStyle = "#27272a";
+      }
+    }
+
+    function drawPlatforms() {
+      platforms.forEach((platform) => {
+        ctx.fillStyle = "#3f3f46";
+        ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(platform.x, platform.y, platform.w, 4);
+      });
+    }
+
+    function drawBombs() {
+      bombs.forEach((bomb) => {
+        if (bomb.taken) return;
+        ctx.save();
+        ctx.translate(bomb.x, bomb.y);
+        ctx.fillStyle = bomb.lit ? "#fef08a" : "#38bdf8";
+        ctx.beginPath();
+        ctx.arc(0, 0, bomb.lit ? 12 : 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#020617";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(4, -9);
+        ctx.lineTo(11, -17);
+        ctx.stroke();
+        ctx.fillStyle = "#fb7185";
+        ctx.fillRect(9, -20, 7, 7);
+        ctx.restore();
+      });
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy) => {
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.fillStyle = "#fb7185";
+        ctx.beginPath();
+        ctx.arc(0, 0, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#fda4af";
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 8; i += 1) {
+          const angle = (Math.PI * 2 * i) / 8;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * 12, Math.sin(angle) * 12);
+          ctx.lineTo(Math.cos(angle) * 24, Math.sin(angle) * 24);
+          ctx.stroke();
+        }
+        ctx.restore();
+      });
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.globalAlpha = player.invincible > 0 && Math.floor(player.invincible * 12) % 2 === 0 ? 0.45 : 1;
+      ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(-13, -16, 26, 30);
+      ctx.fillStyle = "#f97316";
+      ctx.fillRect(-17, 7, 34, 7);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-6, -10, 4, 5);
+      ctx.fillRect(4, -10, 4, 5);
+      ctx.restore();
+    }
+
+    function drawOverlay() {
+      if (running) return;
+      ctx.fillStyle = "rgba(9, 9, 11, 0.72)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = won ? "#fef08a" : "#e4e4e7";
+      ctx.font = "bold 34px system-ui, sans-serif";
+      ctx.fillText(won ? "Stage Clear" : "Mini Bomb Jack", canvas.width / 2, 252);
+      ctx.fillStyle = "#d4d4d8";
+      ctx.font = "18px system-ui, sans-serif";
+      ctx.fillText(won ? "Press Start for another run." : "Press Start to begin.", canvas.width / 2, 285);
+    }
+
+    function draw() {
+      drawBackground();
+      drawPlatforms();
+      drawBombs();
+      drawEnemies();
+      drawPlayer();
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", reset);
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    reset();
+    running = false;
+    draw();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
