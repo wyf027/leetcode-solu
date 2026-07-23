@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Shinobi 忍者救援</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-rose-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Shinobi 忍者救援</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">分数</div>
+          <div id="score" class="text-xl font-bold text-rose-300">0</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">生命</div>
+          <div id="lives" class="text-xl font-bold text-emerald-300">3</div>
+        </div>
+        <div class="rounded border border-slate-700 bg-slate-900 px-3 py-2">
+          <div class="text-slate-400">人质</div>
+          <div id="hostages" class="text-xl font-bold text-cyan-300">0/4</div>
+        </div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="520" class="w-full rounded border border-slate-700 bg-slate-900 shadow-2xl shadow-black"></canvas>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto]">
+      <div class="rounded border border-slate-700 bg-slate-900 p-3 text-sm text-slate-300">
+        <p>方向键或 WASD 移动，W/↑/空格跳跃，J 投掷手里剑。救出 4 名人质并抵达右侧出口。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="jumpBtn" class="rounded bg-cyan-400 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-300">跳跃</button>
+        <button id="throwBtn" class="rounded bg-rose-500 px-4 py-2 font-semibold text-white hover:bg-rose-400">手里剑</button>
+        <button id="restartBtn" class="rounded bg-slate-700 px-4 py-2 font-semibold text-white hover:bg-slate-600">重开</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const hostagesEl = document.getElementById("hostages");
+    const keys = new Set();
+    const groundY = 420;
+    const hero = { x: 80, y: groundY - 72, w: 34, h: 72, vy: 0, facing: 1, cool: 0, hurtT: 0 };
+    const hostageSpots = [235, 405, 585, 745];
+    let score = 0;
+    let lives = 3;
+    let rescued = 0;
+    let scroll = 0;
+    let spawnT = 0;
+    let enemies = [];
+    let stars = [];
+    let hostages = [];
+    let effects = [];
+    let state = "play";
+
+    function reset() {
+      hero.x = 80;
+      hero.y = groundY - hero.h;
+      hero.vy = 0;
+      hero.facing = 1;
+      hero.cool = 0;
+      hero.hurtT = 0;
+      score = 0;
+      lives = 3;
+      rescued = 0;
+      scroll = 0;
+      spawnT = 20;
+      enemies = [];
+      stars = [];
+      effects = [];
+      hostages = hostageSpots.map((x, index) => ({ x, y: groundY - 42, w: 24, h: 42, rescued: false, index }));
+      state = "play";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      hostagesEl.textContent = `${rescued}/4`;
+    }
+
+    function jump() {
+      if (state === "play" && hero.y + hero.h >= groundY - 1) hero.vy = -14.5;
+    }
+
+    function throwStar() {
+      if (state !== "play" || hero.cool > 0) return;
+      hero.cool = 16;
+      stars.push({ x: hero.x + (hero.facing > 0 ? hero.w : -12), y: hero.y + 30, vx: hero.facing * 10, r: 8, life: 64 });
+    }
+
+    function spawnEnemy() {
+      enemies.push({
+        x: 930,
+        y: groundY - 62,
+        w: 34,
+        h: 62,
+        hp: Math.random() > 0.7 ? 2 : 1,
+        shootT: 45 + Math.floor(Math.random() * 60),
+        hurtT: 0,
+        speed: 1.4 + Math.random() * 0.5
+      });
+    }
+
+    function rectsTouch(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function hurtHero() {
+      if (hero.hurtT > 0) return;
+      lives -= 1;
+      hero.hurtT = 64;
+      hero.x = Math.max(35, hero.x - 55);
+      hero.vy = -8;
+      effects.push({ x: hero.x + 16, y: hero.y + 24, t: 22, color: "#38bdf8", size: 34 });
+      if (lives <= 0) state = "lost";
+      updateHud();
+    }
+
+    function hitEnemy(enemy, star) {
+      enemy.hp -= 1;
+      star.life = 0;
+      enemy.hurtT = 14;
+      effects.push({ x: enemy.x + enemy.w / 2, y: enemy.y + 25, t: 16, color: "#fb7185", size: 28 });
+      if (enemy.hp <= 0) {
+        score += 120;
+        enemies = enemies.filter((item) => item !== enemy);
+      }
+      updateHud();
+    }
+
+    function rescueHostages() {
+      for (const hostage of hostages) {
+        if (!hostage.rescued && rectsTouch(hero, hostage)) {
+          hostage.rescued = true;
+          rescued += 1;
+          score += 250;
+          effects.push({ x: hostage.x + 12, y: hostage.y + 18, t: 28, color: "#67e8f9", size: 36 });
+          updateHud();
+        }
+      }
+    }
+
+    function updateHero() {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
+      if (left) {
+        hero.x -= 4.3;
+        hero.facing = -1;
+      }
+      if (right) {
+        hero.x += 4.3;
+        hero.facing = 1;
+      }
+      if (up) jump();
+      hero.x = Math.max(24, Math.min(835, hero.x));
+      hero.vy += 0.72;
+      hero.y += hero.vy;
+      if (hero.y + hero.h > groundY) {
+        hero.y = groundY - hero.h;
+        hero.vy = 0;
+      }
+      if (hero.cool > 0) hero.cool -= 1;
+      if (hero.hurtT > 0) hero.hurtT -= 1;
+      scroll += right ? 1.5 : 0.7;
+    }
+
+    function updateProjectiles() {
+      for (const star of stars) {
+        star.x += star.vx;
+        star.life -= 1;
+      }
+      stars = stars.filter((star) => star.life > 0 && star.x > -20 && star.x < 930);
+    }
+
+    function updateEnemies() {
+      for (const enemy of [...enemies]) {
+        enemy.x -= enemy.speed;
+        if (enemy.hurtT > 0) enemy.hurtT -= 1;
+        enemy.shootT -= 1;
+        if (rectsTouch(hero, enemy)) hurtHero();
+        for (const star of stars) {
+          const box = { x: star.x - star.r, y: star.y - star.r, w: star.r * 2, h: star.r * 2 };
+          if (star.life > 0 && rectsTouch(box, enemy)) hitEnemy(enemy, star);
+        }
+        if (enemy.shootT <= 0) {
+          stars.push({ x: enemy.x - 10, y: enemy.y + 28, vx: -6.2, r: 6, life: 80, enemy: true });
+          enemy.shootT = 70 + Math.floor(Math.random() * 60);
+        }
+      }
+      enemies = enemies.filter((enemy) => enemy.x > -70);
+      for (const star of stars.filter((item) => item.enemy)) {
+        const box = { x: star.x - star.r, y: star.y - star.r, w: star.r * 2, h: star.r * 2 };
+        if (rectsTouch(hero, box)) {
+          star.life = 0;
+          hurtHero();
+        }
+      }
+    }
+
+    function update() {
+      if (state !== "play") return;
+      updateHero();
+      updateProjectiles();
+      updateEnemies();
+      rescueHostages();
+      spawnT -= 1;
+      if (spawnT <= 0) {
+        spawnEnemy();
+        spawnT = Math.max(42, 92 - rescued * 8 - Math.random() * 24);
+      }
+      effects = effects.filter((effect) => {
+        effect.t -= 1;
+        return effect.t > 0;
+      });
+      if (rescued >= 4 && hero.x > 815) state = "won";
+    }
+
+    function drawWorld() {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#0f172a");
+      bg.addColorStop(0.55, "#1e1b4b");
+      bg.addColorStop(1, "#020617");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const offset = scroll % 120;
+      for (let x = -offset; x < 940; x += 120) {
+        ctx.fillStyle = "#334155";
+        ctx.fillRect(x, 230, 78, 190);
+        ctx.fillStyle = "#7f1d1d";
+        ctx.fillRect(x - 8, 218, 94, 16);
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(x + 18, 266, 16, 28);
+        ctx.fillRect(x + 46, 266, 16, 28);
+      }
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, groundY, 900, 54);
+      ctx.fillStyle = "#475569";
+      for (let x = -offset; x < 930; x += 70) ctx.fillRect(x, groundY + 8, 42, 8);
+      ctx.fillStyle = "#7f1d1d";
+      ctx.fillRect(842, groundY - 90, 36, 90);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillText("EXIT", 835, groundY - 100);
+    }
+
+    function drawHero() {
+      ctx.save();
+      ctx.translate(hero.x + hero.w / 2, hero.y);
+      ctx.scale(hero.facing, 1);
+      ctx.globalAlpha = hero.hurtT > 0 && hero.hurtT % 8 < 4 ? 0.45 : 1;
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-9, 0, 18, 17);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-16, 17, 32, 34);
+      ctx.fillStyle = "#dc2626";
+      ctx.fillRect(-16, 22, 32, 8);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(-14, 51, 10, 21);
+      ctx.fillRect(5, 51, 10, 21);
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(13, 27);
+      ctx.lineTo(34, 31);
+      ctx.moveTo(-13, 28);
+      ctx.lineTo(-29, 37);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.globalAlpha = enemy.hurtT > 0 && enemy.hurtT % 6 < 3 ? 0.55 : 1;
+      ctx.fillStyle = "#fca5a5";
+      ctx.fillRect(9, 0, 16, 17);
+      ctx.fillStyle = "#7f1d1d";
+      ctx.fillRect(4, 17, 28, 31);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(6, 48, 9, 14);
+      ctx.fillRect(22, 48, 9, 14);
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(4, 26);
+      ctx.lineTo(-14, 30);
+      ctx.stroke();
+      ctx.fillStyle = "#f8fafc";
+      for (let i = 0; i < enemy.hp; i += 1) ctx.fillRect(7 + i * 9, -8, 6, 3);
+      ctx.restore();
+    }
+
+    function drawStar(star) {
+      ctx.save();
+      ctx.translate(star.x, star.y);
+      ctx.rotate(star.life * 0.35);
+      ctx.fillStyle = star.enemy ? "#f97316" : "#e5e7eb";
+      for (let i = 0; i < 4; i += 1) {
+        ctx.rotate(Math.PI / 2);
+        ctx.fillRect(-2, -star.r, 4, star.r * 2);
+      }
+      ctx.restore();
+    }
+
+    function drawHostage(hostage) {
+      if (hostage.rescued) return;
+      ctx.fillStyle = "#bae6fd";
+      ctx.fillRect(hostage.x + 5, hostage.y, 14, 16);
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(hostage.x, hostage.y + 16, 24, 26);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWorld();
+      hostages.forEach(drawHostage);
+      stars.forEach(drawStar);
+      enemies.forEach(drawEnemy);
+      drawHero();
+      for (const effect of effects) {
+        ctx.globalAlpha = effect.t / 28;
+        ctx.fillStyle = effect.color;
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, effect.size * (1 - effect.t / 40), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (state !== "play") {
+        ctx.fillStyle = "rgba(2,6,23,0.78)";
+        ctx.fillRect(0, 0, 900, 520);
+        ctx.fillStyle = state === "won" ? "#86efac" : "#fca5a5";
+        ctx.font = "bold 52px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state === "won" ? "救援完成!" : "任务失败", 450, 235);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "22px sans-serif";
+        ctx.fillText("按 R 或点击重开", 450, 282);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+      if (event.key === " " || event.key.toLowerCase() === "j") throwStar();
+      if (event.key.toLowerCase() === "r") reset();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    document.getElementById("jumpBtn").addEventListener("click", jump);
+    document.getElementById("throwBtn").addEventListener("click", throwStar);
+    document.getElementById("restartBtn").addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
