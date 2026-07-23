@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Satan's Hollow Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-[0.18em] text-rose-300">Classic Games</p>
+        <h1 class="text-2xl font-bold tracking-wide text-white">Mini Satan's Hollow</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">Score</div>
+          <div id="score" class="font-mono text-lg text-rose-200">0</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">Wave</div>
+          <div id="wave" class="font-mono text-lg text-rose-200">1</div>
+        </div>
+        <div class="rounded border border-zinc-700 bg-zinc-900 px-3 py-2">
+          <div class="text-zinc-400">Lives</div>
+          <div id="lives" class="font-mono text-lg text-rose-200">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_240px]">
+      <div class="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <canvas id="game" width="720" height="560" class="h-auto w-full rounded bg-black"></canvas>
+      </div>
+      <aside class="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm leading-6 text-zinc-300">
+        <h2 class="mb-2 text-base font-semibold text-white">Controls</h2>
+        <p><span class="font-mono text-rose-200">Left / Right</span> move cannon.</p>
+        <p><span class="font-mono text-rose-200">Space</span> fires.</p>
+        <p><span class="font-mono text-rose-200">Mouse / Touch</span> move and fire.</p>
+        <button id="restart" class="mt-4 w-full rounded bg-rose-500 px-3 py-2 font-semibold text-white hover:bg-rose-400">Restart</button>
+        <p id="message" class="mt-4 min-h-12 rounded border border-zinc-700 bg-zinc-950 p-3 text-rose-100">Defend the hollow, collect bridge pieces, and survive the diving wave.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const waveEl = document.getElementById("wave");
+    const livesEl = document.getElementById("lives");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const shots = [];
+    const enemies = [];
+    const enemyShots = [];
+    const sparks = [];
+    const stars = [];
+    const shields = [];
+    let playerX = canvas.width / 2;
+    let score = 0;
+    let wave = 1;
+    let lives = 3;
+    let bridge = 0;
+    let cooldown = 0;
+    let spawnTimer = 0;
+    let waveLeft = 0;
+    let gameOver = false;
+    let lastTime = 0;
+
+    for (let i = 0; i < 110; i += 1) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.6 + 0.4,
+        a: Math.random() * 0.65 + 0.2
+      });
+    }
+
+    function resetShields() {
+      shields.length = 0;
+      for (let row = 0; row < 2; row += 1) {
+        for (let col = 0; col < 12; col += 1) {
+          shields.push({
+            x: 112 + col * 42,
+            y: 420 + row * 20,
+            w: 28,
+            h: 14,
+            hp: 2
+          });
+        }
+      }
+    }
+
+    function reset() {
+      shots.length = 0;
+      enemies.length = 0;
+      enemyShots.length = 0;
+      sparks.length = 0;
+      playerX = canvas.width / 2;
+      score = 0;
+      wave = 1;
+      lives = 3;
+      bridge = 0;
+      cooldown = 0;
+      gameOver = false;
+      resetShields();
+      startWave();
+      updateHud();
+      messageEl.textContent = "Defend the hollow, collect bridge pieces, and survive the diving wave.";
+    }
+
+    function startWave() {
+      waveLeft = 8 + wave * 2;
+      spawnTimer = 0.45;
+      messageEl.textContent = `Wave ${wave}: build the bridge and clear ${waveLeft} attackers.`;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      waveEl.textContent = `${wave} / ${bridge}`;
+      livesEl.textContent = lives;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rand(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function spawnEnemy() {
+      const entry = Math.random() > 0.5 ? -40 : canvas.width + 40;
+      enemies.push({
+        x: entry,
+        y: rand(58, 190),
+        vx: (entry < 0 ? 1 : -1) * (rand(70, 110) + wave * 8),
+        dive: false,
+        diveTimer: rand(0.7, 1.8),
+        phase: rand(0, Math.PI * 2),
+        hp: wave > 4 && Math.random() > 0.65 ? 2 : 1,
+        color: Math.random() > 0.5 ? "#fb7185" : "#f97316"
+      });
+    }
+
+    function fire() {
+      if (cooldown > 0 || gameOver) return;
+      shots.push({ x: playerX, y: 486, vy: -520, life: 1.1 });
+      cooldown = Math.max(0.13, 0.25 - wave * 0.01);
+    }
+
+    function burst(x, y, color, count = 12) {
+      for (let i = 0; i < count; i += 1) {
+        const a = rand(0, Math.PI * 2);
+        const s = rand(50, 220);
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(a) * s,
+          vy: Math.sin(a) * s,
+          life: rand(0.25, 0.65),
+          max: 0.65,
+          color
+        });
+      }
+    }
+
+    function hitShield(x, y) {
+      for (let i = shields.length - 1; i >= 0; i -= 1) {
+        const s = shields[i];
+        if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) {
+          s.hp -= 1;
+          if (s.hp <= 0) shields.splice(i, 1);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function loseLife(text) {
+      lives -= 1;
+      updateHud();
+      if (lives <= 0) {
+        gameOver = true;
+        messageEl.textContent = "The hollow fell. Press Restart to try again.";
+      } else {
+        messageEl.textContent = text;
+      }
+    }
+
+    function update(dt) {
+      if (gameOver) return;
+      if (keys.has("ArrowLeft") || keys.has("KeyA")) playerX -= 360 * dt;
+      if (keys.has("ArrowRight") || keys.has("KeyD")) playerX += 360 * dt;
+      if (keys.has("Space")) fire();
+      playerX = clamp(playerX, 38, canvas.width - 38);
+      cooldown = Math.max(0, cooldown - dt);
+
+      spawnTimer -= dt;
+      if (waveLeft > 0 && spawnTimer <= 0) {
+        spawnEnemy();
+        waveLeft -= 1;
+        spawnTimer = Math.max(0.36, 0.88 - wave * 0.04);
+      }
+
+      for (let i = shots.length - 1; i >= 0; i -= 1) {
+        const shot = shots[i];
+        shot.y += shot.vy * dt;
+        shot.life -= dt;
+        if (shot.y < -20 || shot.life <= 0) shots.splice(i, 1);
+      }
+
+      for (let i = enemyShots.length - 1; i >= 0; i -= 1) {
+        const shot = enemyShots[i];
+        shot.y += shot.vy * dt;
+        if (hitShield(shot.x, shot.y)) {
+          burst(shot.x, shot.y, "#fbbf24", 6);
+          enemyShots.splice(i, 1);
+          continue;
+        }
+        if (Math.abs(shot.x - playerX) < 22 && shot.y > 466 && shot.y < 522) {
+          burst(playerX, 486, "#fb7185", 22);
+          enemyShots.splice(i, 1);
+          loseLife("Your cannon was hit. Hold the line.");
+          continue;
+        }
+        if (shot.y > canvas.height + 20) enemyShots.splice(i, 1);
+      }
+
+      for (let i = enemies.length - 1; i >= 0; i -= 1) {
+        const enemy = enemies[i];
+        enemy.phase += dt * 4;
+        enemy.diveTimer -= dt;
+        if (!enemy.dive && enemy.diveTimer <= 0) {
+          enemy.dive = true;
+          enemy.vx = (playerX - enemy.x) * 0.75;
+          enemy.vy = 105 + wave * 14;
+        }
+
+        if (enemy.dive) {
+          enemy.x += enemy.vx * dt;
+          enemy.y += enemy.vy * dt;
+        } else {
+          enemy.x += enemy.vx * dt;
+          enemy.y += Math.sin(enemy.phase) * 35 * dt;
+          if (enemy.x < -50 || enemy.x > canvas.width + 50) enemy.vx *= -1;
+          if (Math.random() < dt * (0.3 + wave * 0.04)) {
+            enemyShots.push({ x: enemy.x, y: enemy.y + 16, vy: 250 + wave * 14 });
+          }
+        }
+
+        if (hitShield(enemy.x, enemy.y + 18)) {
+          burst(enemy.x, enemy.y, "#f97316", 12);
+          enemies.splice(i, 1);
+          continue;
+        }
+
+        if (enemy.y > 528) {
+          burst(enemy.x, 506, "#f43f5e", 18);
+          enemies.splice(i, 1);
+          loseLife("A diver broke through the bridge.");
+          continue;
+        }
+
+        for (let j = shots.length - 1; j >= 0; j -= 1) {
+          const shot = shots[j];
+          if (Math.abs(shot.x - enemy.x) < 24 && Math.abs(shot.y - enemy.y) < 22) {
+            shots.splice(j, 1);
+            enemy.hp -= 1;
+            burst(shot.x, shot.y, "#fda4af", 8);
+            if (enemy.hp <= 0) {
+              score += 90 + wave * 20;
+              bridge = Math.min(6, bridge + 1);
+              burst(enemy.x, enemy.y, enemy.color, 18);
+              enemies.splice(i, 1);
+              updateHud();
+            }
+            break;
+          }
+        }
+      }
+
+      for (let i = sparks.length - 1; i >= 0; i -= 1) {
+        const spark = sparks[i];
+        spark.x += spark.vx * dt;
+        spark.y += spark.vy * dt;
+        spark.vx *= 0.97;
+        spark.vy *= 0.97;
+        spark.life -= dt;
+        if (spark.life <= 0) sparks.splice(i, 1);
+      }
+
+      if (waveLeft <= 0 && enemies.length === 0 && enemyShots.length === 0) {
+        const bridgeBonus = bridge >= 6 ? 1000 : bridge * 120;
+        score += 500 + wave * 100 + bridgeBonus;
+        wave += 1;
+        bridge = 0;
+        if (wave % 3 === 1) resetShields();
+        updateHud();
+        startWave();
+      }
+    }
+
+    function drawBackground() {
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, "#09090b");
+      gradient.addColorStop(0.55, "#18181b");
+      gradient.addColorStop(1, "#3f111b");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const star of stars) {
+        ctx.globalAlpha = star.a;
+        ctx.fillStyle = "#ffe4e6";
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(0, 520, canvas.width, 40);
+      ctx.strokeStyle = "rgba(251, 113, 133, 0.35)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(70, 520);
+      ctx.lineTo(650, 520);
+      ctx.stroke();
+    }
+
+    function drawShields() {
+      for (const s of shields) {
+        ctx.fillStyle = s.hp > 1 ? "#f59e0b" : "#78350f";
+        ctx.fillRect(s.x, s.y, s.w, s.h);
+        ctx.strokeStyle = "#fde68a";
+        ctx.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
+      }
+      for (let i = 0; i < bridge; i += 1) {
+        ctx.fillStyle = "#fb7185";
+        ctx.fillRect(260 + i * 34, 530, 26, 12);
+      }
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(playerX, 492);
+      ctx.fillStyle = "#e4e4e7";
+      ctx.fillRect(-20, 12, 40, 14);
+      ctx.fillRect(-10, -12, 20, 26);
+      ctx.fillStyle = "#fb7185";
+      ctx.fillRect(-4, -26, 8, 18);
+      ctx.strokeStyle = "#fecdd3";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-20, 12, 40, 14);
+      ctx.restore();
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        if (enemy.dive) ctx.rotate(Math.sin(enemy.phase) * 0.35);
+        ctx.fillStyle = enemy.color;
+        ctx.beginPath();
+        ctx.moveTo(0, -16);
+        ctx.lineTo(26, 10);
+        ctx.lineTo(7, 8);
+        ctx.lineTo(0, 22);
+        ctx.lineTo(-7, 8);
+        ctx.lineTo(-26, 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = enemy.hp > 1 ? "#fef3c7" : "#450a0a";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function drawProjectiles() {
+      ctx.fillStyle = "#fecdd3";
+      for (const shot of shots) {
+        ctx.fillRect(shot.x - 3, shot.y - 14, 6, 18);
+      }
+      ctx.fillStyle = "#f97316";
+      for (const shot of enemyShots) {
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        ctx.globalAlpha = Math.max(0, spark.life / spark.max);
+        ctx.fillStyle = spark.color;
+        ctx.fillRect(spark.x - 2, spark.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawBackground();
+      drawShields();
+      drawEnemies();
+      drawProjectiles();
+      drawPlayer();
+      drawSparks();
+      if (gameOver) {
+        ctx.fillStyle = "rgba(9, 9, 11, 0.76)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#fff1f2";
+        ctx.font = "bold 42px system-ui, sans-serif";
+        ctx.fillText("HOLLOW LOST", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillStyle = "#fda4af";
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.fillText("Press Restart to defend again", canvas.width / 2, canvas.height / 2 + 28);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD", "Space"].includes(event.code)) {
+        event.preventDefault();
+        keys.add(event.code);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.code);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      playerX = clamp((event.clientX - rect.left) / rect.width * canvas.width, 38, canvas.width - 38);
+    });
+
+    canvas.addEventListener("pointerdown", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      playerX = clamp((event.clientX - rect.left) / rect.width * canvas.width, 38, canvas.width - 38);
+      fire();
+    });
+
+    restartBtn.addEventListener("click", reset);
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
