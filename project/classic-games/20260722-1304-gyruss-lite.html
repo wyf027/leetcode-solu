@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Gyruss</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-cyan-200">Mini Gyruss</h1>
+        <p class="text-sm text-slate-400">Orbit the tube, fire inward, and keep the core lane clear.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <div class="rounded border border-slate-700 px-3 py-2">Score <span id="score" class="font-mono text-cyan-200">0</span></div>
+        <div class="rounded border border-slate-700 px-3 py-2">Lives <span id="lives" class="font-mono text-rose-200">3</span></div>
+        <div class="rounded border border-slate-700 px-3 py-2">Wave <span id="wave" class="font-mono text-amber-200">1</span></div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <canvas id="game" width="720" height="720" class="aspect-square w-full rounded border border-cyan-900 bg-black"></canvas>
+      <aside class="space-y-3 text-sm text-slate-300">
+        <div class="rounded border border-slate-800 bg-slate-900/70 p-3">
+          <div class="mb-2 font-semibold text-slate-100">Controls</div>
+          <p>Arrow keys or A/D orbit. Space fires. Tap left or right side to orbit on touch screens.</p>
+        </div>
+        <button id="start" class="w-full rounded bg-cyan-500 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-300">Start</button>
+        <div id="message" class="rounded border border-slate-800 bg-slate-900/70 p-3 text-slate-200">Press Start to enter the tube.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const waveEl = document.getElementById("wave");
+    const messageEl = document.getElementById("message");
+    const startBtn = document.getElementById("start");
+
+    const center = { x: canvas.width / 2, y: canvas.height / 2 };
+    const shipRadius = 306;
+    const keys = new Set();
+    let bullets = [];
+    let enemies = [];
+    let sparks = [];
+    let score = 0;
+    let lives = 3;
+    let wave = 1;
+    let shipAngle = -Math.PI / 2;
+    let fireCooldown = 0;
+    let spawnTimer = 0;
+    let running = false;
+    let lastTime = 0;
+
+    function reset() {
+      bullets = [];
+      enemies = [];
+      sparks = [];
+      score = 0;
+      lives = 3;
+      wave = 1;
+      shipAngle = -Math.PI / 2;
+      fireCooldown = 0;
+      spawnTimer = 0;
+      running = true;
+      messageEl.textContent = "Clear the spiral. Enemies that reach the rim cost a life.";
+      syncHud();
+    }
+
+    function syncHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      waveEl.textContent = wave;
+    }
+
+    function polar(angle, radius) {
+      return {
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius
+      };
+    }
+
+    function angleGap(a, b) {
+      let gap = Math.abs(a - b) % (Math.PI * 2);
+      return gap > Math.PI ? Math.PI * 2 - gap : gap;
+    }
+
+    function spawnEnemy() {
+      enemies.push({
+        angle: Math.random() * Math.PI * 2,
+        radius: 72,
+        speed: 52 + wave * 9 + Math.random() * 20,
+        drift: (Math.random() - 0.5) * 1.1,
+        size: 13
+      });
+    }
+
+    function fire() {
+      if (!running || fireCooldown > 0) return;
+      bullets.push({
+        angle: shipAngle,
+        radius: shipRadius - 26,
+        speed: 520
+      });
+      fireCooldown = 0.18;
+    }
+
+    function burst(angle, radius, color) {
+      for (let i = 0; i < 10; i++) {
+        sparks.push({
+          angle,
+          radius,
+          drift: (Math.random() - 0.5) * 2.2,
+          speed: 40 + Math.random() * 90,
+          life: 0.45,
+          color
+        });
+      }
+    }
+
+    function loseLife() {
+      lives -= 1;
+      syncHud();
+      burst(shipAngle, shipRadius - 10, "#fb7185");
+      if (lives <= 0) {
+        running = false;
+        messageEl.textContent = `Game over. Final score: ${score}.`;
+      }
+    }
+
+    function update(dt) {
+      if (!running) return;
+      if (keys.has("ArrowLeft") || keys.has("a")) shipAngle -= dt * 3.9;
+      if (keys.has("ArrowRight") || keys.has("d")) shipAngle += dt * 3.9;
+      if (keys.has(" ")) fire();
+
+      fireCooldown = Math.max(0, fireCooldown - dt);
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = Math.max(0.28, 0.95 - wave * 0.06);
+      }
+
+      for (const bullet of bullets) {
+        bullet.radius -= bullet.speed * dt;
+      }
+      bullets = bullets.filter((bullet) => bullet.radius > 38);
+
+      for (const enemy of enemies) {
+        enemy.radius += enemy.speed * dt;
+        enemy.angle += enemy.drift * dt;
+      }
+
+      for (const enemy of enemies) {
+        if (enemy.radius >= shipRadius - 14 && angleGap(enemy.angle, shipAngle) < 0.18) {
+          enemy.hit = true;
+          loseLife();
+        }
+        if (enemy.radius > shipRadius + 30) {
+          enemy.hit = true;
+          loseLife();
+        }
+      }
+
+      for (const bullet of bullets) {
+        for (const enemy of enemies) {
+          if (!enemy.hit && angleGap(bullet.angle, enemy.angle) < 0.15 && Math.abs(bullet.radius - enemy.radius) < 22) {
+            enemy.hit = true;
+            bullet.hit = true;
+            score += 100;
+            if (score > 0 && score % 1000 === 0) wave += 1;
+            burst(enemy.angle, enemy.radius, "#67e8f9");
+            syncHud();
+          }
+        }
+      }
+      bullets = bullets.filter((bullet) => !bullet.hit);
+      enemies = enemies.filter((enemy) => !enemy.hit);
+
+      for (const spark of sparks) {
+        spark.radius += spark.speed * dt;
+        spark.angle += spark.drift * dt;
+        spark.life -= dt;
+      }
+      sparks = sparks.filter((spark) => spark.life > 0);
+    }
+
+    function drawTube() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(34, 211, 238, 0.22)";
+      ctx.lineWidth = 2;
+      for (let r = 78; r <= shipRadius; r += 38) {
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * Math.PI * 2;
+        const inner = polar(a, 62);
+        const outer = polar(a, shipRadius + 8);
+        ctx.beginPath();
+        ctx.moveTo(inner.x, inner.y);
+        ctx.lineTo(outer.x, outer.y);
+        ctx.stroke();
+      }
+      const glow = ctx.createRadialGradient(center.x, center.y, 20, center.x, center.y, shipRadius);
+      glow.addColorStop(0, "rgba(56, 189, 248, 0.18)");
+      glow.addColorStop(1, "rgba(2, 6, 23, 0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawShip() {
+      const p = polar(shipAngle, shipRadius);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(shipAngle + Math.PI / 2);
+      ctx.fillStyle = "#f8fafc";
+      ctx.strokeStyle = "#22d3ee";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, -22);
+      ctx.lineTo(18, 18);
+      ctx.lineTo(0, 9);
+      ctx.lineTo(-18, 18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawBullets() {
+      ctx.strokeStyle = "#fde68a";
+      ctx.lineWidth = 5;
+      for (const bullet of bullets) {
+        const a = polar(bullet.angle, bullet.radius);
+        const b = polar(bullet.angle, bullet.radius + 18);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        const p = polar(enemy.angle, enemy.radius);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(enemy.angle);
+        ctx.fillStyle = "#fb7185";
+        ctx.strokeStyle = "#fecdd3";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, -enemy.size);
+        ctx.lineTo(enemy.size, 0);
+        ctx.lineTo(0, enemy.size);
+        ctx.lineTo(-enemy.size, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function drawSparks() {
+      for (const spark of sparks) {
+        const p = polar(spark.angle, spark.radius);
+        ctx.globalAlpha = Math.max(0, spark.life * 2);
+        ctx.fillStyle = spark.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      drawTube();
+      drawBullets();
+      drawEnemies();
+      drawSparks();
+      drawShip();
+      if (!running) {
+        ctx.fillStyle = "rgba(2, 6, 23, 0.7)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#cffafe";
+        ctx.font = "bold 34px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Mini Gyruss", center.x, center.y - 16);
+        ctx.font = "18px system-ui, sans-serif";
+        ctx.fillText("Press Start", center.x, center.y + 22);
+      }
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", reset);
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", " ", "a", "d"].includes(event.key)) event.preventDefault();
+      keys.add(event.key);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key));
+    canvas.addEventListener("pointerdown", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      if (event.clientX - rect.left < rect.width / 2) {
+        shipAngle -= 0.28;
+      } else {
+        shipAngle += 0.28;
+      }
+      fire();
+    });
+
+    syncHud();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
