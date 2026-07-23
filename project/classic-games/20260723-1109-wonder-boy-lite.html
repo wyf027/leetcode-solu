@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Wonder Boy 神奇男孩</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-amber-50 text-slate-900">
+  <main class="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-amber-700">Classic Games</p>
+        <h1 class="text-3xl font-bold text-slate-950">Mini Wonder Boy 神奇男孩</h1>
+        <p class="mt-1 max-w-2xl text-sm text-slate-600">
+          横版跑跳冒险：收集水果补充体力，丢石斧打怪，拾取滑板冲向终点。
+        </p>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div class="rounded-md bg-white px-3 py-2 shadow-sm">
+          <div class="text-xs text-slate-500">Score</div>
+          <div id="score" class="font-bold">0</div>
+        </div>
+        <div class="rounded-md bg-white px-3 py-2 shadow-sm">
+          <div class="text-xs text-slate-500">Fruit</div>
+          <div id="fruit" class="font-bold">0</div>
+        </div>
+        <div class="rounded-md bg-white px-3 py-2 shadow-sm">
+          <div class="text-xs text-slate-500">Energy</div>
+          <div id="energy" class="font-bold">100</div>
+        </div>
+        <div class="rounded-md bg-white px-3 py-2 shadow-sm">
+          <div class="text-xs text-slate-500">Lives</div>
+          <div id="lives" class="font-bold">3</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="rounded-lg border border-amber-200 bg-white p-3 shadow-sm">
+      <canvas id="game" width="900" height="520" class="block h-auto w-full rounded-md bg-sky-100"></canvas>
+    </section>
+
+    <footer class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+      <div>方向键 / A D 移动，W / ↑ / Space 跳跃，J / X 丢石斧，R 重新开始</div>
+      <button id="restart" class="rounded-md bg-amber-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-amber-700">
+        重新开始
+      </button>
+    </footer>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const fruitEl = document.getElementById("fruit");
+    const energyEl = document.getElementById("energy");
+    const livesEl = document.getElementById("lives");
+    const restartBtn = document.getElementById("restart");
+
+    const keys = new Set();
+    const gravity = 0.62;
+    const worldWidth = 2800;
+    const groundY = 448;
+    const platforms = [
+      { x: 360, y: 355, w: 180, h: 18 },
+      { x: 780, y: 305, w: 170, h: 18 },
+      { x: 1180, y: 365, w: 220, h: 18 },
+      { x: 1630, y: 318, w: 180, h: 18 },
+      { x: 2090, y: 360, w: 220, h: 18 }
+    ];
+
+    const hero = {
+      x: 68,
+      y: groundY - 54,
+      w: 38,
+      h: 54,
+      vx: 0,
+      vy: 0,
+      face: 1,
+      onGround: false,
+      cooldown: 0,
+      lives: 3,
+      energy: 100,
+      invincible: 0,
+      skateboard: 0
+    };
+
+    let fruits = [];
+    let enemies = [];
+    let axes = [];
+    let boards = [];
+    let particles = [];
+    let cameraX = 0;
+    let score = 0;
+    let fruitCount = 0;
+    let frame = 0;
+    let gameOver = false;
+    let won = false;
+
+    function resetGame() {
+      hero.x = 68;
+      hero.y = groundY - hero.h;
+      hero.vx = 0;
+      hero.vy = 0;
+      hero.face = 1;
+      hero.cooldown = 0;
+      hero.lives = 3;
+      hero.energy = 100;
+      hero.invincible = 0;
+      hero.skateboard = 0;
+      score = 0;
+      fruitCount = 0;
+      frame = 0;
+      cameraX = 0;
+      gameOver = false;
+      won = false;
+      axes = [];
+      particles = [];
+      spawnLevel();
+      updateHud();
+    }
+
+    function spawnLevel() {
+      fruits = [
+        { x: 240, y: groundY - 70, kind: "apple" },
+        { x: 430, y: 318, kind: "banana" },
+        { x: 720, y: groundY - 82, kind: "grape" },
+        { x: 850, y: 268, kind: "apple" },
+        { x: 1260, y: 330, kind: "banana" },
+        { x: 1510, y: groundY - 72, kind: "grape" },
+        { x: 1710, y: 282, kind: "apple" },
+        { x: 2200, y: 322, kind: "banana" },
+        { x: 2470, y: groundY - 76, kind: "grape" }
+      ];
+      enemies = [
+        { x: 520, y: groundY - 36, w: 40, h: 36, vx: -1.2, type: "snail" },
+        { x: 980, y: groundY - 42, w: 42, h: 42, vx: 1.35, type: "frog" },
+        { x: 1370, y: groundY - 36, w: 40, h: 36, vx: -1.2, type: "snail" },
+        { x: 1880, y: groundY - 42, w: 42, h: 42, vx: 1.4, type: "frog" },
+        { x: 2350, y: groundY - 36, w: 40, h: 36, vx: -1.3, type: "snail" }
+      ];
+      boards = [{ x: 1040, y: groundY - 24, w: 48, h: 18 }];
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      fruitEl.textContent = fruitCount;
+      energyEl.textContent = Math.max(0, Math.floor(hero.energy));
+      livesEl.textContent = hero.lives;
+    }
+
+    function addParticles(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: (Math.random() - 0.8) * 5,
+          life: 20 + Math.random() * 16,
+          color
+        });
+      }
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function applyPlatforms(actor) {
+      actor.onGround = false;
+      actor.vy += gravity;
+      actor.y += actor.vy;
+
+      if (actor.y + actor.h >= groundY) {
+        actor.y = groundY - actor.h;
+        actor.vy = 0;
+        actor.onGround = true;
+      }
+
+      for (const platform of platforms) {
+        const feet = actor.y + actor.h;
+        const prevFeet = feet - actor.vy;
+        if (
+          actor.vy >= 0 &&
+          actor.x + actor.w > platform.x &&
+          actor.x < platform.x + platform.w &&
+          feet >= platform.y &&
+          prevFeet <= platform.y + 5
+        ) {
+          actor.y = platform.y - actor.h;
+          actor.vy = 0;
+          actor.onGround = true;
+        }
+      }
+    }
+
+    function throwAxe() {
+      if (hero.cooldown > 0 || gameOver || won) return;
+      axes.push({
+        x: hero.x + hero.w / 2 + hero.face * 20,
+        y: hero.y + 20,
+        vx: hero.face * 7.5,
+        vy: -2.5,
+        r: 9,
+        spin: 0
+      });
+      hero.cooldown = 20;
+    }
+
+    function hurtHero() {
+      if (hero.invincible > 0 || gameOver || won) return;
+      hero.lives -= 1;
+      hero.invincible = 110;
+      hero.energy = Math.max(25, hero.energy - 28);
+      hero.skateboard = 0;
+      hero.vx = -hero.face * 5;
+      hero.vy = -8;
+      addParticles(hero.x + hero.w / 2, hero.y + 24, "#ef4444");
+      if (hero.lives <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function defeatEnemy(enemy) {
+      enemy.dead = true;
+      score += 160;
+      addParticles(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#f97316");
+      updateHud();
+    }
+
+    function updateHero() {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const topSpeed = hero.skateboard > 0 ? 7.2 : 5.1;
+      if (left) {
+        hero.vx = Math.max(hero.vx - 0.72, -topSpeed);
+        hero.face = -1;
+      } else if (right) {
+        hero.vx = Math.min(hero.vx + 0.72, topSpeed);
+        hero.face = 1;
+      } else {
+        hero.vx *= hero.skateboard > 0 ? 0.92 : 0.8;
+      }
+
+      if ((keys.has("ArrowUp") || keys.has("w") || keys.has(" ")) && hero.onGround) {
+        hero.vy = -12.2;
+      }
+      if (keys.has("j") || keys.has("x")) throwAxe();
+
+      hero.x += hero.vx;
+      hero.x = Math.max(0, Math.min(worldWidth - hero.w, hero.x));
+      applyPlatforms(hero);
+      hero.cooldown = Math.max(0, hero.cooldown - 1);
+      hero.invincible = Math.max(0, hero.invincible - 1);
+      hero.skateboard = Math.max(0, hero.skateboard - 1);
+      hero.energy -= 0.035;
+      if (hero.energy <= 0) gameOver = true;
+      updateHud();
+    }
+
+    function updateAxes() {
+      axes.forEach((axe) => {
+        axe.x += axe.vx;
+        axe.y += axe.vy;
+        axe.vy += 0.18;
+        axe.spin += 0.35;
+        enemies.forEach((enemy) => {
+          if (!enemy.dead && axe.x > enemy.x && axe.x < enemy.x + enemy.w && axe.y > enemy.y && axe.y < enemy.y + enemy.h) {
+            axe.dead = true;
+            defeatEnemy(enemy);
+          }
+        });
+      });
+      axes = axes.filter((axe) => !axe.dead && axe.x > -30 && axe.x < worldWidth + 30 && axe.y < groundY + 30);
+    }
+
+    function updateEnemies() {
+      enemies.forEach((enemy) => {
+        if (enemy.dead) return;
+        enemy.x += enemy.vx;
+        if (enemy.x < 40 || enemy.x + enemy.w > worldWidth - 40) enemy.vx *= -1;
+        if (enemy.type === "frog" && frame % 120 === 0) enemy.vy = -8;
+        applyPlatforms(enemy);
+        if (rectsOverlap(hero, enemy)) {
+          if (hero.vy > 0 && hero.y + hero.h - enemy.y < 18) {
+            defeatEnemy(enemy);
+            hero.vy = -8.5;
+          } else {
+            hurtHero();
+          }
+        }
+      });
+      enemies = enemies.filter((enemy) => !enemy.dead);
+    }
+
+    function updatePickups() {
+      fruits.forEach((fruit) => {
+        const box = { x: fruit.x, y: fruit.y, w: 28, h: 28 };
+        if (!fruit.taken && rectsOverlap(hero, box)) {
+          fruit.taken = true;
+          fruitCount += 1;
+          hero.energy = Math.min(100, hero.energy + 18);
+          score += 80;
+          addParticles(fruit.x + 14, fruit.y + 14, "#22c55e");
+          updateHud();
+        }
+      });
+      fruits = fruits.filter((fruit) => !fruit.taken);
+
+      boards.forEach((board) => {
+        if (!board.taken && rectsOverlap(hero, board)) {
+          board.taken = true;
+          hero.skateboard = 620;
+          score += 120;
+          addParticles(board.x + 24, board.y + 9, "#38bdf8");
+          updateHud();
+        }
+      });
+      boards = boards.filter((board) => !board.taken);
+    }
+
+    function updateParticles() {
+      particles.forEach((particle) => {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vy += 0.14;
+        particle.life -= 1;
+      });
+      particles = particles.filter((particle) => particle.life > 0);
+    }
+
+    function updateGoal() {
+      if (hero.x > worldWidth - 120 && !gameOver) {
+        won = true;
+        score += 700 + fruitCount * 20;
+        updateHud();
+      }
+    }
+
+    function updateCamera() {
+      cameraX = Math.max(0, Math.min(worldWidth - canvas.width, hero.x - canvas.width * 0.36));
+    }
+
+    function update() {
+      frame += 1;
+      if (!gameOver && !won) {
+        updateHero();
+        updateAxes();
+        updateEnemies();
+        updatePickups();
+        updateGoal();
+      }
+      updateParticles();
+      updateCamera();
+    }
+
+    function drawBackground() {
+      const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      sky.addColorStop(0, "#7dd3fc");
+      sky.addColorStop(0.62, "#fde68a");
+      sky.addColorStop(1, "#fb923c");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(-cameraX * 0.22, 0);
+      for (let x = -120; x < worldWidth + 300; x += 240) {
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.beginPath();
+        ctx.arc(x, 90, 35, 0, Math.PI * 2);
+        ctx.arc(x + 36, 98, 27, 0, Math.PI * 2);
+        ctx.arc(x - 34, 102, 25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawWorld() {
+      ctx.save();
+      ctx.translate(-cameraX, 0);
+      ctx.fillStyle = "#92400e";
+      ctx.fillRect(0, groundY, worldWidth, canvas.height - groundY);
+      ctx.fillStyle = "#84cc16";
+      ctx.fillRect(0, groundY, worldWidth, 13);
+
+      for (let x = 0; x < worldWidth; x += 170) {
+        ctx.fillStyle = "#65a30d";
+        ctx.beginPath();
+        ctx.arc(x + 60, groundY + 8, 44, Math.PI, 0);
+        ctx.fill();
+      }
+
+      platforms.forEach((platform) => {
+        ctx.fillStyle = "#a16207";
+        ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+        ctx.fillStyle = "#bef264";
+        ctx.fillRect(platform.x, platform.y, platform.w, 6);
+      });
+
+      drawGoal();
+      fruits.forEach(drawFruit);
+      boards.forEach(drawBoard);
+      enemies.forEach(drawEnemy);
+      axes.forEach(drawAxe);
+      drawHero();
+      particles.forEach((particle) => {
+        ctx.globalAlpha = Math.max(0, particle.life / 28);
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(particle.x, particle.y, 5, 5);
+        ctx.globalAlpha = 1;
+      });
+      ctx.restore();
+    }
+
+    function drawHero() {
+      ctx.save();
+      if (hero.invincible > 0 && Math.floor(frame / 5) % 2 === 0) ctx.globalAlpha = 0.45;
+      ctx.translate(hero.x, hero.y);
+      ctx.fillStyle = "#f59e0b";
+      ctx.fillRect(11, 20, 18, 26);
+      ctx.fillStyle = "#fef3c7";
+      ctx.beginPath();
+      ctx.arc(20, 14, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(hero.face === 1 ? 27 : 10, 10, 4, 4);
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(7, 2, 26, 5);
+      ctx.fillStyle = "#7c2d12";
+      ctx.fillRect(8, 45, 8, 9);
+      ctx.fillRect(24, 45, 8, 9);
+      if (hero.skateboard > 0) {
+        ctx.fillStyle = "#0ea5e9";
+        ctx.fillRect(1, 53, 36, 5);
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.arc(8, 60, 4, 0, Math.PI * 2);
+        ctx.arc(30, 60, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      if (enemy.type === "frog") {
+        ctx.fillStyle = "#16a34a";
+        ctx.beginPath();
+        ctx.ellipse(21, 23, 21, 17, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fef3c7";
+        ctx.fillRect(10, 5, 8, 8);
+        ctx.fillRect(26, 5, 8, 8);
+      } else {
+        ctx.fillStyle = "#a3e635";
+        ctx.beginPath();
+        ctx.ellipse(20, 22, 20, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#78350f";
+        ctx.fillRect(4, 26, 32, 7);
+      }
+      ctx.restore();
+    }
+
+    function drawFruit(fruit) {
+      ctx.save();
+      ctx.translate(fruit.x, fruit.y);
+      ctx.fillStyle = fruit.kind === "banana" ? "#facc15" : fruit.kind === "grape" ? "#a855f7" : "#ef4444";
+      ctx.beginPath();
+      ctx.arc(14, 14, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#16a34a";
+      ctx.fillRect(13, 0, 4, 8);
+      ctx.restore();
+    }
+
+    function drawBoard(board) {
+      ctx.fillStyle = "#0ea5e9";
+      ctx.fillRect(board.x, board.y, board.w, board.h);
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      ctx.arc(board.x + 9, board.y + board.h + 3, 4, 0, Math.PI * 2);
+      ctx.arc(board.x + board.w - 9, board.y + board.h + 3, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawAxe(axe) {
+      ctx.save();
+      ctx.translate(axe.x, axe.y);
+      ctx.rotate(axe.spin);
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(-2, -12, 4, 24);
+      ctx.fillStyle = "#cbd5e1";
+      ctx.beginPath();
+      ctx.arc(0, -10, 9, Math.PI * 0.1, Math.PI * 1.4);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawGoal() {
+      ctx.fillStyle = "#dc2626";
+      ctx.fillRect(worldWidth - 82, groundY - 76, 15, 76);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(worldWidth - 67, groundY - 76, 50, 28);
+      ctx.fillStyle = "#0ea5e9";
+      ctx.fillRect(worldWidth - 58, groundY - 68, 30, 8);
+    }
+
+    function drawOverlay() {
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "700 16px system-ui, sans-serif";
+      ctx.fillText(`Distance ${Math.floor(hero.x)} / ${worldWidth}`, 18, 30);
+      if (hero.skateboard > 0) ctx.fillText("Skateboard!", 18, 56);
+
+      if (gameOver || won) {
+        ctx.fillStyle = "rgba(15,23,42,0.72)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.font = "800 42px system-ui, sans-serif";
+        ctx.fillText(won ? "Clear! 岛屿通关" : "Game Over", canvas.width / 2, canvas.height / 2 - 24);
+        ctx.font = "500 18px system-ui, sans-serif";
+        ctx.fillText("按 R 或点击重新开始", canvas.width / 2, canvas.height / 2 + 20);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function draw() {
+      drawBackground();
+      drawWorld();
+      drawOverlay();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+      if (event.key === "r" || event.key === "R") resetGame();
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>
