@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Contra 魂斗罗</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-950 text-gray-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="text-sm uppercase tracking-[0.2em] text-emerald-300">Classic Games</p>
+        <h1 class="text-3xl font-bold text-white">Mini Contra 魂斗罗</h1>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="rounded border border-gray-700 bg-gray-900 px-3 py-2">
+          <div class="text-gray-400">分数</div>
+          <div id="score" class="text-xl font-bold text-emerald-300">0</div>
+        </div>
+        <div class="rounded border border-gray-700 bg-gray-900 px-3 py-2">
+          <div class="text-gray-400">生命</div>
+          <div id="lives" class="text-xl font-bold text-rose-300">3</div>
+        </div>
+        <div class="rounded border border-gray-700 bg-gray-900 px-3 py-2">
+          <div class="text-gray-400">距离</div>
+          <div id="meters" class="text-xl font-bold text-sky-300">0</div>
+        </div>
+      </div>
+    </section>
+
+    <canvas id="game" width="900" height="520" class="w-full rounded border border-gray-700 bg-gray-900 shadow-2xl shadow-black"></canvas>
+
+    <section class="grid gap-3 md:grid-cols-[1fr_auto]">
+      <div class="rounded border border-gray-700 bg-gray-900 p-3 text-sm text-gray-300">
+        <p>方向键或 WASD 移动，W/↑/空格跳跃，J 射击。穿越丛林、击毁炮塔，推进到 900 米即可获胜。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="jumpBtn" class="rounded bg-sky-400 px-4 py-2 font-semibold text-gray-950 hover:bg-sky-300">跳跃</button>
+        <button id="shootBtn" class="rounded bg-emerald-400 px-4 py-2 font-semibold text-gray-950 hover:bg-emerald-300">射击</button>
+        <button id="restartBtn" class="rounded bg-gray-700 px-4 py-2 font-semibold text-white hover:bg-gray-600">重开</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const metersEl = document.getElementById("meters");
+    const keys = new Set();
+    const groundY = 418;
+    const hero = { x: 90, y: groundY - 68, w: 34, h: 68, vy: 0, facing: 1, cool: 0, inv: 0 };
+    let score = 0;
+    let lives = 3;
+    let meters = 0;
+    let speed = 2.4;
+    let spawnT = 20;
+    let enemies = [];
+    let bullets = [];
+    let blasts = [];
+    let state = "play";
+
+    function reset() {
+      hero.x = 90;
+      hero.y = groundY - hero.h;
+      hero.vy = 0;
+      hero.facing = 1;
+      hero.cool = 0;
+      hero.inv = 0;
+      score = 0;
+      lives = 3;
+      meters = 0;
+      speed = 2.4;
+      spawnT = 20;
+      enemies = [];
+      bullets = [];
+      blasts = [];
+      state = "play";
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      metersEl.textContent = Math.floor(meters);
+    }
+
+    function jump() {
+      if (state === "play" && hero.y + hero.h >= groundY - 1) hero.vy = -14.2;
+    }
+
+    function shoot() {
+      if (state !== "play" || hero.cool > 0) return;
+      hero.cool = 9;
+      bullets.push({
+        x: hero.x + (hero.facing > 0 ? hero.w : -10),
+        y: hero.y + 27,
+        vx: hero.facing * 11,
+        w: 18,
+        h: 5,
+        player: true
+      });
+    }
+
+    function spawnEnemy() {
+      const turret = Math.random() > 0.58;
+      enemies.push({
+        x: 930,
+        y: turret ? groundY - 44 : groundY - 58,
+        w: turret ? 44 : 34,
+        h: turret ? 44 : 58,
+        hp: turret ? 3 : 1,
+        kind: turret ? "turret" : "soldier",
+        shootT: turret ? 35 : 0,
+        speed: turret ? speed : speed + 1.3,
+        hurtT: 0
+      });
+    }
+
+    function rectsTouch(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function hurtHero() {
+      if (hero.inv > 0) return;
+      lives -= 1;
+      hero.inv = 78;
+      hero.x = Math.max(35, hero.x - 56);
+      hero.vy = -8;
+      blasts.push({ x: hero.x + 17, y: hero.y + 24, t: 26, color: "#38bdf8", size: 36 });
+      if (lives <= 0) state = "lost";
+      updateHud();
+    }
+
+    function damageEnemy(enemy, bullet) {
+      enemy.hp -= 1;
+      enemy.hurtT = 10;
+      bullet.dead = true;
+      blasts.push({ x: enemy.x + enemy.w / 2, y: enemy.y + 20, t: 18, color: "#34d399", size: 28 });
+      if (enemy.hp <= 0) {
+        score += enemy.kind === "turret" ? 220 : 120;
+        enemies = enemies.filter((item) => item !== enemy);
+      }
+      updateHud();
+    }
+
+    function updateHero() {
+      const left = keys.has("ArrowLeft") || keys.has("a");
+      const right = keys.has("ArrowRight") || keys.has("d");
+      const up = keys.has("ArrowUp") || keys.has("w") || keys.has(" ");
+      if (left) {
+        hero.x -= 4.2;
+        hero.facing = -1;
+      }
+      if (right) {
+        hero.x += 4.2;
+        hero.facing = 1;
+      }
+      if (up) jump();
+      hero.x = Math.max(24, Math.min(805, hero.x));
+      hero.vy += 0.74;
+      hero.y += hero.vy;
+      if (hero.y + hero.h > groundY) {
+        hero.y = groundY - hero.h;
+        hero.vy = 0;
+      }
+      if (hero.cool > 0) hero.cool -= 1;
+      if (hero.inv > 0) hero.inv -= 1;
+    }
+
+    function updateBullets() {
+      for (const bullet of bullets) bullet.x += bullet.vx;
+      bullets = bullets.filter((bullet) => !bullet.dead && bullet.x > -40 && bullet.x < 940);
+      for (const bullet of bullets.filter((item) => !item.player)) {
+        if (rectsTouch(hero, bullet)) {
+          bullet.dead = true;
+          hurtHero();
+        }
+      }
+    }
+
+    function updateEnemies() {
+      for (const enemy of [...enemies]) {
+        enemy.x -= enemy.speed;
+        if (enemy.hurtT > 0) enemy.hurtT -= 1;
+        if (rectsTouch(hero, enemy)) hurtHero();
+        if (enemy.kind === "turret") {
+          enemy.shootT -= 1;
+          if (enemy.shootT <= 0) {
+            bullets.push({ x: enemy.x - 10, y: enemy.y + 18, vx: -6.4, w: 15, h: 5, player: false });
+            enemy.shootT = 58 + Math.floor(Math.random() * 30);
+          }
+        }
+        for (const bullet of bullets.filter((item) => item.player)) {
+          if (!bullet.dead && rectsTouch(bullet, enemy)) damageEnemy(enemy, bullet);
+        }
+      }
+      enemies = enemies.filter((enemy) => enemy.x > -80);
+    }
+
+    function update() {
+      if (state !== "play") return;
+      updateHero();
+      updateBullets();
+      updateEnemies();
+      meters += speed * 0.15;
+      speed = Math.min(4.9, speed + 0.0008);
+      spawnT -= 1;
+      if (spawnT <= 0) {
+        spawnEnemy();
+        spawnT = Math.max(34, 82 - meters / 24 - Math.random() * 20);
+      }
+      blasts = blasts.filter((blast) => {
+        blast.t -= 1;
+        return blast.t > 0;
+      });
+      if (meters >= 900) state = "won";
+      updateHud();
+    }
+
+    function drawWorld() {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, "#0f172a");
+      bg.addColorStop(0.55, "#14532d");
+      bg.addColorStop(1, "#020617");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const offset = (meters * 12) % 120;
+      ctx.fillStyle = "#064e3b";
+      for (let x = -offset; x < 940; x += 120) {
+        ctx.fillRect(x + 18, 230, 18, 188);
+        ctx.fillRect(x, 232, 55, 22);
+        ctx.fillRect(x + 8, 285, 62, 18);
+      }
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(0, groundY, 900, 58);
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(0, groundY + 24, 900, 48);
+      ctx.fillStyle = "#34d399";
+      ctx.fillRect(748, 48, Math.min(126, meters / 900 * 126), 9);
+      ctx.strokeStyle = "#94a3b8";
+      ctx.strokeRect(748, 48, 126, 9);
+    }
+
+    function drawHero() {
+      ctx.save();
+      ctx.translate(hero.x + hero.w / 2, hero.y);
+      ctx.scale(hero.facing, 1);
+      ctx.globalAlpha = hero.inv > 0 && hero.inv % 8 < 4 ? 0.45 : 1;
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-9, 0, 18, 16);
+      ctx.fillStyle = "#2563eb";
+      ctx.fillRect(-16, 16, 32, 34);
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(-14, 50, 10, 18);
+      ctx.fillRect(5, 50, 10, 18);
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(13, 25);
+      ctx.lineTo(42, 24);
+      ctx.moveTo(-13, 27);
+      ctx.lineTo(-28, 38);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.globalAlpha = enemy.hurtT > 0 && enemy.hurtT % 4 < 2 ? 0.55 : 1;
+      ctx.fillStyle = enemy.kind === "turret" ? "#374151" : "#ef4444";
+      if (enemy.kind === "turret") {
+        ctx.fillRect(4, 15, 36, 29);
+        ctx.fillStyle = "#9ca3af";
+        ctx.fillRect(-18, 24, 28, 8);
+      } else {
+        ctx.fillRect(8, 0, 16, 16);
+        ctx.fillRect(4, 16, 28, 30);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(6, 46, 9, 12);
+        ctx.fillRect(21, 46, 9, 12);
+      }
+      ctx.restore();
+    }
+
+    function drawBullet(bullet) {
+      ctx.fillStyle = bullet.player ? "#34d399" : "#f97316";
+      ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWorld();
+      bullets.forEach(drawBullet);
+      enemies.forEach(drawEnemy);
+      drawHero();
+      for (const blast of blasts) {
+        ctx.globalAlpha = blast.t / 26;
+        ctx.fillStyle = blast.color;
+        ctx.beginPath();
+        ctx.arc(blast.x, blast.y, blast.size * (1 - blast.t / 34), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (state !== "play") {
+        ctx.fillStyle = "rgba(3,7,18,0.78)";
+        ctx.fillRect(0, 0, 900, 520);
+        ctx.fillStyle = state === "won" ? "#86efac" : "#fca5a5";
+        ctx.font = "bold 52px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(state === "won" ? "基地突破!" : "任务失败", 450, 235);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "22px sans-serif";
+        ctx.fillText("按 R 或点击重开", 450, 282);
+        ctx.textAlign = "start";
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+      if (event.key === " " || event.key.toLowerCase() === "j") shoot();
+      if (event.key.toLowerCase() === "r") reset();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key));
+    document.getElementById("jumpBtn").addEventListener("click", jump);
+    document.getElementById("shootBtn").addEventListener("click", shoot);
+    document.getElementById("restartBtn").addEventListener("click", reset);
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
