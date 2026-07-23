@@ -1,13 +1,21 @@
 # Agent Config Snapshot
 
-This directory stores the portable macOS collaboration configuration shared by Codex and Claude Code.
+This directory stores a versioned snapshot of global agent-related configuration from this machine.
 
 ## Included
 
 - `ai-shared/`
 - `codex/AGENTS.md`
-- `codex/skills/pickup/`
-- `codex/skills/handoff/`
+- `codex/config.toml`
+- `codex/prompts/`
+- `codex/rules/`
+- `codex/skills/`
+- `cursor/mcp.json`
+- `cursor/rules/`
+- `cursor/skills/`
+- `cursor/skills-cursor/`
+- `agents/.skill-lock.json`
+- `agents/skills/`
 
 ## macOS shared source
 
@@ -18,7 +26,7 @@ This directory stores the portable macOS collaboration configuration shared by C
 - `templates/project-governance/` contains project-level rules, task cards, and verification scripts.
 - `bin/install-project-governance.sh` installs the project template without overwriting existing files.
 
-The active `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md` files can point to the shared rules with symlinks. Versioned copies in this repository are regular files so the configuration remains portable.
+The active `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md` files can point to the shared rules with symlinks. Versioned copies in this repository are regular files so the snapshot remains portable.
 
 ## Excluded
 
@@ -31,6 +39,6 @@ Runtime and sensitive data are intentionally not copied:
 - generated images and attachments
 - plugin caches and downloaded extensions
 - project-local runtime state
-- unrelated global skills and tool-specific runtime configuration
+- `antview-incident` skills, because their incident assets contain environment-specific credentials and internal endpoints
 
-Symlinked skills are copied as real files so the configuration is usable outside this machine.
+Symlinked skills are copied as real files so the snapshot is usable outside this machine.

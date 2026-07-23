@@ -1,0 +1,1491 @@
+---
+description: "Imported reference: PHASE3_CODE_OPTIMIZATION_COMPLIANCE (from Downloads/skill)"
+alwaysApply: false
+---
+
+# 阶段三：代码优化合规性
+
+**项目名称：** Antview Frontend (招聘管理系统)  
+**文档版本：** v5.0.0  
+**更新日期：** 2026-02-05  
+**所属系列：** 前端代码规范合规性文档（共三份）  
+**规则来源：** dashboard + messages 模块人工 review 优化后提取
+
+> **目标：** 确保代码在架构分层、类型安全、性能、安全、测试方面达到生产质量。  
+> **适用场景：** Code Review、新页面开发、现有页面优化、CI/CD 配置。  
+> **Cursor 提示词引用：** `请严格遵循 .cursor/rules/references/PHASE3_CODE_OPTIMIZATION_COMPLIANCE.md 的规范优化代码`
+
+---
+
+## 📋 目录
+
+1. [全局类型系统规范](#1-全局类型系统规范) — ApiResponse、PageData、PageResponse、checkResCode、unwrap
+2. [Services 层规范](#2-services-层规范) — 泛型 `<T>` 模式、接口分类、命名
+3. [Types 层规范](#3-types-层规范) — 模块类型、响应类型别名、Hook 返回类型
+4. [Hooks 层规范](#4-hooks-层规范) — baseHooks、聚合 Hook、Mappers
+5. [Components 层规范](#5-components-层规范) — 层级拆解、Barrel Export、交互组件
+6. [App 页面层规范](#6-app-页面层规范) — 纯视图、Props 分组、加载状态
+7. [SWR 数据请求规范](#7-swr-数据请求规范) — 配置、缓存失效、搜索状态分离
+8. [安全性规范](#8-安全性规范) — XSS/CSRF、敏感信息、console 清理
+9. [测试规范](#9-测试规范) — 金字塔、Mappers 测试、覆盖率目标
+10. [工程化配置规范](#10-工程化配置规范) — 命名、路径、Git、构建
+11. [代码质量检查清单](#11-代码质量检查清单) — 按层完整清单
+12. [版本管理与持续改进](#12-版本管理与持续改进) — 评分标准、审查计划
+
+**关联文档：**
+
+- [阶段一：静态页面生成合规性](./PHASE1_STATIC_PAGE_COMPLIANCE.md)
+- [阶段二：业务代码生成合规性](./PHASE2_BUSINESS_CODE_COMPLIANCE.md)
+
+---
+
+## 1. 全局类型系统规范
+
+> 全局类型定义在 `types/typing.d.ts`，为 `.d.ts` 声明文件，无需 `import` 即可全局使用。
+> 这是整个项目类型安全的基石，所有模块必须复用全局类型，**禁止在模块中重复定义**。
+
+### 1.1 全局类型一览
+
+| 类型              | 用途                                          | 定义位置            |
+| ----------------- | --------------------------------------------- | ------------------- |
+| `ApiResponse<T>`  | 通用 API 响应包装                             | `types/typing.d.ts` |
+| `PageData<T>`     | 分页数据结构                                  | `types/typing.d.ts` |
+| `PageResponse<T>` | 分页 API 响应（= `ApiResponse<PageData<T>>`） | `types/typing.d.ts` |
+| `PageParams`      | 分页请求参数                                  | `types/typing.d.ts` |
+
+### 1.2 ApiResponse\<T\> — 核心响应类型
+
+```typescript
+// types/typing.d.ts — 全局声明，无需 import
+interface ApiResponse<T = unknown> {
+  code: number; // 业务状态码（200 = 成功）
+  message: string; // 提示信息
+  data: T; // 业务数据
+  timestamp?: number; // 时间戳（可选）
+}
+```
+
+**使用规则：**
+
+- 所有模块的 API 响应类型必须基于 `ApiResponse<T>` 定义 type alias
+- **禁止**在模块 types 中重复定义 `code / message / data / timestamp` 字段
+- `<T>` 中的类型参数即为 `data` 的实际业务数据类型
+
+```typescript
+// ✅ 正确：用 type alias 复用全局类型
+export type MessageListResponse = ApiResponse<MessageListResult | null>;
+export type DeleteMessageResponse = ApiResponse<string | null>;
+
+// ❌ 错误：重复定义响应结构
+export interface MessageListResponse {
+  code: number; // ← 与 ApiResponse 重复
+  message: string; // ← 与 ApiResponse 重复
+  data: MessageListResult | null;
+  timestamp: number; // ← 与 ApiResponse 重复
+}
+```
+
+### 1.3 PageData\<T\> — 分页数据结构
+
+```typescript
+// types/typing.d.ts — 全局声明
+interface PageData<T = any> {
+  current: number; // 当前页码
+  pages: number; // 总页数
+  records: T[]; // 数据列表
+  size: number; // 每页大小
+  total: number; // 总记录数
+}
+```
+
+**使用规则：**
+
+- 所有模块的分页数据类型必须复用全局 `PageData<T>`
+- **禁止**在模块 types 中重新定义 `records / total / current / size / pages` 字段
+
+```typescript
+// ✅ 正确：复用全局 PageData
+export type MessageListResult = PageData<MessageItem>;
+export type JobPositionPageResult = PageData<JobPositionItem>;
+
+// ❌ 错误：在模块中重复定义 PageData
+export interface PageData<T> {  // ← 与全局定义冲突
+  records: T[];
+  total: number;
+  ...
+}
+```
+
+### 1.4 PageResponse\<T\> 与 PageParams
+
+```typescript
+// types/typing.d.ts
+type PageResponse<T = any> = ApiResponse<PageData<T>>;
+
+interface PageParams {
+  current?: number;
+  size?: number;
+}
+```
+
+```typescript
+// ✅ 模块分页请求参数继承 PageParams
+export interface JobPositionPageParams extends PageParams {
+  title?: string;
+  jobCode?: string;
+  departmentId?: string | number;
+}
+```
+
+### 1.5 checkResCode 与 unwrap — 统一工具函数
+
+定义在 `constants/utils.ts`，配合 `ApiResponse<T>` 使用：
+
+```typescript
+import { checkResCode, unwrap } from '@/constants/utils';
+
+// checkResCode：当 res.code !== 200 时，自动 message.error 并 throw Error
+// unwrap：提取 res.data，若 res 无 data 字段则返回 res 本身
+
+const res = await getWorkbenchData<ApiResponse<WorkbenchData> | WorkbenchData>(
+  params
+);
+checkResCode(res); // ① 校验业务状态码
+const data = unwrap(res); // ② 提取 data 字段
+```
+
+**为什么泛型写 `ApiResponse<T> | T`？**
+
+axios 可能返回原始 `ApiResponse<T>` 结构，也可能被拦截器解包后直接返回 `T`。
+使用联合类型确保两种情况都能正确处理：
+
+```typescript
+// 如果 axios 拦截器已解包 → res 是 WorkbenchData → checkResCode 跳过 → unwrap 直接返回
+// 如果 axios 拦截器未解包 → res 是 ApiResponse<WorkbenchData> → checkResCode 校验 → unwrap 提取 .data
+```
+
+---
+
+## 2. Services 层规范
+
+> Services 只负责 HTTP 请求，不包含任何业务逻辑。
+> 所有 service 函数使用 `<T>` 泛型，由调用方（Hooks）指定返回类型。
+
+### 2.1 Service 函数模板
+
+```typescript
+// ✅ 标准 service 写法（dashboard 实际代码）
+// services/buser/dashboard/index.ts
+import axiosInstance from '@/services/axiosConfig';
+
+const WORKBENCH_BASE = '/B/workbenck';
+
+/** GET 查询 */
+export const getWorkbenchData = <T>(
+  params?: Record<string, unknown>
+): Promise<T> => {
+  return axiosInstance.get(`${WORKBENCH_BASE}/getWorkbenchData`, { params });
+};
+
+/** POST 分页查询 */
+export const getJobPositionPage = <T>(
+  data: Record<string, unknown>
+): Promise<T> => {
+  return axiosInstance.post(`${WORKBENCH_BASE}/getJobPositionPage`, data);
+};
+
+/** PUT 修改 */
+export const editSalaryRange = <T>(
+  jobId: string | number,
+  data?: Record<string, unknown>
+): Promise<T> => {
+  return axiosInstance.put(
+    `${WORKBENCH_BASE}/editSalaryRange/${jobId}`,
+    data ?? {}
+  );
+};
+
+/** DELETE 删除 */
+export const deleteJobPosition = <T>(jobId: string | number): Promise<T> => {
+  return axiosInstance.delete(`${WORKBENCH_BASE}/deleteJobPosition/${jobId}`);
+};
+```
+
+### 2.2 Service 规范要点
+
+| 规则         | 说明                                                                               | 示例                              |
+| ------------ | ---------------------------------------------------------------------------------- | --------------------------------- |
+| 泛型 `<T>`   | 由调用方指定类型，Service 本身不导入业务类型                                       | `<T>(params) => Promise<T>`       |
+| 常量 BASE    | API 基础路径抽取为模块常量                                                         | `const MESSAGE_BASE = '/message'` |
+| 参数类型     | GET 用 `params?: Record<string, unknown>`，POST 用 `data: Record<string, unknown>` | —                                 |
+| 无业务逻辑   | 不做 `checkResCode`、不做数据转换                                                  | —                                 |
+| 按模块分文件 | `services/buser/dashboard/index.ts`、`services/buser/messages/index.ts`            | —                                 |
+| 分类注释     | 用 `// ========== 分类 ==========` 区分查询/写操作/聚合                            | —                                 |
+
+```typescript
+// ❌ 错误：Service 中导入具体业务类型
+import type { MessageListResponse } from '@/types/buser/messages';
+export const getDeliveryMessagePage = (params: MessagePageParams): Promise<MessageListResponse> => { ... };
+
+// ✅ 正确：使用泛型，由调用方指定
+export const getDeliveryMessagePage = <T>(data: Record<string, unknown>): Promise<T> => { ... };
+```
+
+### 2.3 聚合查询 Service（可选）
+
+当多个接口共享相同签名时，可提供聚合函数：
+
+```typescript
+// ✅ 聚合查询（messages 实际代码）
+export const getMessagePageByTab = <T>(
+  tabType: string,
+  params: MessagePageParams
+): Promise<T> => {
+  const apiMap: Record<
+    string,
+    <U>(data: Record<string, unknown>) => Promise<U>
+  > = {
+    delivery: getDeliveryMessagePage,
+    oaPass: getOaPassMessagePage,
+    // ...
+  };
+  const apiFn = apiMap[tabType];
+  if (!apiFn) return Promise.reject(new Error(`Unknown tab type: ${tabType}`));
+  return apiFn<T>(params as unknown as Record<string, unknown>);
+};
+```
+
+---
+
+## 3. Types 层规范
+
+> Types 层定义模块的业务数据类型、Hook 返回类型、Handler 接口。
+> API 响应类型必须复用全局 `ApiResponse<T>`，不重复定义。
+
+### 3.1 Types 文件结构
+
+```typescript
+// types/buser/[module]/index.ts 标准结构
+// ==================== 请求参数 ====================
+export interface XxxPageParams { ... }
+
+// ==================== 业务数据 ====================
+export interface XxxItem { ... }
+
+// ==================== 数据聚合 ====================
+export type XxxListResult = PageData<XxxItem>;  // 复用全局 PageData
+
+// ==================== API 响应类型（type alias） ====================
+export type XxxListResponse = ApiResponse<XxxListResult | null>;
+export type XxxCountResponse = ApiResponse<XxxCountData | null>;
+export type XxxDeleteResponse = ApiResponse<string | null>;
+
+// ==================== Hook 返回类型 ====================
+export interface XxxPageHandlers { ... }
+export interface XxxPaginationState { ... }
+export interface UseXxxPageReturn { ... }
+```
+
+### 3.2 API 响应类型规范
+
+**必须用 `type alias` 基于全局 `ApiResponse<T>` 定义，禁止用 `interface` 重复字段：**
+
+```typescript
+// ✅ 正确写法（messages 实际代码）
+export type MessageListResponse = ApiResponse<MessageListResult | null>;
+export type MessageTypeCountResponse = ApiResponse<MessageTypeCountData | null>;
+export type DeleteMessageResponse = ApiResponse<string | null>;
+export type MarkReadResponse = ApiResponse<string | null>;
+export type LatestMessagesResponse = ApiResponse<MessageItem[] | null>;
+```
+
+```typescript
+// ✅ 正确写法（dashboard 实际代码）
+export type JobPositionPageResult = PageData<JobPositionItem>;
+// 分页查询响应直接使用全局 PageResponse：
+// PageResponse<JobPositionItem> = ApiResponse<PageData<JobPositionItem>>
+```
+
+### 3.3 Handler 接口规范
+
+聚合 Hook 返回的 handlers 必须定义明确的 TypeScript 接口：
+
+```typescript
+// ✅ dashboard 实际代码
+export interface DashboardPageHandlers {
+  onEdit: (id: string) => void;
+  onShare: (id: string) => void;
+  onClose: (id: string) => Promise<void>;
+  onModifyDeadline: (id: string, deadline: string) => Promise<void>;
+  onModifySalary: (id: string, salaryRange: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}
+
+export interface SearchPaginationHandlers {
+  onSearchTypeChange: (type: JobSearchType) => void;
+  onSearchValueChange: (value: string) => void;
+  onDepartmentChange: (departmentId: string) => void;
+  onSearch: () => void;
+  onPageChange: (current: number, size: number) => void;
+  onReset: () => void;
+}
+
+// ✅ messages 实际代码
+export interface MessagePageHandlers {
+  onMarkRead: (messageId: string) => Promise<void>;
+  onDelete: (messageId: string) => Promise<void>;
+  onReport: (id: string) => void;
+  onContinue: (id: string) => void;
+}
+```
+
+### 3.4 Hook 返回类型规范
+
+```typescript
+// ✅ 明确定义 Hook 返回类型接口
+export interface UseDashboardPageReturn {
+  initialLoading: boolean;
+  jobListLoading: boolean;
+  workbenchData: WorkbenchData | null;
+  positionCards: JobPositionItem[];
+  departmentOptions: DepartmentOption[];
+  handlers: DashboardPageHandlers;
+  searchState: SearchPaginationState;
+  searchHandlers: SearchPaginationHandlers;
+}
+
+export interface UseMessagesPageReturn {
+  loading: boolean;
+  messages: MessageItem[];
+  counts: MessageCounts;
+  paginationState: MessagePaginationState;
+  paginationHandlers: MessagePaginationHandlers;
+  handlers: MessagePageHandlers;
+}
+```
+
+---
+
+## 4. Hooks 层规范
+
+> Hooks 分为三层：baseHooks（基础数据获取）、聚合 Hook（页面逻辑整合）、Mappers（数据转换）。
+
+### 4.1 baseHooks 统一模板
+
+每个基础 Hook 必须遵循以下模板，核心是 **`ApiResponse<T>` 泛型调用**：
+
+```typescript
+// ✅ 读操作 baseHook 模板（dashboard 实际代码）
+export function useWorkbenchData() {
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<WorkbenchData | null>(null);
+
+  const fetchWorkbenchData = useCallback(
+    async (params?: Record<string, unknown>) => {
+      try {
+        setLoading(true);
+        const res = await getWorkbenchData<
+          ApiResponse<WorkbenchData> | WorkbenchData // ① 泛型标注
+        >(params);
+        checkResCode(res); // ② 统一校验
+        const result = unwrap(res); // ③ 统一解包
+        setData(result);
+        return result;
+      } catch (e) {
+        console.error('获取数据看板统计失败:', e);
+        throw e; // ④ 重新抛出
+      } finally {
+        setLoading(false); // ⑤ finally 关闭 loading
+      }
+    },
+    [] // ⑥ 空依赖（service 是模块常量）
+  );
+
+  return { loading, data, fetchWorkbenchData };
+}
+```
+
+**baseHook 模板要点：**
+
+| 序号 | 要点                             | 说明                                                              |
+| ---- | -------------------------------- | ----------------------------------------------------------------- |
+| ①    | `service<ApiResponse<T> \| T>()` | 联合类型兼容解包/未解包两种情况                                   |
+| ②    | `checkResCode(res)`              | 从 `@/constants/utils` 导入，校验 `code !== 200` 时自动提示并抛错 |
+| ③    | `unwrap(res)`                    | 从 `@/constants/utils` 导入，提取 `res.data`                      |
+| ④    | `throw e`                        | 将错误抛给调用方（聚合 Hook）处理                                 |
+| ⑤    | `finally { setLoading(false) }`  | 确保 loading 一定关闭                                             |
+| ⑥    | `useCallback(fn, [])`            | service 函数是模块级常量，无需依赖                                |
+
+### 4.2 列表数据 baseHook
+
+```typescript
+// ✅ 列表类型需要防御性处理（dashboard 实际代码）
+export function useAllJobPosiList() {
+  const [data, setData] = useState<JobPosiItem[]>([]); // 默认空数组
+
+  const fetchAllJobPosiList = useCallback(
+    async (params?: Record<string, unknown>) => {
+      const res = await getAllJobPosiList<
+        ApiResponse<JobPosiItem[]> | JobPosiItem[]
+      >(params);
+      checkResCode(res);
+      const list = unwrap(res);
+      setData(Array.isArray(list) ? list : []); // ✅ 防御性：确保是数组
+      return Array.isArray(list) ? list : [];
+    },
+    []
+  );
+}
+```
+
+### 4.3 写操作 baseHook
+
+```typescript
+// ✅ 写操作 Hook 不存储 data，只关心 loading 和执行（dashboard 实际代码）
+export function useEditSalaryRange() {
+  const [loading, setLoading] = useState(false);
+
+  const runEditSalaryRange = useCallback(
+    async (jobId: string | number, params?: EditSalaryRangeParams) => {
+      try {
+        setLoading(true);
+        const res = await editSalaryRange<ApiResponse<unknown>>( // 写操作用 ApiResponse<unknown>
+          jobId,
+          params as unknown as Record<string, unknown>
+        );
+        checkResCode(res);
+        return res;
+      } catch (e) {
+        console.error('修改职位薪资范围失败:', e);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  return { loading, editSalaryRange: runEditSalaryRange };
+}
+```
+
+### 4.4 泛型标注速查表
+
+| 场景                 | 泛型写法                                                  | 示例                                                                                        |
+| -------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 获取单个对象         | `<ApiResponse<DataType> \| DataType>`                     | `getWorkbenchData<ApiResponse<WorkbenchData> \| WorkbenchData>()`                           |
+| 获取数组列表         | `<ApiResponse<ItemType[]> \| ItemType[]>`                 | `getAllBUserList<ApiResponse<BUserItem[]> \| BUserItem[]>()`                                |
+| 获取分页数据         | `<ApiResponse<PageData<ItemType>> \| PageData<ItemType>>` | `getJobPositionPage<ApiResponse<PageData<JobPositionItem>> \| PageData<JobPositionItem>>()` |
+| 写操作（编辑/删除）  | `<ApiResponse<unknown>>`                                  | `deleteJobPosition<ApiResponse<unknown>>(id)`                                               |
+| 写操作（返回字符串） | `<ApiResponse<string \| null>>`                           | `markMessageRead<ApiResponse<string \| null>>(id)`                                          |
+
+### 4.5 聚合 Hook 规范
+
+#### 规则 1：Handlers 对象必须 useMemo 包裹
+
+```typescript
+// ✅ 正确（dashboard 实际代码）
+const handlers: DashboardPageHandlers = useMemo(
+  () => ({
+    onEdit: handleEdit,
+    onShare: handleShare,
+    onClose: handleClose,
+    onModifyDeadline: handleModifyDeadline,
+    onModifySalary: handleModifySalary,
+    onDelete: handleDelete,
+  }),
+  [
+    handleEdit,
+    handleShare,
+    handleClose,
+    handleModifyDeadline,
+    handleModifySalary,
+    handleDelete,
+  ]
+);
+
+// ✅ 正确（messages 实际代码）
+const handlers = useMemo(
+  () => ({
+    onMarkRead: handleMarkRead,
+    onDelete: handleDelete,
+    onReport: handleReport,
+    onContinue: handleContinue,
+  }),
+  [handleMarkRead, handleDelete, handleReport, handleContinue]
+);
+
+// ❌ 错误：每次渲染都创建新对象
+return { handlers: { onEdit: handleEdit, onDelete: handleDelete } };
+```
+
+#### 规则 2：智能 Loading 状态区分
+
+**不要**将 SWR 的 `isValidating` 作为页面 loading，只有**写操作**才显示 loading：
+
+```typescript
+// ✅ 正确（dashboard 实际代码）
+const initialLoading = workbenchLoading; // 首次加载
+const jobListLoading =
+  editSalaryLoading || editExpireLoading || deleteLoading || closeLoading; // 仅写操作
+
+// ❌ 错误
+const jobListLoading = isValidating; // 分页切换也会 loading
+```
+
+#### 规则 3：派生数据必须 useMemo
+
+```typescript
+// ✅ 正确（dashboard 实际代码）
+const paginationWithTotal = useMemo(
+  () => ({ ...pagination, total: jobPageData?.total ?? 0 }),
+  [pagination, jobPageData?.total]
+);
+
+const departmentOptions = useMemo(
+  () => withAllDepartment(departList?.map(mapDepartToOption) ?? []),
+  [departList]
+);
+
+// ✅ 正确（messages 实际代码）
+const counts = useMemo<MessageCounts>(() => {
+  if (!countsData) return { delivery: 0, oaPass: 0 /* ... */ };
+  return {
+    delivery: countsData.delivery ?? 0,
+    oaPass: countsData.oaPass ?? 0,
+    // ...
+  };
+}, [countsData]);
+
+const messages = useMemo<MessageItem[]>(() => {
+  return listData?.records ?? [];
+}, [listData]);
+```
+
+#### 规则 4：所有回调函数用 useCallback
+
+```typescript
+// ✅ 每个 handler 都用 useCallback
+const handleEdit = useCallback(
+  (id: string) => {
+    router.push(`/buser/jobsCreate/${id}`);
+  },
+  [router]
+);
+
+const handleTabChange = useCallback((tab: MessageTabType) => {
+  setActiveTab(tab);
+  setPagination((prev) => ({ ...prev, current: 1 }));
+}, []);
+```
+
+#### 规则 5：聚合 Hook 中的错误处理
+
+```typescript
+// ✅ 标准错误处理模式（聚合 Hook 中的写操作）
+const handleDelete = useCallback(
+  async (id: string) => {
+    try {
+      const res = await deleteMessage<ApiResponse<string | null>>(id); // ① 泛型标注
+      checkResCode(res); // ② 统一校验
+      message.success('消息已删除'); // ③ 成功提示
+      handleRefresh(); // ④ 刷新缓存
+    } catch (e) {
+      if (e instanceof Error) {
+        console.warn('删除消息失败:', e.message); // ⑤ 日志（不重复 message.error）
+      } else {
+        console.warn('删除消息失败: 非标准错误', e);
+      }
+      throw e; // ⑥ 重新抛出
+    }
+  },
+  [handleRefresh]
+);
+```
+
+| 步骤 | 操作                           | 说明                                     |
+| ---- | ------------------------------ | ---------------------------------------- |
+| ①    | `service<ApiResponse<T>>()`    | 在聚合 Hook 中也要泛型标注               |
+| ②    | `checkResCode(res)`            | 统一校验，自动 `message.error`           |
+| ③    | `message.success(...)`         | 成功时提示                               |
+| ④    | `handleRefresh()` / `mutate()` | 刷新 SWR 缓存                            |
+| ⑤    | `console.warn`                 | 记录日志，不重复 `message.error`         |
+| ⑥    | `throw e`                      | 重新抛出，让调用方（如 Modal）能感知失败 |
+
+#### 规则 6：聚合 Hook 返回值必须导出类型接口
+
+```typescript
+// ✅ 正确
+export function useDashboardPage(): UseDashboardPageReturn { ... }
+export function useMessagesPage(): UseMessagesPageReturn { ... }
+```
+
+### 4.6 Mappers 数据转换规范
+
+`mappers.ts` 独立文件，只存放**纯函数**，负责 API 数据 → UI 展示数据的转换：
+
+```typescript
+// ✅ mappers.ts 只包含纯函数（dashboard 实际代码）
+import type { DepartItem, DepartmentOption } from '@/types/buser/dashboard';
+
+export function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 6) return '夜深了';
+  if (h < 9) return '早安';
+  // ...
+}
+
+export function mapDepartToOption(d: DepartItem): DepartmentOption {
+  return {
+    value: String(d.departmentId ?? ''),
+    label: d.departmentName ?? '',
+  };
+}
+```
+
+**使用规则：** 在聚合 Hook 中通过 `useMemo` 调用：
+
+```typescript
+// ✅ 正确
+const departmentOptions = useMemo(
+  () => withAllDepartment(departList?.map(mapDepartToOption) ?? []),
+  [departList]
+);
+
+// ❌ 错误：在 JSX 中直接调用（每次渲染都执行）
+return <Select options={departList.map(mapDepartToOption)} />;
+```
+
+### 4.7 Hooks 目录结构与 Barrel Export
+
+```
+hooks/buser/[module]/
+├── index.ts              # Barrel Export
+├── baseHooks.ts          # 基础数据获取 Hook
+├── use[Module]Page.ts    # 聚合 Hook
+└── mappers.ts            # 数据转换纯函数（可选）
+```
+
+```typescript
+// ✅ hooks/buser/dashboard/index.ts（实际代码）
+export {
+  useWorkbenchData,
+  useAllJobPosiList,
+  useAllDepartList,
+  useAllBUserList,
+  useEditSalaryRange,
+  useEditJobPositionExpireDate,
+  useDeleteJobPosition,
+  useCloseJobPosition,
+} from './baseHooks';
+
+export {
+  useDashboardPage,
+  type UseDashboardPageReturn,
+  type DashboardPageHandlers,
+  type SearchPaginationState,
+  type SearchPaginationHandlers,
+} from './useDashboardPage';
+
+export { getGreeting, mapDepartToOption, withAllDepartment } from './mappers';
+```
+
+---
+
+## 5. Components 层规范
+
+### 5.1 组件层级拆解（项目核心模式）
+
+复杂组件按功能拆解为树形结构，每个子组件独立目录：
+
+```
+components/buser/dashboard/
+├── index.tsx                          # 统一导出
+├── UserGreeting.tsx                   # 一级组件：问候语
+├── StatsCards.tsx                     # 一级组件：统计卡片
+├── EmployeeList.tsx                   # 一级容器组件
+├── PublishedPositions.tsx             # 一级容器组件
+├── employeeList/                      # 二级子组件目录
+│   ├── EmployeeCard.tsx
+│   └── PositionCard.tsx
+└── publishedPositions/                # 二级子组件目录
+    ├── PublishedPositionCard.tsx
+    ├── PositionCardInfo.tsx
+    ├── PublishedPositionsFilter.tsx
+    ├── PositionActionButtons.tsx
+    └── positionActionButtons/         # 三级子组件目录
+        ├── PositionMoreMenu.tsx
+        └── SharePositionModal.tsx
+```
+
+```
+components/buser/messages/
+├── index.tsx                          # 统一导出
+├── MessagesHeader.tsx                 # 一级组件：标题+Tab
+├── MessageList.tsx                    # 一级组件：消息列表
+└── MessageCard.tsx                    # 二级组件：单条消息卡片
+```
+
+**拆解规则：**
+
+| 原则      | 说明                                | 示例                                                        |
+| --------- | ----------------------------------- | ----------------------------------------------------------- |
+| 单一职责  | 一个组件只做一件事                  | `MessageCard` 只展示单条消息                                |
+| 层级嵌套  | 子组件放在父组件同名目录中          | `positionActionButtons/PositionMoreMenu.tsx`                |
+| 统一导出  | 根目录 `index.tsx` 导出所有公共组件 | `import { StatsCards } from '@/components/buser/dashboard'` |
+| 最多 4 级 | 超过 4 级需重新设计                 | —                                                           |
+
+### 5.2 Barrel Export（index.tsx）规范
+
+```typescript
+// ✅ 正确（dashboard 实际代码）
+export { default as UserGreeting } from './UserGreeting';
+export { default as StatsCards } from './StatsCards';
+export { default as EmployeeList } from './EmployeeList';
+export { default as PublishedPositions } from './PublishedPositions';
+
+// ✅ 正确（messages 实际代码）
+export { default as MessagesHeader } from './MessagesHeader';
+export { default as MessageList } from './MessageList';
+export { default as MessageCard } from './MessageCard';
+
+// ❌ 错误：空导出
+export {};
+```
+
+### 5.3 组件 Props 接收规范
+
+组件通过 Props 接收数据和回调，**不直接调用 Service 或 Hook**：
+
+```typescript
+// ✅ 正确（messages 实际代码）
+interface MessageListProps {
+  messages: MessageItem[];
+  activeTab?: MessageTabType;
+  onMarkRead?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onReport?: (id: string) => void;
+  onContinue?: (id: string) => void;
+}
+
+export default function MessageList({ messages, onMarkRead, onDelete, ... }: MessageListProps) {
+  // 只负责渲染，不做数据获取
+}
+```
+
+### 5.4 列表渲染 Key 规范
+
+```typescript
+// ✅ 使用唯一 ID 作为 key
+{messages.map((msg) => <MessageCard key={msg.messageId} data={msg} />)}
+{positionCards.map((pos) => <PublishedPositionCard key={pos.jobId} data={pos} />)}
+
+// ❌ 不要用 index 作为 key
+{messages.map((msg, index) => <MessageCard key={index} data={msg} />)}
+
+// ❌ 不要用 fallback index
+{positions.map((pos, index) => <Card key={pos.id || `pos-${index}`} />)}
+```
+
+### 5.5 二次确认交互组件
+
+删除等危险操作必须使用确认：
+
+```typescript
+// ✅ 使用 Popconfirm（messages 实际代码）
+<Popconfirm
+  title="确认删除"
+  description="确定要删除这条消息吗？删除后将无法恢复。"
+  onConfirm={() => onDelete?.(data.messageId)}
+  okText="确认删除"
+  cancelText="取消"
+  okButtonProps={{ danger: true }}
+>
+  <Button size="small" icon={<DeleteOutlined />}>删除</Button>
+</Popconfirm>
+
+// ✅ 两阶段 Modal（dashboard 关闭职位代码）
+function ClosePositionConfirm({ open, onConfirm, onCancel }) {
+  const [stage, setStage] = useState<1 | 2>(1);
+  useEffect(() => { if (!open) setStage(1); }, [open]);
+  // stage 1: 初次确认 → stage 2: 二次确认（不可撤销提示）
+}
+```
+
+### 5.6 冗余包装函数清理
+
+```typescript
+// ❌ 错误：多余的包装函数
+const handleEdit = (id: string) => onEdit(id);        // 无额外逻辑
+<Button onClick={() => handleEdit(item.id)} />
+
+// ✅ 正确：直接传递
+<Button onClick={() => onEdit(item.id)} />
+
+// 或者当签名完全匹配时：
+<MessagesHeader onTabChange={onTabChange} />           // 直接传递引用
+```
+
+---
+
+## 6. App 页面层规范
+
+### 6.1 纯视图页面（项目核心模式）
+
+页面文件只负责渲染，**不包含任何业务逻辑**。数据和逻辑全部由聚合 Hook 提供。
+
+```typescript
+// ✅ 正确（dashboard 实际代码 app/buser/dashboard/page.tsx）
+'use client';
+import { Spin } from 'antd';
+import UserGreeting from '@/components/buser/dashboard/UserGreeting';
+import StatsCards from '@/components/buser/dashboard/StatsCards';
+import EmployeeList from '@/components/buser/dashboard/EmployeeList';
+import PublishedPositions from '@/components/buser/dashboard/PublishedPositions';
+import { useDashboardPage } from '@/hooks/buser/dashboard';
+
+export default function DashboardPage() {
+  const {
+    initialLoading, jobListLoading, workbenchData,
+    bUserList, jobPosiList, positionCards, departmentOptions,
+    handlers, searchState, searchHandlers,
+  } = useDashboardPage();
+
+  if (initialLoading) {
+    return (
+      <div className="flex h-64 w-full items-center justify-center">
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full p-8">
+      <UserGreeting offerCount={workbenchData?.offerNum ?? 0} />
+      <StatsCards stats={workbenchData} />
+      <EmployeeList bUserList={bUserList} jobPosiList={jobPosiList} />
+      <PublishedPositions
+        positions={positionCards}
+        departments={departmentOptions}
+        loading={jobListLoading}
+        pagination={searchState.pagination}
+        {...searchState}
+        {...searchHandlers}
+        {...handlers}
+      />
+    </div>
+  );
+}
+```
+
+```typescript
+// ✅ 正确（messages 实际代码 app/buser/messages/page.tsx）
+'use client';
+import { Spin, Pagination } from 'antd';
+import MessagesHeader from '@/components/buser/messages/MessagesHeader';
+import MessageList from '@/components/buser/messages/MessageList';
+import { useMessagesPage } from '@/hooks/buser/messages';
+
+export default function MessagesPage() {
+  const { loading, messages, counts, paginationState, paginationHandlers, handlers } = useMessagesPage();
+  const { activeTab, pagination } = paginationState;
+  const { onTabChange, onPageChange } = paginationHandlers;
+
+  return (
+    <div className="w-full pl-8">
+      <MessagesHeader activeTab={activeTab} counts={counts} onTabChange={onTabChange} />
+      <div className="mt-6 pr-8">
+        <Spin spinning={loading}>
+          <MessageList
+            messages={messages}
+            activeTab={activeTab}
+            onMarkRead={handlers.onMarkRead}
+            onDelete={handlers.onDelete}
+            onReport={handlers.onReport}
+            onContinue={handlers.onContinue}
+          />
+        </Spin>
+        {pagination.total > 0 && (
+          <Pagination
+            current={pagination.current}
+            pageSize={pagination.size}
+            total={pagination.total}
+            onChange={onPageChange}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+### 6.2 页面层禁止事项
+
+| 禁止              | 正确做法                  | 说明                                     |
+| ----------------- | ------------------------- | ---------------------------------------- |
+| 直接调用 Service  | 通过聚合 Hook             | `useDashboardPage()`                     |
+| 定义 handler 函数 | 从 Hook 解构 handlers     | `const { handlers } = useMessagesPage()` |
+| 管理 state        | 由 Hook 内部管理          | —                                        |
+| 数据转换          | 由 Mappers 在 Hook 中处理 | —                                        |
+| 直接用 `useSWR`   | 封装在聚合 Hook 中        | —                                        |
+
+### 6.3 加载状态处理
+
+```typescript
+// ✅ 首次加载：全屏 Spin
+if (initialLoading) {
+  return (
+    <div className="flex h-64 w-full items-center justify-center">
+      <Spin size="large" />
+    </div>
+  );
+}
+
+// ✅ 写操作 loading：Spin 包裹内容区
+<Spin spinning={loading}>
+  <MessageList messages={messages} />
+</Spin>
+
+// ✅ 空数据提示
+{messages.length === 0 && (
+  <div className="bg-white rounded-lg shadow p-12 text-center">
+    <p className="text-[#8C8C8C] text-base">暂无消息</p>
+  </div>
+)}
+```
+
+### 6.4 安全的空值取值
+
+```typescript
+// ✅ 使用 ?? 提供默认值
+<UserGreeting offerCount={workbenchData?.offerNum ?? 0} />
+
+// ✅ 数组默认空数组
+<EmployeeList bUserList={bUserList.length > 0 ? bUserList : []} />
+
+// ❌ 直接传递可能为 null 的值
+<UserGreeting offerCount={workbenchData.offerNum} />
+```
+
+---
+
+## 7. SWR 数据请求规范
+
+### 7.1 分离输入状态与提交状态
+
+搜索框输入是高频操作，**不应每次输入都触发 API 请求**：
+
+```typescript
+// ✅ 正确（dashboard 实际代码）
+// 输入状态（实时更新，不触发请求）
+const [searchType, setSearchType] = useState<JobSearchType>('title');
+const [searchValue, setSearchValue] = useState('');
+
+// 已提交的搜索条件（只在搜索/回车时更新）
+const [submittedSearch, setSubmittedSearch] = useState<{
+  type: JobSearchType;
+  value: string;
+}>({ type: 'title', value: '' });
+
+// SWR key 只依赖 submittedSearch
+const swrKey = useMemo(() => {
+  const params: JobPositionPageParams = {
+    current: pagination.current,
+    size: pagination.size,
+  };
+  if (submittedSearch.value.trim()) {
+    params[submittedSearch.type] = submittedSearch.value.trim();
+  }
+  return ['jobPositionPage', params] as const;
+}, [pagination, submittedSearch, departmentId]);
+
+// 搜索动作
+const handleSearch = useCallback(() => {
+  setSubmittedSearch({ type: searchType, value: searchValue });
+  setPagination((prev) => ({ ...prev, current: 1 }));
+}, [searchType, searchValue]);
+```
+
+### 7.2 SWR 配置规范
+
+```typescript
+// ✅ 标准 SWR 配置
+const { data, mutate } = useSWR(swrKey, fetcher, {
+  dedupingInterval: 10000, // 10s 内重复请求去重
+  revalidateOnFocus: false, // 管理后台无需窗口聚焦刷新
+  keepPreviousData: true, // 分页切换保留旧数据，防闪烁
+});
+```
+
+| 配置项              | 推荐值  | 说明                      |
+| ------------------- | ------- | ------------------------- |
+| `dedupingInterval`  | `10000` | 10 秒内重复请求去重       |
+| `revalidateOnFocus` | `false` | 管理后台无需窗口聚焦刷新  |
+| `keepPreviousData`  | `true`  | 分页/筛选切换时保留旧数据 |
+
+### 7.3 SWR Fetcher 中的泛型标注
+
+```typescript
+// ✅ dashboard fetcher（分页数据）
+const fetcher = async ([, params]: readonly [
+  'jobPositionPage',
+  JobPositionPageParams,
+]) => {
+  const res = await getJobPositionPage<
+    ApiResponse<PageData<JobPositionItem>> | PageData<JobPositionItem>
+  >(params as Record<string, unknown>);
+  checkResCode(res);
+  return unwrap(res) as PageData<JobPositionItem>;
+};
+
+// ✅ messages fetcher（分页数据）
+const fetcher = async ([, tabType, params]: readonly [
+  'messageList',
+  MessageTabType,
+  MessagePageParams,
+]) => {
+  const res = await getMessagePageByTab<
+    ApiResponse<MessageListResult> | MessageListResult
+  >(tabType, params);
+  checkResCode(res);
+  return unwrap(res);
+};
+
+// ✅ messages countsFetcher（普通数据）
+const countsFetcher = async () => {
+  const res = await getMessageTypeCount<
+    ApiResponse<MessageTypeCountData> | MessageTypeCountData
+  >();
+  checkResCode(res);
+  return unwrap(res);
+};
+```
+
+### 7.4 SWR 缓存失效策略
+
+```typescript
+// ✅ 方式 1：精准刷新当前 key（编辑/删除后）
+const refetchJobPage = useCallback(() => {
+  mutateJobPage();
+}, [mutateJobPage]);
+
+// ✅ 方式 2：同时刷新列表和计数（messages 实际代码）
+const handleRefresh = useCallback(() => {
+  mutateList();
+  mutateCounts();
+}, [mutateList, mutateCounts]);
+
+// ✅ 方式 3：通配符清除（新增后跳转到列表页）
+await mutate(
+  (key) => Array.isArray(key) && key[0] === 'jobPositionPage',
+  undefined,
+  { revalidate: true }
+);
+```
+
+---
+
+## 8. 安全性规范
+
+### 8.1 XSS 防护
+
+```typescript
+// ✅ React 自动转义（默认安全）
+<div>{userInput}</div>
+
+// ❌ 危险
+<div dangerouslySetInnerHTML={{ __html: userInput }} />
+
+// ✅ 必须使用时，用 DOMPurify 清理
+import DOMPurify from 'dompurify';
+<div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(userInput) }} />
+```
+
+### 8.2 CSRF 防护
+
+```typescript
+axiosInstance.interceptors.request.use((config) => {
+  const csrfToken = getCsrfToken();
+  if (csrfToken) config.headers['X-CSRF-Token'] = csrfToken;
+  return config;
+});
+```
+
+### 8.3 敏感信息保护
+
+```bash
+# ❌ 暴露给客户端
+NEXT_PUBLIC_DATABASE_PASSWORD=xxx
+
+# ✅ 仅服务端可访问
+DATABASE_PASSWORD=xxx
+```
+
+### 8.4 console 清理规范
+
+```typescript
+// ❌ 生产环境不应出现 console.log
+console.log('jobDetail----', jobDetail);
+
+// ✅ 错误日志使用 console.warn / console.error
+// 或配置 next.config.ts 自动移除：
+compiler: {
+  removeConsole:
+    process.env.NODE_ENV === 'production'
+      ? { exclude: ['error', 'warn'] }
+      : false,
+},
+```
+
+### 8.5 输入验证
+
+```typescript
+const validateEmail = (email: string): boolean => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+<Input maxLength={100} value={username} />
+```
+
+### 8.6 依赖安全
+
+```bash
+npm audit
+npm audit fix
+```
+
+---
+
+## 9. 测试规范
+
+### 9.1 测试金字塔
+
+```
+    ┌──────────┐
+    │  E2E 10% │  关键用户流程（Playwright）
+    ├──────────┤
+    │ 集成 20% │  组件 + API 集成（Testing Library）
+    ├──────────┤
+    │ 单元 70% │  函数 · 组件 · Hooks（Jest）
+    └──────────┘
+```
+
+### 9.2 Mappers 单元测试（最优先）
+
+```typescript
+import { getGreeting, mapDepartToOption } from './mappers';
+
+describe('mapDepartToOption', () => {
+  it('正确转换部门数据', () => {
+    expect(
+      mapDepartToOption({ departmentId: 1, departmentName: '技术部' })
+    ).toEqual({ value: '1', label: '技术部' });
+  });
+
+  it('处理空值', () => {
+    expect(
+      mapDepartToOption({ departmentId: null, departmentName: null })
+    ).toEqual({ value: '', label: '' });
+  });
+});
+```
+
+### 9.3 测试覆盖率目标
+
+| 类型     | 行覆盖率 | 分支覆盖率 | 函数覆盖率 |
+| -------- | -------- | ---------- | ---------- |
+| Mappers  | >= 95%   | >= 90%     | >= 95%     |
+| 工具函数 | >= 90%   | >= 85%     | >= 90%     |
+| Hooks    | >= 80%   | >= 75%     | >= 80%     |
+| 组件     | >= 70%   | >= 65%     | >= 70%     |
+| 整体     | >= 70%   | >= 65%     | >= 70%     |
+
+---
+
+## 10. 工程化配置规范
+
+### 10.1 文件命名规范
+
+| 文件类型      | 命名规则             | 示例                                 |
+| ------------- | -------------------- | ------------------------------------ |
+| **组件文件**  | PascalCase           | `UserCard.tsx`, `MessageList.tsx`    |
+| **工具文件**  | camelCase            | `timeUtils.ts`, `axiosConfig.ts`     |
+| **类型文件**  | camelCase            | `index.ts`                           |
+| **Hook 文件** | camelCase + use 前缀 | `useMessagesPage.ts`, `baseHooks.ts` |
+| **配置文件**  | 小写+点分隔          | `tailwind.config.ts`, `.prettierrc`  |
+
+### 10.2 路径别名
+
+```typescript
+// ✅ 使用 @/ 别名
+import { UserCard } from '@/components/buser/dashboard';
+import { useJobsPage } from '@/hooks/buser/jobs';
+import { checkResCode, unwrap } from '@/constants/utils';
+
+// ❌ 避免相对路径
+import { UserCard } from '../../../components/buser/dashboard/UserCard';
+```
+
+### 10.3 环境变量管理
+
+```typescript
+// constants/env.ts
+export const ENV = {
+  API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || '',
+  IS_PRODUCTION: process.env.NODE_ENV === 'production',
+} as const;
+```
+
+### 10.4 Git 提交规范
+
+```bash
+feat(dashboard): 添加职位统计卡片组件
+fix(login): 修复 token 过期未跳转的问题
+refactor(messages): 统一使用全局 ApiResponse 类型
+perf(jobs): 优化列表加载性能
+```
+
+### 10.5 构建优化
+
+```typescript
+// next.config.ts
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  compiler: {
+    removeConsole:
+      process.env.NODE_ENV === 'production'
+        ? { exclude: ['error', 'warn'] }
+        : false,
+  },
+  images: {
+    formats: ['image/avif', 'image/webp'],
+  },
+  output: 'standalone',
+};
+```
+
+---
+
+## 11. 代码质量检查清单
+
+### 11.1 全局类型（第 1 章）
+
+- [ ] API 响应类型使用 `type alias` 基于全局 `ApiResponse<T>` 定义
+- [ ] 分页数据复用全局 `PageData<T>`，未在模块中重复定义
+- [ ] 分页请求参数继承全局 `PageParams`
+- [ ] 无重复的 `code / message / data / timestamp` interface 定义
+
+### 11.2 Services 层（第 2 章）
+
+- [ ] 所有 service 函数使用 `<T>` 泛型，由调用方指定类型
+- [ ] service 不导入业务类型（仅导入 `axiosInstance` 和简单参数类型）
+- [ ] GET 用 `params`，POST 用 `data`，参数类型为 `Record<string, unknown>`
+- [ ] API 基础路径抽取为常量
+
+### 11.3 Types 层（第 3 章）
+
+- [ ] 响应类型全部使用 `type XxxResponse = ApiResponse<DataType>`
+- [ ] Handler 接口已定义（`XxxPageHandlers`、`XxxPaginationHandlers`）
+- [ ] Hook 返回类型已定义（`UseXxxPageReturn`）
+- [ ] 无 `any` 类型
+
+### 11.4 Hooks 层（第 4 章）
+
+**baseHooks：**
+
+- [ ] 遵循统一模板（try/catch/finally + checkResCode + unwrap）
+- [ ] 调用 service 时使用 `<ApiResponse<T> | T>` 泛型标注
+- [ ] 列表类型有 `Array.isArray` 防御
+- [ ] 写操作 Hook 不存储 data，只关心 loading 和执行
+- [ ] `useCallback` 依赖数组正确（service 常量用 `[]`）
+- [ ] 错误重新抛出（`throw e`）
+
+**聚合 Hook：**
+
+- [ ] `handlers` 对象已用 `useMemo` 包裹
+- [ ] 分页/搜索处理器对象已用 `useMemo` 包裹
+- [ ] Loading 状态区分读/写操作
+- [ ] 派生数据（options、paginationWithTotal、counts）使用 `useMemo`
+- [ ] 所有回调函数使用 `useCallback`
+- [ ] 返回值类型已标注（`UseXxxPageReturn`）
+- [ ] SWR fetcher 中有 `<ApiResponse<T> | T>` 泛型标注
+
+**Mappers（如有）：**
+
+- [ ] 纯函数，无副作用
+- [ ] 在聚合 Hook 中通过 `useMemo` 调用
+- [ ] 有单元测试覆盖
+
+### 11.5 Components 层（第 5 章）
+
+- [ ] 复杂组件拆解为树形层级结构（最多 4 级）
+- [ ] 子组件放在父组件同名目录中
+- [ ] 根目录 `index.tsx` 统一导出（非空 `export {}`）
+- [ ] 组件只通过 Props 接收数据，不直接调用 Service/Hook
+- [ ] 列表渲染使用唯一 ID 作为 key（非 index）
+- [ ] 删除等危险操作有确认交互
+- [ ] 无冗余包装函数
+
+### 11.6 App 页面层（第 6 章）
+
+- [ ] 页面只调用聚合 Hook，不含业务逻辑
+- [ ] 不直接调用 Service、不定义 handler、不管理 state
+- [ ] Props 按职责分组传递（handlers、searchState、paginationState）
+- [ ] 首次加载使用全屏 Spin
+- [ ] 空值使用 `??` 提供默认值
+
+### 11.7 SWR 数据请求（第 7 章）
+
+- [ ] 搜索输入状态与提交状态已分离
+- [ ] SWR 配置 `dedupingInterval: 10000`
+- [ ] SWR 配置 `revalidateOnFocus: false`
+- [ ] SWR 配置 `keepPreviousData: true`
+- [ ] 写操作成功后正确清除 SWR 缓存
+
+### 11.8 安全性（第 8 章）
+
+- [ ] 无 XSS 风险
+- [ ] 环境变量不暴露敏感信息
+- [ ] 无多余 `console.log`
+
+### 11.9 工程化（第 10 章）
+
+- [ ] 通过 ESLint + Prettier 检查
+- [ ] 文件命名符合规范
+- [ ] 使用 `@/` 路径别名
+- [ ] 本次代码修改已写入 `.cursor/log/CHANGELOG-{name}.md`（按开发者隔离）
+
+---
+
+## 12. 版本管理与持续改进
+
+### 12.1 文档版本历史
+
+| 版本   | 日期       | 更新内容                                                 | 更新人       |
+| ------ | ---------- | -------------------------------------------------------- | ------------ |
+| v5.0.0 | 2026-02-05 | 新增全局类型系统章节，按五层架构重组，补充 messages 示例 | 前端开发团队 |
+| v4.0.0 | 2026-02-05 | 根据 dashboard 人工 review 优化规则完善                  | 前端开发团队 |
+| v3.0.0 | 2026-02-05 | 拆分为三份独立文档                                       | Cursor AI    |
+| v2.0.0 | 2026-02-05 | 全面优化，增加测试、性能、安全性章节                     | Cursor AI    |
+| v1.0.0 | 2026-02-05 | 初始版本，建立基础规范                                   | Cursor AI    |
+
+### 12.2 持续改进机制
+
+```mermaid
+graph LR
+    A[团队反馈] --> B[收集意见]
+    C[技术发展] --> B
+    D[新页面优化] --> B
+
+    B --> E[评审讨论]
+    E --> F{是否采纳?}
+    F -->|是| G[更新文档]
+    F -->|否| H[记录原因]
+    G --> I[通知团队]
+    H --> I
+```
+
+### 12.3 定期审查计划
+
+| 频率       | 审查内容                     | 负责人     |
+| ---------- | ---------------------------- | ---------- |
+| **每月**   | 技术栈版本检查、新增最佳实践 | 技术负责人 |
+| **每季度** | 全面规范审查、团队反馈整理   | 前端组长   |
+| **每半年** | 重大版本更新、架构优化       | 技术委员会 |
+
+### 12.4 合规性评分标准
+
+| 等级       | 分数   | 标准                     |
+| ---------- | ------ | ------------------------ |
+| **优秀**   | 90-100 | 全部符合，代码质量优秀   |
+| **良好**   | 80-89  | 大部分符合，少量改进空间 |
+| **合格**   | 70-79  | 基本符合，存在一些不足   |
+| **待改进** | 60-69  | 部分符合，需要重点改进   |
+| **不合格** | < 60   | 严重偏离，需要重写       |
+
+### 12.5 各层评分权重
+
+| 层              | 权重 | 评分维度                                                                    |
+| --------------- | ---- | --------------------------------------------------------------------------- |
+| **全局类型**    | 10%  | ApiResponse 复用（5%）+ PageData 复用（3%）+ 无重复定义（2%）               |
+| **Services**    | 10%  | 泛型模式（5%）+ 无业务逻辑（3%）+ 分类清晰（2%）                            |
+| **Types**       | 10%  | type alias（4%）+ Handler 接口（3%）+ 返回类型（3%）                        |
+| **Hooks**       | 30%  | baseHooks 模板（10%）+ 聚合 Hook 优化（12%）+ Mappers（3%）+ 错误处理（5%） |
+| **Components**  | 15%  | 层级拆解（5%）+ Barrel Export（3%）+ Props 规范（4%）+ Key 规范（3%）       |
+| **App 页面**    | 10%  | 纯视图（5%）+ 加载状态（3%）+ 空值安全（2%）                                |
+| **SWR**         | 10%  | 配置（4%）+ 缓存失效（3%）+ 搜索状态分离（3%）                              |
+| **安全+工程化** | 5%   | console 清理（2%）+ 命名规范（2%）+ 依赖安全（1%）                          |
+
+### 12.6 代码更新日志（强制）
+
+为保证 AI 协作与多人开发可追踪性，所有代码更新必须记录在：
+
+- `.cursor/log/CHANGELOG-{name}.md`（按开发者隔离，详见 `.cursor/rules/standards/code-change-log-required.mdc`）
+
+#### 强制要求
+
+1. 每次代码变更完成后，必须追加一条日志记录。
+2. 日志记录必须包含：时间、负责人、类型、影响范围、摘要、风险、验证。
+3. 未记录日志的代码变更，视为合规性不通过。
+
+#### 标准模板
+
+请使用 `.cursor/log/CHANGELOG-{name}.md` 内置模板，禁止使用模糊描述（例如“常规优化”）。
+
+---
+
+## 附录：五层架构总览图
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  types/typing.d.ts                                       │
+│  全局类型：ApiResponse<T> / PageData<T> / PageResponse<T>│
+└────────────────────────┬────────────────────────────────┘
+                         │ 被所有层引用（无需 import）
+┌────────────────────────┼────────────────────────────────┐
+│                        ▼                                 │
+│  ┌──────────────────────────────────────────┐           │
+│  │ services/buser/[module]/index.ts          │           │
+│  │ Service 层：HTTP 请求，<T> 泛型           │           │
+│  └──────────────────┬───────────────────────┘           │
+│                     │                                    │
+│  ┌──────────────────▼───────────────────────┐           │
+│  │ types/buser/[module]/index.ts             │           │
+│  │ Types 层：业务类型 + type alias 响应类型  │           │
+│  └──────────────────┬───────────────────────┘           │
+│                     │                                    │
+│  ┌──────────────────▼───────────────────────┐           │
+│  │ hooks/buser/[module]/                     │           │
+│  │   baseHooks.ts   → 基础 Hooks            │           │
+│  │   use[Module]Page.ts → 聚合 Hook          │           │
+│  │   mappers.ts     → 数据转换               │           │
+│  │   index.ts       → Barrel Export          │           │
+│  │ Hooks 层：<ApiResponse<T>|T> 泛型调用    │           │
+│  └──────────────────┬───────────────────────┘           │
+│                     │                                    │
+│  ┌──────────────────▼───────────────────────┐           │
+│  │ components/buser/[module]/                │           │
+│  │   index.tsx      → Barrel Export          │           │
+│  │   XxxHeader.tsx  → 纯展示组件            │           │
+│  │   XxxList.tsx    → 纯展示组件            │           │
+│  │   XxxCard.tsx    → 纯展示组件            │           │
+│  │ Components 层：通过 Props 接收数据        │           │
+│  └──────────────────┬───────────────────────┘           │
+│                     │                                    │
+│  ┌──────────────────▼───────────────────────┐           │
+│  │ app/buser/[module]/page.tsx               │           │
+│  │ App 页面层：纯视图，只调用聚合 Hook       │           │
+│  └──────────────────────────────────────────┘           │
+│                                                          │
+│  constants/utils.ts → checkResCode() + unwrap()          │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+**关联文档：**
+
+- [阶段一：静态页面生成合规性](./PHASE1_STATIC_PAGE_COMPLIANCE.md)
+- [阶段二：业务代码生成合规性](./PHASE2_BUSINESS_CODE_COMPLIANCE.md)
+
+**反馈与建议：** 如有任何问题或改进建议，请通过 GitHub Issues 或团队会议提出。
