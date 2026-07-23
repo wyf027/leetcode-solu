@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Gunsmoke</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-amber-950 text-amber-50 antialiased">
+    <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-5">
+      <header class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-yellow-300">Classic Games</p>
+          <h1 class="text-3xl font-bold md:text-4xl">Mini Gunsmoke</h1>
+          <p class="mt-2 max-w-2xl text-sm text-amber-200/75">
+            在三条尘土街道间移动，击退迎面而来的枪手，避开子弹。
+          </p>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="rounded-md border border-amber-700 bg-amber-900 px-3 py-2">
+            <p class="text-xs text-amber-200/70">Score</p>
+            <p id="score" class="text-xl font-bold text-yellow-200">0</p>
+          </div>
+          <div class="rounded-md border border-amber-700 bg-amber-900 px-3 py-2">
+            <p class="text-xs text-amber-200/70">Lives</p>
+            <p id="lives" class="text-xl font-bold text-rose-200">3</p>
+          </div>
+          <div class="rounded-md border border-amber-700 bg-amber-900 px-3 py-2">
+            <p class="text-xs text-amber-200/70">Wave</p>
+            <p id="wave" class="text-xl font-bold text-sky-200">1</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div class="rounded-lg border border-amber-800 bg-amber-900 p-3 shadow-xl shadow-black/30">
+          <canvas
+            id="game"
+            width="760"
+            height="520"
+            class="block w-full rounded-md bg-gradient-to-b from-orange-950 via-amber-950 to-yellow-900"
+          ></canvas>
+        </div>
+
+        <aside class="grid content-start gap-3 rounded-lg border border-amber-800 bg-amber-900 p-4">
+          <div class="grid grid-cols-3 gap-2">
+            <button id="up" class="h-11 rounded-md bg-yellow-300 font-bold text-amber-950 hover:bg-yellow-200">
+              W / ↑
+            </button>
+            <button id="shoot" class="h-11 rounded-md bg-rose-400 font-bold text-amber-950 hover:bg-rose-300">
+              Space
+            </button>
+            <button id="down" class="h-11 rounded-md bg-yellow-300 font-bold text-amber-950 hover:bg-yellow-200">
+              S / ↓
+            </button>
+          </div>
+          <button
+            id="restart"
+            class="h-11 rounded-md border border-amber-700 bg-amber-950 text-sm font-semibold hover:border-yellow-300 hover:text-yellow-200"
+          >
+            重新开始
+          </button>
+          <p id="message" class="min-h-20 rounded-md bg-amber-950 p-3 text-sm text-amber-100/80">
+            上下换街道，Space 开枪。连续击退 25 个枪手即可通关。
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const canvas = document.querySelector("#game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.querySelector("#score");
+      const livesEl = document.querySelector("#lives");
+      const waveEl = document.querySelector("#wave");
+      const messageEl = document.querySelector("#message");
+      const upBtn = document.querySelector("#up");
+      const downBtn = document.querySelector("#down");
+      const shootBtn = document.querySelector("#shoot");
+      const restartBtn = document.querySelector("#restart");
+
+      const lanes = [178, 278, 378];
+      const state = {
+        score: 0,
+        lives: 3,
+        wave: 1,
+        lane: 1,
+        cooldown: 0,
+        spawnTimer: 0,
+        defeated: 0,
+        done: false,
+        lastHit: 0,
+        lastTime: 0,
+        bullets: [],
+        enemies: [],
+        enemyShots: [],
+      };
+
+      const setMessage = (text) => {
+        messageEl.textContent = text;
+      };
+
+      const updateHud = () => {
+        scoreEl.textContent = state.score;
+        livesEl.textContent = state.lives;
+        waveEl.textContent = state.wave;
+      };
+
+      const reset = () => {
+        state.score = 0;
+        state.lives = 3;
+        state.wave = 1;
+        state.lane = 1;
+        state.cooldown = 0;
+        state.spawnTimer = 0;
+        state.defeated = 0;
+        state.done = false;
+        state.lastHit = 0;
+        state.bullets = [];
+        state.enemies = [];
+        state.enemyShots = [];
+        setMessage("上下换街道，Space 开枪。连续击退 25 个枪手即可通关。");
+        updateHud();
+      };
+
+      const moveLane = (delta) => {
+        if (state.done) return;
+        state.lane = Math.max(0, Math.min(2, state.lane + delta));
+      };
+
+      const shoot = () => {
+        if (state.done) {
+          reset();
+          return;
+        }
+        if (state.cooldown > 0) return;
+        state.cooldown = 14;
+        state.bullets.push({ x: 150, y: lanes[state.lane], vx: 9, lane: state.lane });
+      };
+
+      const spawnEnemy = () => {
+        const lane = Math.floor(Math.random() * lanes.length);
+        state.enemies.push({
+          x: 760,
+          y: lanes[lane],
+          lane,
+          speed: 1.2 + state.wave * 0.22 + Math.random() * 0.7,
+          shot: 50 + Math.random() * 70,
+        });
+      };
+
+      const hurt = () => {
+        const now = performance.now();
+        if (now - state.lastHit < 900 || state.done) return;
+        state.lastHit = now;
+        state.lives -= 1;
+        setMessage("中弹了，生命 -1。");
+        if (state.lives <= 0) {
+          state.done = true;
+          setMessage("尘土落定，你被枪手包围了。按 Space 或重新开始再来。");
+        }
+        updateHud();
+      };
+
+      const update = (delta) => {
+        if (state.done) return;
+        state.cooldown = Math.max(0, state.cooldown - delta);
+        state.spawnTimer -= delta;
+        if (state.spawnTimer <= 0) {
+          spawnEnemy();
+          state.spawnTimer = Math.max(22, 72 - state.wave * 5);
+        }
+
+        state.bullets.forEach((bullet) => {
+          bullet.x += bullet.vx * delta;
+        });
+        state.enemyShots.forEach((shot) => {
+          shot.x -= shot.vx * delta;
+        });
+        state.enemies.forEach((enemy) => {
+          enemy.x -= enemy.speed * delta;
+          enemy.shot -= delta;
+          if (enemy.shot <= 0) {
+            enemy.shot = 95;
+            state.enemyShots.push({ x: enemy.x - 16, y: enemy.y, vx: 4.5 + state.wave * 0.25, lane: enemy.lane });
+          }
+        });
+
+        for (const bullet of state.bullets) {
+          for (const enemy of state.enemies) {
+            if (!enemy.hit && bullet.lane === enemy.lane && Math.abs(bullet.x - enemy.x) < 28) {
+              enemy.hit = true;
+              bullet.hit = true;
+              state.score += 100;
+              state.defeated += 1;
+              if (state.defeated % 5 === 0) {
+                state.wave += 1;
+                setMessage("第 " + state.wave + " 波枪手来了，速度提升。");
+              } else {
+                setMessage("命中！继续守住街道。");
+              }
+            }
+          }
+        }
+
+        state.bullets = state.bullets.filter((bullet) => !bullet.hit && bullet.x < canvas.width + 20);
+        state.enemies = state.enemies.filter((enemy) => !enemy.hit && enemy.x > -30);
+        state.enemyShots = state.enemyShots.filter((shot) => shot.x > -20);
+
+        for (const shot of state.enemyShots) {
+          if (shot.lane === state.lane && Math.abs(shot.x - 118) < 22) {
+            shot.x = -99;
+            hurt();
+          }
+        }
+        for (const enemy of state.enemies) {
+          if (enemy.lane === state.lane && enemy.x < 126) {
+            enemy.hit = true;
+            hurt();
+          }
+        }
+        if (state.defeated >= 25) {
+          state.done = true;
+          setMessage("通关！你清空了这条西部街道。");
+        }
+        updateHud();
+      };
+
+      const drawStreet = () => {
+        ctx.fillStyle = "#451a03";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#78350f";
+        ctx.fillRect(0, 96, canvas.width, 340);
+        ctx.strokeStyle = "rgba(254, 240, 138, 0.35)";
+        ctx.lineWidth = 3;
+        lanes.forEach((lane) => {
+          ctx.beginPath();
+          ctx.moveTo(0, lane + 42);
+          ctx.lineTo(canvas.width, lane + 42);
+          ctx.stroke();
+        });
+        ctx.fillStyle = "#292524";
+        for (let i = 0; i < 8; i += 1) {
+          ctx.fillRect(i * 105 + 8, 34, 62, 58);
+          ctx.fillStyle = "#facc15";
+          ctx.fillRect(i * 105 + 24, 52, 14, 18);
+          ctx.fillStyle = "#292524";
+        }
+      };
+
+      const drawCowboy = (x, y, color, flip = false) => {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(flip ? -1 : 1, 1);
+        ctx.fillStyle = color;
+        ctx.fillRect(-13, -44, 26, 36);
+        ctx.fillStyle = "#fed7aa";
+        ctx.beginPath();
+        ctx.arc(0, -58, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#7c2d12";
+        ctx.fillRect(-21, -72, 42, 8);
+        ctx.fillRect(-12, -82, 24, 13);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 7;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(10, -36);
+        ctx.lineTo(33, -31);
+        ctx.moveTo(-8, -8);
+        ctx.lineTo(-20, 14);
+        ctx.moveTo(8, -8);
+        ctx.lineTo(20, 14);
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      const draw = () => {
+        drawStreet();
+        drawCowboy(112, lanes[state.lane], "#2563eb");
+        state.enemies.forEach((enemy) => drawCowboy(enemy.x, enemy.y, "#dc2626", true));
+        ctx.fillStyle = "#fef3c7";
+        state.bullets.forEach((bullet) => {
+          ctx.fillRect(bullet.x, bullet.y - 34, 18, 5);
+        });
+        ctx.fillStyle = "#fb7185";
+        state.enemyShots.forEach((shot) => {
+          ctx.fillRect(shot.x, shot.y - 34, 15, 5);
+        });
+        if (state.done) {
+          ctx.fillStyle = "rgba(69, 26, 3, 0.76)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = "#fef3c7";
+          ctx.font = "bold 34px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(state.defeated >= 25 ? "Town Saved" : "Game Over", canvas.width / 2, 230);
+          ctx.font = "18px system-ui, sans-serif";
+          ctx.fillText("按 Space 或重新开始按钮再来一局", canvas.width / 2, 270);
+        }
+      };
+
+      const tick = (time) => {
+        const delta = Math.min(2, (time - (state.lastTime || time)) / 16);
+        state.lastTime = time;
+        update(delta);
+        draw();
+        requestAnimationFrame(tick);
+      };
+
+      upBtn.addEventListener("click", () => moveLane(-1));
+      downBtn.addEventListener("click", () => moveLane(1));
+      shootBtn.addEventListener("click", shoot);
+      restartBtn.addEventListener("click", reset);
+      document.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (key === "w" || event.key === "ArrowUp") moveLane(-1);
+        if (key === "s" || event.key === "ArrowDown") moveLane(1);
+        if (key === " ") shoot();
+      });
+
+      reset();
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>
