@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini City Connection</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <section class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-cyan-200">Mini City Connection</h1>
+        <p class="text-sm text-slate-400">Paint every road tile, dodge patrol cars, and keep the little car moving.</p>
+      </div>
+      <button id="startBtn" class="rounded-md bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-400/20 transition hover:bg-cyan-300">
+        Start
+      </button>
+    </section>
+
+    <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="rounded-md border border-slate-800 bg-slate-900 p-3">
+        <p class="text-xs uppercase text-slate-500">Score</p>
+        <p id="score" class="text-xl font-bold text-white">0</p>
+      </div>
+      <div class="rounded-md border border-slate-800 bg-slate-900 p-3">
+        <p class="text-xs uppercase text-slate-500">Painted</p>
+        <p id="painted" class="text-xl font-bold text-white">0%</p>
+      </div>
+      <div class="rounded-md border border-slate-800 bg-slate-900 p-3">
+        <p class="text-xs uppercase text-slate-500">Lives</p>
+        <p id="lives" class="text-xl font-bold text-white">3</p>
+      </div>
+      <div class="rounded-md border border-slate-800 bg-slate-900 p-3">
+        <p class="text-xs uppercase text-slate-500">Controls</p>
+        <p class="text-sm font-semibold text-white">A/D or Arrows, Space</p>
+      </div>
+    </section>
+
+    <section class="rounded-md border border-slate-800 bg-slate-900 p-3">
+      <canvas id="game" width="900" height="540" class="h-auto w-full rounded bg-slate-950"></canvas>
+    </section>
+    <p id="message" class="min-h-6 text-center text-sm font-semibold text-cyan-200">Press Start to roll through the city.</p>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("startBtn");
+    const scoreEl = document.getElementById("score");
+    const paintedEl = document.getElementById("painted");
+    const livesEl = document.getElementById("lives");
+    const messageEl = document.getElementById("message");
+
+    const lanes = [430, 330, 230, 130];
+    const tileW = 60;
+    const roadLeft = 40;
+    const roadRight = 860;
+    const keys = new Set();
+    let car;
+    let patrols;
+    let painted;
+    let score;
+    let lives;
+    let running = false;
+    let won = false;
+    let lastTime = 0;
+    let jumpCooldown = 0;
+
+    function reset() {
+      painted = Array.from({ length: lanes.length }, () => Array(14).fill(false));
+      car = { x: 95, lane: 0, dir: 1, speed: 165, invincible: 0 };
+      patrols = [
+        { x: 760, lane: 0, dir: -1, speed: 125 },
+        { x: 110, lane: 1, dir: 1, speed: 145 },
+        { x: 700, lane: 2, dir: -1, speed: 115 },
+        { x: 180, lane: 3, dir: 1, speed: 135 }
+      ];
+      score = 0;
+      lives = 3;
+      jumpCooldown = 0;
+      running = true;
+      won = false;
+      messageEl.textContent = "Paint the whole city before the patrol cars catch you.";
+      updateHud();
+    }
+
+    function paintCurrentTile() {
+      const tile = Math.max(0, Math.min(13, Math.floor((car.x - roadLeft) / tileW)));
+      if (!painted[car.lane][tile]) {
+        painted[car.lane][tile] = true;
+        score += 50;
+      }
+    }
+
+    function paintedCount() {
+      return painted.flat().filter(Boolean).length;
+    }
+
+    function updateHud() {
+      const total = lanes.length * 14;
+      scoreEl.textContent = score;
+      paintedEl.textContent = Math.round((paintedCount() / total) * 100) + "%";
+      livesEl.textContent = lives;
+    }
+
+    function jump(delta) {
+      if (jumpCooldown > 0) return;
+      const nextLane = car.lane + delta;
+      if (nextLane >= 0 && nextLane < lanes.length) {
+        car.lane = nextLane;
+        score += 10;
+        jumpCooldown = 0.22;
+      }
+    }
+
+    function crash() {
+      lives -= 1;
+      car.x = car.dir > 0 ? 95 : 805;
+      car.invincible = 1.4;
+      messageEl.textContent = lives > 0 ? "Patrol hit. Keep painting." : "Game over. Press Start to retry.";
+      if (lives <= 0) running = false;
+    }
+
+    function update(dt) {
+      if (!running) return;
+      jumpCooldown = Math.max(0, jumpCooldown - dt);
+      car.invincible = Math.max(0, car.invincible - dt);
+
+      if (keys.has("ArrowLeft") || keys.has("a")) car.dir = -1;
+      if (keys.has("ArrowRight") || keys.has("d")) car.dir = 1;
+      if (keys.has("ArrowUp") || keys.has("w") || keys.has(" ")) jump(1);
+      if (keys.has("ArrowDown") || keys.has("s")) jump(-1);
+
+      car.x += car.dir * car.speed * dt;
+      if (car.x < roadLeft + 20) {
+        car.x = roadLeft + 20;
+        car.dir = 1;
+      }
+      if (car.x > roadRight - 20) {
+        car.x = roadRight - 20;
+        car.dir = -1;
+      }
+
+      paintCurrentTile();
+
+      patrols.forEach((patrol) => {
+        patrol.x += patrol.dir * patrol.speed * dt;
+        if (patrol.x < roadLeft + 18 || patrol.x > roadRight - 18) {
+          patrol.dir *= -1;
+          patrol.x = Math.max(roadLeft + 18, Math.min(roadRight - 18, patrol.x));
+        }
+        if (patrol.lane === car.lane && Math.abs(patrol.x - car.x) < 34 && car.invincible <= 0) {
+          crash();
+        }
+      });
+
+      if (paintedCount() === lanes.length * 14) {
+        running = false;
+        won = true;
+        score += lives * 300;
+        messageEl.textContent = "City connected. Every road is painted.";
+      }
+      updateHud();
+    }
+
+    function drawRoad() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, 90);
+      ctx.fillStyle = "#164e63";
+      for (let i = 0; i < 18; i += 1) {
+        const h = 22 + (i % 5) * 10;
+        ctx.fillRect(22 + i * 52, 82 - h, 28, h);
+      }
+
+      lanes.forEach((y, laneIndex) => {
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(roadLeft, y, roadRight - roadLeft, 34);
+        for (let tile = 0; tile < 14; tile += 1) {
+          ctx.fillStyle = painted[laneIndex][tile] ? "#22d3ee" : "#334155";
+          ctx.fillRect(roadLeft + tile * tileW + 2, y + 4, tileW - 4, 26);
+        }
+        ctx.strokeStyle = "#64748b";
+        ctx.setLineDash([14, 14]);
+        ctx.beginPath();
+        ctx.moveTo(roadLeft, y + 17);
+        ctx.lineTo(roadRight, y + 17);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 5;
+      for (let i = 0; i < lanes.length - 1; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(roadLeft + 10, lanes[i] + 34);
+        ctx.lineTo(roadLeft + 10, lanes[i + 1]);
+        ctx.moveTo(roadRight - 10, lanes[i] + 34);
+        ctx.lineTo(roadRight - 10, lanes[i + 1]);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
+
+    function drawCar() {
+      const y = lanes[car.lane] - 12;
+      ctx.save();
+      ctx.translate(car.x, y + 26);
+      ctx.scale(car.dir, 1);
+      ctx.globalAlpha = car.invincible > 0 && Math.floor(car.invincible * 12) % 2 === 0 ? 0.45 : 1;
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(-24, -18, 48, 22);
+      ctx.fillStyle = "#fb923c";
+      ctx.fillRect(-10, -32, 26, 16);
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(-2, -29, 12, 10);
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      ctx.arc(-16, 7, 7, 0, Math.PI * 2);
+      ctx.arc(16, 7, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawPatrols() {
+      patrols.forEach((patrol) => {
+        const y = lanes[patrol.lane] + 20;
+        ctx.save();
+        ctx.translate(patrol.x, y);
+        ctx.scale(patrol.dir, 1);
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(-22, -18, 44, 22);
+        ctx.fillStyle = "#93c5fd";
+        ctx.fillRect(-12, -29, 24, 13);
+        ctx.fillStyle = "#020617";
+        ctx.beginPath();
+        ctx.arc(-14, 7, 6, 0, Math.PI * 2);
+        ctx.arc(14, 7, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    function drawOverlay() {
+      if (running) return;
+      ctx.fillStyle = "rgba(2, 6, 23, 0.68)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = won ? "#67e8f9" : "#e2e8f0";
+      ctx.font = "bold 34px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(won ? "City Complete" : "Mini City Connection", canvas.width / 2, 245);
+      ctx.font = "18px system-ui, sans-serif";
+      ctx.fillStyle = "#cbd5e1";
+      ctx.fillText(won ? "Press Start for another run." : "Press Start to begin.", canvas.width / 2, 280);
+    }
+
+    function draw() {
+      drawRoad();
+      drawPatrols();
+      drawCar();
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.04, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", reset);
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+    window.addEventListener("keyup", (event) => {
+      keys.delete(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+    });
+
+    reset();
+    running = false;
+    draw();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
