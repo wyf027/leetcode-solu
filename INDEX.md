@@ -16,7 +16,7 @@
 | 工程项目          | [`project/`](./project/)                                                                                     | React、Vue、GraphQL、Mini React 与静态交互演示            |
 | 交互讲解与视频    | [`project/leetcode-interactive/`](./project/leetcode-interactive/)、[`leetcode-videos/`](./leetcode-videos/) | LeetCode 交互页面与分段视频素材                           |
 | 测试与实验        | [`test/`](./test/)                                                                                           | 多语言小实验和独立 DB Console                             |
-| Agent 配置        | [`agent-config/`](./agent-config/)                                                                           | Codex 与 Claude Code 的 macOS 多工具协作配置              |
+| Agent 配置        | [`agent-config/`](./agent-config/)                                                                           | Codex、Cursor、Agents 与 macOS 多工具协作配置快照         |
 
 ## 题解与算法
 
@@ -57,6 +57,7 @@
 
 | 项目                                                                              | 技术/用途                                    | 入口或启动方式                                                                    |
 | --------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`classic-atlas`](./project/classic-atlas/)                                       | 中国经典文本图谱，原生 HTML/CSS/JS           | `open project/classic-atlas/index.html`                                           |
 | [`classic-games`](./project/classic-games/)                                       | 原生 HTML 的经典游戏合集                     | `open project/classic-games/index.html`                                           |
 | [`classic-sci-fi-atlas`](./project/classic-sci-fi-atlas/)                         | 公版科幻经典简中图册                         | `python3 -m http.server 8787 --directory project/classic-sci-fi-atlas`            |
 | [`daodejing-atlas`](./project/daodejing-atlas/)                                   | 《道德经》静态图册                           | `open project/daodejing-atlas/index.html`                                         |
@@ -67,6 +68,8 @@
 | [`leetcode-interactive`](./project/leetcode-interactive/)                         | LeetCode 题目的可视化交互讲解                | `open project/leetcode-interactive/index.html`                                    |
 | [`mini-react`](./project/mini-react/)                                             | React Reconciler、调度与 DOM 渲染的精简实现  | `cd project/mini-react && npm install && npm run demos`                           |
 | [`nodepod-demo`](./project/nodepod-demo/)                                         | React、Vite 与 NodePod 本地服务演示          | `cd project/nodepod-demo && npm install && npm run dev`                           |
+| [`open-file-viewer-demo`](./project/open-file-viewer-demo/)                       | 浏览器文件打开与预览演示                     | `open project/open-file-viewer-demo/index.html`                                   |
+| [`rag-flow-demo`](./project/rag-flow-demo/)                                       | RAG 流程可视化单页演示                       | `open project/rag-flow-demo/index.html`                                           |
 | [`react-book`](./project/react-book/)                                             | React 更新机制学习代码                       | [`update.js`](./project/react-book/update.js)                                     |
 | [`react-demo`](./project/react-demo/)                                             | Create React App 示例                        | `cd project/react-demo && npm install && npm start`                               |
 | [`upload`](./project/upload/)                                                     | Vue 3、Vite、Express、Multer 文件上传示例    | `cd project/upload && npm install && npm run dev`                                 |
@@ -76,18 +79,18 @@
 
 ## 其他代码与工具
 
-| 路径                                                           | 用途                                      |
-| -------------------------------------------------------------- | ----------------------------------------- |
-| [`refactoring/`](./refactoring/)                               | 《重构》账单示例及数据拆分练习            |
-| [`packages/index.js`](./packages/index.js)                     | 根目录 ESLint 当前覆盖的 JavaScript 入口  |
-| [`demo.go`](./demo.go)                                         | Go 语言独立示例                           |
-| [`sh/`](./sh/)                                                 | Shell 小工具与练习                        |
-| [`leetcode-videos/`](./leetcode-videos/)                       | 按题号区间整理的 LeetCode 讲解视频与素材  |
-| [`scripts/`](./scripts/)                                       | LeetCode 批量视频与单题视频生成脚本       |
-| [`reports/`](./reports/)                                       | AI 资讯、热点与其他自动生成报告           |
-| [`daily_ai_consulting_news.py`](./daily_ai_consulting_news.py) | AI 咨询资讯内容解析工具                   |
-| [`test/README.md`](./test/README.md)                           | 早期仓库说明与题目列表                    |
-| [`agent-config/README.md`](./agent-config/README.md)           | macOS 共享 Agent 配置的包含范围与安全边界 |
+| 路径                                                           | 用途                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------- |
+| [`refactoring/`](./refactoring/)                               | 《重构》账单示例及数据拆分练习                          |
+| [`packages/index.js`](./packages/index.js)                     | 根目录 ESLint 当前覆盖的 JavaScript 入口                |
+| [`demo.go`](./demo.go)                                         | Go 语言独立示例                                         |
+| [`sh/`](./sh/)                                                 | Shell 小工具与练习                                      |
+| [`leetcode-videos/`](./leetcode-videos/)                       | 按题号区间整理的 LeetCode 讲解视频与素材                |
+| [`scripts/`](./scripts/)                                       | LeetCode 批量视频与单题视频生成脚本                     |
+| [`reports/`](./reports/)                                       | AI 资讯、热点与其他自动生成报告                         |
+| [`daily_ai_consulting_news.py`](./daily_ai_consulting_news.py) | AI 咨询资讯内容解析工具                                 |
+| [`test/README.md`](./test/README.md)                           | 早期仓库说明与题目列表                                  |
+| [`agent-config/README.md`](./agent-config/README.md)           | Agent 配置快照的包含范围、安全边界与 macOS 共享配置说明 |
 
 ## 根目录工程命令
 
