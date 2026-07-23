@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Mikie</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-normal text-pink-200">Mini Mikie</h1>
+        <p class="text-sm text-zinc-400">Dash through class, collect every heart, and reach the exit before detention.</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <div class="rounded border border-zinc-700 px-3 py-2">Score <span id="score" class="font-mono text-pink-200">0</span></div>
+        <div class="rounded border border-zinc-700 px-3 py-2">Lives <span id="lives" class="font-mono text-rose-200">3</span></div>
+        <div class="rounded border border-zinc-700 px-3 py-2">Hearts <span id="left" class="font-mono text-amber-200">0</span></div>
+      </div>
+    </header>
+
+    <section class="grid gap-4 lg:grid-cols-[1fr_15rem]">
+      <canvas id="game" width="640" height="640" class="aspect-square w-full rounded border border-pink-900 bg-black"></canvas>
+      <aside class="space-y-3 text-sm text-zinc-300">
+        <div class="rounded border border-zinc-800 bg-zinc-900/70 p-3">
+          <div class="mb-2 font-semibold text-zinc-100">Controls</div>
+          <p>Arrow keys or WASD move. Pick up all hearts, then step on the green exit. Tap a direction from the player on touch screens.</p>
+        </div>
+        <button id="start" class="w-full rounded bg-pink-500 px-4 py-2 font-semibold text-zinc-950 hover:bg-pink-300">Start</button>
+        <div id="message" class="rounded border border-zinc-800 bg-zinc-900/70 p-3 text-zinc-200">Press Start to begin the school break.</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const leftEl = document.getElementById("left");
+    const messageEl = document.getElementById("message");
+    const startBtn = document.getElementById("start");
+    const keys = new Set();
+    const tile = 40;
+    const grid = [
+      "################",
+      "#P..#.....#...E#",
+      "#.#.#.###.#.#..#",
+      "#.#...#...#.#H.#",
+      "#.#####.###.##.#",
+      "#...H...#......#",
+      "###.###.#.####.#",
+      "#...#...#....#.#",
+      "#.#.#.#####H.#.#",
+      "#.#.#.....#..#.#",
+      "#.#.#####.#.##.#",
+      "#H#.....#.#....#",
+      "#.#####.#.####.#",
+      "#.......#....H.#",
+      "#..#...........#",
+      "################"
+    ];
+
+    let walls = new Set();
+    let hearts = [];
+    let guards = [];
+    let player = { x: 1, y: 1, px: 40, py: 40 };
+    let exit = { x: 14, y: 1 };
+    let score = 0;
+    let lives = 3;
+    let running = false;
+    let moveTimer = 0;
+    let guardTimer = 0;
+    let lastTime = 0;
+
+    function keyOf(x, y) {
+      return `${x},${y}`;
+    }
+
+    function parseLevel() {
+      walls = new Set();
+      hearts = [];
+      for (let y = 0; y < grid.length; y++) {
+        for (let x = 0; x < grid[y].length; x++) {
+          const cell = grid[y][x];
+          if (cell === "#") walls.add(keyOf(x, y));
+          if (cell === "H") hearts.push({ x, y, taken: false });
+          if (cell === "P") player = { x, y, px: x * tile, py: y * tile };
+          if (cell === "E") exit = { x, y };
+        }
+      }
+      guards = [
+        { x: 7, y: 3, px: 7 * tile, py: 3 * tile, dx: 1, dy: 0 },
+        { x: 10, y: 8, px: 10 * tile, py: 8 * tile, dx: 0, dy: 1 },
+        { x: 5, y: 13, px: 5 * tile, py: 13 * tile, dx: 1, dy: 0 }
+      ];
+    }
+
+    function reset() {
+      parseLevel();
+      score = 0;
+      lives = 3;
+      running = true;
+      moveTimer = 0;
+      guardTimer = 0;
+      messageEl.textContent = "Collect the hearts, then escape through the green door.";
+      syncHud();
+    }
+
+    function syncHud() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      leftEl.textContent = hearts.filter((heart) => !heart.taken).length;
+    }
+
+    function canMove(x, y) {
+      return x >= 0 && y >= 0 && x < 16 && y < 16 && !walls.has(keyOf(x, y));
+    }
+
+    function stepPlayer(dx, dy) {
+      if (!running || moveTimer > 0) return;
+      const nx = player.x + dx;
+      const ny = player.y + dy;
+      if (!canMove(nx, ny)) return;
+      player.x = nx;
+      player.y = ny;
+      moveTimer = 0.11;
+      for (const heart of hearts) {
+        if (!heart.taken && heart.x === player.x && heart.y === player.y) {
+          heart.taken = true;
+          score += 150;
+        }
+      }
+      if (player.x === exit.x && player.y === exit.y) {
+        const remaining = hearts.some((heart) => !heart.taken);
+        if (remaining) {
+          messageEl.textContent = "The exit opens after every heart is collected.";
+        } else {
+          score += 500;
+          running = false;
+          messageEl.textContent = `You escaped class. Final score: ${score}.`;
+        }
+      }
+      syncHud();
+    }
+
+    function chooseGuardTurn(guard) {
+      const choices = [
+        { dx: guard.dx, dy: guard.dy },
+        { dx: -guard.dy, dy: guard.dx },
+        { dx: guard.dy, dy: -guard.dx },
+        { dx: -guard.dx, dy: -guard.dy }
+      ];
+      choices.sort((a, b) => {
+        const da = Math.abs(player.x - (guard.x + a.dx)) + Math.abs(player.y - (guard.y + a.dy));
+        const db = Math.abs(player.x - (guard.x + b.dx)) + Math.abs(player.y - (guard.y + b.dy));
+        return da - db;
+      });
+      return choices.find((choice) => canMove(guard.x + choice.dx, guard.y + choice.dy)) || { dx: 0, dy: 0 };
+    }
+
+    function stepGuards() {
+      for (const guard of guards) {
+        const next = chooseGuardTurn(guard);
+        guard.dx = next.dx;
+        guard.dy = next.dy;
+        guard.x += guard.dx;
+        guard.y += guard.dy;
+      }
+    }
+
+    function loseLife() {
+      lives -= 1;
+      syncHud();
+      if (lives <= 0) {
+        running = false;
+        messageEl.textContent = `Detention. Final score: ${score}.`;
+        return;
+      }
+      messageEl.textContent = "Caught. Try another route.";
+      player.x = 1;
+      player.y = 1;
+    }
+
+    function checkCatch() {
+      if (guards.some((guard) => guard.x === player.x && guard.y === player.y)) {
+        loseLife();
+      }
+    }
+
+    function update(dt) {
+      if (!running) return;
+      moveTimer = Math.max(0, moveTimer - dt);
+      guardTimer -= dt;
+      if (keys.has("ArrowLeft") || keys.has("a")) stepPlayer(-1, 0);
+      if (keys.has("ArrowRight") || keys.has("d")) stepPlayer(1, 0);
+      if (keys.has("ArrowUp") || keys.has("w")) stepPlayer(0, -1);
+      if (keys.has("ArrowDown") || keys.has("s")) stepPlayer(0, 1);
+      if (guardTimer <= 0) {
+        stepGuards();
+        guardTimer = 0.42;
+      }
+      checkCatch();
+      player.px += (player.x * tile - player.px) * 0.35;
+      player.py += (player.y * tile - player.py) * 0.35;
+      for (const guard of guards) {
+        guard.px += (guard.x * tile - guard.px) * 0.3;
+        guard.py += (guard.y * tile - guard.py) * 0.3;
+      }
+    }
+
+    function drawHeart(cx, cy) {
+      ctx.fillStyle = "#fb7185";
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + 9);
+      ctx.bezierCurveTo(cx - 18, cy - 3, cx - 10, cy - 18, cx, cy - 8);
+      ctx.bezierCurveTo(cx + 10, cy - 18, cx + 18, cy - 3, cx, cy + 9);
+      ctx.fill();
+    }
+
+    function drawBoard() {
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+          ctx.fillStyle = (x + y) % 2 ? "#27272a" : "#212124";
+          ctx.fillRect(x * tile, y * tile, tile, tile);
+          if (walls.has(keyOf(x, y))) {
+            ctx.fillStyle = "#3f3f46";
+            ctx.fillRect(x * tile + 2, y * tile + 2, tile - 4, tile - 4);
+          }
+        }
+      }
+      const open = hearts.every((heart) => heart.taken);
+      ctx.fillStyle = open ? "#22c55e" : "#365314";
+      ctx.fillRect(exit.x * tile + 6, exit.y * tile + 6, tile - 12, tile - 12);
+      ctx.fillStyle = "#d9f99d";
+      ctx.fillRect(exit.x * tile + 17, exit.y * tile + 12, 6, 16);
+      for (const heart of hearts) {
+        if (!heart.taken) drawHeart(heart.x * tile + tile / 2, heart.y * tile + tile / 2);
+      }
+    }
+
+    function drawActors() {
+      ctx.fillStyle = "#fef08a";
+      ctx.beginPath();
+      ctx.arc(player.px + tile / 2, player.py + tile / 2, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(player.px + 13, player.py + 18, 5, 5);
+      ctx.fillRect(player.px + 23, player.py + 18, 5, 5);
+      for (const guard of guards) {
+        ctx.fillStyle = "#60a5fa";
+        ctx.beginPath();
+        ctx.arc(guard.px + tile / 2, guard.py + tile / 2, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#1e3a8a";
+        ctx.fillRect(guard.px + 9, guard.py + 13, 22, 8);
+      }
+    }
+
+    function drawOverlay() {
+      if (running) return;
+      ctx.fillStyle = "rgba(9, 9, 11, 0.74)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#fce7f3";
+      ctx.font = "bold 34px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Mini Mikie", canvas.width / 2, canvas.height / 2 - 16);
+      ctx.font = "18px system-ui, sans-serif";
+      ctx.fillText("Press Start", canvas.width / 2, canvas.height / 2 + 22);
+    }
+
+    function draw() {
+      drawBoard();
+      drawActors();
+      drawOverlay();
+    }
+
+    function loop(time) {
+      const dt = Math.min(0.033, (time - lastTime) / 1000 || 0);
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", reset);
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "a", "d", "w", "s"].includes(event.key)) {
+        event.preventDefault();
+      }
+      keys.add(event.key);
+    });
+    window.addEventListener("keyup", (event) => keys.delete(event.key));
+    canvas.addEventListener("pointerdown", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const tx = ((event.clientX - rect.left) / rect.width) * canvas.width;
+      const ty = ((event.clientY - rect.top) / rect.height) * canvas.height;
+      const dx = tx - (player.x * tile + tile / 2);
+      const dy = ty - (player.y * tile + tile / 2);
+      if (Math.abs(dx) > Math.abs(dy)) stepPlayer(dx > 0 ? 1 : -1, 0);
+      else stepPlayer(0, dy > 0 ? 1 : -1);
+    });
+
+    parseLevel();
+    syncHud();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
