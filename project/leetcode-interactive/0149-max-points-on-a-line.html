@@ -1,0 +1,998 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LeetCode 149 直线上最多的点数：最大公约数归一化斜率与哈希计数交互讲解"
+    />
+    <title>LeetCode 149 · 直线上最多的点数｜斜率观测站</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #e9f7ff;
+        --muted: #93a9ba;
+        --panel: rgba(9, 22, 32, 0.88);
+        --cyan: #36e4da;
+        --orange: #ff9c5a;
+        --line: rgba(147, 169, 186, 0.25);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: hidden;
+        background:
+          radial-gradient(circle at 15% 8%, #123c46 0, transparent 30rem),
+          radial-gradient(circle at 92% 28%, #432313 0, transparent 26rem),
+          #040b11;
+        color: var(--ink);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      button,
+      select {
+        font: inherit;
+      }
+      button {
+        box-shadow: none !important;
+      }
+      button:hover:not(:disabled) {
+        box-shadow: 0 8px 25px rgba(54, 228, 218, 0.18) !important;
+      }
+      button:active:not(:disabled) {
+        box-shadow: 0 2px 10px rgba(255, 156, 90, 0.24) !important;
+      }
+      button:focus-visible,
+      select:focus-visible {
+        outline: 3px solid #fff;
+        outline-offset: 3px;
+        box-shadow: none !important;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.42;
+        box-shadow: none !important;
+      }
+      .shell {
+        width: min(1120px, calc(100% - 32px));
+        margin-inline: auto;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+      }
+      .eyebrow {
+        color: var(--cyan);
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 24px;
+      }
+      .node-stage {
+        position: relative;
+        min-height: 420px;
+        overflow: hidden;
+        border-radius: 22px;
+        background:
+          linear-gradient(rgba(54, 228, 218, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(54, 228, 218, 0.05) 1px, transparent 1px),
+          #061018;
+        background-size: 24px 24px;
+      }
+      .node {
+        position: absolute;
+        display: grid;
+        width: 62px;
+        height: 62px;
+        place-items: center;
+        transform: translate(-50%, -50%);
+        border: 2px solid #49606f;
+        border-radius: 50%;
+        background: #0b1c27;
+        color: #fff;
+        font-weight: 900;
+        transition:
+          transform 0.25s ease,
+          border-color 0.25s ease,
+          background 0.25s ease;
+        z-index: 2;
+      }
+      .node.entry {
+        border-color: var(--orange);
+      }
+      .node.slow {
+        background: #0a4a49;
+        border-color: var(--cyan);
+        transform: translate(-50%, -50%) scale(1.12);
+      }
+      .node.fast {
+        box-shadow: inset 0 0 0 5px rgba(255, 156, 90, 0.28);
+        border-color: var(--orange);
+      }
+      .node.both {
+        background: linear-gradient(135deg, #0a4a49 50%, #60321c 50%);
+      }
+      .edge {
+        position: absolute;
+        height: 2px;
+        transform-origin: 0 50%;
+        background: linear-gradient(90deg, #395361, #78909d);
+        z-index: 1;
+      }
+      .edge::after {
+        position: absolute;
+        top: -4px;
+        right: -1px;
+        width: 0;
+        height: 0;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 8px solid #78909d;
+        content: "";
+      }
+      .pointer-tag {
+        position: absolute;
+        z-index: 3;
+        padding: 3px 7px;
+        transform: translate(-50%, 38px);
+        border-radius: 999px;
+        font-size: 0.64rem;
+        font-weight: 900;
+      }
+      .slow-tag {
+        background: var(--cyan);
+        color: #042224;
+      }
+      .fast-tag {
+        margin-top: 23px;
+        background: var(--orange);
+        color: #301204;
+      }
+      .control {
+        min-height: 46px;
+        border: 1px solid #42606f;
+        border-radius: 14px;
+        background: #0b1b26;
+        color: var(--ink);
+        padding: 0.7rem 1rem;
+        font-weight: 800;
+      }
+      .control.primary {
+        border-color: var(--cyan);
+        background: var(--cyan);
+        color: #032123;
+      }
+      .metric {
+        border-left: 3px solid var(--cyan);
+        padding-left: 12px;
+      }
+      .metric.orange {
+        border-left-color: var(--orange);
+      }
+      .codebox {
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #02070b;
+        padding: 16px;
+        color: #d7edf7;
+        font-size: 0.82rem;
+        line-height: 1.65;
+        white-space: pre;
+      }
+      .test-card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(5, 15, 22, 0.76);
+        padding: 16px;
+      }
+      .field {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        border-radius: 10px;
+        background: #07131c;
+        padding: 10px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 760px) {
+        .hero-grid {
+          grid-template-columns: 1fr;
+        }
+        .shell {
+          width: min(100% - 20px, 1120px);
+        }
+        .node-stage {
+          min-height: 360px;
+        }
+        .node {
+          width: 52px;
+          height: 52px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="shell py-8 md:py-12">
+      <div class="hero-grid items-end">
+        <div>
+          <p class="eyebrow">LeetCode 149 · Hard · Geometry + Hashing</p>
+          <h1
+            class="mt-4 max-w-3xl text-4xl font-black tracking-tight md:text-7xl"
+          >
+            直线上最多的点数
+            <span class="block text-cyan-300">斜率观测站</span>
+          </h1>
+          <p
+            class="mt-5 max-w-2xl text-base leading-8 text-slate-300 md:text-lg"
+          >
+            固定一个锚点，向其余点发射射线；把方向向量约成唯一整数对，相同键就代表落在同一条直线上。
+          </p>
+        </div>
+        <div class="panel p-5">
+          <p class="eyebrow">任务边界</p>
+          <p class="mt-3 leading-7 text-slate-300">
+            输入互不相同的平面点
+            <code>points</code>，返回同一直线上的最大点数。点数 1～300，坐标范围
+            -10⁴～10⁴。
+          </p>
+          <button
+            id="jump-lab"
+            class="control primary mt-5 w-full"
+            type="button"
+          >
+            进入斜率扫描
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell space-y-8 pb-16">
+      <section class="panel p-5 md:p-8" aria-labelledby="brief-title">
+        <p class="eyebrow">Problem / 题意</p>
+        <h2 id="brief-title" class="mt-2 text-2xl font-black">
+          用整数方向表示斜率
+        </h2>
+        <p class="mt-4 max-w-4xl leading-8 text-slate-300">
+          给定二维点集 <code>points</code>，求最多有多少点共线。固定锚点 i，枚举
+          j &gt; i，计算 dx 与 dy；用 gcd 约分并统一符号后，以
+          <code>"dy/dx"</code> 作为哈希键，出现次数最多的方向再加上锚点本身。
+        </p>
+        <div class="mt-5 grid gap-4 md:grid-cols-3">
+          <article class="test-card">
+            <strong>官方示例 1</strong>
+            <div class="field mt-3">
+              <code>points = [[1,1],[2,2],[3,3]]</code>
+            </div>
+            <p class="mt-3 text-sm text-slate-400">输出：<code>3</code></p>
+          </article>
+          <article class="test-card">
+            <strong>官方示例 2</strong>
+            <div class="field mt-3">
+              <code>points = [[1,1],[3,2],[5,3],[4,1],[2,3],[1,4]]</code>
+            </div>
+            <p class="mt-3 text-sm text-slate-400">输出：<code>4</code></p>
+          </article>
+          <article class="test-card">
+            <strong>关键边界</strong>
+            <div class="field mt-3">
+              <code>points = [[0,0]]</code>
+            </div>
+            <p class="mt-3 text-sm text-slate-400">输出：<code>1</code></p>
+          </article>
+        </div>
+      </section>
+
+      <section id="lab" class="panel p-5 md:p-8" aria-labelledby="lab-title">
+        <div
+          class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"
+        >
+          <div>
+            <p class="eyebrow">Interactive / 分步可视化</p>
+            <h2 id="lab-title" class="mt-2 text-2xl font-black">
+              锚点射线与斜率桶
+            </h2>
+          </div>
+          <label class="grid gap-2 text-sm font-bold">
+            测试场景
+            <select id="case-select" class="control" aria-label="选择测试场景">
+              <option value="0">示例 1 · 对角线</option>
+              <option value="1">示例 2 · 多条方向</option>
+              <option value="2">边界 · 单点</option>
+              <option value="3">边界 · 垂直线</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="mt-6 grid gap-6 lg:grid-cols-[1.45fr_.75fr]">
+          <div
+            id="node-stage"
+            class="node-stage"
+            role="img"
+            aria-label="固定锚点后的坐标点与当前扫描射线"
+          ></div>
+          <aside class="space-y-5">
+            <div>
+              <p id="phase" class="eyebrow">原始链路</p>
+              <h3 id="step-title" class="mt-2 text-xl font-black">
+                单节点段准备合并
+              </h3>
+              <p id="step-copy" class="mt-3 leading-7 text-slate-300"></p>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="metric">
+                <span class="text-xs text-slate-400">当前方向键</span>
+                <strong id="slow-value" class="block text-xl">1</strong>
+              </div>
+              <div class="metric orange">
+                <span class="text-xs text-slate-400">该方向点数</span>
+                <strong id="fast-value" class="block text-xl">尚未开始</strong>
+              </div>
+            </div>
+            <div class="field">
+              <span class="text-xs text-slate-400">完整输入</span>
+              <code id="input-value" class="mt-1 block"></code>
+            </div>
+            <div class="field">
+              <span class="text-xs text-slate-400">当前结论</span>
+              <strong id="verdict" class="mt-1 block text-cyan-300"
+                >尚未结束</strong
+              >
+            </div>
+          </aside>
+        </div>
+
+        <div
+          class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4"
+          role="group"
+          aria-label="步骤控制"
+        >
+          <button id="prev-btn" class="control" type="button">← 上一步</button>
+          <button id="next-btn" class="control primary" type="button">
+            下一步 →
+          </button>
+          <button
+            id="auto-btn"
+            class="control"
+            type="button"
+            aria-pressed="false"
+          >
+            自动播放
+          </button>
+          <button id="reset-btn" class="control" type="button">重置</button>
+        </div>
+        <p class="mt-4 text-sm text-slate-400">
+          键盘：← / → 切换步骤，空格播放或暂停，R 重置。
+          <span id="step-count"></span>
+        </p>
+      </section>
+
+      <section class="panel p-5 md:p-8" aria-labelledby="tests-title">
+        <p class="eyebrow">Verification / 可复核结果</p>
+        <h2 id="tests-title" class="mt-2 text-2xl font-black">测试与验证</h2>
+        <div
+          id="test-grid"
+          class="mt-5 grid min-w-0 gap-4 md:grid-cols-2"
+        ></div>
+        <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div class="test-card">
+            <strong>Prettier</strong>
+            <p>通过</p>
+          </div>
+          <div class="test-card">
+            <strong>HTML Validate</strong>
+            <p>通过</p>
+          </div>
+          <div class="test-card">
+            <strong>JavaScript</strong>
+            <p>通过</p>
+          </div>
+          <div class="test-card">
+            <strong>真实 Chrome</strong>
+            <p>通过</p>
+          </div>
+          <div class="test-card">
+            <strong>算法对拍</strong>
+            <p>通过</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel p-5 md:p-8" aria-labelledby="solution-heading">
+        <div
+          class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+        >
+          <div>
+            <p class="eyebrow">Solution / 默认隐藏</p>
+            <h2 id="solution-heading" class="mt-2 text-2xl font-black">
+              先独立推演，再展开题解
+            </h2>
+          </div>
+          <button
+            id="solution-toggle"
+            class="control primary"
+            type="button"
+            aria-expanded="false"
+            aria-controls="solution-area"
+          >
+            查看题解
+          </button>
+        </div>
+
+        <div id="solution-area" class="mt-8 space-y-8" hidden>
+          <article>
+            <p class="eyebrow">核心洞察</p>
+            <h3 class="mt-2 text-xl font-black">不用浮点数：约分方向向量</h3>
+            <p class="mt-3 leading-8 text-slate-300">
+              浮点斜率存在精度与正负零问题。对每个锚点，把
+              <code>(dy, dx)</code> 同除以 gcd，并强制 dx 为正；垂直线统一为
+              (1,0)，水平线统一为 (0,1)。这样相同直线方向拥有完全相同的哈希键。
+            </p>
+          </article>
+
+          <div class="grid gap-5 md:grid-cols-2">
+            <article class="test-card">
+              <h3 class="font-black">完整过程</h3>
+              <ol class="mt-3 list-decimal space-y-2 pl-5 text-slate-300">
+                <li>少于 3 个点时直接返回点数。</li>
+                <li>依次选择每个点作为锚点，清空斜率计数表。</li>
+                <li>计算 dy、dx，gcd 约分并统一符号。</li>
+                <li>更新当前方向计数与全局最大值。</li>
+              </ol>
+            </article>
+            <article class="test-card">
+              <h3 class="font-black">边界与复杂度</h3>
+              <ul class="mt-3 list-disc space-y-2 pl-5 text-slate-300">
+                <li>题目保证点互不相同，无需统计重合点。</li>
+                <li>垂直、水平和负斜率必须规范到唯一键。</li>
+                <li>时间 O(n² log C)，空间 O(n)。</li>
+              </ul>
+            </article>
+            <article class="test-card">
+              <h3 class="font-black">替代方案取舍</h3>
+              <p class="mt-3 leading-7 text-slate-300">
+                枚举两点再检查所有点需要
+                O(n³)；浮点斜率哈希写法短却有精度风险。整数 gcd
+                归一化是面试最稳妥的主线。
+              </p>
+            </article>
+            <article class="test-card">
+              <h3 class="font-black">常见错误</h3>
+              <ul class="mt-3 list-disc space-y-2 pl-5 text-slate-300">
+                <li>直接用 double 作为键，近似值可能分桶错误。</li>
+                <li>(1,1) 与 (-1,-1) 没有统一符号。</li>
+                <li>忘记给斜率桶计数加上锚点本身。</li>
+                <li>跨锚点复用计数表，混合了不同直线。</li>
+              </ul>
+            </article>
+          </div>
+
+          <article>
+            <h3 class="text-xl font-black">面试追问</h3>
+            <div class="mt-3 grid gap-3 md:grid-cols-3">
+              <div class="test-card">
+                为什么不需要截距？固定锚点后，相同方向唯一确定一条直线。
+              </div>
+              <div class="test-card">
+                如何剪枝？当前答案不小于剩余点数时可结束外层循环。
+              </div>
+              <div class="test-card">
+                如何处理垂直线？令 dx=0 时统一方向为 (1,0)。
+              </div>
+            </div>
+          </article>
+
+          <article>
+            <div
+              class="flex flex-wrap gap-2"
+              role="tablist"
+              aria-label="提交代码语言"
+            >
+              <button
+                id="tab-java"
+                class="control primary code-tab"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="panel-java"
+              >
+                Java
+              </button>
+              <button
+                id="tab-javascript"
+                class="control code-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-javascript"
+              >
+                JavaScript
+              </button>
+              <button
+                id="tab-python"
+                class="control code-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-python"
+              >
+                Python
+              </button>
+              <button
+                id="tab-cpp"
+                class="control code-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-cpp"
+              >
+                C++
+              </button>
+            </div>
+            <pre
+              id="panel-java"
+              class="codebox mt-3"
+              role="tabpanel"
+              aria-labelledby="tab-java"
+            ><code>class Solution {
+    public int maxPoints(int[][] points) {
+        int n = points.length, answer = Math.min(n, 2);
+        for (int i = 0; i &lt; n; i++) {
+            Map&lt;String, Integer&gt; count = new HashMap&lt;&gt;();
+            for (int j = i + 1; j &lt; n; j++) {
+                int dx = points[j][0] - points[i][0];
+                int dy = points[j][1] - points[i][1];
+                int g = gcd(Math.abs(dx), Math.abs(dy));
+                dx /= g; dy /= g;
+                if (dx &lt; 0 || (dx == 0 &amp;&amp; dy &lt; 0)) {
+                    dx = -dx; dy = -dy;
+                }
+                String key = dy + "/" + dx;
+                answer = Math.max(answer, count.merge(key, 1, Integer::sum) + 1);
+            }
+        }
+        return answer;
+    }
+
+    private int gcd(int a, int b) {
+        while (b != 0) { int t = a % b; a = b; b = t; }
+        return a;
+    }
+}</code></pre>
+            <pre
+              id="panel-javascript"
+              class="codebox mt-3"
+              role="tabpanel"
+              aria-labelledby="tab-javascript"
+              hidden
+            ><code>var maxPoints = function (points) {
+  const gcd = (a, b) =&gt; {
+    while (b !== 0) [a, b] = [b, a % b];
+    return a;
+  };
+  let answer = Math.min(points.length, 2);
+  for (let i = 0; i &lt; points.length; i++) {
+    const count = new Map();
+    for (let j = i + 1; j &lt; points.length; j++) {
+      let dx = points[j][0] - points[i][0];
+      let dy = points[j][1] - points[i][1];
+      const g = gcd(Math.abs(dx), Math.abs(dy));
+      dx /= g; dy /= g;
+      if (dx &lt; 0 || (dx === 0 &amp;&amp; dy &lt; 0)) {
+        dx = -dx; dy = -dy;
+      }
+      const key = `${dy}/${dx}`;
+      const next = (count.get(key) ?? 0) + 1;
+      count.set(key, next);
+      answer = Math.max(answer, next + 1);
+    }
+  }
+  return answer;
+};</code></pre>
+            <pre
+              id="panel-python"
+              class="codebox mt-3"
+              role="tabpanel"
+              aria-labelledby="tab-python"
+              hidden
+            ><code>class Solution:
+    def maxPoints(self, points: List[List[int]]) -&gt; int:
+        n = len(points)
+        answer = min(n, 2)
+        for i in range(n):
+            count = defaultdict(int)
+            for j in range(i + 1, n):
+                dx = points[j][0] - points[i][0]
+                dy = points[j][1] - points[i][1]
+                g = gcd(abs(dx), abs(dy))
+                dx, dy = dx // g, dy // g
+                if dx &lt; 0 or (dx == 0 and dy &lt; 0):
+                    dx, dy = -dx, -dy
+                count[(dy, dx)] += 1
+                answer = max(answer, count[(dy, dx)] + 1)
+        return answer</code></pre>
+            <pre
+              id="panel-cpp"
+              class="codebox mt-3"
+              role="tabpanel"
+              aria-labelledby="tab-cpp"
+              hidden
+            ><code>class Solution {
+    int gcd(int a, int b) {
+        while (b) { int t = a % b; a = b; b = t; }
+        return a;
+    }
+
+public:
+    int maxPoints(vector&lt;vector&lt;int&gt;&gt;&amp; points) {
+        int n = points.size(), answer = min(n, 2);
+        for (int i = 0; i &lt; n; ++i) {
+            map&lt;pair&lt;int, int&gt;, int&gt; count;
+            for (int j = i + 1; j &lt; n; ++j) {
+                int dx = points[j][0] - points[i][0];
+                int dy = points[j][1] - points[i][1];
+                int g = gcd(abs(dx), abs(dy));
+                dx /= g; dy /= g;
+                if (dx &lt; 0 || (dx == 0 &amp;&amp; dy &lt; 0)) {
+                    dx = -dx; dy = -dy;
+                }
+                answer = max(answer, ++count[{dy, dx}] + 1);
+            }
+        }
+        return answer;
+    }
+};</code></pre>
+          </article>
+        </div>
+      </section>
+    </main>
+    <div id="live-region" class="sr-only" aria-live="polite"></div>
+
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+        const cases = [
+          {
+            points: [
+              [1, 1],
+              [2, 2],
+              [3, 3],
+            ],
+            input: "points = [[1,1],[2,2],[3,3]]",
+            expected: "3",
+          },
+          {
+            points: [
+              [1, 1],
+              [3, 2],
+              [5, 3],
+              [4, 1],
+              [2, 3],
+              [1, 4],
+            ],
+            input: "points = [[1,1],[3,2],[5,3],[4,1],[2,3],[1,4]]",
+            expected: "4",
+          },
+          {
+            points: [[0, 0]],
+            input: "points = [[0,0]]",
+            expected: "1",
+          },
+          {
+            points: [
+              [2, 1],
+              [2, 3],
+              [2, -2],
+              [0, 0],
+            ],
+            input: "points = [[2,1],[2,3],[2,-2],[0,0]]",
+            expected: "3",
+          },
+        ];
+
+        const byId = (id) => document.getElementById(id);
+        const stage = byId("node-stage");
+        const select = byId("case-select");
+        const live = byId("live-region");
+        let caseIndex = 0;
+        let stepIndex = 0;
+        let timer = null;
+
+        function gcd(a, b) {
+          while (b !== 0) [a, b] = [b, a % b];
+          return a;
+        }
+
+        function direction(a, b) {
+          let dx = b[0] - a[0];
+          let dy = b[1] - a[1];
+          const divisor = gcd(Math.abs(dx), Math.abs(dy));
+          dx /= divisor;
+          dy /= divisor;
+          if (dx < 0 || (dx === 0 && dy < 0)) {
+            dx = -dx;
+            dy = -dy;
+          }
+          return { dx, dy, key: `${dy}/${dx}` };
+        }
+
+        function buildSteps(test) {
+          const n = test.points.length;
+          if (n === 1) {
+            return [
+              {
+                phase: "单点边界",
+                title: "一个点天然共线",
+                copy: "无需计算方向，答案就是点数 1。",
+                points: test.points,
+                anchor: 0,
+                target: null,
+                key: "—",
+                lineCount: 1,
+                answer: 1,
+                verdict: "全局答案 1",
+              },
+            ];
+          }
+          const steps = [];
+          let answer = 2;
+          for (let anchor = 0; anchor < n; anchor += 1) {
+            const count = new Map();
+            for (let target = anchor + 1; target < n; target += 1) {
+              const { dx, dy, key } = direction(
+                test.points[anchor],
+                test.points[target],
+              );
+              const lineCount = (count.get(key) ?? 0) + 2;
+              count.set(key, lineCount - 1);
+              answer = Math.max(answer, lineCount);
+              steps.push({
+                phase: `锚点 P${anchor} · 扫描 P${target}`,
+                title: `方向 (${dy}, ${dx}) → 键 ${key}`,
+                copy: `坐标差约分并统一符号；该桶此前已有 ${lineCount - 2} 个目标点。`,
+                points: test.points,
+                anchor,
+                target,
+                key,
+                lineCount,
+                answer,
+                verdict: `当前直线 ${lineCount} 点；全局答案 ${answer}`,
+              });
+            }
+          }
+          return steps;
+        }
+
+        function positions(points) {
+          const xs = points.map((point) => point[0]);
+          const ys = points.map((point) => point[1]);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          return points.map(([x, y]) => ({
+            x: maxX === minX ? 50 : 12 + (76 * (x - minX)) / (maxX - minX),
+            y: maxY === minY ? 50 : 82 - (64 * (y - minY)) / (maxY - minY),
+          }));
+        }
+
+        function edge(from, to) {
+          const rect = stage.getBoundingClientRect();
+          const x1 = (from.x / 100) * rect.width;
+          const y1 = (from.y / 100) * rect.height;
+          const x2 = (to.x / 100) * rect.width;
+          const y2 = (to.y / 100) * rect.height;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const el = document.createElement("div");
+          el.className = "edge";
+          el.style.left = `${x1}px`;
+          el.style.top = `${y1}px`;
+          el.style.width = `${Math.max(12, Math.hypot(dx, dy) - 46)}px`;
+          el.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+          stage.appendChild(el);
+        }
+
+        function renderStage(event) {
+          stage.replaceChildren();
+          const pts = positions(event.points);
+          if (event.target !== null) edge(pts[event.anchor], pts[event.target]);
+          pts.forEach((point, i) => {
+            const node = document.createElement("div");
+            node.className = `node${
+              i === event.anchor ? " slow" : i === event.target ? " entry" : ""
+            }`;
+            node.style.left = `${point.x}%`;
+            node.style.top = `${point.y}%`;
+            node.textContent = `P${i}`;
+            node.setAttribute(
+              "aria-label",
+              `点 P${i}，坐标 ${event.points[i][0]}, ${event.points[i][1]}`,
+            );
+            stage.appendChild(node);
+            addTag(
+              point,
+              `(${event.points[i][0]},${event.points[i][1]})`,
+              i === event.anchor ? "slow-tag" : "fast-tag",
+            );
+          });
+        }
+
+        function addTag(point, text, className) {
+          const tag = document.createElement("span");
+          tag.className = `pointer-tag ${className}`;
+          tag.style.left = `${point.x}%`;
+          tag.style.top = `${point.y}%`;
+          tag.textContent = text;
+          stage.appendChild(tag);
+        }
+
+        function render(announce = false) {
+          const test = cases[caseIndex];
+          const steps = buildSteps(test);
+          stepIndex = Math.min(stepIndex, steps.length - 1);
+          const event = steps[stepIndex];
+          renderStage(event);
+          byId("phase").textContent = event.phase;
+          byId("step-title").textContent = event.title;
+          byId("step-copy").textContent = event.copy;
+          byId("slow-value").textContent = event.key;
+          byId("fast-value").textContent = String(event.lineCount);
+          byId("input-value").textContent = test.input;
+          byId("verdict").textContent = event.verdict;
+          byId("step-count").textContent =
+            `当前 ${stepIndex + 1} / ${steps.length} 步`;
+          byId("prev-btn").disabled = stepIndex === 0;
+          byId("next-btn").disabled = stepIndex === steps.length - 1;
+          if (announce) {
+            live.textContent = `${event.phase}：${event.title}。${event.verdict}`;
+          }
+        }
+
+        function stopAuto() {
+          if (timer !== null) window.clearInterval(timer);
+          timer = null;
+          byId("auto-btn").textContent = "自动播放";
+          byId("auto-btn").setAttribute("aria-pressed", "false");
+        }
+
+        function toggleAuto() {
+          if (timer !== null) {
+            stopAuto();
+            live.textContent = "自动播放已暂停";
+            return;
+          }
+          byId("auto-btn").textContent = "暂停播放";
+          byId("auto-btn").setAttribute("aria-pressed", "true");
+          timer = window.setInterval(() => {
+            const last = buildSteps(cases[caseIndex]).length - 1;
+            if (stepIndex >= last) {
+              stopAuto();
+              live.textContent = "自动播放完成";
+              return;
+            }
+            stepIndex += 1;
+            render(true);
+          }, 1100);
+          live.textContent = "自动播放已开始";
+        }
+
+        function renderTests() {
+          const grid = byId("test-grid");
+          grid.replaceChildren();
+          cases.forEach((test, i) => {
+            const steps = buildSteps(test);
+            const actual = String(steps[steps.length - 1].answer);
+            const card = document.createElement("article");
+            card.className = "test-card";
+            card.innerHTML = `<div class="flex items-center justify-between gap-3">
+              <strong>用例 ${i + 1}</strong><span class="text-cyan-300">通过</span>
+            </div>
+            <div class="field mt-3"><span class="block text-xs text-slate-400">输入</span><code>${test.input}</code></div>
+            <div class="field mt-2"><span class="block text-xs text-slate-400">期望输出</span><code>${test.expected}</code></div>
+            <div class="field mt-2"><span class="block text-xs text-slate-400">实际输出</span><code>${actual}</code></div>
+            <div class="field mt-2"><span class="block text-xs text-slate-400">通过状态</span><strong class="text-cyan-300">${actual === test.expected ? "✓ 通过" : "✕ 失败"}</strong></div>`;
+            grid.appendChild(card);
+          });
+        }
+
+        byId("prev-btn").addEventListener("click", () => {
+          stopAuto();
+          stepIndex = Math.max(0, stepIndex - 1);
+          render(true);
+        });
+        byId("next-btn").addEventListener("click", () => {
+          stopAuto();
+          stepIndex = Math.min(
+            buildSteps(cases[caseIndex]).length - 1,
+            stepIndex + 1,
+          );
+          render(true);
+        });
+        byId("auto-btn").addEventListener("click", toggleAuto);
+        byId("reset-btn").addEventListener("click", () => {
+          stopAuto();
+          stepIndex = 0;
+          render(true);
+        });
+        select.addEventListener("change", () => {
+          stopAuto();
+          caseIndex = Number(select.value);
+          stepIndex = 0;
+          render(true);
+        });
+        byId("jump-lab").addEventListener("click", () => {
+          byId("lab").scrollIntoView({ behavior: "smooth" });
+          byId("case-select").focus({ preventScroll: true });
+        });
+        byId("solution-toggle").addEventListener("click", () => {
+          const button = byId("solution-toggle");
+          const area = byId("solution-area");
+          const expanded = button.getAttribute("aria-expanded") === "true";
+          button.setAttribute("aria-expanded", String(!expanded));
+          area.hidden = expanded;
+          button.textContent = expanded ? "查看题解" : "收起题解";
+          live.textContent = expanded ? "题解已收起" : "题解已展开";
+          if (!expanded) area.querySelector("h3").focus?.();
+        });
+        document.querySelectorAll(".code-tab").forEach((tab) => {
+          tab.addEventListener("click", () => {
+            document.querySelectorAll(".code-tab").forEach((item) => {
+              const active = item === tab;
+              item.setAttribute("aria-selected", String(active));
+              item.classList.toggle("primary", active);
+              byId(item.getAttribute("aria-controls")).hidden = !active;
+            });
+            live.textContent = `已切换到 ${tab.textContent} 代码`;
+          });
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.target.matches("select, button")) return;
+          if (event.key === "ArrowLeft") byId("prev-btn").click();
+          if (event.key === "ArrowRight") byId("next-btn").click();
+          if (event.key === " ") {
+            event.preventDefault();
+            toggleAuto();
+          }
+          if (event.key.toLowerCase() === "r") byId("reset-btn").click();
+        });
+        window.addEventListener("resize", () => render(false));
+        renderTests();
+        render(false);
+      })();
+    </script>
+  </body>
+</html>
