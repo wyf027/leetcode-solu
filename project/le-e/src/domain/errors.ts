@@ -12,8 +12,6 @@ export const ERROR_CODES = {
   editorBridgeNotConfigured: 'EDITOR_BRIDGE_NOT_CONFIGURED',
   editorBridgeProtocol: 'EDITOR_BRIDGE_PROTOCOL_ERROR',
   sourceFileRejected: 'SOURCE_FILE_REJECTED',
-  sourceFileChanged: 'SOURCE_FILE_CHANGED',
-  sourceSaveFailed: 'SOURCE_SAVE_FAILED',
 } as const
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]

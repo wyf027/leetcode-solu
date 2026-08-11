@@ -3,11 +3,9 @@ import { TText } from '@simon_he/vue-tui'
 import { computed, onUnmounted, reactive } from 'vue'
 
 import type { AppController } from './application/createAppController'
-import { editorGutterColumns } from './application/codePresentation'
 import { createKeyRouter } from './application/keyRouter'
 import type { UiInteractionState } from './application/keyRouter'
 import type { TerminalInputBus } from './application/terminalInput'
-import CodeEditor from './components/CodeEditor.vue'
 import HeaderBar from './components/HeaderBar.vue'
 import HelpOverlay from './components/HelpOverlay.vue'
 import LogPanel from './components/LogPanel.vue'
@@ -15,7 +13,6 @@ import ProblemDetail from './components/ProblemDetail.vue'
 import ProblemList from './components/ProblemList.vue'
 import ResizeNotice from './components/ResizeNotice.vue'
 import SubmitDialog from './components/SubmitDialog.vue'
-import UnsavedDialog from './components/UnsavedDialog.vue'
 import { RUNTIME_CONFIG } from './config/runtime'
 import { THEME } from './styles/theme'
 
@@ -93,11 +90,6 @@ const favoriteInSelectedFolder = computed(() => {
         problem.title.normalize('NFKC').trim().toLocaleLowerCase(),
   )
 })
-const unsavedIntent = computed(() => {
-  const editor = props.controller.state.editor
-  return editor.phase === 'editing' && editor.buffer?.dirty ? editor.pendingCloseIntent : null
-})
-
 const headerHeight = 4
 const footerHeight = 2
 const logHeight = computed(() => (props.controller.state.logExpanded ? 8 : 3))
@@ -113,15 +105,6 @@ const handleInput = createKeyRouter({
   controller: props.controller,
   ui,
   requestExit: props.requestExit,
-  editorViewport: () => ({
-    rows: Math.max(1, props.screen.rows - 4),
-    columns: Math.max(
-      1,
-      props.screen.cols -
-        2 -
-        editorGutterColumns(props.controller.state.editor.buffer?.lines.length ?? 1),
-    ),
-  }),
 })
 
 const removeInputHandler = props.inputBus.setHandler(handleInput)
@@ -130,16 +113,6 @@ onUnmounted(removeInputHandler)
 
 <template>
   <ResizeNotice v-if="tooSmall" :cols="screen.cols" :rows="screen.rows" />
-
-  <template v-else-if="controller.state.editor.phase !== 'idle'">
-    <CodeEditor :editor="controller.state.editor" :cols="screen.cols" :rows="screen.rows" />
-    <UnsavedDialog
-      v-if="unsavedIntent"
-      :cols="screen.cols"
-      :rows="screen.rows"
-      :intent="unsavedIntent"
-    />
-  </template>
 
   <template v-else>
     <HeaderBar
@@ -193,7 +166,7 @@ onUnmounted(removeInputHandler)
       :value="
         controller.state.lastError
           ? `${controller.state.lastError.code}: ${controller.state.lastError.message}`
-          : '↑↓/jk 移动 · Enter 详情 · e 内置编辑 · E Vim · t 测试 · s 提交 · ? 帮助'
+          : '↑↓/jk 移动 · Enter 详情 · e Vim 编辑 · t 测试 · s 提交 · ? 帮助'
       "
       :style="controller.state.lastError ? THEME.error : THEME.muted"
     />

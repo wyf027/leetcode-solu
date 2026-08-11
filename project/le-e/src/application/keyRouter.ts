@@ -1,16 +1,3 @@
-import {
-  backspaceCode,
-  deleteCodeForward,
-  ensureCodeCursorVisible,
-  insertCodeNewline,
-  insertCodeText,
-  moveCodeEnd,
-  moveCodeHome,
-  moveCodeLeft,
-  moveCodePage,
-  moveCodeRight,
-  moveCodeVertical,
-} from './codeBuffer'
 import type { AppController } from './createAppController'
 import type { TerminalInputEvent } from './terminalInput'
 
@@ -30,7 +17,6 @@ export interface KeyRouterOptions {
   readonly controller: AppController
   readonly ui: UiInteractionState
   readonly requestExit: () => void
-  readonly editorViewport: () => { rows: number; columns: number }
 }
 
 const focusOrder: readonly UiFocus[] = ['filters', 'problems', 'detail', 'log']
@@ -86,81 +72,6 @@ function cycleDifficulty(controller: AppController): void {
   controller.setDifficulty(values[(index + 1) % values.length] ?? 'all')
 }
 
-async function closeEditor(
-  controller: AppController,
-  intent: 'back' | 'quit',
-  requestExit: () => void,
-): Promise<void> {
-  const result = await controller.requestEditorClose(intent)
-  if (result === 'closed' && intent === 'quit') requestExit()
-}
-
-async function saveAndCloseEditor(
-  controller: AppController,
-  requestExit: () => void,
-): Promise<void> {
-  const intent = controller.state.editor.pendingCloseIntent
-  if (intent === null || !(await controller.saveEditor())) return
-  await closeEditor(controller, intent, requestExit)
-}
-
-function routeEditor(event: TerminalInputEvent, options: KeyRouterOptions): boolean {
-  const { controller, requestExit } = options
-  const editor = controller.state.editor
-
-  if (editor.pendingCloseIntent !== null) {
-    if (event.type !== 'keydown') return true
-    const key = event.key.toLocaleLowerCase()
-    if (event.key === 'Enter' || key === 's') {
-      void saveAndCloseEditor(controller, requestExit)
-    } else if (key === 'd' || key === 'y') {
-      void controller.confirmEditorDiscard().then((intent) => {
-        if (intent === 'quit') requestExit()
-      })
-    } else if (key === 'n' || event.key === 'Escape') {
-      controller.cancelEditorClose()
-    }
-    return true
-  }
-
-  if (ctrl(event, 'c')) {
-    void closeEditor(controller, 'quit', requestExit)
-    return true
-  }
-  if (event.type === 'keydown' && event.key === 'Escape') {
-    void closeEditor(controller, 'back', requestExit)
-    return true
-  }
-  if (editor.phase !== 'editing' || editor.buffer === null) return true
-
-  const buffer = editor.buffer
-  const viewport = options.editorViewport()
-  if (event.type === 'paste' && event.text) insertCodeText(buffer, event.text)
-  else if (event.type === 'input' && event.text) insertCodeText(buffer, event.text)
-  else if (ctrl(event, 's')) void controller.saveEditor()
-  else if (event.type === 'keydown') {
-    if (event.key === 'Enter') insertCodeNewline(buffer)
-    else if (event.key === 'Backspace') backspaceCode(buffer)
-    else if (event.key === 'Delete') deleteCodeForward(buffer)
-    else if (event.key === 'ArrowLeft') moveCodeLeft(buffer)
-    else if (event.key === 'ArrowRight') moveCodeRight(buffer)
-    else if (event.key === 'ArrowUp') moveCodeVertical(buffer, -1)
-    else if (event.key === 'ArrowDown') moveCodeVertical(buffer, 1)
-    else if (event.key === 'Home') moveCodeHome(buffer)
-    else if (event.key === 'End') moveCodeEnd(buffer)
-    else if (event.key === 'PageUp') moveCodePage(buffer, -1, viewport.rows)
-    else if (event.key === 'PageDown') moveCodePage(buffer, 1, viewport.rows)
-    else if (event.key === 'Tab') insertCodeText(buffer, '  ')
-    else {
-      const value = printable(event)
-      if (value !== null) insertCodeText(buffer, value)
-    }
-  }
-
-  ensureCodeCursorVisible(buffer, viewport.rows, viewport.columns)
-  return true
-}
-
 function routeSearch(event: TerminalInputEvent, options: KeyRouterOptions): boolean {
   const { controller, ui } = options
   if (event.type === 'paste' && event.text) {
@@ -192,8 +103,6 @@ function moveFocusedArea(controller: AppController, ui: UiInteractionState, delt
 export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInputEvent) => boolean {
   const { controller, ui, requestExit } = options
   return (event) => {
-    if (controller.state.editor.phase !== 'idle') return routeEditor(event, options)
-
     if (ctrl(event, 'c')) {
       requestExit()
       return true
@@ -231,7 +140,6 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
     else if (key === ']') controller.moveFavoriteFolder(1)
     else if (lower === 'a') void controller.toggleFavoriteSelected()
     else if (lower === 'd') cycleDifficulty(controller)
-    else if (key === 'E') void controller.editSelectedInVim()
     else if (lower === 'e') void controller.editSelected()
     else if (lower === 't') void controller.testSelected()
     else if (lower === 's') controller.openSubmitDialog()

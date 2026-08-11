@@ -1,10 +1,14 @@
 # LeetCode Vue TUI 设计规范
 
 - 日期：2026-08-10
-- 状态：内嵌编辑器增量设计已口头批准，待书面审阅
+- 状态：历史设计；内嵌编辑器部分已于 2026-08-11 被 Vim-only 方案取代
 - 项目命令：`le-e`
 - 底层 CLI：`clearloop/leetcode-cli` 0.5.4（命令名 `leetcode`）
 - UI 技术：Vue 3 + TypeScript + `@simon_he/vue-tui` 1.1.5
+
+> 2026-08-11 修订：TUI 内嵌编辑器、未保存弹窗及其快捷键已经移除。当前唯一编辑入口为
+> `e`，它通过源码桥接取得 CLI 生成的 JavaScript 路径，暂停 TUI 后打开本机 Vim，并在
+> Vim 退出后恢复 TUI。下文涉及内嵌编辑器的章节仅保留为历史设计记录。
 
 ## 1. 摘要
 

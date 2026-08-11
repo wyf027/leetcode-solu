@@ -16,7 +16,7 @@ import { createChineseProblemCatalog } from './infrastructure/chineseProblemCata
 import { createLeetCodeGateway } from './infrastructure/leetcodeGateway'
 import { createProcessRunner } from './infrastructure/processRunner'
 import { createSourceBridgeSession } from './infrastructure/sourceBridgeServer'
-import { loadSourceFile, saveSourceFile } from './infrastructure/sourceFile'
+import { loadSourceFile } from './infrastructure/sourceFile'
 import { createTerminalLifecycle } from './infrastructure/terminalLifecycle'
 import type { TerminalLifecycle } from './infrastructure/terminalLifecycle'
 
@@ -32,7 +32,7 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
     rows: process.stdout.rows ?? 28,
   })
   const inputBus = createTerminalInputBus()
-  const externalEditorRunner = createProcessRunner()
+  const vimEditorRunner = createProcessRunner()
   const controller = createAppController({
     gateway: createLeetCodeGateway({
       runner: createProcessRunner(),
@@ -47,14 +47,13 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
         options.accountHelperCommand ??
         resolve('work/clearloop-leetcode-cli-v0.5.4/target/release/le-e-account'),
     }),
-    embeddedEditor: {
+    editorBridge: {
       createBridge: createSourceBridgeSession,
       loadSource: loadSourceFile,
-      saveSource: saveSourceFile,
     },
-    externalEditor: {
+    vimEditor: {
       async open(path, { signal }) {
-        const result = await externalEditorRunner.runInherited({
+        const result = await vimEditorRunner.runInherited({
           command: options.vimCommand ?? 'vim',
           args: ['--', path],
           signal,

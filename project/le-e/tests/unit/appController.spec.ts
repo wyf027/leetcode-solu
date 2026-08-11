@@ -10,6 +10,7 @@ import type {
   GatewayRunValue,
   LeetCodeGateway,
 } from '../../src/infrastructure/leetcodeGateway'
+import type { SourceBridgeSession } from '../../src/infrastructure/sourceBridgeServer'
 
 function summary(id: number, title: string, starred = false): ProblemSummary {
   return {
@@ -72,7 +73,13 @@ function harness() {
   } satisfies AppResult<CliVersionInfo>)
   gateway.listProblems.mockResolvedValue({ ok: true, value: parsedList([]) })
   gateway.listStarred.mockResolvedValue({ ok: true, value: parsedList([]) })
-  gateway.edit.mockResolvedValue({ ok: true, value: commandResult() })
+  let releaseEdit: (() => void) | undefined
+  gateway.edit.mockImplementation(async () => {
+    await new Promise<void>((resolve) => {
+      releaseEdit = resolve
+    })
+    return { ok: true, value: commandResult() }
+  })
   gateway.test.mockResolvedValue({
     ok: true,
     value: runValue({
@@ -93,7 +100,37 @@ function harness() {
   })
 
   let timestamp = 0
-  const controller = createAppController({ gateway, now: () => ++timestamp })
+  const finishEdit = (): void => {
+    releaseEdit?.()
+    releaseEdit = undefined
+  }
+  const createBridge = (): SourceBridgeSession => ({
+    socketPath: '/tmp/le-e-test/editor.sock',
+    environment: { LE_E_EDITOR_SOCKET: '/tmp/le-e-test/editor.sock' },
+    async waitForOpen() {
+      return { path: '/tmp/le-e-test/solution.js' }
+    },
+    async complete() {
+      finishEdit()
+    },
+    async reject() {
+      finishEdit()
+    },
+    async dispose() {
+      finishEdit()
+    },
+  })
+  const controller = createAppController({
+    gateway,
+    now: () => ++timestamp,
+    editorBridge: {
+      createBridge: vi.fn(async () => createBridge()),
+      loadSource: vi.fn(async (path: string) => ({ path })),
+    },
+    vimEditor: {
+      open: vi.fn(async () => {}),
+    },
+  })
   return { controller, gateway }
 }
 

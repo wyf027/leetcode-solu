@@ -1,17 +1,16 @@
 # LeetCode Vue TUI
 
-- Status: approved — pull request delivery
+- Status: review — Vim-only editor update verified
 - Branch: `feat/le-e-vue-tui`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
-- Updated: 2026-08-10
+- Updated: 2026-08-11
 
 ## Objective
 
 Build a Vue 3 terminal UI around the installed `clearloop/leetcode-cli` using
 `@simon_he/vue-tui`. The first release must support problem browsing, search,
-difficulty and favorite filters, details, an embedded code editor backed by a
-CLI editor bridge, test output,
-explicitly confirmed submission, and a bounded log panel.
+difficulty and favorite filters, details, Vim editing backed by a CLI source
+bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Boundaries
 
@@ -30,18 +29,10 @@ explicitly confirmed submission, and a bounded log panel.
 - Framework: `@simon_he/vue-tui` with Vue 3 and TypeScript.
 - Architecture: CLI adapter with dedicated output parsers.
 - Layout: two-pane master/detail view with a bottom log panel.
-- Editing: `e` opens a full-screen basic editor; `Ctrl+S` atomically saves the
-  exact JavaScript file prepared by `leetcode edit`, and `Esc` returns.
-- External editing: `Shift+E` suspends the TUI and opens the exact CLI-prepared
-  JavaScript source in local `vim`; leaving Vim restores the same TUI session.
-- Dirty close: `Enter` or `s` saves and returns, `d` or `y` discards, and
-  `Esc` or `n` continues editing.
+- Editing: `e` suspends the TUI and opens the exact CLI-prepared JavaScript
+  source in local `vim`; leaving Vim restores the same TUI session.
 - Bridge: a `le-e-editor` helper hands the CLI-created path to the TUI through
   a private Unix Socket and falls back to the original editor outside the TUI.
-- Editor scope: basic input, paste, newline, delete, arrows, Home/End,
-  PageUp/PageDown, scrolling, two-space Tab, line numbers, JavaScript highlighting,
-  indentation guides, and a non-width-consuming overlay cursor. No undo/redo,
-  search, autocomplete, autosave, or crash recovery.
 - Chinese content: keep CLI titles for identity checks, but render public Chinese
   titles and statements from the China-site GraphQL endpoint when available.
 - Failed tests: retain the parsed failing input, actual output, and expected output
@@ -57,8 +48,8 @@ explicitly confirmed submission, and a bounded log panel.
 
 ## Verification target
 
-- Preserve and run the 50 existing automated tests; do not add test cases for
-  the embedded-editor scope per explicit user direction.
+- Preserve and run the 50 existing automated tests; do not add test cases per
+  explicit user direction.
 - Manually inspect headless rendering and keyboard flow at 100x28.
 - Manually verify edit/save/test data flow with a fake `leetcode` executable.
 - Live setup, source editing, test, and submit require separate explicit
@@ -66,8 +57,8 @@ explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Review the resulting pull request and its checks; merge only with separate
-explicit authorization.
+Review and deliver the verified Vim-only editor update to pull request #1657;
+merge still requires separate explicit authorization.
 
 ## Design artifact
 
@@ -77,14 +68,14 @@ explicit authorization.
 
 - Approved by user on 2026-08-10.
 - Committed as `d2a4082`.
-- Embedded-editor interaction, bridge architecture, and verification boundary
-  approved by user on 2026-08-10 and committed as `d6624c2`.
+- Embedded-editor interaction was approved on 2026-08-10 and committed as
+  `d6624c2`, then superseded by the Vim-only direction on 2026-08-11.
 
 ## Implementation plan
 
 - `docs/superpowers/plans/2026-08-10-leetcode-vue-tui-implementation.md`
-- Revised after `d6624c2`; remaining work adds no test cases and uses fake CLI
-  manual acceptance for the embedded-editor flow.
+- The embedded-editor steps in this historical plan were superseded by the
+  Vim-only direction on 2026-08-11; no new test cases will be added.
 
 ## Verification log
 
@@ -176,6 +167,23 @@ explicit authorization.
 - Existing automated suite remains 13 files and 50 tests; no test cases were
   added. Targeted Prettier, ESLint, `vue-tsc --noEmit`, Vitest, Vite build, and
   `git diff --check` passed.
+
+### Task 20 — complete
+
+- Removed the legacy embedded editor, its buffer/presentation/session state,
+  dirty-close dialog, and in-process source-save path.
+- Unified editing on `e`: the CLI prepares and reports the exact JavaScript
+  source through the private bridge, the TUI suspends for local Vim, and the same
+  session resumes after Vim exits.
+- Updated current help, shortcuts, runtime wiring, documentation, and the
+  existing controller test fixture without adding test cases.
+- Fake PTY acceptance at 110x35 passed for `e` transitioning from `Running edit`
+  back to `Ready` with the source marked ready; `q` then restored the terminal
+  and exited with code 0. The fake editor was `/usr/bin/true`, so no real source,
+  test, submit, or favorite mutation occurred.
+- `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, 13 Vitest files with
+  all 50 existing tests, and the terminal Vite build. `git diff --check` also
+  passed.
 
 ### Repository delivery — approved
 

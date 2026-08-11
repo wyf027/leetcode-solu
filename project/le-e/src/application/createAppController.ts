@@ -20,18 +20,7 @@ import type { AccountFavoritesGateway } from '../infrastructure/accountFavorites
 import { EditorBridgeProtocolError } from '../infrastructure/editorBridgeProtocol'
 import type { SourceBridgeSession } from '../infrastructure/sourceBridgeServer'
 import { SourceFileError } from '../infrastructure/sourceFile'
-import type { LoadedSourceFile } from '../infrastructure/sourceFile'
-import { codeBufferText, markCodeBufferSaved } from './codeBuffer'
-import {
-  beginEditorLaunch,
-  cancelEditorClose as cancelEditorCloseState,
-  confirmEditorDiscard as confirmEditorDiscardState,
-  createEditorSessionState,
-  finishEditorSession,
-  openEditorDocument,
-  requestEditorClose as requestEditorCloseState,
-} from './editorSession'
-import type { EditorCloseIntent, EditorSessionState } from './editorSession'
+import type { ValidatedSourceFile } from '../infrastructure/sourceFile'
 import { filterProblems, selectVisibleProblemId } from './filters'
 import type { ProblemFilters } from './filters'
 import { appendLogEntries } from './logBuffer'
@@ -63,7 +52,6 @@ export interface AppControllerState {
   submissionStatuses: Map<number, SubmissionStatus>
   submitDialog: SubmitDialogState
   logExpanded: boolean
-  editor: EditorSessionState
   viewMode: 'all' | 'favorites'
   favoriteFolders: FavoriteFolder[]
   selectedFavoriteFolderSlug: string | null
@@ -84,13 +72,6 @@ export interface AppController {
   moveSelection(delta: number): void
   loadSelectedDetail(): Promise<boolean>
   editSelected(): Promise<boolean>
-  editSelectedInVim(): Promise<boolean>
-  saveEditor(): Promise<boolean>
-  requestEditorClose(
-    intent: EditorCloseIntent,
-  ): Promise<'closed' | 'confirmation-required' | 'ignored'>
-  cancelEditorClose(): void
-  confirmEditorDiscard(): Promise<EditorCloseIntent | null>
   dispose(): void
   testSelected(): Promise<boolean>
   openSubmitDialog(): boolean
@@ -103,18 +84,17 @@ export interface CreateAppControllerOptions {
   readonly now?: () => number
   readonly suspendForEditor?: () => void | Promise<void>
   readonly resumeAfterEditor?: () => void | Promise<void>
-  readonly embeddedEditor?: EmbeddedEditorDependencies
-  readonly externalEditor?: ExternalEditorDependencies
+  readonly editorBridge?: EditorBridgeDependencies
+  readonly vimEditor?: VimEditorDependencies
   readonly favoritesGateway?: AccountFavoritesGateway
 }
 
-export interface EmbeddedEditorDependencies {
+export interface EditorBridgeDependencies {
   createBridge(options: { readonly signal: AbortSignal }): Promise<SourceBridgeSession>
-  loadSource(path: string): Promise<LoadedSourceFile>
-  saveSource(document: LoadedSourceFile, content: string): Promise<LoadedSourceFile>
+  loadSource(path: string): Promise<ValidatedSourceFile>
 }
 
-export interface ExternalEditorDependencies {
+export interface VimEditorDependencies {
   open(path: string, options: { readonly signal: AbortSignal }): Promise<void>
 }
 
@@ -123,8 +103,8 @@ export function createAppController({
   now = Date.now,
   suspendForEditor = () => {},
   resumeAfterEditor = () => {},
-  embeddedEditor,
-  externalEditor,
+  editorBridge,
+  vimEditor,
   favoritesGateway,
 }: CreateAppControllerOptions): AppController {
   const state: AppControllerState = reactive({
@@ -146,14 +126,11 @@ export function createAppController({
     submissionStatuses: new Map(),
     submitDialog: closeSubmitDialog(),
     logExpanded: true,
-    editor: createEditorSessionState(),
     viewMode: 'all',
     favoriteFolders: [],
     selectedFavoriteFolderSlug: null,
   })
   let nextLogId = 1
-  let resolveEditorClose: (() => void) | null = null
-  let activeEditorRun: Promise<boolean> | null = null
   let activeEditorAbortController: AbortController | null = null
 
   const addLog = (
@@ -350,53 +327,7 @@ export function createAppController({
     }
   }
 
-  const editSelectedLegacy = async (): Promise<boolean> => {
-    const id = state.selectedProblemId
-    if (id === null || !beginOperation('edit')) return false
-    let lifecycleStarted = false
-    let restored = true
-    let succeeded = false
-
-    try {
-      if (!(await resolveIdentity(id))) return false
-      lifecycleStarted = true
-      await suspendForEditor()
-      const result = await gateway.edit(id)
-      if (!result.ok) {
-        setError(result.error)
-        return false
-      }
-      state.sourceReadyIds.add(id)
-      addLog(`JavaScript source for problem ${id} is ready.`)
-      succeeded = true
-    } catch (error) {
-      setError({
-        code: ERROR_CODES.terminalRestore,
-        message: 'The editor handoff failed.',
-        detail: error instanceof Error ? error.message : String(error),
-      })
-      return false
-    } finally {
-      if (lifecycleStarted) {
-        try {
-          await resumeAfterEditor()
-        } catch (error) {
-          restored = false
-          state.phase = 'error'
-          setError({
-            code: ERROR_CODES.terminalRestore,
-            message: 'The terminal could not be restored after the editor exited.',
-            detail: error instanceof Error ? error.message : String(error),
-          })
-        }
-      }
-      if (!restored) state.sourceReadyIds.delete(id)
-      finishOperation()
-    }
-    return succeeded && restored
-  }
-
-  const setEmbeddedEditorError = (error: unknown): void => {
+  const setEditorBridgeError = (error: unknown): void => {
     if (error instanceof SourceFileError) {
       setError({ code: error.code, message: error.message })
       return
@@ -418,112 +349,17 @@ export function createAppController({
     }
     setError({
       code: ERROR_CODES.editorBridgeProtocol,
-      message: 'The embedded editor could not be opened.',
+      message: 'Vim could not be opened through the editor bridge.',
       detail: error instanceof Error ? error.message : String(error),
     })
   }
 
-  const runEmbeddedEditor = async (id: number): Promise<boolean> => {
-    if (embeddedEditor === undefined || !beginOperation('edit')) return false
-    const problem = selectedProblem(id)
-    if (problem === undefined) {
-      finishOperation()
-      return false
-    }
-
-    const abortController = new AbortController()
-    activeEditorAbortController = abortController
-    let bridge: SourceBridgeSession | undefined
-    let editPromise: ReturnType<LeetCodeGateway['edit']> | undefined
-    let commandCompleted = false
-    const closeRequested = new Promise<void>((resolve) => {
-      resolveEditorClose = resolve
-    })
-
-    beginEditorLaunch(state.editor, problem)
-    try {
-      if (!(await resolveIdentity(id))) return false
-      const resolvedProblem = selectedProblem(id)
-      state.editor.problemTitle =
-        resolvedProblem?.localizedTitle ?? resolvedProblem?.title ?? state.editor.problemTitle
-      bridge = await embeddedEditor.createBridge({ signal: abortController.signal })
-      editPromise = gateway.edit(id, {
-        ...gatewayOptions(),
-        signal: abortController.signal,
-        bridgeEnvironment: bridge.environment,
-      })
-
-      const openResult = await Promise.race([
-        bridge.waitForOpen().then((request) => ({ kind: 'open' as const, request })),
-        editPromise.then((result) => ({ kind: 'command' as const, result })),
-      ])
-      if (openResult.kind === 'command') {
-        commandCompleted = true
-        if (!openResult.result.ok) setError(openResult.result.error)
-        else {
-          setError({
-            code: ERROR_CODES.editorBridgeNotConfigured,
-            message: 'The edit command exited before the le-e editor bridge connected.',
-          })
-        }
-        return false
-      }
-
-      let document: LoadedSourceFile
-      try {
-        document = await embeddedEditor.loadSource(openResult.request.path)
-      } catch (error) {
-        await bridge.reject('The JavaScript source file was rejected.')
-        throw error
-      }
-      openEditorDocument(state.editor, document)
-      addLog(`Embedded JavaScript editor opened for problem ${id}.`)
-
-      await closeRequested
-      await bridge.complete()
-      const editResult = await editPromise
-      commandCompleted = true
-      if (!editResult.ok) {
-        setError(editResult.error)
-        return false
-      }
-
-      state.sourceReadyIds.add(id)
-      addLog(`JavaScript source for problem ${id} is ready.`)
-      return true
-    } catch (error) {
-      if (abortController.signal.aborted) return false
-      setEmbeddedEditorError(error)
-      return false
-    } finally {
-      resolveEditorClose = null
-      if (activeEditorAbortController === abortController) activeEditorAbortController = null
-      abortController.abort()
-      if (editPromise !== undefined && !commandCompleted) await editPromise.catch(() => {})
-      await bridge?.dispose().catch(() => {})
-      finishEditorSession(state.editor)
-      finishOperation()
-    }
-  }
-
-  const editSelected = (): Promise<boolean> => {
-    if (embeddedEditor === undefined) return editSelectedLegacy()
-    const id = state.selectedProblemId
-    if (id === null || activeEditorRun !== null) return Promise.resolve(false)
-    const run = runEmbeddedEditor(id)
-    activeEditorRun = run
-    void run.finally(() => {
-      if (activeEditorRun === run) activeEditorRun = null
-    })
-    return run
-  }
-
-  const editSelectedInVim = async (): Promise<boolean> => {
+  const editSelected = async (): Promise<boolean> => {
     const id = state.selectedProblemId
     if (
       id === null ||
-      embeddedEditor === undefined ||
-      externalEditor === undefined ||
+      editorBridge === undefined ||
+      vimEditor === undefined ||
       !beginOperation('edit')
     ) {
       return false
@@ -540,7 +376,7 @@ export function createAppController({
 
     try {
       if (!(await resolveIdentity(id))) return false
-      bridge = await embeddedEditor.createBridge({ signal: abortController.signal })
+      bridge = await editorBridge.createBridge({ signal: abortController.signal })
       editPromise = gateway.edit(id, {
         ...gatewayOptions(),
         signal: abortController.signal,
@@ -563,11 +399,11 @@ export function createAppController({
         return false
       }
 
-      const document = await embeddedEditor.loadSource(openResult.request.path)
+      const document = await editorBridge.loadSource(openResult.request.path)
       terminalSuspended = true
       await suspendForEditor()
-      await externalEditor.open(document.path, { signal: abortController.signal })
-      await embeddedEditor.loadSource(document.path)
+      await vimEditor.open(document.path, { signal: abortController.signal })
+      await editorBridge.loadSource(document.path)
       await bridge.complete()
 
       const editResult = await editPromise
@@ -584,7 +420,7 @@ export function createAppController({
       if (!abortController.signal.aborted) {
         await bridge?.reject('The Vim editor handoff failed.').catch(() => {})
         if (error instanceof SourceFileError || error instanceof EditorBridgeProtocolError) {
-          setEmbeddedEditorError(error)
+          setEditorBridgeError(error)
         } else {
           setError({
             code: ERROR_CODES.terminalRestore,
@@ -615,56 +451,6 @@ export function createAppController({
       finishOperation()
     }
     return succeeded && restored
-  }
-
-  const saveEditor = async (): Promise<boolean> => {
-    if (
-      embeddedEditor === undefined ||
-      state.editor.phase !== 'editing' ||
-      state.editor.document === null ||
-      state.editor.buffer === null
-    ) {
-      return false
-    }
-    try {
-      state.editor.document = await embeddedEditor.saveSource(
-        state.editor.document,
-        codeBufferText(state.editor.buffer),
-      )
-      markCodeBufferSaved(state.editor.buffer)
-      addLog(`Saved ${state.editor.document.fileName}.`)
-      return true
-    } catch (error) {
-      setEmbeddedEditorError(error)
-      return false
-    }
-  }
-
-  const waitForEditorRun = async (): Promise<void> => {
-    resolveEditorClose?.()
-    await activeEditorRun?.catch(() => false)
-  }
-
-  const requestEditorClose = async (
-    intent: EditorCloseIntent,
-  ): Promise<'closed' | 'confirmation-required' | 'ignored'> => {
-    if (state.editor.phase === 'launching') {
-      activeEditorAbortController?.abort()
-      await activeEditorRun?.catch(() => false)
-      return 'closed'
-    }
-    const transition = requestEditorCloseState(state.editor, intent)
-    if (transition === 'confirm') return 'confirmation-required'
-    if (transition === 'ignored') return 'ignored'
-    await waitForEditorRun()
-    return 'closed'
-  }
-
-  const confirmEditorDiscard = async (): Promise<EditorCloseIntent | null> => {
-    const intent = confirmEditorDiscardState(state.editor)
-    if (intent === null) return null
-    await waitForEditorRun()
-    return intent
   }
 
   const testSelected = async (): Promise<boolean> => {
@@ -854,16 +640,8 @@ export function createAppController({
     },
     loadSelectedDetail,
     editSelected,
-    editSelectedInVim,
-    saveEditor,
-    requestEditorClose,
-    cancelEditorClose() {
-      cancelEditorCloseState(state.editor)
-    },
-    confirmEditorDiscard,
     dispose() {
       activeEditorAbortController?.abort()
-      resolveEditorClose?.()
     },
     testSelected,
     openSubmitDialog,
