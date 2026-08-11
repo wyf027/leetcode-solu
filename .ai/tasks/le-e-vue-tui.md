@@ -1,6 +1,6 @@
 # LeetCode Vue TUI
 
-- Status: review — Vim-only editor update verified
+- Status: review — submit-dialog Enter fix verified
 - Branch: `feat/le-e-vue-tui`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
 - Updated: 2026-08-11
@@ -57,7 +57,7 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Review and deliver the verified Vim-only editor update to pull request #1657;
+Review and deliver the verified submit-dialog Enter fix to pull request #1657;
 merge still requires separate explicit authorization.
 
 ## Design artifact
@@ -184,6 +184,19 @@ merge still requires separate explicit authorization.
 - `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, 13 Vitest files with
   all 50 existing tests, and the terminal Vite build. `git diff --check` also
   passed.
+
+### Task 21 — complete
+
+- Fixed the submit dialog ignoring terminal line-break input by routing
+  `inputType: insertLineBreak` through the existing default-cancel `Enter`
+  transition; keydown `Enter`, `Escape`, `n`, and `y` behavior is unchanged.
+- Reproduced the bug in the fake PTY at 110x35: before the fix, sending `\n`
+  left the confirmation dialog open while `\r` closed it. After the fix, the
+  same `e` → `s` → `\n` path closed the dialog without running submit, and `q`
+  restored the terminal with exit code 0.
+- No test cases were added. `pnpm check` passed with all 50 existing tests,
+  Prettier, ESLint, `vue-tsc --noEmit`, and the terminal Vite build;
+  `git diff --check` also passed.
 
 ### Repository delivery — approved
 

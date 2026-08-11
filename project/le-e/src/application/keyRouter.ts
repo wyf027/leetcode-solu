@@ -114,7 +114,13 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       return true
     }
     if (controller.state.submitDialog.open) {
-      if (event.type === 'keydown') void controller.handleSubmitDialogKey(event.key)
+      const key =
+        event.type === 'keydown'
+          ? event.key
+          : event.type === 'input' && event.inputType === 'insertLineBreak'
+            ? 'Enter'
+            : null
+      if (key !== null) void controller.handleSubmitDialogKey(key)
       return true
     }
     if (ui.searchMode) return routeSearch(event, options)
