@@ -1,6 +1,7 @@
 import { ERROR_CODES } from '../domain/errors'
 import type { AppResult } from '../domain/errors'
 import type { FavoriteFolder, FavoriteQuestionRef } from '../domain/favorite'
+import { RUNTIME_CONFIG } from '../config/runtime'
 import { sanitizeOutput } from './parsers/outputSanitizer'
 import type { ProcessRunner } from './processRunner'
 
@@ -58,7 +59,12 @@ function parseFolder(value: unknown): FavoriteFolder | null {
 
 function parseJson(stdout: string): AppResult<Record<string, unknown>> {
   try {
-    const parsed: unknown = JSON.parse(sanitizeOutput(stdout).text)
+    const parsed: unknown = JSON.parse(
+      sanitizeOutput(stdout, {
+        lineBytes: RUNTIME_CONFIG.outputLimits.streamBytes,
+        streamBytes: RUNTIME_CONFIG.outputLimits.streamBytes,
+      }).text,
+    )
     return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
       ? { ok: true, value: parsed as Record<string, unknown> }
       : {

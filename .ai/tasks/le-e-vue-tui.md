@@ -1,9 +1,9 @@
 # LeetCode Vue TUI
 
-- Status: review — submit-dialog Enter fix verified
+- Status: delivery approved — fixes verified; stale runtime mismatch diagnosed
 - Branch: `feat/le-e-vue-tui`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
-- Updated: 2026-08-11
+- Updated: 2026-08-18
 
 ## Objective
 
@@ -57,8 +57,10 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Review and deliver the verified submit-dialog Enter fix to pull request #1657;
-merge still requires separate explicit authorization.
+Deliver the verified Chinese content and favorites hydration fixes through pull
+request #1657. Merge authorization was granted on 2026-08-18. After merge,
+restart from a checkout containing the merged commit; the broken historical
+`leetcode-solu-le-e-vue-tui` worktree remains stale and must not be reused.
 
 ## Design artifact
 
@@ -197,6 +199,30 @@ merge still requires separate explicit authorization.
 - No test cases were added. `pnpm check` passed with all 50 existing tests,
   Prettier, ESLint, `vue-tsc --noEmit`, and the terminal Vite build;
   `git diff --check` also passed.
+
+### Task 22 — complete
+
+- Fixed Chinese localization for duplicate numeric IDs by matching the CLI title
+  against the LeetCode CN original title before applying the translated title,
+  slug, and statement. Identity resolution and operation gates remain unchanged.
+- Fixed logged-in favorites hydration by allowing the helper's bounded JSON
+  response to use the existing 1 MiB stream limit without the log-specific 4 KiB
+  per-line truncation.
+- Read-only probes loaded 4,029 Chinese catalog records, localized 3,767 current
+  CLI rows, rendered #1 and its statement in Chinese, and parsed 55 folders with
+  732 favorite question references. No credentials or full favorite data were
+  printed or retained.
+- Real PTY acceptance at 110x35 rendered Chinese problem titles, loaded a Chinese
+  statement, opened the favorites page with 9 matching questions in the first
+  folder, and cycled to another folder with 4 matching questions. No edit, test,
+  submit, or favorite mutation was triggered; `q` restored the terminal cleanly.
+- No test cases were added. `pnpm check` passed with all 50 existing tests,
+  Prettier, ESLint, `vue-tsc --noEmit`, and the terminal Vite build;
+  `git diff --check` also passed.
+- A live follow-up reproduced “无收藏夹” only in two still-running processes from
+  the stale, Git-broken `leetcode-solu-le-e-vue-tui` worktree. The fixed isolated
+  checkout's helper returned 55 folders / 732 question references, and its real
+  TUI rendered 9 questions in “我的收藏”; no mutation command was triggered.
 
 ### Repository delivery — approved
 

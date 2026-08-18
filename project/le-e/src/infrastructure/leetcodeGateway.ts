@@ -206,7 +206,8 @@ export function createLeetCodeGateway({
   now = Date.now,
   chineseCatalog,
 }: CreateLeetCodeGatewayOptions): LeetCodeGateway {
-  const ambiguousProblemIds = new Set<number>()
+  const normalizedTitle = (title: string) =>
+    title.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
   const warnChineseFallback = (options: GatewayCallOptions): void => {
     options.onLogChunk?.({
       stream: 'stderr',
@@ -222,9 +223,9 @@ export function createLeetCodeGateway({
     try {
       const localizations = await chineseCatalog.list(options.signal)
       const localize = (problem: ParsedProblemList['summaries'][number]) => {
-        if (ambiguousProblemIds.has(problem.id)) return problem
         const localized = localizations.get(problem.id)
-        return localized === undefined
+        return localized === undefined ||
+          normalizedTitle(localized.originalTitle) !== normalizedTitle(problem.title)
           ? problem
           : { ...problem, localizedTitle: localized.title, slug: localized.slug }
       }
@@ -315,12 +316,7 @@ export function createLeetCodeGateway({
     async listProblems(options = {}) {
       const executed = await executeCaptured(['list'], RUNTIME_CONFIG.timeoutsMs.standard, options)
       if (!executed.ok) return executed
-      const parsed = parseProblemList(executed.value.stdout)
-      if (parsed.ok) {
-        ambiguousProblemIds.clear()
-        for (const id of parsed.value.collisionCandidates.keys()) ambiguousProblemIds.add(id)
-      }
-      return localizeProblemList(parsed, options)
+      return localizeProblemList(parseProblemList(executed.value.stdout), options)
     },
 
     async listStarred(options = {}) {
@@ -344,10 +340,11 @@ export function createLeetCodeGateway({
       )
       if (!executed.ok) return executed
       const parsed = parseProblemDetail(executed.value.stdout, id, now())
-      if (!parsed.ok || chineseCatalog === undefined || ambiguousProblemIds.has(id)) return parsed
+      if (!parsed.ok || chineseCatalog === undefined) return parsed
       try {
         const localized = await chineseCatalog.loadDetail(id, options.signal)
-        return localized === null
+        return localized === null ||
+          normalizedTitle(localized.originalTitle) !== normalizedTitle(parsed.value.title)
           ? parsed
           : {
               ok: true,

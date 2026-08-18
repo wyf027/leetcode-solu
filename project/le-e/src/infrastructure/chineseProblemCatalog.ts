@@ -12,6 +12,7 @@ const QUESTION_LIST_QUERY = `
       hasMore
       questions {
         questionFrontendId
+        title
         titleSlug
         translatedTitle
       }
@@ -30,11 +31,13 @@ const QUESTION_DETAIL_QUERY = `
 
 export interface ChineseProblemSummary {
   readonly id: number
+  readonly originalTitle: string
   readonly title: string
   readonly slug: string
 }
 
 export interface ChineseProblemDetail {
+  readonly originalTitle: string
   readonly title: string
   readonly statement: string
 }
@@ -136,12 +139,20 @@ export function createChineseProblemCatalog({
     for (const item of rawQuestions) {
       if (typeof item !== 'object' || item === null) continue
       const id = numericProblemId(Reflect.get(item, 'questionFrontendId'))
+      const originalTitle = Reflect.get(item, 'title')
       const title = Reflect.get(item, 'translatedTitle')
       const slug = Reflect.get(item, 'titleSlug')
-      if (id === null || typeof title !== 'string' || title === '' || typeof slug !== 'string') {
+      if (
+        id === null ||
+        typeof originalTitle !== 'string' ||
+        originalTitle === '' ||
+        typeof title !== 'string' ||
+        title === '' ||
+        typeof slug !== 'string'
+      ) {
         continue
       }
-      questions.push({ id, title, slug })
+      questions.push({ id, originalTitle, title, slug })
     }
     return {
       hasMore: Boolean(typeof root === 'object' && root !== null && Reflect.get(root, 'hasMore')),
@@ -192,7 +203,11 @@ export function createChineseProblemCatalog({
       ) {
         return null
       }
-      return { title, statement: htmlToPlainText(content) }
+      return {
+        originalTitle: problem.originalTitle,
+        title,
+        statement: htmlToPlainText(content),
+      }
     },
   }
 }
