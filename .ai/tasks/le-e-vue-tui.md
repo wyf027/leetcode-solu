@@ -1,7 +1,7 @@
 # LeetCode Vue TUI
 
-- Status: delivery approved — fixes verified; stale runtime mismatch diagnosed
-- Branch: `feat/le-e-vue-tui`
+- Status: implementation verified — Enter detail retry ready for delivery
+- Branch: `fix/le-e-enter-detail-after-refresh`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
 - Updated: 2026-08-18
 
@@ -57,9 +57,9 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Deliver the verified Chinese content and favorites hydration fixes through pull
-request #1657. Merge authorization was granted on 2026-08-18. After merge,
-restart from a checkout containing the merged commit; the broken historical
+Deliver the verified Enter-after-refresh fix from
+`fix/le-e-enter-detail-after-refresh`. The branch is based on merged pull
+request #1657 at `2587291`; the broken historical
 `leetcode-solu-le-e-vue-tui` worktree remains stale and must not be reused.
 
 ## Design artifact
@@ -223,6 +223,20 @@ restart from a checkout containing the merged commit; the broken historical
   the stale, Git-broken `leetcode-solu-le-e-vue-tui` worktree. The fixed isolated
   checkout's helper returned 55 folders / 732 question references, and its real
   TUI rendered 9 questions in “我的收藏”; no mutation command was triggered.
+
+### Task 23 — complete
+
+- Fixed Enter being discarded while startup or manual refresh held the
+  `refresh-list` / `refresh-starred` operation lock. The controller now remembers
+  the latest selected detail request and starts it immediately after refresh
+  releases the lock; requests for a selection that moved meanwhile are ignored.
+- Real PTY acceptance reproduced the race deterministically with `r` followed by
+  Enter. Refresh cleared the existing detail, then transitioned automatically to
+  `Running load-detail`, rendered the Chinese Two Sum statement, returned to
+  `Ready`, and exited cleanly with `q`. No favorite mutation, edit, test, or
+  submission was triggered.
+- No test cases were added. `pnpm check` passed with all 50 existing tests,
+  Prettier, ESLint, `vue-tsc --noEmit`, and the terminal Vite build.
 
 ### Repository delivery — approved
 
