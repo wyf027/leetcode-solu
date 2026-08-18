@@ -132,6 +132,7 @@ export function createAppController({
   })
   let nextLogId = 1
   let activeEditorAbortController: AbortController | null = null
+  let pendingDetailLoad: (() => void) | undefined
 
   const addLog = (
     message: string,
@@ -170,6 +171,9 @@ export function createAppController({
 
   const finishOperation = (): void => {
     state.activeOperation = null
+    const pending = pendingDetailLoad
+    pendingDetailLoad = undefined
+    pending?.()
   }
 
   const selectedFavoriteFolder = (): FavoriteFolder | undefined =>
@@ -319,7 +323,15 @@ export function createAppController({
 
   const loadSelectedDetail = async (): Promise<boolean> => {
     const id = state.selectedProblemId
-    if (id === null || !beginOperation('load-detail')) return false
+    if (id === null) return false
+    if (state.activeOperation === 'refresh-list' || state.activeOperation === 'refresh-starred') {
+      pendingDetailLoad = () => {
+        if (state.selectedProblemId === id) void loadSelectedDetail()
+      }
+      addLog('Detail will load after refresh completes.')
+      return true
+    }
+    if (!beginOperation('load-detail')) return false
     try {
       return await resolveIdentity(id)
     } finally {
