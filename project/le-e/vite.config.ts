@@ -10,7 +10,7 @@ export default defineConfig({
     outDir: 'dist-terminal',
     emptyOutDir: true,
     rollupOptions: {
-      external: [/^node:/],
+      external: [/^node:/, 'sharp'],
       input: {
         main: fileURLToPath(new URL('./src/main.ts', import.meta.url)),
         manualFakeTui: fileURLToPath(new URL('./scripts/manual-fake-tui.ts', import.meta.url)),

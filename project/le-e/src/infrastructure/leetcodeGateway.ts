@@ -19,6 +19,7 @@ const EXPLICIT_AUTH_ERROR =
   /(?:cookies? seems expired|please make sure you have logined|maybe you not login|authentication required|unauthorized)/i
 const SITE_OR_NETWORK_ERROR =
   /(?:error sending request|network issue|dns|connection (?:failed|refused|reset)|tls|certificate|request timed out|http status|failed to download)/i
+const UNSUPPORTED_QUESTION_ERROR = /no support for database and shell questions yet/i
 
 export interface GatewayLogChunk {
   readonly stream: 'stdout' | 'stderr'
@@ -133,6 +134,14 @@ function commandError(result: CommandResult, submit: boolean): AppError | null {
         ? 'The submission was interrupted and its final status is unknown.'
         : 'The LeetCode command was cancelled.',
       detail: detail || 'The child process was terminated before completion.',
+    }
+  }
+
+  if (UNSUPPORTED_QUESTION_ERROR.test(detail)) {
+    return {
+      code: ERROR_CODES.commandFailed,
+      message: '当前 LeetCode CLI 暂不支持数据库或 Shell 题目的编辑。',
+      detail,
     }
   }
 
@@ -355,6 +364,15 @@ export function createLeetCodeGateway({
               },
             }
       } catch {
+        if (options.signal?.aborted === true) {
+          return {
+            ok: false,
+            error: {
+              code: ERROR_CODES.commandCancelled,
+              message: 'The LeetCode detail request was cancelled.',
+            },
+          }
+        }
         warnChineseFallback(options)
         return parsed
       }

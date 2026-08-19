@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { TText } from '@simon_he/vue-tui'
+import { TBox, TText } from '@simon_he/vue-tui'
 import { computed, onUnmounted, reactive } from 'vue'
 
 import type { AppController } from './application/createAppController'
 import { createKeyRouter } from './application/keyRouter'
 import type { UiInteractionState } from './application/keyRouter'
 import type { TerminalInputBus } from './application/terminalInput'
+import FavoriteFolderList from './components/FavoriteFolderList.vue'
 import HeaderBar from './components/HeaderBar.vue'
 import HelpOverlay from './components/HelpOverlay.vue'
 import LogPanel from './components/LogPanel.vue'
@@ -77,7 +78,19 @@ const selectedFavoriteFolder = computed(
 const problemListTitle = computed(() =>
   props.controller.state.viewMode === 'all'
     ? '题库'
-    : `我的收藏 · ${selectedFavoriteFolder.value?.name ?? '无收藏夹'}`,
+    : `收藏夹 › ${selectedFavoriteFolder.value?.name ?? '无收藏夹'}`,
+)
+const showingFavoriteFolders = computed(
+  () =>
+    props.controller.state.viewMode === 'favorites' &&
+    props.controller.state.favoritePage === 'folders',
+)
+const loadingCatalog = computed(
+  () =>
+    props.controller.state.phase === 'starting' ||
+    ['preflight', 'refresh-list', 'refresh-starred'].includes(
+      props.controller.state.activeOperation ?? '',
+    ),
 )
 const favoriteInSelectedFolder = computed(() => {
   const problem = selectedProblem.value
@@ -100,6 +113,13 @@ const listWidth = computed(() => Math.floor(props.screen.cols * 0.42))
 const detailWidth = computed(() => props.screen.cols - listWidth.value)
 const logY = computed(() => headerHeight + middleHeight.value)
 const footerY = computed(() => props.screen.rows - footerHeight)
+const loadingDetail = computed(() => props.controller.state.activeOperation === 'load-detail')
+
+const openFavoriteFolder = (slug: string): void => {
+  if (!props.controller.openFavoriteFolder(slug)) return
+  ui.focus = 'problems'
+  ui.detailScroll = 0
+}
 
 const handleInput = createKeyRouter({
   controller: props.controller,
@@ -122,7 +142,20 @@ onUnmounted(removeInputHandler)
       :search-mode="ui.searchMode"
       :search-draft="ui.searchDraft"
     />
+    <FavoriteFolderList
+      v-if="showingFavoriteFolders"
+      :folders="controller.state.favoriteFolders"
+      :selected-slug="controller.state.selectedFavoriteFolderSlug"
+      :x="0"
+      :y="headerHeight"
+      :width="listWidth"
+      :height="middleHeight"
+      :focused="ui.focus === 'problems'"
+      :loading="loadingCatalog"
+      @open="openFavoriteFolder"
+    />
     <ProblemList
+      v-else
       :problems="visibleProblems"
       :selected-id="controller.state.selectedProblemId"
       :x="0"
@@ -131,8 +164,42 @@ onUnmounted(removeInputHandler)
       :height="middleHeight"
       :focused="ui.focus === 'problems'"
       :title="problemListTitle"
+      :loading="loadingCatalog"
     />
+    <TBox
+      v-if="showingFavoriteFolders"
+      :x="listWidth"
+      :y="headerHeight"
+      :w="detailWidth"
+      :h="middleHeight"
+      border
+      title="收藏夹"
+      :padding="0"
+      :style="ui.focus === 'detail' ? THEME.borderActive : THEME.border"
+    >
+      <TText
+        :x="1"
+        :y="1"
+        :w="Math.max(1, detailWidth - 2)"
+        :value="selectedFavoriteFolder?.name ?? '选择一个收藏夹'"
+        :style="THEME.title"
+      />
+      <TText
+        :x="1"
+        :y="3"
+        :w="Math.max(1, detailWidth - 2)"
+        :value="
+          loadingCatalog
+            ? '◐ 加载收藏夹中…'
+            : selectedFavoriteFolder
+              ? `${selectedFavoriteFolder.questions.length} 道题${selectedFavoriteFolder.writable ? '' : ' · 只读收藏夹'}\n\n按 Enter 或点击文件夹查看题目。`
+              : '暂无可用收藏夹。'
+        "
+        :style="loadingCatalog ? THEME.warning : THEME.muted"
+      />
+    </TBox>
     <ProblemDetail
+      v-else
       :problem="selectedProblem"
       :detail="selectedDetail"
       :x="listWidth"
@@ -148,7 +215,9 @@ onUnmounted(removeInputHandler)
       :favorite-active="favoriteInSelectedFolder"
       :favorite-writable="selectedFavoriteFolder?.writable ?? false"
       :favorite-folder-name="selectedFavoriteFolder?.name ?? '无收藏夹'"
+      :loading="loadingDetail"
       @toggle-favorite="void controller.toggleFavoriteSelected()"
+      @update-scroll="ui.detailScroll = $event"
     />
     <LogPanel
       :logs="controller.state.logs"
@@ -166,7 +235,9 @@ onUnmounted(removeInputHandler)
       :value="
         controller.state.lastError
           ? `${controller.state.lastError.code}: ${controller.state.lastError.message}`
-          : '↑↓/jk 移动 · Enter 详情 · e Vim 编辑 · t 测试 · s 提交 · ? 帮助'
+          : showingFavoriteFolders
+            ? '↑↓/jk 选择收藏夹 · Enter 打开 · 点击打开 · ? 帮助'
+            : '↑↓/jk 移动 · Enter 详情 · Esc 返回收藏夹 · e Vim 编辑 · t 测试 · s 提交 · ? 帮助'
       "
       :style="controller.state.lastError ? THEME.error : THEME.muted"
     />
@@ -174,7 +245,7 @@ onUnmounted(removeInputHandler)
       :x="1"
       :y="footerY + 1"
       :w="Math.max(1, screen.cols - 2)"
-      value="a 收藏/取消 · v 题库/收藏页 · [ ] 切换收藏夹 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
+      value="a 收藏/取消 · v 题库/收藏页 · [ ] 切换收藏夹 · Esc/Backspace 返回 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
       :style="THEME.muted"
     />
     <HelpOverlay v-if="ui.helpOpen" :cols="screen.cols" :rows="screen.rows" />

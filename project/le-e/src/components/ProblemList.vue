@@ -14,6 +14,7 @@ const props = defineProps<{
   width: number
   height: number
   focused: boolean
+  loading: boolean
   title?: string
 }>()
 
@@ -70,8 +71,9 @@ const rowStyle = (problem: ProblemSummary) => {
     :padding="0"
     :style="focused ? THEME.borderActive : THEME.border"
   >
+    <TText v-if="loading" :x="1" :y="1" value="◐ 加载题目中…" :style="THEME.warning" />
     <TText
-      v-if="problems.length === 0"
+      v-else-if="problems.length === 0"
       :x="1"
       :y="1"
       value="No matching problems."
@@ -79,6 +81,7 @@ const rowStyle = (problem: ProblemSummary) => {
     />
     <TText
       v-for="(problem, index) in visible"
+      v-show="!loading"
       :key="problem.id"
       :x="1"
       :y="index + 1"

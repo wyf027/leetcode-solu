@@ -1,4 +1,4 @@
-import { sanitizeOutput } from './parsers/outputSanitizer'
+import { htmlToTerminalMarkdown } from './problemStatement'
 
 const GRAPHQL_ENDPOINT = 'https://leetcode.cn/graphql/'
 const PAGE_SIZE = 100
@@ -59,36 +59,6 @@ interface QuestionListPage {
 function requestSignal(signal?: AbortSignal): AbortSignal {
   const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   return signal === undefined ? timeoutSignal : AbortSignal.any([signal, timeoutSignal])
-}
-
-function decodeHtmlEntities(value: string): string {
-  const named: Readonly<Record<string, string>> = {
-    amp: '&',
-    apos: "'",
-    gt: '>',
-    lt: '<',
-    nbsp: ' ',
-    quot: '"',
-  }
-  return value.replace(/&(#x[\dA-Fa-f]+|#\d+|[A-Za-z]+);/g, (entity, name: string) => {
-    if (name.startsWith('#x')) return String.fromCodePoint(Number.parseInt(name.slice(2), 16))
-    if (name.startsWith('#')) return String.fromCodePoint(Number.parseInt(name.slice(1), 10))
-    return named[name] ?? entity
-  })
-}
-
-function htmlToPlainText(html: string): string {
-  const text = html
-    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<li\b[^>]*>/gi, '\n• ')
-    .replace(/<\/(?:div|h[1-6]|li|ol|p|pre|table|tr|ul)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-  return sanitizeOutput(
-    decodeHtmlEntities(text)
-      .replace(/\n{3,}/g, '\n\n')
-      .trim(),
-  ).text
 }
 
 function numericProblemId(value: unknown): number | null {
@@ -206,7 +176,7 @@ export function createChineseProblemCatalog({
       return {
         originalTitle: problem.originalTitle,
         title,
-        statement: htmlToPlainText(content),
+        statement: await htmlToTerminalMarkdown(content, fetchImpl, signal),
       }
     },
   }

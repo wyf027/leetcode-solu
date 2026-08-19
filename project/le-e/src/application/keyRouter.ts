@@ -132,9 +132,21 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
     else if (key === 'ArrowUp' || lower === 'k') moveFocusedArea(controller, ui, -1)
     else if (key === 'ArrowDown' || lower === 'j') moveFocusedArea(controller, ui, 1)
     else if (key === 'Enter') {
-      ui.focus = 'detail'
+      if (
+        controller.state.viewMode === 'favorites' &&
+        controller.state.favoritePage === 'folders'
+      ) {
+        controller.openFavoriteFolder()
+        ui.focus = 'problems'
+      } else {
+        ui.focus = 'detail'
+        ui.detailScroll = 0
+        void controller.loadSelectedDetail()
+      }
+    } else if (key === 'Escape' || key === 'Backspace') {
+      if (!controller.closeFavoriteFolder()) return false
+      ui.focus = 'problems'
       ui.detailScroll = 0
-      void controller.loadSelectedDetail()
     } else if (key === '/') {
       ui.focus = 'filters'
       ui.searchMode = true

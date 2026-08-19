@@ -1,7 +1,7 @@
 # LeetCode Vue TUI
 
-- Status: review — complete V3 favorite question lists verified
-- Branch: `fix/le-e-favorite-question-v3`
+- Status: delivery approved — PR merge in progress
+- Branch: `fix/le-e-favorite-folder-navigation-20260819`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
 - Updated: 2026-08-19
 
@@ -57,10 +57,9 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Review and deliver the verified favorite question-list fix from
-`fix/le-e-favorite-question-v3`. The branch is based on current remote `main`;
-the broken historical `leetcode-solu-le-e-vue-tui` worktree remains stale and
-must not be reused.
+Deliver the verified favorite navigation, terminal-image, loading, and unsupported
+question fixes through a pull request to `main`. Commit, push, and merge
+authorization was granted on 2026-08-19.
 
 ## Design artifact
 
@@ -258,6 +257,71 @@ must not be reused.
   `vue-tsc --noEmit`, and the terminal Vite build. Rustfmt passed; helper Clippy
   passed with only the upstream Rust 1.97 formatting-borrow lint explicitly
   allowed, while all other warnings remained denied. `git diff --check` passed.
+
+### Task 25 — complete
+
+- The favorites page must open at the folder list instead of immediately showing
+  the first folder's questions.
+- Enter or click opens the selected folder; Escape or Backspace returns to the
+  folder list. The question list title carries the `收藏夹 › 文件夹名`
+  breadcrumb.
+- The folder root clears the selected problem so edit, test, submit, and favorite
+  actions cannot target a stale question.
+- Folder refresh renders an explicit `加载收藏夹中…` state instead of presenting
+  the temporary empty result as an empty collection.
+- Chinese statement images are preserved, downloaded only from approved LeetCode
+  HTTPS asset hosts with strict byte/pixel/time limits, converted to bounded PNG,
+  and rendered through vue-tui's terminal graphics lifecycle. Unsupported images
+  or terminals retain alt text and the original public URL.
+- Detail loading displays `加载题目和图片中…`; image data uses a bounded in-memory
+  LRU cache and is never written to the repository or account configuration.
+- Image redirects are validated before every request, conversions run serially,
+  each statement loads at most four images (8 MiB aggregate source bound), and
+  changing selection or exiting cancels the active detail request.
+- Real TUI acceptance at 120x35 rendered 55 folders first, moved to `算法思想`,
+  opened its five questions with the `收藏夹 › 算法思想` breadcrumb, then
+  returned to the same highlighted folder with Escape. The diagnostic process
+  exited cleanly with `q`; no mutation, edit, test, or submit action ran.
+- Public problem `rotate-list` contained two JPEG images. Both were converted to
+  PNG, recognized as two terminal graphic segments (about 10 KiB and 15 KiB),
+  and retained alt-text fallback. A synthetic allowed-host redirect to localhost
+  was rejected before a second request.
+- `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, all 50 existing
+  tests, and the terminal Vite build. `git diff --check` passed. No test cases
+  were added, preserving the user's standing direction.
+
+### Task 26 — complete
+
+- Map each PNG's own pixel dimensions to terminal cells at 8x16 pixels per cell.
+- Preserve smaller images at their original display size. Only scale images down
+  when they exceed the detail pane width; keep aspect ratio and use vertical
+  scrolling instead of forcing images into a fixed viewport-height cap.
+- Root cause was vue-tui's image sizing starting from an implicit one-cell
+  minimum when only maximum dimensions were supplied. ProblemDetail now builds
+  image-aware Markdown blocks and assigns per-image display cells.
+- Real `clone-graph` data verified two source sizes at a 66-column detail width:
+  the 2008x2210 source maps from 251x139 to 66x37 cells, while the 163x148 image
+  remains at its original 21x10 cells. Safe PNG conversion may reduce raster
+  bytes, but the original dimensions remain attached to the display contract.
+- The real TUI loaded `字典树 › 克隆图`, showed the existing loading state, and
+  returned to Ready. The diagnostic process exited with `q`; no mutation, edit,
+  test, or submit action ran.
+- `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, all 50 existing
+  tests, and the terminal Vite build. `git diff --check` passed.
+
+### Task 27 — complete
+
+- clearloop exits successfully while printing `No support for database and shell
+  questions yet` for unsupported question types, so the controller previously
+  misreported an editor bridge configuration failure.
+- Classify the explicit CLI output before accepting exit code zero, and show a
+  truthful database/Shell unsupported message. Keep normal algorithm-question
+  bridge behavior unchanged.
+- A fake clearloop result with exit code zero and the unsupported output now
+  returns `COMMAND_FAILED` with `当前 LeetCode CLI 暂不支持数据库或 Shell
+  题目的编辑。`; a normal empty exit-zero result still succeeds.
+- `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, all 50 existing
+  tests, and the terminal Vite build. `git diff --check` passed.
 
 ### Repository delivery — approved
 
