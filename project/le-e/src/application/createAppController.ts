@@ -53,6 +53,7 @@ export interface AppControllerState {
   submitDialog: SubmitDialogState
   logExpanded: boolean
   viewMode: 'all' | 'favorites'
+  favoritePage: 'folders' | 'questions'
   favoriteFolders: FavoriteFolder[]
   selectedFavoriteFolderSlug: string | null
 }
@@ -67,6 +68,8 @@ export interface AppController {
   toggleStarredOnly(): void
   toggleView(): void
   moveFavoriteFolder(delta: number): void
+  openFavoriteFolder(slug?: string): boolean
+  closeFavoriteFolder(): boolean
   toggleFavoriteSelected(): Promise<boolean>
   selectProblem(id: number): void
   moveSelection(delta: number): void
@@ -127,11 +130,13 @@ export function createAppController({
     submitDialog: closeSubmitDialog(),
     logExpanded: true,
     viewMode: 'all',
+    favoritePage: 'folders',
     favoriteFolders: [],
     selectedFavoriteFolderSlug: null,
   })
   let nextLogId = 1
   let activeEditorAbortController: AbortController | null = null
+  let activeDetailAbortController: AbortController | null = null
   let pendingDetailLoad: (() => void) | undefined
 
   const addLog = (
@@ -151,7 +156,8 @@ export function createAppController({
     }
   }
 
-  const gatewayOptions = (): GatewayCallOptions => ({ onLogChunk })
+  const gatewayOptions = (signal?: AbortSignal): GatewayCallOptions =>
+    signal === undefined ? { onLogChunk } : { onLogChunk, signal }
 
   const setError = (error: AppError): void => {
     state.lastError = error
@@ -179,6 +185,16 @@ export function createAppController({
   const selectedFavoriteFolder = (): FavoriteFolder | undefined =>
     state.favoriteFolders.find(({ slug }) => slug === state.selectedFavoriteFolderSlug)
 
+  const replaceFavoriteFolders = (folders: readonly FavoriteFolder[]): void => {
+    const selectedStillExists = folders.some(
+      ({ slug }) => slug === state.selectedFavoriteFolderSlug,
+    )
+    state.favoriteFolders = [...folders]
+    if (selectedStillExists) return
+    state.selectedFavoriteFolderSlug = state.favoriteFolders[0]?.slug ?? null
+    state.favoritePage = 'folders'
+  }
+
   const favoriteQuestionFor = (folder: FavoriteFolder, problem: ProblemSummary) =>
     folder.questions.find(
       (question) =>
@@ -190,6 +206,7 @@ export function createAppController({
   const visibleProblems = (): ProblemSummary[] => {
     const filtered = filterProblems(state.problems, state.filters)
     if (state.viewMode === 'all') return filtered
+    if (state.favoritePage === 'folders') return []
     const folder = selectedFavoriteFolder()
     if (folder === undefined) return []
     const favoriteCandidates = filterProblems(
@@ -209,6 +226,10 @@ export function createAppController({
   }
 
   const syncSelection = (): void => {
+    if (state.viewMode === 'favorites' && state.favoritePage === 'folders') {
+      state.selectedProblemId = null
+      return
+    }
     state.selectedProblemId = selectVisibleProblemId(visibleProblems(), state.selectedProblemId)
   }
 
@@ -221,12 +242,13 @@ export function createAppController({
     syncSelection()
   }
 
-  const resolveIdentity = async (id: number): Promise<boolean> => {
+  const resolveIdentity = async (id: number, signal?: AbortSignal): Promise<boolean> => {
     const current = selectedProblem(id)
     if (!current) return false
     if (current.identityStatus === 'resolved' && state.details.has(id)) return true
 
-    const detailResult = await gateway.loadDetail(id, gatewayOptions())
+    const detailResult = await gateway.loadDetail(id, gatewayOptions(signal))
+    if (signal?.aborted === true) return false
     if (!detailResult.ok) {
       setError(detailResult.error)
       return false
@@ -293,16 +315,9 @@ export function createAppController({
       if (favoritesGateway !== undefined) {
         const favoriteResult = await favoritesGateway.listFolders()
         if (favoriteResult.ok) {
-          state.favoriteFolders = [...favoriteResult.value]
-          if (
-            state.selectedFavoriteFolderSlug === null ||
-            !state.favoriteFolders.some(({ slug }) => slug === state.selectedFavoriteFolderSlug)
-          ) {
-            state.selectedFavoriteFolderSlug = state.favoriteFolders[0]?.slug ?? null
-          }
+          replaceFavoriteFolders(favoriteResult.value)
         } else {
-          state.favoriteFolders = []
-          state.selectedFavoriteFolderSlug = null
+          replaceFavoriteFolders([])
           addLog(
             `${favoriteResult.error.message} ${favoriteResult.error.detail ?? ''}`.trim(),
             'warn',
@@ -336,9 +351,12 @@ export function createAppController({
       return true
     }
     if (!beginOperation('load-detail')) return false
+    const abortController = new AbortController()
+    activeDetailAbortController = abortController
     try {
-      return await resolveIdentity(id)
+      return await resolveIdentity(id, abortController.signal)
     } finally {
+      if (activeDetailAbortController === abortController) activeDetailAbortController = null
       finishOperation()
     }
   }
@@ -391,7 +409,7 @@ export function createAppController({
     let succeeded = false
 
     try {
-      if (!(await resolveIdentity(id))) return false
+      if (!(await resolveIdentity(id, abortController.signal))) return false
       bridge = await editorBridge.createBridge({ signal: abortController.signal })
       editPromise = gateway.edit(id, {
         ...gatewayOptions(),
@@ -579,11 +597,19 @@ export function createAppController({
       syncSelection()
     },
     toggleView() {
-      state.viewMode = state.viewMode === 'all' ? 'favorites' : 'all'
+      activeDetailAbortController?.abort()
+      if (state.viewMode === 'all') {
+        state.viewMode = 'favorites'
+        state.favoritePage = 'folders'
+      } else {
+        state.viewMode = 'all'
+      }
       syncSelection()
     },
     moveFavoriteFolder(delta) {
       if (state.favoriteFolders.length === 0) return
+      activeDetailAbortController?.abort()
+      if (state.viewMode === 'all') state.favoritePage = 'folders'
       const index = state.favoriteFolders.findIndex(
         ({ slug }) => slug === state.selectedFavoriteFolderSlug,
       )
@@ -592,6 +618,24 @@ export function createAppController({
       state.selectedFavoriteFolderSlug = state.favoriteFolders[next]?.slug ?? null
       state.viewMode = 'favorites'
       syncSelection()
+    },
+    openFavoriteFolder(slug = state.selectedFavoriteFolderSlug ?? undefined) {
+      if (slug === undefined || !state.favoriteFolders.some((folder) => folder.slug === slug)) {
+        return false
+      }
+      activeDetailAbortController?.abort()
+      state.selectedFavoriteFolderSlug = slug
+      state.viewMode = 'favorites'
+      state.favoritePage = 'questions'
+      syncSelection()
+      return true
+    },
+    closeFavoriteFolder() {
+      if (state.viewMode !== 'favorites' || state.favoritePage !== 'questions') return false
+      activeDetailAbortController?.abort()
+      state.favoritePage = 'folders'
+      syncSelection()
+      return true
     },
     async toggleFavoriteSelected() {
       const problem = selectedProblem()
@@ -625,7 +669,7 @@ export function createAppController({
           setError(refreshed.error)
           return false
         }
-        state.favoriteFolders = [...refreshed.value]
+        replaceFavoriteFolders(refreshed.value)
         const isStarred = state.favoriteFolders.some((candidate) =>
           favoriteQuestionFor(candidate, problem),
         )
@@ -641,9 +685,16 @@ export function createAppController({
       }
     },
     selectProblem(id) {
-      if (visibleProblems().some((problem) => problem.id === id)) state.selectedProblemId = id
+      if (visibleProblems().some((problem) => problem.id === id)) {
+        if (state.selectedProblemId !== id) activeDetailAbortController?.abort()
+        state.selectedProblemId = id
+      }
     },
     moveSelection(delta) {
+      if (state.viewMode === 'favorites' && state.favoritePage === 'folders') {
+        this.moveFavoriteFolder(delta)
+        return
+      }
       const visible = visibleProblems()
       if (visible.length === 0) {
         state.selectedProblemId = null
@@ -652,12 +703,15 @@ export function createAppController({
       const currentIndex = visible.findIndex(({ id }) => id === state.selectedProblemId)
       const start = currentIndex < 0 ? 0 : currentIndex
       const next = Math.min(visible.length - 1, Math.max(0, start + delta))
-      state.selectedProblemId = visible[next]?.id ?? null
+      const nextId = visible[next]?.id ?? null
+      if (state.selectedProblemId !== nextId) activeDetailAbortController?.abort()
+      state.selectedProblemId = nextId
     },
     loadSelectedDetail,
     editSelected,
     dispose() {
       activeEditorAbortController?.abort()
+      activeDetailAbortController?.abort()
     },
     testSelected,
     openSubmitDialog,
