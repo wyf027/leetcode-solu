@@ -192,9 +192,13 @@ export function createAppController({
     if (state.viewMode === 'all') return filtered
     const folder = selectedFavoriteFolder()
     if (folder === undefined) return []
+    const favoriteCandidates = filterProblems(
+      [...state.problems, ...[...state.collisionCandidates.values()].flat()],
+      state.filters,
+    )
     return folder.questions
       .map((question) =>
-        filtered.find(
+        favoriteCandidates.find(
           (problem) =>
             problem.slug === question.slug ||
             problem.title.normalize('NFKC').trim().toLocaleLowerCase() ===

@@ -1,9 +1,9 @@
 # LeetCode Vue TUI
 
-- Status: implementation verified — Enter detail retry ready for delivery
-- Branch: `fix/le-e-enter-detail-after-refresh`
+- Status: review — complete V3 favorite question lists verified
+- Branch: `fix/le-e-favorite-question-v3`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
-- Updated: 2026-08-18
+- Updated: 2026-08-19
 
 ## Objective
 
@@ -57,10 +57,10 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Deliver the verified Enter-after-refresh fix from
-`fix/le-e-enter-detail-after-refresh`. The branch is based on merged pull
-request #1657 at `2587291`; the broken historical
-`leetcode-solu-le-e-vue-tui` worktree remains stale and must not be reused.
+Review and deliver the verified favorite question-list fix from
+`fix/le-e-favorite-question-v3`. The branch is based on current remote `main`;
+the broken historical `leetcode-solu-le-e-vue-tui` worktree remains stale and
+must not be reused.
 
 ## Design artifact
 
@@ -237,6 +237,27 @@ request #1657 at `2587291`; the broken historical
   submission was triggered.
 - No test cases were added. `pnpm check` passed with all 50 existing tests,
   Prettier, ESLint, `vue-tsc --noEmit`, and the terminal Vite build.
+
+### Task 24 — complete
+
+- Updated the logged-in favorite question-list query from the obsolete `v2`
+  response to the `v3` version currently used by the LeetCode CN problem-list
+  page. Folder discovery and favorite add/remove mutations remain unchanged.
+- Included duplicate numeric-ID candidates when matching a folder's question
+  slugs and titles against the CLI problem catalog. The normal problem-list view
+  remains deduplicated, while the existing `pick` identity check still resolves
+  the selected candidate before edit, test, or submit.
+- Read-only Chrome inspection confirmed the webpage reports 11 questions in
+  `我的收藏` and 5 in `算法思想`, and that the current frontend requests V3.
+  The rebuilt helper returned the same 11/5 counts across 55 folders.
+- Real PTY acceptance at 110x35 rendered all 11 `我的收藏` questions, including
+  `解数独` and `编辑距离`, rendered all 5 `算法思想` questions, loaded the
+  Chinese Sudoku statement through the existing identity gate, and exited
+  cleanly with `q`. No favorite mutation, edit, test, or submission was run.
+- `pnpm check` passed with all 50 existing tests, Prettier, ESLint,
+  `vue-tsc --noEmit`, and the terminal Vite build. Rustfmt passed; helper Clippy
+  passed with only the upstream Rust 1.97 formatting-borrow lint explicitly
+  allowed, while all other warnings remained denied. `git diff --check` passed.
 
 ### Repository delivery — approved
 

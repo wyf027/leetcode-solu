@@ -68,7 +68,7 @@ async fn favorite_questions(client: &LeetCode, favorite_slug: &str) -> Result<Ve
             "favoriteSlug": favorite_slug,
             "limit": 100,
             "skip": skip,
-            "version": "v2",
+            "version": "v3",
         })
         .to_string();
         let response = client
