@@ -2,7 +2,7 @@
 
 本索引按“题解与算法 → 专题课程 → 工程项目 → 工具配置”组织仓库中已经纳入 Git 的内容。单题文件较多，因此这里定位到稳定目录和主要入口，不重复罗列每一道题。
 
-> 最后核对：2026-07-29。工程项目清单完整覆盖 `project/` 下 Git 当前跟踪的 16 个一级目录，并补充 `test/` 下可独立运行的 DB Console。
+> 最后核对：2026-08-21。工程项目清单完整覆盖 `project/` 下 Git 当前跟踪的 18 个一级目录，并补充 `test/` 下可独立运行的 DB Console。
 
 ## 快速导航
 
@@ -15,7 +15,7 @@
 | 其他 OJ           | [`acwing/`](./acwing/)、[`牛客/`](./牛客/)                                                                   | AcWing 课程/题库、牛客基础题与竞赛题                      |
 | 数据结构实现      | [`datastructure-js/`](./datastructure-js/)                                                                   | JavaScript 栈、队列、链表、Trie、树状数组、线段树等       |
 | 专题课程          | [`课程/`](./课程/)                                                                                           | 动态规划优化、Trie、归并排序、RSA、莫比乌斯反演等课程笔记 |
-| 工程项目          | [`project/`](./project/)                                                                                     | 16 个 React、Vue、GraphQL、Mini React 与静态交互项目      |
+| 工程项目          | [`project/`](./project/)                                                                                     | 18 个前端演示、交互工具与独立工程项目                     |
 | 交互讲解与视频    | [`project/leetcode-interactive/`](./project/leetcode-interactive/)、[`leetcode-videos/`](./leetcode-videos/) | LeetCode 交互页面与分段视频素材                           |
 | 测试与实验        | [`test/`](./test/)                                                                                           | 多语言小实验和独立 DB Console                             |
 | Agent 配置        | [`agent-config/`](./agent-config/)                                                                           | Codex、Cursor、Agents 与 macOS 多工具协作配置快照         |
@@ -59,25 +59,27 @@
 
 下表按目录名排序，逐项覆盖 `project/` 下的全部一级项目；最后一行额外收录 `test/` 下可独立运行的实验项目。
 
-| 项目                                                                              | 技术/用途                                    | 入口或启动方式                                                                    |
-| --------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`classic-atlas`](./project/classic-atlas/)                                       | 中国经典文本图谱，原生 HTML/CSS/JS           | `open project/classic-atlas/index.html`                                           |
-| [`classic-games`](./project/classic-games/)                                       | 原生 HTML 的经典游戏合集                     | `open project/classic-games/index.html`                                           |
-| [`classic-sci-fi-atlas`](./project/classic-sci-fi-atlas/)                         | 公版科幻经典简中图册                         | `python3 -m http.server 8787 --directory project/classic-sci-fi-atlas`            |
-| [`daodejing-atlas`](./project/daodejing-atlas/)                                   | 《道德经》静态图册                           | `open project/daodejing-atlas/index.html`                                         |
-| [`declarative-partial-updates-demo`](./project/declarative-partial-updates-demo/) | 声明式局部更新单页演示                       | `open project/declarative-partial-updates-demo/index.html`                        |
-| [`design-pattern`](./project/design-pattern/)                                     | JavaScript 设计模式与设计原则示例            | 按模式目录阅读；依赖声明见 `package.json`                                         |
-| [`drag-sort`](./project/drag-sort/)                                               | 原生拖拽排序实验                             | 打开目录内的 `192.html`、`flip.html` 或 `sortable.html`                           |
-| [`graphql`](./project/graphql/)                                                   | React/Apollo 客户端 + Express/GraphQL 服务端 | 分别进入 `client/`、`server/` 安装依赖并执行 `npm start`                          |
-| [`leetcode-interactive`](./project/leetcode-interactive/)                         | LeetCode 题目的可视化交互讲解                | `open project/leetcode-interactive/index.html`                                    |
-| [`mini-react`](./project/mini-react/)                                             | React Reconciler、调度与 DOM 渲染的精简实现  | `cd project/mini-react && npm install && npm run demos`                           |
-| [`nodepod-demo`](./project/nodepod-demo/)                                         | React、Vite 与 NodePod 本地服务演示          | `cd project/nodepod-demo && npm install && npm run dev`                           |
-| [`open-file-viewer-demo`](./project/open-file-viewer-demo/)                       | 浏览器文件打开与预览演示                     | `open project/open-file-viewer-demo/index.html`                                   |
-| [`rag-flow-demo`](./project/rag-flow-demo/)                                       | RAG 流程可视化单页演示                       | `open project/rag-flow-demo/index.html`                                           |
-| [`react-book`](./project/react-book/)                                             | React 更新机制学习代码                       | [`update.js`](./project/react-book/update.js)                                     |
-| [`react-demo`](./project/react-demo/)                                             | Create React App 示例                        | `cd project/react-demo && npm install && npm start`                               |
-| [`upload`](./project/upload/)                                                     | Vue 3、Vite、Express、Multer 文件上传示例    | `cd project/upload && npm install && npm run dev`                                 |
-| [`db-console-standalone`](./test/db-console-standalone/)                          | Flask + 原生前端的 PostgreSQL Web Console    | `cd test/db-console-standalone && uv sync && uv run python -m db_console_app.app` |
+| 项目                                                                              | 技术/用途                                     | 入口或启动方式                                                                      |
+| --------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [`classic-atlas`](./project/classic-atlas/)                                       | 中国经典文本图谱，原生 HTML/CSS/JS            | `open project/classic-atlas/index.html`                                             |
+| [`classic-games`](./project/classic-games/)                                       | 原生 HTML 的经典游戏合集                      | `open project/classic-games/index.html`                                             |
+| [`classic-sci-fi-atlas`](./project/classic-sci-fi-atlas/)                         | 公版科幻经典简中图册                          | `python3 -m http.server 8787 --directory project/classic-sci-fi-atlas`              |
+| [`daodejing-atlas`](./project/daodejing-atlas/)                                   | 《道德经》静态图册                            | `open project/daodejing-atlas/index.html`                                           |
+| [`declarative-partial-updates-demo`](./project/declarative-partial-updates-demo/) | 声明式局部更新单页演示                        | `open project/declarative-partial-updates-demo/index.html`                          |
+| [`design-pattern`](./project/design-pattern/)                                     | JavaScript 设计模式与设计原则示例             | 按模式目录阅读；依赖声明见 `package.json`                                           |
+| [`drag-sort`](./project/drag-sort/)                                               | 原生拖拽排序实验                              | 打开目录内的 `192.html`、`flip.html` 或 `sortable.html`                             |
+| [`graphql`](./project/graphql/)                                                   | React/Apollo 客户端 + Express/GraphQL 服务端  | 分别进入 `client/`、`server/` 安装依赖并执行 `npm start`                            |
+| [`lan-desktop-share`](./project/lan-desktop-share/)                               | Node.js、WebRTC 与 macOS Swift 局域网桌面共享 | `cd project/lan-desktop-share && npm install && npm run control:build && npm start` |
+| [`le-e`](./project/le-e/)                                                         | Vue 3、TypeScript 与 vue-tui 的 LeetCode TUI  | `cd project/le-e && corepack pnpm install --frozen-lockfile && corepack pnpm check` |
+| [`leetcode-interactive`](./project/leetcode-interactive/)                         | LeetCode 题目的可视化交互讲解                 | `open project/leetcode-interactive/index.html`                                      |
+| [`mini-react`](./project/mini-react/)                                             | React Reconciler、调度与 DOM 渲染的精简实现   | `cd project/mini-react && npm install && npm run demos`                             |
+| [`nodepod-demo`](./project/nodepod-demo/)                                         | React、Vite 与 NodePod 本地服务演示           | `cd project/nodepod-demo && npm install && npm run dev`                             |
+| [`open-file-viewer-demo`](./project/open-file-viewer-demo/)                       | 浏览器文件打开与预览演示                      | `open project/open-file-viewer-demo/index.html`                                     |
+| [`rag-flow-demo`](./project/rag-flow-demo/)                                       | RAG 流程可视化单页演示                        | `open project/rag-flow-demo/index.html`                                             |
+| [`react-book`](./project/react-book/)                                             | React 更新机制学习代码                        | [`update.js`](./project/react-book/update.js)                                       |
+| [`react-demo`](./project/react-demo/)                                             | Create React App 示例                         | `cd project/react-demo && npm install && npm start`                                 |
+| [`upload`](./project/upload/)                                                     | Vue 3、Vite、Express、Multer 文件上传示例     | `cd project/upload && npm install && npm run dev`                                   |
+| [`db-console-standalone`](./test/db-console-standalone/)                          | Flask + 原生前端的 PostgreSQL Web Console     | `cd test/db-console-standalone && uv sync && uv run python -m db_console_app.app`   |
 
 各子项目拥有独立依赖与命令，应在对应目录安装依赖；仓库根目录不是统一的 monorepo 启动入口。
 
