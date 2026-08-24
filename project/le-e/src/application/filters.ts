@@ -6,22 +6,24 @@ export interface ProblemFilters {
   readonly starredOnly: boolean
 }
 
+function normalizeSearchText(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
 export function filterProblems(
   problems: readonly ProblemSummary[],
   filters: ProblemFilters,
 ): ProblemSummary[] {
-  const query = filters.query.trim()
-  const numericQuery = /^\d+$/.test(query) ? Number(query) : null
-  const titleQuery = query.toLocaleLowerCase()
+  const query = normalizeSearchText(filters.query)
+  const numericQuery = /^\d+$/.test(query)
 
   return problems.filter((problem) => {
     const matchesQuery =
       query === '' ||
-      (numericQuery === null
-        ? [problem.title, problem.localizedTitle ?? ''].some((title) =>
-            title.toLocaleLowerCase().includes(titleQuery),
-          )
-        : problem.id === numericQuery)
+      (numericQuery && String(problem.id).includes(query)) ||
+      [problem.title, problem.localizedTitle ?? ''].some((title) =>
+        normalizeSearchText(title).includes(query),
+      )
     const matchesDifficulty =
       filters.difficulty === 'all' || problem.difficulty === filters.difficulty
     const matchesStarred = !filters.starredOnly || problem.starred
