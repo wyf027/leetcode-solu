@@ -1,7 +1,7 @@
 # LeetCode Vue TUI
 
-- Status: delivery approved — PR merge in progress
-- Branch: `fix/le-e-favorite-folder-navigation-20260819`
+- Status: delivery approved — fuzzy search PR merge in progress
+- Branch: `feat/le-e-fuzzy-search-20260824`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
 - Updated: 2026-08-19
 
@@ -48,8 +48,8 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Verification target
 
-- Preserve and run the 50 existing automated tests; do not add test cases per
-  explicit user direction.
+- Run the complete automated suite. A behavior change whose test design is
+  explicitly approved may add focused regression cases.
 - Manually inspect headless rendering and keyboard flow at 100x28.
 - Manually verify edit/save/test data flow with a fake `leetcode` executable.
 - Live setup, source editing, test, and submit require separate explicit
@@ -57,9 +57,8 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Deliver the verified favorite navigation, terminal-image, loading, and unsupported
-question fixes through a pull request to `main`. Commit, push, and merge
-authorization was granted on 2026-08-19.
+Deliver the verified fuzzy problem search through a pull request to `main`.
+Commit, push, and merge authorization was granted on 2026-08-24.
 
 ## Design artifact
 
@@ -322,6 +321,22 @@ authorization was granted on 2026-08-19.
   题目的编辑。`; a normal empty exit-zero result still succeeds.
 - `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, all 50 existing
   tests, and the terminal Vite build. `git diff --check` passed.
+
+### Task 28 — complete
+
+- Search one normalized query across problem ID, original English title, and
+  localized Chinese title.
+- Numeric queries use string containment, so `1` matches IDs `1` and `10`.
+- Titles use NFKC normalization, collapsed whitespace, case folding, and
+  continuous substring matching. Difficulty and favorite filters remain
+  intersected with the search result.
+- TDD RED confirmed exact-ID and non-normalized title behavior failed the new
+  requirements; focused GREEN verification passed all four filter tests.
+- Independent review confirmed numeric/title alternatives still intersect with
+  difficulty and favorite filters. Normalization uses locale-independent case
+  folding for stable behavior across machines.
+- `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, 51 tests, and the
+  terminal Vite build. `git diff --check` passed.
 
 ### Repository delivery — approved
 

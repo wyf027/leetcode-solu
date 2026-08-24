@@ -7,6 +7,7 @@ const problems: ProblemSummary[] = [
   {
     id: 1,
     title: 'Two Sum',
+    localizedTitle: '两数之和',
     difficulty: 'Easy',
     acceptance: 55,
     solveStatus: 'solved',
@@ -34,14 +35,24 @@ const problems: ProblemSummary[] = [
 ]
 
 describe('filterProblems', () => {
-  it('searches titles case-insensitively and numeric IDs exactly', () => {
-    expect(
-      filterProblems(problems, { query: 'TWO sum', difficulty: 'all', starredOnly: false }).map(
-        ({ id }) => id,
-      ),
-    ).toEqual([1])
+  it('matches partial numeric IDs', () => {
     expect(
       filterProblems(problems, { query: '1', difficulty: 'all', starredOnly: false }).map(
+        ({ id }) => id,
+      ),
+    ).toEqual([1, 10])
+  })
+
+  it('normalizes width, case, and whitespace across English and Chinese titles', () => {
+    expect(
+      filterProblems(problems, {
+        query: '  ｔｗｏ　ＳＵＭ  ',
+        difficulty: 'all',
+        starredOnly: false,
+      }).map(({ id }) => id),
+    ).toEqual([1])
+    expect(
+      filterProblems(problems, { query: '两数', difficulty: 'all', starredOnly: false }).map(
         ({ id }) => id,
       ),
     ).toEqual([1])
@@ -53,6 +64,16 @@ describe('filterProblems', () => {
   })
 
   it('intersects difficulty and starred filters', () => {
+    expect(
+      filterProblems(problems, { query: '1', difficulty: 'Hard', starredOnly: false }).map(
+        ({ id }) => id,
+      ),
+    ).toEqual([10])
+    expect(
+      filterProblems(problems, { query: '1', difficulty: 'all', starredOnly: true }).map(
+        ({ id }) => id,
+      ),
+    ).toEqual([1])
     expect(
       filterProblems(problems, { query: '', difficulty: 'Easy', starredOnly: true }).map(
         ({ id }) => id,
