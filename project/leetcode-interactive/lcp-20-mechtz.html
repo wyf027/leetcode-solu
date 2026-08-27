@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>LCP 20 · 快速公交｜逆向记忆化搜索</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      button {
+        box-shadow: none !important;
+        transition:
+          transform 0.18s ease,
+          background-color 0.18s ease;
+      }
+      button:hover,
+      button:active {
+        box-shadow: 0 8px 18px rgb(34 211 238/0.18) !important;
+      }
+      button:focus-visible {
+        outline: 3px solid #fbbf24;
+        outline-offset: 3px;
+      }
+      button:disabled {
+        box-shadow: none !important;
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .card {
+        background: linear-gradient(
+          135deg,
+          rgb(15 23 42/0.92),
+          rgb(30 41 59/0.78)
+        );
+        border: 1px solid rgb(71 85 105/0.58);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-7">
+      <header
+        class="rounded-3xl border border-cyan-300/25 bg-gradient-to-br from-cyan-500/15 via-slate-900 to-orange-500/15 p-7 sm:p-10"
+      >
+        <p class="font-mono text-sm text-cyan-200">LCP 20 · HARD · mechtz</p>
+        <h1 class="mt-3 text-3xl font-black sm:text-5xl">快速公交</h1>
+        <p class="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+          从 0 号站出发：向前一步耗时 <code>inc</code>，向后一步耗时
+          <code>dec</code>；公交 i 可把站点 x 直接送到
+          <code>jump[i]×x</code>，耗时 <code>cost[i]</code>。求抵达 target
+          的最短时间。
+        </p>
+        <p class="mt-5 text-sm text-cyan-100">
+          target ≤ 10⁹；允许先超过 target 再向后走；答案对 1,000,000,007 取模。
+        </p>
+      </header>
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="problem"
+      >
+        <h2 id="problem" class="text-2xl font-bold">题意与示例</h2>
+        <p class="mt-4 leading-7 text-slate-300">
+          公交可无限次乘坐。虽然站点看似无限，逆向思考一趟倍率为 j
+          的最后公交：上车点只需考虑 <code>floor(x/j)</code>（落在目标左侧）和
+          <code>ceil(x/j)</code>（落在目标右侧）。
+        </p>
+        <div class="mt-5 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-cyan-200">示例 1</h3>
+            <code class="mt-3 block break-words"
+              >target = 31, inc = 5, dec = 3, jump = [6], cost = [10]</code
+            >
+            <p class="mt-3">输出：<b class="text-amber-200">33</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              0→1→6→5→30→31，总耗时 5+10+3+10+5。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-cyan-200">示例 2</h3>
+            <code class="mt-3 block break-words"
+              >target = 612, inc = 4, dec = 5, jump = [3,6,8,11,5,10,4], cost =
+              [4,7,6,3,7,6,4]</code
+            >
+            <p class="mt-3">输出：<b class="text-amber-200">26</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              乘 3、11、3、6 的公交组合可快速抵达。
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="card mt-7 rounded-3xl p-6 sm:p-8" aria-labelledby="lab">
+        <div class="flex flex-wrap justify-between gap-4">
+          <div>
+            <h2 id="lab" class="text-2xl font-bold">逆向路线实验室</h2>
+            <p class="mt-2 text-slate-400">
+              回放示例 1 的最优路线，观察“先超一点再退回”为什么有价值。
+            </p>
+          </div>
+          <span
+            id="step-label"
+            class="rounded-full bg-cyan-300/15 px-3 py-1 font-mono text-cyan-100"
+            >步骤 0 / 5</span
+          >
+        </div>
+        <div class="mt-5 rounded-2xl bg-slate-950 p-5">
+          <div
+            id="stops"
+            class="flex flex-wrap items-center gap-2"
+            aria-live="polite"
+          ></div>
+          <div class="mt-5 grid gap-3 text-sm sm:grid-cols-3">
+            <p class="rounded-xl bg-slate-900 p-3">
+              站点 <code id="station">0</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">
+              本步耗时 <code id="delta">0</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">
+              累计耗时 <code id="total">0</code>
+            </p>
+          </div>
+          <p id="explain" class="mt-5 min-h-12 text-slate-300"></p>
+        </div>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            id="prev"
+            class="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2"
+          >
+            ← 上一步</button
+          ><button
+            id="next"
+            class="rounded-xl bg-cyan-300 px-4 py-2 font-bold text-slate-950"
+          >
+            下一步 →</button
+          ><button
+            id="auto"
+            class="rounded-xl border border-orange-300/50 bg-orange-400/10 px-4 py-2"
+          >
+            自动播放
+          </button>
+        </div>
+        <p
+          id="status"
+          role="status"
+          aria-live="polite"
+          class="mt-4 text-sm text-cyan-200"
+        ></p>
+      </section>
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="verify"
+      >
+        <h2 id="verify" class="text-2xl font-bold">测试与验证</h2>
+        <div class="mt-5 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="block break-words"
+              >target = 31, inc = 5, dec = 3, jump = [6], cost = [10]</code
+            >
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>33</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>33（递归转移推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="block break-words"
+              >target = 612, inc = 4, dec = 5, jump = [3,6,8,11,5,10,4], cost =
+              [4,7,6,3,7,6,4]</code
+            >
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>26</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>26（递归转移推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+        </div>
+        <p
+          class="mt-5 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100"
+        >
+          快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+        </p>
+        <p class="mt-3 text-sm text-slate-400">
+          本轮已执行：Prettier 格式化、提交前审计。HTML
+          Validate、浏览器与算法对拍留待后续统一回归。
+        </p>
+      </section>
+      <section class="mt-7 text-center">
+        <button
+          id="solution-toggle"
+          class="rounded-xl bg-amber-300 px-5 py-3 font-bold text-slate-950"
+          aria-expanded="false"
+          aria-controls="solution"
+        >
+          查看题解
+        </button>
+        <p
+          id="solution-status"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </section>
+      <section
+        id="solution"
+        class="card mt-5 rounded-3xl p-6 sm:p-8"
+        hidden
+        tabindex="-1"
+        aria-labelledby="solution-title"
+      >
+        <h2 id="solution-title" class="text-2xl font-bold">
+          题解：从目标站逆推最后一趟公交
+        </h2>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-cyan-200">核心洞察</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              设 <code>dfs(x)</code> 为 0 到 x 的最短时间。最后不乘公交时是
+              <code>x×inc</code>。若最后乘倍率 j 的公交，令
+              <code>q=floor(x/j), r=x mod j</code>：可从 q 上车，落在 x-r
+              后向前走 r 步；也可从 q+1 上车，超过 x 后向后走 j-r 步。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-orange-200">状态转移</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              <code
+                >dfs(x)=min(x·inc, dfs(q)+cost+r·inc,
+                dfs(q+1)+cost+(j-r)·dec)</code
+              >。第二个公交方案只在 r&gt;0
+              时需要。jump≥2，因此子问题规模快速缩小；用哈希表记忆每个 x。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-cyan-200">边界与复杂度</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              <code>dfs(0)=0</code>、<code>dfs(1)=inc</code>，避免 ceil
+              分支自环。中间最短时间可能达到 10¹⁵，必须用 64
+              位；只在最终返回时取模。状态数约 O(m log target)，每个状态枚举 m
+              辆公交，常写作 O(m² log target)，空间同状态数。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-rose-200">替代方案、追问与常见错误</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              可用 Dijkstra 搜索关键站点，但实现更重。若禁止超过 target，删除
+              ceil
+              分支即可。常见错误：只考虑整除、忽略向后步行、递归中提前取模破坏大小关系、用
+              int 保存 x×inc、忘记 memo。
+            </p>
+          </article>
+        </div>
+        <h3 class="mt-7 text-xl font-bold">四份可提交代码</h3>
+        <div
+          class="mt-4 flex flex-wrap gap-2"
+          role="tablist"
+          aria-label="代码语言"
+        >
+          <button
+            class="lang rounded-lg bg-cyan-300 px-3 py-2 text-slate-950"
+            data-lang="java"
+            role="tab"
+            aria-selected="true"
+          >
+            Java</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="javascript"
+            role="tab"
+            aria-selected="false"
+          >
+            JavaScript</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="python"
+            role="tab"
+            aria-selected="false"
+          >
+            Python</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="cpp"
+            role="tab"
+            aria-selected="false"
+          >
+            C++
+          </button>
+        </div>
+        <pre
+          id="code"
+          class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm leading-6"
+          tabindex="0"
+        ></pre>
+      </section>
+    </main>
+    <script data-cfasync="false">
+      const route = [
+        { x: 0, d: 0, t: 0, m: "从 0 出发。" },
+        { x: 1, d: 5, t: 5, m: "向前步行 1 站。" },
+        { x: 6, d: 10, t: 15, m: "乘倍率 6 的公交：1→6。" },
+        { x: 5, d: 3, t: 18, m: "向后步行到 5，为下一趟公交对齐。" },
+        { x: 30, d: 10, t: 28, m: "再次乘公交：5→30。" },
+        { x: 31, d: 5, t: 33, m: "向前一步抵达 target。" },
+      ];
+      let step = 0,
+        timer = null;
+      const $ = (id) => document.getElementById(id);
+      function render() {
+        const s = route[step];
+        $("step-label").textContent = `步骤 ${step} / 5`;
+        $("stops").innerHTML = route
+          .slice(0, step + 1)
+          .map(
+            (v, i) =>
+              `<span class="rounded-xl border px-4 py-3 font-mono ${i === step ? "border-cyan-300 bg-cyan-300/20" : "border-slate-700 bg-slate-900"}">${v.x}</span>${i < step ? '<span class="text-slate-600">→</span>' : ""}`,
+          )
+          .join("");
+        $("station").textContent = s.x;
+        $("delta").textContent = s.d;
+        $("total").textContent = s.t;
+        $("explain").textContent = s.m;
+        $("prev").disabled = step === 0;
+        $("next").disabled = step === 5;
+        $("status").textContent = `已到步骤 ${step}，累计 ${s.t}`;
+      }
+      function move(d) {
+        step = Math.max(0, Math.min(5, step + d));
+        render();
+      }
+      $("prev").onclick = () => move(-1);
+      $("next").onclick = () => move(1);
+      $("auto").onclick = () => {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+          $("auto").textContent = "自动播放";
+          return;
+        }
+        if (step === 5) step = 0;
+        $("auto").textContent = "停止播放";
+        timer = setInterval(
+          () => (step === 5 ? $("auto").click() : move(1)),
+          800,
+        );
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") move(1);
+        if (e.key === "ArrowLeft") move(-1);
+      });
+      const code = {
+        java: `class Solution {\n  private long inc, dec; private int[] jump, cost;\n  private final java.util.Map<Long, Long> memo = new java.util.HashMap<>();\n  public int busRapidTransit(int target, int inc, int dec, int[] jump, int[] cost) {\n    this.inc=inc; this.dec=dec; this.jump=jump; this.cost=cost;\n    return (int)(dfs(target) % 1_000_000_007L);\n  }\n  private long dfs(long x) {\n    if (x == 0) return 0; if (x == 1) return inc;\n    Long saved=memo.get(x); if(saved!=null) return saved;\n    long best=x*inc;\n    for(int i=0;i<jump.length;i++){\n      long j=jump[i],q=x/j,r=x%j;\n      best=Math.min(best,dfs(q)+cost[i]+r*inc);\n      if(r>0) best=Math.min(best,dfs(q+1)+cost[i]+(j-r)*dec);\n    }\n    memo.put(x,best); return best;\n  }\n}`,
+        javascript: `var busRapidTransit = function(target, inc, dec, jump, cost) {\n  const memo=new Map([[0,0],[1,inc]]);\n  function dfs(x){\n    if(memo.has(x)) return memo.get(x);\n    let best=x*inc;\n    for(let i=0;i<jump.length;i++){\n      const j=jump[i],q=Math.floor(x/j),r=x%j;\n      best=Math.min(best,dfs(q)+cost[i]+r*inc);\n      if(r>0) best=Math.min(best,dfs(q+1)+cost[i]+(j-r)*dec);\n    }\n    memo.set(x,best); return best;\n  }\n  return dfs(target)%1000000007;\n};`,
+        python: `class Solution:\n    def busRapidTransit(self, target: int, inc: int, dec: int, jump: List[int], cost: List[int]) -> int:\n        from functools import lru_cache\n        @lru_cache(None)\n        def dfs(x: int) -> int:\n            if x == 0: return 0\n            if x == 1: return inc\n            best = x * inc\n            for j, c in zip(jump, cost):\n                q, r = divmod(x, j)\n                best = min(best, dfs(q) + c + r * inc)\n                if r:\n                    best = min(best, dfs(q + 1) + c + (j - r) * dec)\n            return best\n        return dfs(target) % 1_000_000_007`,
+        cpp: `class Solution {\n  long long inc,dec; vector<int> jump,cost; unordered_map<long long,long long> memo;\n  long long dfs(long long x){\n    if(x==0) return 0; if(x==1) return inc;\n    if(memo.count(x)) return memo[x];\n    long long best=x*inc;\n    for(int i=0;i<(int)jump.size();++i){\n      long long j=jump[i],q=x/j,r=x%j;\n      best=min(best,dfs(q)+cost[i]+r*inc);\n      if(r) best=min(best,dfs(q+1)+cost[i]+(j-r)*dec);\n    }\n    return memo[x]=best;\n  }\npublic:\n  int busRapidTransit(int target,int inc_,int dec_,vector<int>& jump_,vector<int>& cost_){\n    inc=inc_;dec=dec_;jump=jump_;cost=cost_;\n    return dfs(target)%1000000007;\n  }\n};`,
+      };
+      function setLang(name) {
+        $("code").textContent = code[name];
+        document.querySelectorAll(".lang").forEach((b) => {
+          const on = b.dataset.lang === name;
+          b.setAttribute("aria-selected", String(on));
+          b.className = on
+            ? "lang rounded-lg bg-cyan-300 px-3 py-2 text-slate-950"
+            : "lang rounded-lg border border-slate-600 px-3 py-2";
+        });
+      }
+      document
+        .querySelectorAll(".lang")
+        .forEach((b) => (b.onclick = () => setLang(b.dataset.lang)));
+      $("solution-toggle").onclick = () => {
+        const open = !$("solution").hidden;
+        $("solution").hidden = open;
+        $("solution-toggle").setAttribute("aria-expanded", String(!open));
+        $("solution-toggle").textContent = open ? "查看题解" : "收起题解";
+        $("solution-status").textContent = open ? "题解已收起" : "题解已展开";
+        if (!open) $("solution").focus();
+      };
+      render();
+      setLang("java");
+    </script>
+  </body>
+</html>
