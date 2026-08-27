@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LCR 031 LRU 缓存：哈希表与双向链表的 O(1) 交互讲解、测试和四语言代码。"
+    />
+    <title>LCR 031 · LRU 缓存｜交互讲解</title>
+    <script data-cfasync="false">
+      tailwind = {
+        config: {
+          theme: {
+            extend: {
+              colors: {
+                ink: "#0b1120",
+                panel: "#111c31",
+                lime: "#9eff6b",
+                sky: "#66d9ff",
+                ember: "#ff9d5c",
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        background:
+          radial-gradient(circle at 80% 0%, #173458 0, transparent 30rem),
+          #0b1120;
+      }
+      .node {
+        min-width: 92px;
+        transition:
+          transform 0.22s ease,
+          border-color 0.22s ease,
+          background 0.22s ease;
+      }
+      .node:last-child .arrow {
+        display: none;
+      }
+      .node.hot {
+        transform: translateY(-8px);
+        border-color: #9eff6b;
+        background: #163426;
+      }
+      .node.evict {
+        border-color: #ff9d5c;
+        background: #47271e;
+      }
+      pre {
+        white-space: pre;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen text-slate-100 antialiased">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-7 lg:py-12">
+      <header
+        class="border border-sky/40 bg-panel/90 p-6 shadow-[8px_8px_0_rgba(102,217,255,.12)] sm:p-9"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <p class="font-mono text-sm font-bold tracking-[.18em] text-lime">
+            LCR 031 · MEDIUM · orixps
+          </p>
+          <span
+            class="rounded-full border border-lime/50 px-3 py-1 font-mono text-xs text-lime"
+            >O(1) GET / PUT</span
+          >
+        </div>
+        <h1 class="mt-5 text-4xl font-black tracking-tight sm:text-5xl">
+          LRU 缓存
+        </h1>
+        <p class="mt-4 max-w-3xl text-lg leading-8 text-slate-300">
+          设计一个固定容量的缓存：每次访问都提升为“最近使用”，满容量时淘汰“最久未使用”的键。核心是让定位与移动都保持常数时间。
+        </p>
+        <div class="mt-6 grid gap-3 font-mono text-sm sm:grid-cols-3">
+          <div class="border border-white/15 p-3">
+            <b class="text-lime">哈希表</b><br />key → 节点
+          </div>
+          <div class="border border-white/15 p-3">
+            <b class="text-sky">双向链表</b><br />维护使用次序
+          </div>
+          <div class="border border-white/15 p-3">
+            <b class="text-ember">约定</b><br />左 LRU · 右 MRU
+          </div>
+        </div>
+      </header>
+
+      <section
+        class="mt-8 grid gap-6 lg:grid-cols-[1.35fr_.65fr]"
+        aria-labelledby="lab-title"
+      >
+        <div class="border border-white/15 bg-panel/90 p-5 sm:p-7">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="font-mono text-xs tracking-widest text-sky">
+                INTERACTIVE LAB
+              </p>
+              <h2 id="lab-title" class="mt-1 text-2xl font-bold">
+                操作缓存，观察次序
+              </h2>
+            </div>
+            <button
+              id="reset"
+              class="border border-white/40 px-4 py-2 font-semibold hover:border-lime hover:text-lime"
+            >
+              重置示例
+            </button>
+          </div>
+          <div
+            class="mt-6 flex items-center justify-between gap-3 font-mono text-sm"
+          >
+            <span class="rounded border border-ember/50 px-3 py-1 text-ember"
+              >← LRU：下次淘汰</span
+            ><span class="rounded border border-lime/50 px-3 py-1 text-lime"
+              >MRU：最新访问 →</span
+            >
+          </div>
+          <ol
+            id="rail"
+            class="mt-3 flex min-h-32 items-center gap-3 overflow-x-auto border border-dashed border-sky/60 bg-ink/70 p-4"
+            aria-live="polite"
+          ></ol>
+          <p
+            id="event"
+            class="mt-4 min-h-7 border-l-2 border-lime bg-ink/60 px-3 py-2 font-mono text-sm text-slate-300"
+            aria-live="polite"
+          >
+            准备就绪：缓存为空。
+          </p>
+          <div class="mt-6 grid gap-3 sm:grid-cols-[auto_1fr_1fr_auto]">
+            <label class="font-mono text-sm text-slate-300"
+              >容量
+              <input
+                id="capacity"
+                type="number"
+                min="1"
+                max="6"
+                value="2"
+                class="ml-2 w-16 border border-white/30 bg-ink px-2 py-2 text-center text-white"
+            /></label>
+            <input
+              id="key"
+              value="1"
+              inputmode="numeric"
+              aria-label="键"
+              class="border border-white/30 bg-ink px-3 py-2 font-mono"
+              placeholder="key"
+            />
+            <input
+              id="value"
+              value="1"
+              inputmode="numeric"
+              aria-label="值"
+              class="border border-white/30 bg-ink px-3 py-2 font-mono"
+              placeholder="value（get 时可留空）"
+            />
+            <div class="flex gap-2">
+              <button
+                id="put"
+                class="border border-lime bg-lime px-4 py-2 font-bold text-ink"
+              >
+                PUT</button
+              ><button
+                id="get"
+                class="border border-sky px-4 py-2 font-bold text-sky"
+              >
+                GET
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside class="border border-white/15 bg-panel/90 p-5 sm:p-7">
+          <p class="font-mono text-xs tracking-widest text-sky">INVARIANTS</p>
+          <h2 class="mt-2 text-2xl font-bold">不变量检查</h2>
+          <ul class="mt-5 space-y-4 text-sm leading-6 text-slate-300">
+            <li>
+              <b class="text-lime">1.</b> 每个真实节点同时存在于 Map 与链表。
+            </li>
+            <li>
+              <b class="text-lime">2.</b>
+              头部哨兵后是最久未使用；尾部哨兵前是最近使用。
+            </li>
+            <li>
+              <b class="text-lime">3.</b> 命中或更新：先摘除旧位置，再接到尾部。
+            </li>
+            <li>
+              <b class="text-lime">4.</b> 超容量：删除头部之后的真实节点，并从
+              Map 删除。
+            </li>
+          </ul>
+          <div
+            class="mt-6 border border-ember/40 bg-ember/10 p-3 text-sm text-amber-100"
+          >
+            容量必须至少为 1；本实验将容量限制为 6，方便观察。
+          </div>
+        </aside>
+      </section>
+
+      <section class="mt-8 grid gap-6 lg:grid-cols-2">
+        <article class="border border-white/15 bg-panel/90 p-6">
+          <p class="font-mono text-xs tracking-widest text-sky">
+            WHY THIS WORKS
+          </p>
+          <h2 class="mt-2 text-2xl font-bold">
+            为什么是「哈希表 + 双向链表」？
+          </h2>
+          <ol class="mt-5 space-y-4 leading-7 text-slate-300">
+            <li>
+              <b class="text-lime">定位：</b><code>get(key)</code> 先由哈希表在
+              O(1) 找到节点。
+            </li>
+            <li>
+              <b class="text-lime">刷新：</b>双向链表能在已知节点时 O(1)
+              删除，再追加到尾部。
+            </li>
+            <li>
+              <b class="text-lime">淘汰：</b>容量已满，头部的第一个真实节点就是
+              LRU，O(1) 删除。
+            </li>
+          </ol>
+        </article>
+        <article class="border border-white/15 bg-panel/90 p-6">
+          <p class="font-mono text-xs tracking-widest text-sky">COMPLEXITY</p>
+          <h2 class="mt-2 text-2xl font-bold">复杂度与边界</h2>
+          <table class="mt-5 w-full border-collapse text-left text-sm">
+            <thead class="border-b border-white/20 text-sky">
+              <tr>
+                <th class="pb-2">操作</th>
+                <th class="pb-2">时间</th>
+                <th class="pb-2">原因</th>
+              </tr>
+            </thead>
+            <tbody class="text-slate-300">
+              <tr class="border-b border-white/10">
+                <td class="py-3">get</td>
+                <td>O(1)</td>
+                <td>Map 查找 + 链表移动</td>
+              </tr>
+              <tr class="border-b border-white/10">
+                <td class="py-3">put</td>
+                <td>O(1)</td>
+                <td>更新/插入/必要时淘汰</td>
+              </tr>
+              <tr>
+                <td class="py-3">空间</td>
+                <td>O(capacity)</td>
+                <td>Map 与节点各一份引用</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <section
+        class="mt-8 border border-lime/50 bg-panel/90 p-6"
+        aria-labelledby="tests-title"
+      >
+        <p class="font-mono text-xs tracking-widest text-lime">TEST AREA</p>
+        <h2 id="tests-title" class="mt-2 text-2xl font-bold">按步骤跑样例</h2>
+        <div
+          class="mt-5 flex flex-wrap gap-2"
+          role="group"
+          aria-label="测试用例"
+        >
+          <button
+            class="case border border-lime bg-lime px-3 py-2 font-mono text-sm text-ink"
+            data-case="classic"
+          >
+            官方序列</button
+          ><button
+            class="case border border-white/30 px-3 py-2 font-mono text-sm"
+            data-case="update"
+          >
+            更新键</button
+          ><button
+            class="case border border-white/30 px-3 py-2 font-mono text-sm"
+            data-case="one"
+          >
+            容量为 1
+          </button>
+        </div>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <pre
+            id="test-input"
+            class="border border-white/15 bg-ink p-4 text-sm text-slate-200"
+          ></pre>
+          <pre
+            id="test-output"
+            class="border border-white/15 bg-ink p-4 text-sm text-lime"
+          ></pre>
+        </div>
+        <div class="mt-4 flex items-center gap-3">
+          <button
+            id="step"
+            class="border border-sky bg-sky px-4 py-2 font-bold text-ink"
+          >
+            执行下一步</button
+          ><span
+            id="step-status"
+            class="font-mono text-sm text-slate-300"
+          ></span>
+        </div>
+      </section>
+
+      <section class="mt-8 border border-white/15 bg-panel/90 p-6">
+        <button
+          id="solution-toggle"
+          aria-expanded="false"
+          aria-controls="solution-content"
+          class="flex w-full items-center justify-between text-left"
+        >
+          <span
+            ><span class="font-mono text-xs tracking-widest text-sky"
+              >SOLUTION</span
+            ><span class="mt-1 block text-2xl font-bold"
+              >显示提交级四语言代码</span
+            ></span
+          ><span id="toggle-mark" class="text-3xl text-lime">＋</span>
+        </button>
+        <div id="solution-content" hidden class="mt-6">
+          <div
+            class="flex flex-wrap gap-2"
+            role="tablist"
+            aria-label="语言选择"
+          >
+            <button
+              role="tab"
+              aria-selected="true"
+              aria-controls="code-java"
+              class="lang border border-lime bg-lime px-3 py-2 font-mono text-sm text-ink"
+              data-lang="java"
+            >
+              Java</button
+            ><button
+              role="tab"
+              aria-selected="false"
+              aria-controls="code-javascript"
+              class="lang border border-white/30 px-3 py-2 font-mono text-sm"
+              data-lang="javascript"
+            >
+              JavaScript</button
+            ><button
+              role="tab"
+              aria-selected="false"
+              aria-controls="code-python"
+              class="lang border border-white/30 px-3 py-2 font-mono text-sm"
+              data-lang="python"
+            >
+              Python</button
+            ><button
+              role="tab"
+              aria-selected="false"
+              aria-controls="code-cpp"
+              class="lang border border-white/30 px-3 py-2 font-mono text-sm"
+              data-lang="cpp"
+            >
+              C++
+            </button>
+          </div>
+          <pre
+            id="code-java"
+            class="code mt-4 border border-white/15 bg-ink p-4 text-sm text-slate-100"
+          ><code>class LRUCache {
+    static class Node { int key, val; Node prev, next; Node(int k, int v){key=k;val=v;} }
+    private final int cap; private final java.util.Map&lt;Integer, Node&gt; map = new java.util.HashMap&lt;&gt;();
+    private final Node head = new Node(0, 0), tail = new Node(0, 0);
+    public LRUCache(int capacity) { cap = capacity; head.next = tail; tail.prev = head; }
+    private void remove(Node n) { n.prev.next = n.next; n.next.prev = n.prev; }
+    private void addLast(Node n) { n.prev = tail.prev; n.next = tail; tail.prev.next = n; tail.prev = n; }
+    public int get(int key) { Node n = map.get(key); if (n == null) return -1; remove(n); addLast(n); return n.val; }
+    public void put(int key, int value) { Node n = map.get(key); if (n != null) { n.val=value; remove(n); addLast(n); return; } n=new Node(key,value); map.put(key,n); addLast(n); if(map.size()&gt;cap){ Node old=head.next; remove(old); map.remove(old.key); } }
+}</code></pre>
+          <pre
+            id="code-javascript"
+            class="code mt-4 hidden border border-white/15 bg-ink p-4 text-sm text-slate-100"
+          ><code>class LRUCache {
+  constructor(capacity) { this.cap = capacity; this.map = new Map(); this.head = {}; this.tail = {}; this.head.next = this.tail; this.tail.prev = this.head; }
+  remove(n) { n.prev.next = n.next; n.next.prev = n.prev; }
+  addLast(n) { n.prev = this.tail.prev; n.next = this.tail; this.tail.prev.next = n; this.tail.prev = n; }
+  get(key) { const n = this.map.get(key); if (!n) return -1; this.remove(n); this.addLast(n); return n.val; }
+  put(key, value) { let n = this.map.get(key); if (n) { n.val = value; this.remove(n); this.addLast(n); return; } n = { key, val: value }; this.map.set(key, n); this.addLast(n); if (this.map.size &gt; this.cap) { const old = this.head.next; this.remove(old); this.map.delete(old.key); } }
+}</code></pre>
+          <pre
+            id="code-python"
+            class="code mt-4 hidden border border-white/15 bg-ink p-4 text-sm text-slate-100"
+          ><code>class LRUCache:
+    def __init__(self, capacity: int):
+        self.cap, self.cache = capacity, {}
+        self.head = self.tail = None
+        self.head = [None, None, None, None]; self.tail = [None, None, None, None]
+        self.head[3] = self.tail; self.tail[2] = self.head
+    def _remove(self, n): n[2][3], n[3][2] = n[3], n[2]
+    def _add(self, n): n[2], n[3], self.tail[2][3], self.tail[2] = self.tail[2], self.tail, n, n
+    def get(self, key: int) -&gt; int:
+        if key not in self.cache: return -1
+        n = self.cache[key]; self._remove(n); self._add(n); return n[1]
+    def put(self, key: int, value: int) -&gt; None:
+        if key in self.cache: self._remove(self.cache[key])
+        n = [key, value, None, None]; self.cache[key] = n; self._add(n)
+        if len(self.cache) &gt; self.cap:
+            old = self.head[3]; self._remove(old); del self.cache[old[0]]</code></pre>
+          <pre
+            id="code-cpp"
+            class="code mt-4 hidden border border-white/15 bg-ink p-4 text-sm text-slate-100"
+          ><code>class LRUCache {
+    int cap; list&lt;pair&lt;int,int&gt;&gt; q; unordered_map&lt;int, list&lt;pair&lt;int,int&gt;&gt;::iterator&gt; pos;
+public:
+    LRUCache(int capacity) : cap(capacity) {}
+    int get(int key) { auto it=pos.find(key); if(it==pos.end()) return -1; int v=it-&gt;second-&gt;second; q.erase(it-&gt;second); q.push_back({key,v}); pos[key]=prev(q.end()); return v; }
+    void put(int key, int value) { auto it=pos.find(key); if(it!=pos.end()) q.erase(it-&gt;second); q.push_back({key,value}); pos[key]=prev(q.end()); if((int)q.size()&gt;cap){ pos.erase(q.front().first); q.pop_front(); } }
+};</code></pre>
+        </div>
+      </section>
+
+      <section
+        class="mt-8 border border-sky/35 bg-sky/10 p-5 text-sm leading-7 text-slate-200"
+      >
+        <b class="text-sky">生成说明：</b>
+        快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+      </section>
+      <footer class="py-8 text-center font-mono text-xs text-slate-500">
+        LCR 031 · LRU Cache · Hash Map + Doubly Linked List
+      </footer>
+    </main>
+    <script data-cfasync="false">
+      (() => {
+        let cap = 2,
+          cache = new Map(),
+          flash = null;
+        const el = (id) => document.getElementById(id);
+        const order = () => [...cache.entries()];
+        function render() {
+          el("capacity").value = cap;
+          const entries = order();
+          el("rail").innerHTML = entries.length
+            ? entries
+                .map(
+                  ([k, v], i) =>
+                    `<li class="node ${flash === k ? "hot" : ""} border-2 border-white/50 bg-slate-800 p-3 text-center font-mono"><span class="block text-xs text-slate-400">${i === 0 ? "LRU" : ""}</span><b>${k} → ${v}</b><span class="arrow absolute -right-4 top-1/2 text-sky">→</span></li>`,
+                )
+                .join("")
+            : '<li class="text-slate-500">空缓存：请执行 PUT。</li>';
+        }
+        function moveToMRU(key) {
+          const value = cache.get(key);
+          cache.delete(key);
+          cache.set(key, value);
+          flash = key;
+        }
+        function put(key, value) {
+          if (cache.has(key)) {
+            moveToMRU(key);
+            cache.set(key, value);
+            el("event").textContent = `PUT(${key}, ${value})：更新并移到 MRU。`;
+          } else {
+            cache.set(key, value);
+            flash = key;
+            let msg = `PUT(${key}, ${value})：插入 MRU。`;
+            if (cache.size > cap) {
+              const old = cache.keys().next().value;
+              cache.delete(old);
+              msg += ` 容量已满，淘汰 LRU 键 ${old}。`;
+            }
+            el("event").textContent = msg;
+          }
+          render();
+        }
+        function get(key) {
+          if (!cache.has(key)) {
+            flash = null;
+            el("event").textContent = `GET(${key}) = -1：未命中，次序不变。`;
+            render();
+            return -1;
+          }
+          const value = cache.get(key);
+          moveToMRU(key);
+          el("event").textContent =
+            `GET(${key}) = ${value}：命中并提升为 MRU。`;
+          render();
+          return value;
+        }
+        function reset() {
+          cap = 2;
+          cache = new Map([
+            [1, 1],
+            [2, 2],
+          ]);
+          flash = null;
+          el("event").textContent = "已重置为 {1→1, 2→2}：左侧键 1 是 LRU。";
+          render();
+        }
+        el("put").onclick = () => {
+          const k = Number(el("key").value),
+            v = Number(el("value").value);
+          if (Number.isFinite(k) && Number.isFinite(v)) put(k, v);
+        };
+        el("get").onclick = () => {
+          const k = Number(el("key").value);
+          if (Number.isFinite(k)) get(k);
+        };
+        el("reset").onclick = reset;
+        el("capacity").onchange = (e) => {
+          cap = Math.max(1, Math.min(6, Number(e.target.value) || 1));
+          while (cache.size > cap) cache.delete(cache.keys().next().value);
+          el("event").textContent = `容量设为 ${cap}。`;
+          render();
+        };
+        const tests = {
+          classic: [
+            ["put", 1, 1],
+            ["put", 2, 2],
+            ["get", 1],
+            ["put", 3, 3],
+            ["get", 2],
+            ["put", 4, 4],
+            ["get", 1],
+            ["get", 3],
+            ["get", 4],
+          ],
+          update: [
+            ["put", 2, 1],
+            ["put", 2, 2],
+            ["get", 2],
+          ],
+          one: [
+            ["put", 1, 10],
+            ["put", 2, 20],
+            ["get", 1],
+            ["get", 2],
+          ],
+        };
+        let steps = tests.classic,
+          idx = 0,
+          outputs = [];
+        function setTest(name) {
+          steps = tests[name];
+          idx = 0;
+          outputs = [];
+          reset();
+          if (name === "update") {
+            cap = 2;
+            cache = new Map();
+            render();
+          }
+          if (name === "one") {
+            cap = 1;
+            cache = new Map();
+            render();
+          }
+          el("test-input").textContent =
+            `容量：${cap}\n操作：\n` +
+            steps
+              .map((x) =>
+                x[0] === "put" ? `put(${x[1]}, ${x[2]})` : `get(${x[1]})`,
+              )
+              .join("\n");
+          el("test-output").textContent = "输出：等待执行";
+          el("step-status").textContent = `0 / ${steps.length}`;
+        }
+        document.querySelectorAll(".case").forEach(
+          (b) =>
+            (b.onclick = () => {
+              document
+                .querySelectorAll(".case")
+                .forEach(
+                  (x) =>
+                    (x.className =
+                      "case border border-white/30 px-3 py-2 font-mono text-sm"),
+                );
+              b.className =
+                "case border border-lime bg-lime px-3 py-2 font-mono text-sm text-ink";
+              setTest(b.dataset.case);
+            }),
+        );
+        el("step").onclick = () => {
+          if (idx >= steps.length) return;
+          const x = steps[idx++];
+          if (x[0] === "put") put(x[1], x[2]);
+          else outputs.push(get(x[1]));
+          el("test-output").textContent =
+            `输出：${outputs.length ? outputs.join(", ") : "（put 无返回）"}\n已执行：${x[0]}(${x.slice(1).join(", ")})`;
+          el("step-status").textContent =
+            `${idx} / ${steps.length}${idx === steps.length ? " · 完成" : ""}`;
+        };
+        el("solution-toggle").onclick = () => {
+          const open =
+            el("solution-toggle").getAttribute("aria-expanded") === "true";
+          el("solution-toggle").setAttribute("aria-expanded", String(!open));
+          el("solution-content").hidden = open;
+          el("toggle-mark").textContent = open ? "＋" : "－";
+        };
+        document.querySelectorAll(".lang").forEach(
+          (b) =>
+            (b.onclick = () => {
+              document.querySelectorAll(".lang").forEach((x) => {
+                x.setAttribute("aria-selected", "false");
+                x.className =
+                  "lang border border-white/30 px-3 py-2 font-mono text-sm";
+              });
+              document
+                .querySelectorAll(".code")
+                .forEach((x) => (x.hidden = true));
+              b.setAttribute("aria-selected", "true");
+              b.className =
+                "lang border border-lime bg-lime px-3 py-2 font-mono text-sm text-ink";
+              el("code-" + b.dataset.lang).hidden = false;
+            }),
+        );
+        reset();
+        setTest("classic");
+      })();
+    </script>
+  </body>
+</html>
