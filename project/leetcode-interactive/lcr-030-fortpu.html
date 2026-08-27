@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LCR 030 O(1) 时间插入、删除和获取随机元素：数组与哈希表双索引交互讲解"
+    />
+    <title>LCR 030 · O(1) 时间插入、删除和获取随机元素｜随机集合实验室</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        min-width: 320px;
+        background: #07111f;
+        color: #e5f3ff;
+      }
+      .panel {
+        border: 1px solid rgb(71 85 105 / 0.62);
+        background: rgb(15 23 42 / 0.82);
+        box-shadow: 0 22px 55px rgb(2 6 23 / 0.35);
+      }
+      .array-cell {
+        min-height: 86px;
+        transition:
+          transform 0.25s ease,
+          border-color 0.25s ease,
+          background 0.25s ease;
+      }
+      .array-cell.hot {
+        transform: translateY(-5px);
+        border-color: #fbbf24;
+        background: rgb(120 53 15 / 0.36);
+      }
+      .array-cell.swap {
+        border-color: #2dd4bf;
+        background: rgb(15 118 110 / 0.24);
+      }
+      .map-row {
+        transition: background 0.25s ease;
+      }
+      .map-row.hot {
+        background: rgb(56 189 248 / 0.13);
+      }
+      .pulse {
+        animation: pulse 1s ease-in-out 2;
+      }
+      @keyframes pulse {
+        50% {
+          transform: scale(1.04);
+        }
+      }
+      pre {
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body class="font-sans antialiased">
+    <main class="mx-auto w-[min(1160px,calc(100%-32px))] py-8 md:py-12">
+      <header class="panel rounded-3xl p-6 md:p-10">
+        <div
+          class="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between"
+        >
+          <div>
+            <p
+              class="text-sm font-bold uppercase tracking-[.28em] text-teal-300"
+            >
+              LCR 030 · Medium · fortpu
+            </p>
+            <h1
+              class="mt-3 text-3xl font-black tracking-tight text-white md:text-5xl"
+            >
+              O(1) 时间插入、删除和获取随机元素
+            </h1>
+            <p class="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+              用一个可随机下标访问的数组保存元素，再用哈希表反查元素的位置。删除时把末尾元素搬到空位，避免数组中间移位。
+            </p>
+          </div>
+          <button
+            id="jump-lab"
+            type="button"
+            class="rounded-xl bg-teal-300 px-5 py-3 font-bold text-slate-950 transition hover:bg-teal-200 focus:outline-none focus:ring-4 focus:ring-teal-300/40"
+          >
+            进入交互实验
+          </button>
+        </div>
+        <div class="mt-8 grid gap-3 text-sm sm:grid-cols-3">
+          <div class="rounded-2xl border border-slate-700 bg-slate-950/55 p-4">
+            <strong class="text-teal-300">insert</strong>
+            <p class="mt-1 text-slate-400">哈希表判重，数组 append。</p>
+          </div>
+          <div class="rounded-2xl border border-slate-700 bg-slate-950/55 p-4">
+            <strong class="text-amber-300">remove</strong>
+            <p class="mt-1 text-slate-400">末尾覆盖 + 两处索引同步。</p>
+          </div>
+          <div class="rounded-2xl border border-slate-700 bg-slate-950/55 p-4">
+            <strong class="text-sky-300">getRandom</strong>
+            <p class="mt-1 text-slate-400">均匀随机一个数组下标。</p>
+          </div>
+        </div>
+      </header>
+
+      <section
+        id="lab"
+        class="panel mt-7 rounded-3xl p-5 md:p-8"
+        aria-labelledby="lab-title"
+      >
+        <div
+          class="flex flex-col justify-between gap-4 md:flex-row md:items-center"
+        >
+          <div>
+            <p
+              class="text-sm font-bold uppercase tracking-[.22em] text-teal-300"
+            >
+              Mechanism / 双索引同步
+            </p>
+            <h2 id="lab-title" class="mt-2 text-2xl font-black text-white">
+              随机集合操作台
+            </h2>
+          </div>
+          <p
+            id="complexity"
+            class="rounded-full bg-teal-300/10 px-4 py-2 text-sm font-bold text-teal-200"
+          >
+            准备就绪：三种操作均为平均 O(1)
+          </p>
+        </div>
+
+        <div class="mt-7 grid gap-5 lg:grid-cols-[.86fr_1.14fr]">
+          <div class="rounded-2xl border border-slate-700 bg-slate-950/45 p-5">
+            <label for="value-input" class="text-sm font-bold text-slate-200"
+              >待操作整数</label
+            >
+            <input
+              id="value-input"
+              value="7"
+              inputmode="numeric"
+              type="number"
+              class="mt-2 w-full rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-lg text-white outline-none focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
+            />
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                id="insert-btn"
+                type="button"
+                class="rounded-xl bg-teal-300 px-4 py-3 font-bold text-slate-950 hover:bg-teal-200"
+              >
+                insert(value)
+              </button>
+              <button
+                id="remove-btn"
+                type="button"
+                class="rounded-xl bg-amber-300 px-4 py-3 font-bold text-slate-950 hover:bg-amber-200"
+              >
+                remove(value)
+              </button>
+              <button
+                id="random-btn"
+                type="button"
+                class="rounded-xl border border-sky-400/70 bg-sky-400/10 px-4 py-3 font-bold text-sky-100 hover:bg-sky-400/20"
+              >
+                getRandom()
+              </button>
+              <button
+                id="reset-btn"
+                type="button"
+                class="rounded-xl border border-slate-600 px-4 py-3 font-bold text-slate-200 hover:bg-slate-800"
+              >
+                重置示例
+              </button>
+            </div>
+            <div
+              class="mt-5 rounded-xl border border-slate-700 bg-slate-900/75 p-4"
+            >
+              <p
+                class="text-xs font-bold uppercase tracking-wider text-slate-400"
+              >
+                操作记录
+              </p>
+              <p id="event-title" class="mt-2 font-bold text-white">
+                初始集合：[4, 9, 2]
+              </p>
+              <p id="event-copy" class="mt-2 text-sm leading-6 text-slate-300">
+                数组保留连续下标；哈希表记录每个值所在的下标。
+              </p>
+            </div>
+            <p class="mt-5 text-xs leading-5 text-slate-400">
+              提示：删除非尾部元素时，观察末尾元素如何写入被删位置，以及哈希表中的下标如何更新。
+            </p>
+          </div>
+
+          <div
+            class="min-w-0 rounded-2xl border border-slate-700 bg-slate-950/45 p-5"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="font-black text-white">
+                数组 <code class="text-teal-300">values</code>
+              </h3>
+              <span id="array-meta" class="text-sm text-slate-400"
+                >length = 3</span
+              >
+            </div>
+            <div
+              id="array-view"
+              class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"
+            ></div>
+            <div class="mt-6 flex items-center justify-between gap-3">
+              <h3 class="font-black text-white">
+                哈希表 <code class="text-sky-300">indexOf</code>
+              </h3>
+              <span class="text-sm text-slate-400">value → index</span>
+            </div>
+            <div
+              id="map-view"
+              class="mt-3 overflow-hidden rounded-xl border border-slate-700"
+            ></div>
+            <div
+              class="mt-5 rounded-xl border border-dashed border-teal-300/45 bg-teal-300/5 p-4 text-sm leading-6 text-teal-50"
+            >
+              <strong>不变量：</strong
+              ><code>indexOf[values[i]] === i</code
+              >。任意时刻，数组与哈希表必须互相证明对方的下标正确。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="panel mt-7 rounded-3xl p-5 md:p-8"
+        aria-labelledby="why-title"
+      >
+        <p class="text-sm font-bold uppercase tracking-[.22em] text-teal-300">
+          Reasoning / 为什么这样设计
+        </p>
+        <h2 id="why-title" class="mt-2 text-2xl font-black text-white">
+          把三个 O(1) 需求拆开，再拼回一个结构
+        </h2>
+        <div class="mt-6 grid gap-4 md:grid-cols-3">
+          <article class="rounded-2xl border border-slate-700 p-5">
+            <h3 class="font-bold text-teal-300">数组负责随机</h3>
+            <p class="mt-2 leading-7 text-slate-300">
+              数组支持按下标读取。随机生成
+              <code>0..n-1</code> 的下标，返回对应元素，每个元素的概率都是 1/n。
+            </p>
+          </article>
+          <article class="rounded-2xl border border-slate-700 p-5">
+            <h3 class="font-bold text-sky-300">哈希表负责定位</h3>
+            <p class="mt-2 leading-7 text-slate-300">
+              删除前先用
+              <code>indexOf[val]</code> 找到位置；它也让重复插入能立刻返回
+              false。
+            </p>
+          </article>
+          <article class="rounded-2xl border border-slate-700 p-5">
+            <h3 class="font-bold text-amber-300">交换末尾避免移位</h3>
+            <p class="mt-2 leading-7 text-slate-300">
+              不能调用数组中间删除，因为那会移动 O(n) 个元素。末尾覆盖目标位置后
+              pop，代价固定。
+            </p>
+          </article>
+        </div>
+        <div class="mt-6 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl bg-slate-950/55 p-5">
+            <h3 class="font-bold text-white">删除流程</h3>
+            <ol
+              class="mt-3 list-decimal space-y-2 pl-5 leading-7 text-slate-300"
+            >
+              <li>若哈希表没有 value，返回 false。</li>
+              <li>读取其下标 i 和数组末尾值 last。</li>
+              <li>令 values[i] = last，并令 indexOf[last] = i。</li>
+              <li>删除数组末尾与 indexOf[value]，返回 true。</li>
+            </ol>
+          </article>
+          <article class="rounded-2xl bg-slate-950/55 p-5">
+            <h3 class="font-bold text-white">边界与易错点</h3>
+            <ul class="mt-3 list-disc space-y-2 pl-5 leading-7 text-slate-300">
+              <li>删除的就是末尾时，覆盖动作可以照常执行。</li>
+              <li>必须在删除 last 的映射前更新它的新下标。</li>
+              <li>集合为空时不能调用 getRandom；题目保证调用合法。</li>
+              <li>哈希表平均 O(1)，最坏冲突情形不作为本题复杂度目标。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section
+        class="panel mt-7 rounded-3xl p-5 md:p-8"
+        aria-labelledby="validation-title"
+      >
+        <p class="text-sm font-bold uppercase tracking-[.22em] text-teal-300">
+          Validation / 生成范围
+        </p>
+        <h2 id="validation-title" class="mt-2 text-2xl font-black text-white">
+          本页验证状态
+        </h2>
+        <p
+          class="mt-4 rounded-xl border border-amber-300/40 bg-amber-300/10 p-4 font-mono text-sm text-amber-100"
+        >
+          快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+        </p>
+        <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="rounded-xl border border-slate-700 p-4">
+            <strong>Prettier</strong>
+            <p class="mt-1 text-sm text-teal-300">本次执行</p>
+          </div>
+          <div class="rounded-xl border border-slate-700 p-4">
+            <strong>单文件审计</strong>
+            <p class="mt-1 text-sm text-teal-300">本次执行</p>
+          </div>
+          <div class="rounded-xl border border-slate-700 p-4">
+            <strong>浏览器 / UI</strong>
+            <p class="mt-1 text-sm text-amber-300">按范围未执行</p>
+          </div>
+          <div class="rounded-xl border border-slate-700 p-4">
+            <strong>算法对拍 / 编译</strong>
+            <p class="mt-1 text-sm text-amber-300">按范围未执行</p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="panel mt-7 rounded-3xl p-5 md:p-8"
+        aria-labelledby="solution-heading"
+      >
+        <div
+          class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+        >
+          <div>
+            <p
+              class="text-sm font-bold uppercase tracking-[.22em] text-teal-300"
+            >
+              Solution / 默认隐藏
+            </p>
+            <h2
+              id="solution-heading"
+              class="mt-2 text-2xl font-black text-white"
+            >
+              先推演，再查看四语言提交代码
+            </h2>
+          </div>
+          <button
+            id="solution-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="solution-area"
+            class="rounded-xl bg-teal-300 px-5 py-3 font-bold text-slate-950 hover:bg-teal-200"
+          >
+            查看题解
+          </button>
+        </div>
+        <div id="solution-area" class="mt-8" hidden>
+          <div
+            role="tablist"
+            aria-label="代码语言"
+            class="flex flex-wrap gap-2"
+          >
+            <button
+              class="code-tab rounded-lg bg-teal-300 px-4 py-2 font-bold text-slate-950"
+              role="tab"
+              aria-selected="true"
+              aria-controls="java-code"
+              type="button"
+            >
+              Java
+            </button>
+            <button
+              class="code-tab rounded-lg border border-slate-600 px-4 py-2 font-bold"
+              role="tab"
+              aria-selected="false"
+              aria-controls="js-code"
+              type="button"
+            >
+              JavaScript
+            </button>
+            <button
+              class="code-tab rounded-lg border border-slate-600 px-4 py-2 font-bold"
+              role="tab"
+              aria-selected="false"
+              aria-controls="python-code"
+              type="button"
+            >
+              Python
+            </button>
+            <button
+              class="code-tab rounded-lg border border-slate-600 px-4 py-2 font-bold"
+              role="tab"
+              aria-selected="false"
+              aria-controls="cpp-code"
+              type="button"
+            >
+              C++
+            </button>
+          </div>
+          <pre
+            id="java-code"
+            role="tabpanel"
+            class="mt-5 rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100"
+          ><code>import java.util.*;
+
+class RandomizedSet {
+    private final List&lt;Integer&gt; values = new ArrayList&lt;&gt;();
+    private final Map&lt;Integer, Integer&gt; indexOf = new HashMap&lt;&gt;();
+    private final Random random = new Random();
+
+    public RandomizedSet() {}
+
+    public boolean insert(int val) {
+        if (indexOf.containsKey(val)) return false;
+        indexOf.put(val, values.size());
+        values.add(val);
+        return true;
+    }
+
+    public boolean remove(int val) {
+        Integer index = indexOf.get(val);
+        if (index == null) return false;
+        int last = values.get(values.size() - 1);
+        values.set(index, last);
+        indexOf.put(last, index);
+        values.remove(values.size() - 1);
+        indexOf.remove(val);
+        return true;
+    }
+
+    public int getRandom() {
+        return values.get(random.nextInt(values.size()));
+    }
+}</code></pre>
+          <pre
+            id="js-code"
+            role="tabpanel"
+            hidden
+            class="mt-5 rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100"
+          ><code>var RandomizedSet = function () {
+  this.values = [];
+  this.indexOf = new Map();
+};
+
+RandomizedSet.prototype.insert = function (val) {
+  if (this.indexOf.has(val)) return false;
+  this.indexOf.set(val, this.values.length);
+  this.values.push(val);
+  return true;
+};
+
+RandomizedSet.prototype.remove = function (val) {
+  if (!this.indexOf.has(val)) return false;
+  const index = this.indexOf.get(val);
+  const last = this.values[this.values.length - 1];
+  this.values[index] = last;
+  this.indexOf.set(last, index);
+  this.values.pop();
+  this.indexOf.delete(val);
+  return true;
+};
+
+RandomizedSet.prototype.getRandom = function () {
+  return this.values[Math.floor(Math.random() * this.values.length)];
+};</code></pre>
+          <pre
+            id="python-code"
+            role="tabpanel"
+            hidden
+            class="mt-5 rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100"
+          ><code>import random
+
+class RandomizedSet:
+    def __init__(self):
+        self.values = []
+        self.index_of = {}
+
+    def insert(self, val: int) -&gt; bool:
+        if val in self.index_of:
+            return False
+        self.index_of[val] = len(self.values)
+        self.values.append(val)
+        return True
+
+    def remove(self, val: int) -&gt; bool:
+        if val not in self.index_of:
+            return False
+        index = self.index_of[val]
+        last = self.values[-1]
+        self.values[index] = last
+        self.index_of[last] = index
+        self.values.pop()
+        del self.index_of[val]
+        return True
+
+    def getRandom(self) -&gt; int:
+        return random.choice(self.values)</code></pre>
+          <pre
+            id="cpp-code"
+            role="tabpanel"
+            hidden
+            class="mt-5 rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100"
+          ><code>#include &lt;vector&gt;
+#include &lt;unordered_map&gt;
+#include &lt;cstdlib&gt;
+using namespace std;
+
+class RandomizedSet {
+    vector&lt;int&gt; values;
+    unordered_map&lt;int, int&gt; indexOf;
+public:
+    RandomizedSet() {}
+    bool insert(int val) {
+        if (indexOf.count(val)) return false;
+        indexOf[val] = values.size();
+        values.push_back(val);
+        return true;
+    }
+    bool remove(int val) {
+        if (!indexOf.count(val)) return false;
+        int index = indexOf[val], last = values.back();
+        values[index] = last;
+        indexOf[last] = index;
+        values.pop_back();
+        indexOf.erase(val);
+        return true;
+    }
+    int getRandom() { return values[rand() % values.size()]; }
+};</code></pre>
+          <p class="mt-5 text-sm leading-7 text-slate-300">
+            <strong class="text-white">复杂度：</strong
+            >insert、remove、getRandom 都是平均 O(1)
+            时间；数组与哈希表各保存一份索引信息，总空间 O(n)。
+          </p>
+        </div>
+      </section>
+    </main>
+    <div id="live-region" class="sr-only" aria-live="polite"></div>
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+        const initial = [4, 9, 2];
+        let values = [...initial];
+        let indexOf = new Map();
+        let hot = { array: -1, map: null, swap: -1 };
+        const byId = (id) => document.getElementById(id);
+        const rebuild = () => {
+          indexOf = new Map(values.map((value, index) => [value, index]));
+        };
+        const announce = (title, copy, complexity) => {
+          byId("event-title").textContent = title;
+          byId("event-copy").textContent = copy;
+          byId("complexity").textContent = complexity;
+          byId("live-region").textContent = `${title}。${copy}`;
+        };
+        function render() {
+          const array = byId("array-view");
+          array.replaceChildren();
+          values.forEach((value, index) => {
+            const cell = document.createElement("div");
+            cell.className = `array-cell rounded-xl border border-slate-600 bg-slate-900 p-3 ${index === hot.array ? "hot" : ""} ${index === hot.swap ? "swap" : ""}`;
+            cell.innerHTML = `<span class="text-xs text-slate-400">index ${index}</span><strong class="mt-3 block text-2xl text-white">${value}</strong>`;
+            array.appendChild(cell);
+          });
+          if (!values.length)
+            array.innerHTML =
+              '<p class="col-span-full rounded-xl border border-dashed border-slate-600 p-5 text-center text-slate-400">数组为空</p>';
+          byId("array-meta").textContent = `length = ${values.length}`;
+          const map = byId("map-view");
+          map.replaceChildren();
+          [...indexOf.entries()].forEach(([value, index]) => {
+            const row = document.createElement("div");
+            row.className = `map-row flex items-center justify-between border-b border-slate-700 px-4 py-3 last:border-0 ${hot.map === value ? "hot" : ""}`;
+            row.innerHTML = `<code class="text-sky-200">${value}</code><span class="text-slate-500">→</span><code class="text-teal-200">${index}</code>`;
+            map.appendChild(row);
+          });
+          if (!indexOf.size)
+            map.innerHTML = '<p class="p-4 text-sm text-slate-400">{ }</p>';
+        }
+        function valueFromInput() {
+          const value = Number(byId("value-input").value);
+          return Number.isInteger(value) ? value : null;
+        }
+        function clearHot() {
+          hot = { array: -1, map: null, swap: -1 };
+        }
+        byId("insert-btn").addEventListener("click", () => {
+          const value = valueFromInput();
+          if (value === null)
+            return announce(
+              "insert 失败",
+              "请输入一个整数。",
+              "输入需要是整数",
+            );
+          clearHot();
+          if (indexOf.has(value))
+            return announce(
+              `insert(${value}) → false`,
+              "哈希表已包含该值，集合不允许重复元素。",
+              "哈希查询平均 O(1)",
+            );
+          values.push(value);
+          rebuild();
+          hot = { array: values.length - 1, map: value, swap: -1 };
+          render();
+          announce(
+            `insert(${value}) → true`,
+            `追加到 values[${values.length - 1}]，并写入 indexOf[${value}] = ${values.length - 1}。`,
+            "append + hash write：平均 O(1)",
+          );
+        });
+        byId("remove-btn").addEventListener("click", () => {
+          const value = valueFromInput();
+          if (value === null)
+            return announce(
+              "remove 失败",
+              "请输入一个整数。",
+              "输入需要是整数",
+            );
+          clearHot();
+          if (!indexOf.has(value))
+            return announce(
+              `remove(${value}) → false`,
+              "哈希表找不到该值，无需修改数组。",
+              "哈希查询平均 O(1)",
+            );
+          const index = indexOf.get(value),
+            lastIndex = values.length - 1,
+            last = values[lastIndex];
+          values[index] = last;
+          values.pop();
+          rebuild();
+          hot = { array: index, map: last, swap: lastIndex };
+          render();
+          const copy =
+            index === lastIndex
+              ? "目标本来就在末尾，直接 pop 即可。"
+              : `末尾值 ${last} 覆盖 values[${index}]，并把 indexOf[${last}] 更新为 ${index}。`;
+          announce(
+            `remove(${value}) → true`,
+            copy,
+            "覆盖末尾 + pop：平均 O(1)",
+          );
+        });
+        byId("random-btn").addEventListener("click", () => {
+          clearHot();
+          if (!values.length)
+            return announce(
+              "getRandom 无结果",
+              "空集合不能随机取值；题目保证调用时集合非空。",
+              "需要非空集合",
+            );
+          const index = Math.floor(Math.random() * values.length);
+          hot = { array: index, map: values[index], swap: -1 };
+          render();
+          announce(
+            `getRandom() → ${values[index]}`,
+            `均匀选择随机下标 ${index}，读取 values[${index}]。`,
+            "随机下标 + 数组读取：O(1)",
+          );
+        });
+        byId("reset-btn").addEventListener("click", () => {
+          values = [...initial];
+          rebuild();
+          clearHot();
+          render();
+          announce(
+            "已重置",
+            "恢复示例集合 [4, 9, 2]。",
+            "准备就绪：三种操作均为平均 O(1)",
+          );
+        });
+        byId("jump-lab").addEventListener("click", () => {
+          byId("lab").scrollIntoView({ behavior: "smooth" });
+          byId("value-input").focus({ preventScroll: true });
+        });
+        byId("solution-toggle").addEventListener("click", () => {
+          const button = byId("solution-toggle"),
+            area = byId("solution-area"),
+            expanded = button.getAttribute("aria-expanded") === "true";
+          button.setAttribute("aria-expanded", String(!expanded));
+          area.hidden = expanded;
+          button.textContent = expanded ? "查看题解" : "收起题解";
+        });
+        document.querySelectorAll(".code-tab").forEach((tab) =>
+          tab.addEventListener("click", () => {
+            document.querySelectorAll(".code-tab").forEach((item) => {
+              const active = item === tab;
+              item.setAttribute("aria-selected", String(active));
+              item.className = `code-tab rounded-lg px-4 py-2 font-bold ${active ? "bg-teal-300 text-slate-950" : "border border-slate-600"}`;
+              byId(item.getAttribute("aria-controls")).hidden = !active;
+            });
+          }),
+        );
+        rebuild();
+        render();
+      })();
+    </script>
+  </body>
+</html>
