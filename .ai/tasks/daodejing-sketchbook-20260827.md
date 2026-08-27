@@ -1,6 +1,6 @@
 # Daodejing Sketchbook
 
-- Status: repository verification complete, ready to commit
+- Status: committed and pushed, pull request open
 - Branch: `feat/daodejing-sketchbook-20260827`
 - Baseline: `origin/main@c054e2638644e8b02f9f2204fa00ac219153a534`
 - Active writer: Codex in the isolated sparse clone
@@ -51,7 +51,13 @@ ThreeUI sketchbook implementation whose editorial content is the complete
   license preservation; the MIT, asset, third-party, and font notices were
   added under `project/daodejing-atlas/`.
 
+## Delivery
+
+- Implementation commit: `157587e134e067b2922cbdaa987196521fc630b8`
+- Remote branch SHA matched the local commit after push.
+- Pull request: <https://github.com/wyf027/leetcode-solu/pull/1756>
+- GitHub reports the pull request as open and mergeable with `main`.
+
 ## Next action
 
-Perform independent read-only diff review, then commit, push, and open a pull
-request to `main`.
+Review and merge PR #1756 when authorized.
