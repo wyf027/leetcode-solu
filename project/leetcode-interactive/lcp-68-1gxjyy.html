@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>LCP 68 · 美观的花束｜滑动窗口交互讲解</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      button {
+        box-shadow: none !important;
+        transition:
+          transform 0.18s ease,
+          background-color 0.18s ease;
+      }
+      button:hover,
+      button:active {
+        box-shadow: 0 8px 18px rgb(45 212 191/0.18) !important;
+      }
+      button:focus-visible {
+        outline: 3px solid #fbbf24;
+        outline-offset: 3px;
+      }
+      button:disabled {
+        box-shadow: none !important;
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .card {
+        background: linear-gradient(
+          135deg,
+          rgb(15 23 42/0.92),
+          rgb(30 41 59/0.78)
+        );
+        border: 1px solid rgb(71 85 105/0.58);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-7">
+      <header
+        class="rounded-3xl border border-teal-300/25 bg-gradient-to-br from-teal-500/15 via-slate-900 to-indigo-500/15 p-7 sm:p-10"
+      >
+        <p class="font-mono text-sm text-teal-200">LCP 68 · MEDIUM · 1gxjyy</p>
+        <h1 class="mt-3 text-3xl font-black sm:text-5xl">美观的花束</h1>
+        <p class="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+          从一排花中选连续区间；只要每一种花的数量都不超过
+          <code>cnt</code>，这束花就是美观的。求所有可选区间数。
+        </p>
+        <p class="mt-5 text-sm text-teal-100">
+          n、花种编号、cnt 均不超过 10⁵；答案保证在 int32 范围。
+        </p>
+      </header>
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="problem"
+      >
+        <h2 id="problem" class="text-2xl font-bold">题意与示例</h2>
+        <div class="mt-5 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-teal-200">示例 1</h3>
+            <code class="mt-3 block break-words"
+              >flowers = [1, 2, 3, 2], cnt = 1</code
+            >
+            <p class="mt-3">输出：<b class="text-amber-200">8</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              长度 1、2、3 分别贡献 4、3、1 个；含两朵 2 的区间无效。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-teal-200">示例 2</h3>
+            <code class="mt-3 block break-words"
+              >flowers = [5, 3, 3, 3], cnt = 2</code
+            >
+            <p class="mt-3">输出：<b class="text-amber-200">8</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              第三朵 3 到来时收缩左端，恢复每种至多两朵。
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="card mt-7 rounded-3xl p-6 sm:p-8" aria-labelledby="lab">
+        <div class="flex flex-wrap justify-between gap-4">
+          <div>
+            <h2 id="lab" class="text-2xl font-bold">双指针花束实验室</h2>
+            <p class="mt-2 text-slate-400">
+              右端加入，超额时左端收缩；随后计算以右端结尾的合法区间。
+            </p>
+          </div>
+          <span
+            id="step"
+            class="rounded-full bg-teal-300/15 px-3 py-1 font-mono text-teal-100"
+            >步骤 0 / 4</span
+          >
+        </div>
+        <div class="mt-5 rounded-2xl bg-slate-950 p-5">
+          <div
+            id="flowers"
+            class="flex flex-wrap gap-3"
+            aria-live="polite"
+          ></div>
+          <div class="mt-5 grid gap-3 sm:grid-cols-3">
+            <p class="rounded-xl bg-slate-900 p-3">
+              窗口 <code id="window">[]</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">
+              新增 <code id="added">0</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">
+              累计 <code id="ans">0</code>
+            </p>
+          </div>
+          <p id="explain" class="mt-5 min-h-12 text-slate-300"></p>
+        </div>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            id="prev"
+            class="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2"
+          >
+            ← 上一步</button
+          ><button
+            id="next"
+            class="rounded-xl bg-teal-300 px-4 py-2 font-bold text-slate-950"
+          >
+            下一步 →</button
+          ><button
+            id="auto"
+            class="rounded-xl border border-indigo-300/50 bg-indigo-400/10 px-4 py-2"
+          >
+            自动播放
+          </button>
+        </div>
+        <p
+          id="status"
+          role="status"
+          aria-live="polite"
+          class="mt-4 text-sm text-teal-200"
+        ></p>
+      </section>
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="verify"
+      >
+        <h2 id="verify" class="text-2xl font-bold">测试与验证</h2>
+        <div class="mt-5 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="block">flowers = [1, 2, 3, 2], cnt = 1</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>8</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>8（窗口推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="block">flowers = [5, 3, 3, 3], cnt = 2</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>8</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>8（窗口推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+        </div>
+        <p
+          class="mt-5 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100"
+        >
+          快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+        </p>
+        <p class="mt-3 text-sm text-slate-400">
+          本轮已执行：Prettier 格式化、提交前审计。HTML
+          Validate、浏览器与算法对拍留待后续统一回归。
+        </p>
+      </section>
+      <section class="mt-7 text-center">
+        <button
+          id="solution-toggle"
+          class="rounded-xl bg-amber-300 px-5 py-3 font-bold text-slate-950"
+          aria-expanded="false"
+          aria-controls="solution"
+        >
+          查看题解
+        </button>
+        <p
+          id="solution-status"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </section>
+      <section
+        id="solution"
+        class="card mt-5 rounded-3xl p-6 sm:p-8"
+        hidden
+        tabindex="-1"
+        aria-labelledby="solution-title"
+      >
+        <h2 id="solution-title" class="text-2xl font-bold">题解：滑动窗口</h2>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-teal-200">核心洞察</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              固定右端 r 后，合法窗口 [l,r] 的所有后缀都合法，恰有 r-l+1
+              个。加入 flowers[r] 后，仅该品种可能超额；不断移动
+              l，直到它的频次不大于 cnt。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-indigo-200">完整过程</h3>
+            <ol class="mt-3 list-decimal space-y-2 pl-5 text-slate-300">
+              <li>freq[flowers[r]]++。</li>
+              <li>当该花种超过 cnt，移出 flowers[l++]。</li>
+              <li>累加 r-l+1。</li>
+            </ol>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-teal-200">边界、复杂度与替代方案</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              cnt≥n 时全部子数组合法；连续同花会连续收缩。左右指针各前进最多 n
+              次，时间 O(n)、数组空间 O(10⁵)。暴力枚举 O(n²)
+              不可用；稀疏大编号时可改哈希表。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-amber-200">面试追问与常见错误</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              不同花种不同上限时用 limit[type]；精确 k 次可由“至多 k”减“至多
+              k-1”得到。别只收缩一次，别每轮扫描全部频次，累加应先用 long。
+            </p>
+          </article>
+        </div>
+        <h3 class="mt-7 text-xl font-bold">四份可提交代码</h3>
+        <div class="mt-4 flex flex-wrap gap-2" role="tablist">
+          <button
+            class="lang rounded-lg bg-teal-300 px-3 py-2 text-slate-950"
+            data-lang="java"
+            aria-selected="true"
+          >
+            Java</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="javascript"
+            aria-selected="false"
+          >
+            JavaScript</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="python"
+            aria-selected="false"
+          >
+            Python</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="cpp"
+            aria-selected="false"
+          >
+            C++
+          </button>
+        </div>
+        <pre
+          id="code"
+          class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm"
+          tabindex="0"
+        ></pre>
+      </section>
+    </main>
+    <script data-cfasync="false">
+      const a = [1, 2, 3, 2],
+        S = [
+          [-1, 0, 0, 0, "准备：窗口为空。"],
+          [0, 0, 1, 1, "加入 1：新增 [1]。"],
+          [1, 0, 3, 2, "加入 2：新增 [2]、[1,2]。"],
+          [2, 0, 6, 3, "加入 3：新增三个合法结尾。"],
+          [3, 2, 8, 2, "第二朵 2 超额，移出 1 和旧 2；窗口变为 [3,2]。"],
+        ];
+      let p = 0,
+        t;
+      const $ = (x) => document.getElementById(x);
+      function render() {
+        let s = S[p],
+          r = s[0],
+          l = s[1];
+        $("step").textContent = `步骤 ${p} / 4`;
+        $("flowers").innerHTML = a
+          .map(
+            (v, i) =>
+              `<span class="rounded-xl border px-4 py-3 font-mono ${i >= l && i <= r ? "border-teal-300 bg-teal-300/20" : "border-slate-700 bg-slate-900"}">${v}</span>`,
+          )
+          .join("");
+        $("window").textContent = r < l ? "[]" : `[${a.slice(l, r + 1)}]`;
+        $("ans").textContent = s[2];
+        $("added").textContent = s[3];
+        $("explain").textContent = s[4];
+        $("prev").disabled = p === 0;
+        $("next").disabled = p === 4;
+        $("status").textContent = `累计 ${s[2]} 个花束`;
+      }
+      function move(d) {
+        p = Math.max(0, Math.min(4, p + d));
+        render();
+      }
+      $("prev").onclick = () => move(-1);
+      $("next").onclick = () => move(1);
+      $("auto").onclick = () => {
+        if (t) {
+          clearInterval(t);
+          t = null;
+          $("auto").textContent = "自动播放";
+          return;
+        }
+        if (p === 4) p = 0;
+        $("auto").textContent = "停止播放";
+        t = setInterval(() => (p === 4 ? $("auto").click() : move(1)), 850);
+      };
+      document.onkeydown = (e) => {
+        if (e.key === "ArrowRight") move(1);
+        if (e.key === "ArrowLeft") move(-1);
+      };
+      const C = {
+        java: `class Solution {\n  public int beautifulBouquet(int[] flowers, int cnt) {\n    int[] f = new int[100001]; int l = 0; long ans = 0;\n    for (int r = 0; r < flowers.length; r++) {\n      f[flowers[r]]++;\n      while (f[flowers[r]] > cnt) f[flowers[l++]]--;\n      ans += r - l + 1;\n    }\n    return (int) ans;\n  }\n}`,
+        javascript: `var beautifulBouquet = function(flowers, cnt) {\n  const f = new Int32Array(100001); let l = 0, ans = 0;\n  for (let r = 0; r < flowers.length; r++) {\n    f[flowers[r]]++;\n    while (f[flowers[r]] > cnt) f[flowers[l++]]--;\n    ans += r - l + 1;\n  }\n  return ans;\n};`,
+        python: `class Solution:\n    def beautifulBouquet(self, flowers: List[int], cnt: int) -> int:\n        f = [0] * 100001\n        l = ans = 0\n        for r, x in enumerate(flowers):\n            f[x] += 1\n            while f[x] > cnt:\n                f[flowers[l]] -= 1\n                l += 1\n            ans += r - l + 1\n        return ans`,
+        cpp: `class Solution {\npublic:\n  int beautifulBouquet(vector<int>& flowers, int cnt) {\n    vector<int> f(100001); int l = 0; long long ans = 0;\n    for (int r = 0; r < (int)flowers.size(); ++r) {\n      ++f[flowers[r]];\n      while (f[flowers[r]] > cnt) --f[flowers[l++]];\n      ans += r - l + 1;\n    }\n    return (int)ans;\n  }\n};`,
+      };
+      function lang(x) {
+        $("code").textContent = C[x];
+        document.querySelectorAll(".lang").forEach((b) => {
+          let on = b.dataset.lang === x;
+          b.setAttribute("aria-selected", on);
+          b.className = on
+            ? "lang rounded-lg bg-teal-300 px-3 py-2 text-slate-950"
+            : "lang rounded-lg border border-slate-600 px-3 py-2";
+        });
+      }
+      document
+        .querySelectorAll(".lang")
+        .forEach((b) => (b.onclick = () => lang(b.dataset.lang)));
+      $("solution-toggle").onclick = () => {
+        let open = !$("solution").hidden;
+        $("solution").hidden = open;
+        $("solution-toggle").setAttribute("aria-expanded", String(!open));
+        $("solution-toggle").textContent = open ? "查看题解" : "收起题解";
+        $("solution-status").textContent = open ? "题解已收起" : "题解已展开";
+        if (!open) $("solution").focus();
+      };
+      render();
+      lang("java");
+    </script>
+  </body>
+</html>
