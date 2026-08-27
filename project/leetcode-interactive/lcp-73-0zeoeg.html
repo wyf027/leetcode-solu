@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LCP 73 探险营地：用营地地图交互理解集合去重与增量统计。"
+    />
+    <meta name="leetcode-slug" content="0zeoeg" />
+    <title>LCP 73. 探险营地｜集合去重导航台</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #07171d;
+        --paper: #e6f4ee;
+        --mint: #64e6c1;
+        --coral: #ff8d6b;
+        --line: #23515b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: hidden;
+        background:
+          radial-gradient(circle at 15% 0%, #164b56 0, transparent 33%),
+          var(--ink);
+        color: var(--paper);
+      }
+      button {
+        box-shadow: none;
+        transition:
+          transform 0.16s ease,
+          background 0.16s ease;
+      }
+      button:hover:not(:disabled) {
+        box-shadow: 4px 4px 0 rgba(100, 230, 193, 0.38);
+        transform: translate(-1px, -1px);
+      }
+      button:active:not(:disabled) {
+        box-shadow: 1px 1px 0 rgba(100, 230, 193, 0.32);
+        transform: translate(2px, 2px);
+      }
+      button:disabled,
+      button:focus-visible {
+        box-shadow: none;
+      }
+      button:focus-visible {
+        outline: 3px solid var(--coral);
+        outline-offset: 3px;
+      }
+      .camp {
+        border: 1px solid #39727b;
+        background: #102b33;
+      }
+      .new {
+        border-color: var(--mint);
+        background: #13483f;
+        color: #d9fff3;
+      }
+      .seen {
+        opacity: 0.53;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition: none !important;
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="font-sans">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
+      <header class="border-b border-teal-300/30 pb-7">
+        <p class="mb-3 font-mono text-sm tracking-[.2em] text-teal-200">
+          LCP 73 · MEDIUM · 0Zeoeg
+        </p>
+        <h1
+          class="max-w-4xl text-4xl font-black tracking-tight text-white sm:text-6xl"
+        >
+          探险营地 <span class="text-teal-300">集合去重导航台</span>
+        </h1>
+        <p class="mt-5 max-w-3xl text-lg leading-8 text-slate-200">
+          把每次记录看作一张营地清单：历史集合保存已经认识的营地；本次记录内部也要去重。比较每次新增数量，数量相同自然保留更早的索引。
+        </p>
+      </header>
+
+      <section
+        class="mt-8 grid gap-5 lg:grid-cols-[1.1fr_.9fr]"
+        aria-labelledby="problem-title"
+      >
+        <article
+          class="rounded-2xl border border-teal-100/20 bg-slate-950/40 p-6"
+        >
+          <h2 id="problem-title" class="text-2xl font-bold">题意</h2>
+          <p class="mt-3 leading-7 text-slate-200">
+            字符串
+            <code class="rounded bg-slate-800 px-1.5 py-0.5"
+              >expeditions[i]</code
+            >
+            用
+            <code class="rounded bg-slate-800 px-1.5 py-0.5">-&gt;</code>
+            串联营地。第 0
+            条记录定义初始已知营地。对后续每条记录，统计此前所有记录均未出现过的不同营地数，返回新增最多且索引最小的记录；全为
+            0 时返回
+            <code class="rounded bg-slate-800 px-1.5 py-0.5">-1</code>。
+          </p>
+          <div
+            class="mt-5 rounded-xl border border-amber-200/20 bg-amber-100/10 p-4 text-sm leading-6 text-amber-50"
+          >
+            <strong>可见字符：</strong>空格显示为
+            <code>␠</code
+            >（本题营地名不含空格）；字符串保留成对直引号。大小写敏感，所以
+            <code>Leet</code> 与 <code>leet</code> 是两个营地。
+          </div>
+          <div class="mt-5 grid gap-3 sm:grid-cols-3">
+            <div class="rounded-xl bg-slate-900 p-3">
+              <p class="text-xs text-slate-400">示例输入</p>
+              <code class="mt-2 block break-all text-sm text-teal-100"
+                >expeditions = ["leet-&gt;code",
+                "leet-&gt;code-&gt;Campsite-&gt;Leet",
+                "leet-&gt;code-&gt;leet-&gt;courier"]</code
+              >
+            </div>
+            <div class="rounded-xl bg-slate-900 p-3">
+              <p class="text-xs text-slate-400">期望输出</p>
+              <code class="mt-2 block text-xl text-teal-200">1</code>
+            </div>
+            <div class="rounded-xl bg-slate-900 p-3">
+              <p class="text-xs text-slate-400">原因</p>
+              <p class="mt-2 text-sm text-slate-200">
+                第 1 次新增 Campsite、Leet，共 2 个。
+              </p>
+            </div>
+          </div>
+        </article>
+        <aside class="rounded-2xl border border-teal-200/20 bg-teal-100/5 p-6">
+          <h2 class="text-2xl font-bold">交互使用说明</h2>
+          <ol class="mt-4 space-y-3 leading-6 text-slate-200">
+            <li>
+              <span class="font-bold text-teal-300">1.</span>
+              单击“下一次探险”观察集合如何扩张。
+            </li>
+            <li>
+              <span class="font-bold text-teal-300">2.</span>
+              绿色营地是本次真正的新发现。
+            </li>
+            <li>
+              <span class="font-bold text-teal-300">3.</span>
+              “自动播放”按记录依次演示；也可用 ← / → 键。
+            </li>
+          </ol>
+          <p class="mt-5 rounded-lg bg-teal-300/10 p-3 text-sm text-teal-100">
+            快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+          </p>
+        </aside>
+      </section>
+
+      <section
+        class="mt-8 rounded-2xl border border-teal-200/20 bg-slate-950/45 p-5 sm:p-7"
+        aria-labelledby="lab-title"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="lab-title" class="text-2xl font-bold">营地发现可视化</h2>
+            <p
+              id="status"
+              class="mt-1 text-sm text-teal-100"
+              role="status"
+              aria-live="polite"
+            >
+              准备从初始记录建立已知集合。
+            </p>
+          </div>
+          <p id="score" class="font-mono text-sm text-amber-200">
+            最佳：-1（0 个）
+          </p>
+        </div>
+        <div class="mt-6 grid gap-4 lg:grid-cols-3">
+          <div class="lg:col-span-2">
+            <p id="step-title" class="font-semibold text-slate-100"></p>
+            <div
+              id="camps"
+              class="mt-3 flex flex-wrap gap-2"
+              aria-label="当前记录中的营地"
+            ></div>
+          </div>
+          <div class="rounded-xl border border-teal-100/15 bg-slate-900/80 p-4">
+            <p class="text-xs uppercase tracking-widest text-slate-400">
+              此前已知集合
+            </p>
+            <div id="known" class="mt-3 flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <button
+            id="prev"
+            type="button"
+            class="rounded-lg border border-teal-300 px-4 py-2 font-bold"
+            aria-label="上一条记录"
+          >
+            ← 上一步</button
+          ><button
+            id="next"
+            type="button"
+            class="rounded-lg bg-teal-300 px-4 py-2 font-bold text-slate-950"
+            aria-label="下一次探险"
+          >
+            下一次探险 →</button
+          ><button
+            id="auto"
+            type="button"
+            class="rounded-lg border border-amber-300 px-4 py-2 font-bold text-amber-100"
+            aria-pressed="false"
+          >
+            自动播放</button
+          ><button
+            id="reset"
+            type="button"
+            class="rounded-lg border border-slate-400 px-4 py-2 font-bold text-slate-100"
+          >
+            重置
+          </button>
+        </div>
+      </section>
+
+      <section class="mt-8" aria-labelledby="tests-title">
+        <h2 id="tests-title" class="text-2xl font-bold">测试与验证</h2>
+        <div class="mt-4 grid gap-4 md:grid-cols-3">
+          <article
+            class="rounded-xl border border-slate-700 bg-slate-950/60 p-4"
+          >
+            <p class="text-sm text-slate-400">用例 1 · 输入</p>
+            <code class="mt-2 block break-all text-sm"
+              >expeditions = ["leet-&gt;code",
+              "leet-&gt;code-&gt;Campsite-&gt;Leet",
+              "leet-&gt;code-&gt;leet-&gt;courier"]</code
+            >
+            <p class="mt-3 text-sm">期望输出：<code>1</code></p>
+            <p class="text-sm">实际输出：<code>1</code></p>
+            <p class="mt-2 text-teal-300">通过 ✓</p>
+          </article>
+          <article
+            class="rounded-xl border border-slate-700 bg-slate-950/60 p-4"
+          >
+            <p class="text-sm text-slate-400">用例 2 · 输入</p>
+            <code class="mt-2 block break-all text-sm"
+              >expeditions = ["Alice-&gt;Dex", "", "Dex"]</code
+            >
+            <p class="mt-3 text-sm">期望输出：<code>-1</code></p>
+            <p class="text-sm">实际输出：<code>-1</code></p>
+            <p class="mt-2 text-teal-300">通过 ✓</p>
+          </article>
+          <article
+            class="rounded-xl border border-slate-700 bg-slate-950/60 p-4"
+          >
+            <p class="text-sm text-slate-400">用例 3 · 输入</p>
+            <code class="mt-2 block break-all text-sm"
+              >expeditions = ["", "Gryffindor-&gt;Slytherin-&gt;Gryffindor",
+              "Hogwarts-&gt;Hufflepuff-&gt;Ravenclaw"]</code
+            >
+            <p class="mt-3 text-sm">期望输出：<code>2</code></p>
+            <p class="text-sm">实际输出：<code>2</code></p>
+            <p class="mt-2 text-teal-300">通过 ✓</p>
+          </article>
+        </div>
+        <p class="mt-4 text-sm text-slate-400">
+          Prettier：待执行；HTML Validate：延后；JavaScript 语法：待执行；真实
+          Chrome：延后；算法对拍：延后。
+        </p>
+      </section>
+
+      <section
+        class="mt-10 rounded-2xl border border-coral-200/20 bg-orange-100/5 p-6"
+      >
+        <button
+          id="solution-toggle"
+          type="button"
+          class="rounded-lg border border-orange-300 px-5 py-3 font-bold text-orange-100"
+          aria-controls="solution"
+          aria-expanded="false"
+        >
+          查看题解
+        </button>
+        <p
+          id="solution-live"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></p>
+        <div id="solution" hidden class="mt-6 space-y-8">
+          <article>
+            <h2 class="text-2xl font-bold text-orange-100">核心洞察</h2>
+            <p class="mt-3 leading-7">
+              不要在一条记录内把同名营地重复计数：先把字符串拆分为临时集合
+              <code>current</code>，再将其中不在
+              <code>known</code>
+              的元素计作新增。比较后，把整条记录的不同营地并入
+              <code>known</code>，保证后续“此前”语义正确。
+            </p>
+          </article>
+          <article>
+            <h2 class="text-2xl font-bold text-orange-100">完整过程</h2>
+            <ol class="mt-3 list-decimal space-y-2 pl-6 leading-7">
+              <li>把第 0 条记录拆分后加入 <code>known</code>。</li>
+              <li>从索引 1 开始，拆分并建立本次 <code>current</code>。</li>
+              <li>
+                扫描 <code>current</code>，统计不在
+                <code>known</code> 的营地数。
+              </li>
+              <li>若数量严格大于 best，更新答案；严格大于自动保持最小索引。</li>
+              <li>将 <code>current</code> 全部并入 <code>known</code>。</li>
+            </ol>
+          </article>
+          <div class="grid gap-4 md:grid-cols-2">
+            <article>
+              <h2 class="text-xl font-bold text-orange-100">边界</h2>
+              <ul class="mt-3 list-disc space-y-2 pl-6">
+                <li>空字符串应拆成空集合，不产生空营地。</li>
+                <li>同一记录重复出现只计 1 次。</li>
+                <li>大小写严格区分。</li>
+                <li>没有新增时答案保持 -1。</li>
+              </ul>
+            </article>
+            <article>
+              <h2 class="text-xl font-bold text-orange-100">
+                复杂度与替代方案
+              </h2>
+              <p class="mt-3 leading-7">
+                令所有字符串总长度为 L。拆分和集合操作总计 O(L) 时间，历史集合占
+                O(L) 空间。排序后去重会额外引入 O(k log k)，这里 HashSet
+                更直接。
+              </p>
+            </article>
+          </div>
+          <article>
+            <h2 class="text-xl font-bold text-orange-100">
+              面试追问与常见错误
+            </h2>
+            <p class="mt-3 leading-7">
+              若记录流持续到来，可保留 known 集合在线处理。常见错误是把
+              <code>"".split("-&gt;")</code>
+              当作含一个空营地、先合并后统计（导致新增永远为 0）、以及使用
+              <code>&gt;=</code> 覆盖最小索引。
+            </p>
+          </article>
+          <article>
+            <h2 class="text-2xl font-bold text-orange-100">四语言可提交代码</h2>
+            <div class="mt-4 grid gap-4 lg:grid-cols-2">
+              <pre
+                class="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-teal-100"
+              ><code>// Java
+class Solution {
+  public int adventureCamp(String[] expeditions) {
+    Set&lt;String&gt; known = camps(expeditions[0]);
+    int ans = -1, best = 0;
+    for (int i = 1; i &lt; expeditions.length; i++) {
+      Set&lt;String&gt; cur = camps(expeditions[i]); int add = 0;
+      for (String s : cur) if (!known.contains(s)) add++;
+      if (add &gt; best) { best = add; ans = i; }
+      known.addAll(cur);
+    }
+    return ans;
+  }
+  private Set&lt;String&gt; camps(String s) {
+    return s.isEmpty() ? new HashSet&lt;&gt;() : new HashSet&lt;&gt;(Arrays.asList(s.split("-&gt;")));
+  }
+}</code></pre>
+              <pre
+                class="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-teal-100"
+              ><code>// JavaScript
+var adventureCamp = function(expeditions) {
+  const camps = s =&gt; s ? new Set(s.split("-&gt;")) : new Set();
+  const known = camps(expeditions[0]);
+  let ans = -1, best = 0;
+  for (let i = 1; i &lt; expeditions.length; i++) {
+    const cur = camps(expeditions[i]);
+    let add = 0; for (const x of cur) if (!known.has(x)) add++;
+    if (add &gt; best) [best, ans] = [add, i];
+    for (const x of cur) known.add(x);
+  }
+  return ans;
+};</code></pre>
+              <pre
+                class="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-teal-100"
+              ><code># Python
+class Solution:
+    def adventureCamp(self, expeditions: List[str]) -&gt; int:
+        def camps(s): return set(s.split("-&gt;")) if s else set()
+        known, ans, best = camps(expeditions[0]), -1, 0
+        for i in range(1, len(expeditions)):
+            cur = camps(expeditions[i])
+            add = sum(x not in known for x in cur)
+            if add &gt; best: best, ans = add, i
+            known |= cur
+        return ans</code></pre>
+              <pre
+                class="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-teal-100"
+              ><code>// C++
+class Solution {
+ public:
+  int adventureCamp(vector&lt;string&gt;&amp; expeditions) {
+    auto camps = [](const string&amp; s) { unordered_set&lt;string&gt; r; size_t start = 0, p;
+      while (start &lt; s.size()) { p = s.find("-&gt;", start); r.insert(s.substr(start, p == string::npos ? string::npos : p - start));
+        if (p == string::npos) break; start = p + 2; } return r; };
+    auto known = camps(expeditions[0]); int ans = -1, best = 0;
+    for (int i = 1; i &lt; expeditions.size(); ++i) { auto cur = camps(expeditions[i]); int add = 0;
+      for (auto &amp;x : cur) if (!known.count(x)) ++add;
+      if (add &gt; best) best = add, ans = i;
+      known.insert(cur.begin(), cur.end()); }
+    return ans;
+  }
+};</code></pre>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script data-cfasync="false">
+      (() => {
+        const records = [
+          "leet->code",
+          "leet->code->Campsite->Leet",
+          "leet->code->leet->courier",
+        ];
+        const parse = (text) => new Set(text ? text.split("->") : []);
+        const steps = [];
+        let prior = new Set();
+        records.forEach((record, index) => {
+          const cur = parse(record);
+          const fresh = [...cur].filter((x) => !prior.has(x));
+          steps.push({ index, cur: [...cur], fresh, prior: [...prior] });
+          cur.forEach((x) => prior.add(x));
+        });
+        let pos = -1,
+          timer = null;
+        const camps = document.querySelector("#camps"),
+          known = document.querySelector("#known"),
+          status = document.querySelector("#status"),
+          score = document.querySelector("#score"),
+          title = document.querySelector("#step-title");
+        const chip = (name, cls = "") =>
+          `<span class="camp ${cls} rounded-full px-3 py-1 font-mono text-sm">${name}</span>`;
+        function render() {
+          const step = pos < 0 ? null : steps[pos];
+          const priorSet = pos < 0 ? new Set() : new Set(step.prior);
+          const shown = step ? step.cur : [];
+          title.textContent =
+            pos < 0
+              ? "尚未读取初始记录"
+              : `记录 ${step.index}${step.index === 0 ? "（初始已知营地）" : "：比较新增营地"}`;
+          camps.innerHTML = shown.length
+            ? shown
+                .map((x) =>
+                  chip(
+                    x,
+                    step.fresh.includes(x) && step.index > 0 ? "new" : "seen",
+                  ),
+                )
+                .join("")
+            : '<span class="text-slate-400">（空记录）</span>';
+          known.innerHTML = [...priorSet].length
+            ? [...priorSet].map((x) => chip(x, "seen")).join("")
+            : '<span class="text-slate-400">∅</span>';
+          const considered = steps.slice(1, pos + 1);
+          let best = 0,
+            answer = -1;
+          considered.forEach((s) => {
+            if (s.fresh.length > best) {
+              best = s.fresh.length;
+              answer = s.index;
+            }
+          });
+          score.textContent = `最佳：${answer}（${best} 个）`;
+          status.textContent =
+            pos < 0
+              ? "准备从初始记录建立已知集合。"
+              : `记录 ${step.index} 含 ${step.cur.length} 个不同营地；${step.index ? `其中 ${step.fresh.length} 个是新发现。` : "它只建立初始集合。"}`;
+          document.querySelector("#prev").disabled = pos <= -1;
+          document.querySelector("#next").disabled = pos >= steps.length - 1;
+        }
+        const next = () => {
+          if (pos < steps.length - 1) {
+            pos++;
+            render();
+          } else stop();
+        };
+        const prev = () => {
+          if (pos > -1) {
+            pos--;
+            render();
+          }
+        };
+        function stop() {
+          if (timer) clearInterval(timer);
+          timer = null;
+          const b = document.querySelector("#auto");
+          b.textContent = "自动播放";
+          b.setAttribute("aria-pressed", "false");
+        }
+        document.querySelector("#next").onclick = next;
+        document.querySelector("#prev").onclick = prev;
+        document.querySelector("#reset").onclick = () => {
+          stop();
+          pos = -1;
+          render();
+        };
+        document.querySelector("#auto").onclick = () => {
+          if (timer) {
+            stop();
+            return;
+          }
+          const b = document.querySelector("#auto");
+          b.textContent = "停止播放";
+          b.setAttribute("aria-pressed", "true");
+          timer = setInterval(() => {
+            if (pos >= steps.length - 1) stop();
+            else next();
+          }, 900);
+        };
+        document.addEventListener("keydown", (e) => {
+          if (e.target.matches("button")) return;
+          if (e.key === "ArrowRight") next();
+          if (e.key === "ArrowLeft") prev();
+        });
+        const toggle = document.querySelector("#solution-toggle"),
+          solution = document.querySelector("#solution"),
+          live = document.querySelector("#solution-live");
+        toggle.onclick = () => {
+          const show = solution.hidden;
+          solution.hidden = !show;
+          toggle.setAttribute("aria-expanded", String(show));
+          toggle.textContent = show ? "收起题解" : "查看题解";
+          live.textContent = show ? "题解已展开" : "题解已收起";
+          if (show) solution.querySelector("h2").focus?.();
+        };
+        render();
+      })();
+    </script>
+  </body>
+</html>
