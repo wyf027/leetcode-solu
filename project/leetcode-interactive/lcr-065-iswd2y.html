@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LCR 065 单词的压缩编码：交互式理解如何共享末尾片段，得到最短参考字符串长度。"
+    />
+    <meta name="leetcode-slug" content="iswd2y" />
+    <title>LCR 065 · 单词的压缩编码｜末尾片段实验室</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        min-width: 320px;
+        overflow-x: hidden;
+        background: #07131f;
+      }
+      button,
+      input {
+        box-shadow: none;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      [role="tab"]:focus-visible {
+        outline: 3px solid #fbbf24;
+        outline-offset: 3px;
+      }
+      button:hover:not(:disabled),
+      button:active:not(:disabled) {
+        box-shadow: 4px 4px 0 #22d3ee;
+      }
+      .grid-bg {
+        background-image:
+          linear-gradient(rgba(34, 211, 238, 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(34, 211, 238, 0.08) 1px, transparent 1px);
+        background-size: 30px 30px;
+      }
+      .word {
+        transition:
+          transform 180ms ease,
+          opacity 180ms ease,
+          background-color 180ms ease;
+      }
+      .word[data-state="active"] {
+        background: #fbbf24;
+        color: #172554;
+        transform: translateY(-5px);
+      }
+      .word[data-state="covered"] {
+        background: #164e63;
+        opacity: 0.55;
+        text-decoration: line-through;
+      }
+      .word[data-state="kept"] {
+        background: #86efac;
+        color: #052e16;
+      }
+      .solution[hidden],
+      .code-panel[hidden] {
+        display: none;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="grid-bg font-sans text-slate-100 antialiased">
+    <header class="border-b-4 border-cyan-300 bg-slate-950/90">
+      <div
+        class="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-[1fr_300px] lg:items-center lg:px-8"
+      >
+        <div>
+          <div
+            class="flex flex-wrap gap-3 font-mono text-xs font-black uppercase tracking-widest"
+          >
+            <span class="rounded-full bg-cyan-300 px-4 py-2 text-slate-950"
+              >LCR 065</span
+            >
+            <span
+              class="rounded-full border-2 border-amber-300 px-4 py-2 text-amber-300"
+              >Medium</span
+            >
+            <span
+              class="rounded-full border border-slate-600 px-4 py-2 text-slate-300"
+              >Trie · String</span
+            >
+          </div>
+          <p
+            class="mt-8 font-mono text-xs font-black uppercase tracking-[.22em] text-amber-300"
+          >
+            Shared endings / 10 min review
+          </p>
+          <h1
+            class="mt-3 text-5xl font-black tracking-tight text-white sm:text-7xl"
+          >
+            单词的压缩编码
+          </h1>
+          <p
+            class="mt-6 max-w-3xl text-base font-semibold leading-8 text-slate-300 sm:text-lg"
+          >
+            用一个以
+            <code class="rounded bg-slate-800 px-1">#</code>
+            结尾的参考字符串表示所有单词；如果一个单词已是另一个单词的后缀，它就不必再占一段新的空间。
+          </p>
+        </div>
+        <div
+          class="relative mx-auto grid aspect-square w-full max-w-[280px] place-items-center rounded-full border-4 border-cyan-300 bg-slate-900"
+          aria-hidden="true"
+        >
+          <div
+            class="absolute inset-7 rounded-full border border-cyan-300/40"
+          ></div>
+          <div
+            class="relative rounded-2xl border-2 border-amber-300 bg-slate-950 px-6 py-5 text-center"
+          >
+            <span class="block font-mono text-xs tracking-widest text-slate-400"
+              >ENCODE</span
+            >
+            <strong class="text-5xl text-amber-300">#</strong>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl space-y-10 px-4 py-10 sm:px-6 lg:px-8">
+      <section aria-labelledby="rules-title" class="grid gap-5 lg:grid-cols-3">
+        <article class="border-2 border-cyan-300 bg-slate-900 p-6">
+          <p
+            class="font-mono text-xs font-black uppercase tracking-widest text-cyan-300"
+          >
+            Rule 01
+          </p>
+          <h2 id="rules-title" class="mt-2 text-2xl font-black">
+            每段都以 # 收尾
+          </h2>
+          <p class="mt-3 leading-7 text-slate-300">
+            例如
+            <code class="rounded bg-slate-800 px-1">time#</code>
+            能定位完整单词，而不是某个中间片段。
+          </p>
+        </article>
+        <article
+          class="border-2 border-amber-300 bg-amber-300 p-6 text-slate-950"
+        >
+          <p class="font-mono text-xs font-black uppercase tracking-widest">
+            Rule 02
+          </p>
+          <h2 class="mt-2 text-2xl font-black">后缀可复用</h2>
+          <p class="mt-3 leading-7">
+            当 <code class="rounded bg-amber-100 px-1">me</code> 已嵌在
+            <code class="rounded bg-amber-100 px-1">time#</code>
+            的结尾，它无需单独写入参考字符串。
+          </p>
+        </article>
+        <article class="border-2 border-rose-400 bg-slate-900 p-6">
+          <p
+            class="font-mono text-xs font-black uppercase tracking-widest text-rose-300"
+          >
+            Goal
+          </p>
+          <h2 class="mt-2 text-2xl font-black">只为独立结尾计数</h2>
+          <p class="mt-3 leading-7 text-slate-300">
+            实验室会标出仍需保留的单词，并累计它们连同分隔符的长度。
+          </p>
+        </article>
+      </section>
+
+      <section
+        aria-labelledby="lab-title"
+        class="border-2 border-cyan-300 bg-slate-900/95 p-5 sm:p-7"
+      >
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+        >
+          <div>
+            <p
+              class="font-mono text-xs font-black uppercase tracking-widest text-cyan-300"
+            >
+              Interactive lab
+            </p>
+            <h2 id="lab-title" class="mt-2 text-3xl font-black">
+              末尾片段追踪器
+            </h2>
+          </div>
+          <p
+            id="step-label"
+            class="rounded-full bg-slate-950 px-4 py-2 font-mono text-sm font-black text-amber-300"
+            aria-live="polite"
+          >
+            准备开始
+          </p>
+        </div>
+        <p class="mt-4 max-w-3xl leading-7 text-slate-300">
+          示例
+          <code class="rounded bg-slate-800 px-1"
+            >words = ["time", "me", "bell"]</code
+          >。逐步观察哪些词可被别的词的末尾覆盖。
+        </p>
+        <div
+          id="words"
+          class="mt-8 flex flex-wrap gap-3"
+          role="group"
+          aria-label="单词编码演示"
+        ></div>
+        <div class="mt-5 grid gap-4 sm:grid-cols-3">
+          <div class="rounded border border-cyan-300/50 bg-slate-950 p-4">
+            <span class="font-mono text-xs text-slate-400">CURRENT</span>
+            <p
+              id="current"
+              class="mt-1 break-all font-mono text-lg font-black text-cyan-300"
+            >
+              —
+            </p>
+          </div>
+          <div class="rounded border border-amber-300/50 bg-slate-950 p-4">
+            <span class="font-mono text-xs text-slate-400">REFERENCE</span>
+            <p
+              id="reference"
+              class="mt-1 break-all font-mono text-lg font-black text-amber-300"
+            >
+              —
+            </p>
+          </div>
+          <div class="rounded border border-rose-300/50 bg-slate-950 p-4">
+            <span class="font-mono text-xs text-slate-400">TOTAL LENGTH</span>
+            <p
+              id="total"
+              class="mt-1 font-mono text-lg font-black text-rose-300"
+            >
+              0
+            </p>
+          </div>
+        </div>
+        <div class="mt-7 flex flex-wrap gap-3">
+          <button
+            id="previous"
+            type="button"
+            class="rounded border-2 border-slate-500 px-5 py-3 font-black hover:border-cyan-300"
+          >
+            上一步
+          </button>
+          <button
+            id="next"
+            type="button"
+            class="rounded border-2 border-amber-300 bg-amber-300 px-5 py-3 font-black text-slate-950 hover:bg-amber-200"
+          >
+            下一步
+          </button>
+          <button
+            id="reset"
+            type="button"
+            class="rounded border-2 border-cyan-300 px-5 py-3 font-black text-cyan-300 hover:bg-cyan-300 hover:text-slate-950"
+          >
+            恢复示例
+          </button>
+        </div>
+        <p class="mt-4 text-sm text-slate-400">
+          键盘：<kbd class="rounded border border-slate-600 px-1">←</kbd>
+          回退，<kbd class="rounded border border-slate-600 px-1">→</kbd>
+          前进，<kbd class="rounded border border-slate-600 px-1">R</kbd>
+          恢复示例。
+        </p>
+      </section>
+
+      <section
+        aria-labelledby="test-title"
+        class="border-2 border-rose-400 bg-slate-100 p-5 text-slate-900 sm:p-7"
+      >
+        <p
+          class="font-mono text-xs font-black uppercase tracking-widest text-rose-600"
+        >
+          Test &amp; verification
+        </p>
+        <h2 id="test-title" class="mt-2 text-3xl font-black">验证记录</h2>
+        <p class="mt-4 leading-7 text-slate-600">
+          本题按生成边界发布，算法对拍、四语言编译、HTML Validate、真实 Chrome
+          与交互回归均为
+          <strong>DEFERRED</strong>，未在本次任务中执行或声称通过。
+        </p>
+        <div class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <article class="border-2 border-amber-400 bg-amber-50 p-4">
+            <p class="font-mono text-xs font-black">INPUT</p>
+            <p class="mt-2 break-words">words = ["time", "me", "bell"]</p>
+            <p class="mt-3 font-mono text-xs font-black">EXPECTED</p>
+            <p class="mt-1">10</p>
+            <p class="mt-3 font-mono text-xs font-black">ACTUAL</p>
+            <p class="mt-1">DEFERRED</p>
+            <p class="mt-3 font-mono text-xs font-black text-amber-700">
+              STATUS · DEFERRED
+            </p>
+          </article>
+          <article class="border-2 border-amber-400 bg-amber-50 p-4">
+            <p class="font-mono text-xs font-black">INPUT</p>
+            <p class="mt-2 break-words">words = ["t"]</p>
+            <p class="mt-3 font-mono text-xs font-black">EXPECTED</p>
+            <p class="mt-1">2</p>
+            <p class="mt-3 font-mono text-xs font-black">ACTUAL</p>
+            <p class="mt-1">DEFERRED</p>
+            <p class="mt-3 font-mono text-xs font-black text-amber-700">
+              STATUS · DEFERRED
+            </p>
+          </article>
+          <article class="border-2 border-amber-400 bg-amber-50 p-4">
+            <p class="font-mono text-xs font-black">INPUT</p>
+            <p class="mt-2 break-words">words = ["me", "time"]</p>
+            <p class="mt-3 font-mono text-xs font-black">EXPECTED</p>
+            <p class="mt-1">5</p>
+            <p class="mt-3 font-mono text-xs font-black">ACTUAL</p>
+            <p class="mt-1">DEFERRED</p>
+            <p class="mt-3 font-mono text-xs font-black text-amber-700">
+              STATUS · DEFERRED
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="gate-title"
+        class="border-2 border-amber-300 bg-amber-300 p-5 text-slate-950 sm:p-7"
+      >
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <p class="font-mono text-xs font-black uppercase tracking-widest">
+              Solution vault · deferred checks
+            </p>
+            <h2 id="gate-title" class="mt-2 text-3xl font-black">
+              完整题解默认收起
+            </h2>
+            <p id="deferred-copy" class="mt-2">
+              本页未执行算法或浏览器验证；展开仅用于学习阅读。
+            </p>
+          </div>
+          <button
+            id="solution-toggle"
+            type="button"
+            class="rounded border-2 border-slate-950 bg-slate-950 px-6 py-3 font-black text-white"
+            aria-expanded="false"
+            aria-controls="solution-content"
+          >
+            查看题解
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="solution-content"
+        class="solution space-y-6"
+        aria-labelledby="solution-title"
+        hidden
+      >
+        <div class="grid gap-5 lg:grid-cols-2">
+          <article class="border-2 border-cyan-300 bg-slate-900 p-6">
+            <p
+              class="font-mono text-xs font-black uppercase tracking-widest text-cyan-300"
+            >
+              Core insight
+            </p>
+            <h2
+              id="solution-title"
+              class="mt-2 text-2xl font-black"
+              tabindex="-1"
+            >
+              从末尾向前共享路径
+            </h2>
+            <p class="mt-3 leading-7 text-slate-300">
+              将每个单词倒序插入一棵前缀树。一个单词若插入后没有创建任何新节点，说明它的全部字符路径已经存在，恰好是某个更长单词的后缀；它不需要独立编码。否则答案增加单词长度加一个分隔符。
+            </p>
+          </article>
+          <article class="border-2 border-amber-300 bg-slate-900 p-6">
+            <p
+              class="font-mono text-xs font-black uppercase tracking-widest text-amber-300"
+            >
+              Complexity
+            </p>
+            <h2 class="mt-2 text-2xl font-black">每个字符至多走一次</h2>
+            <p class="mt-3 leading-7 text-slate-300">
+              <strong>时间 O(S)</strong>，其中 S 是所有单词字符总数；<strong
+                >空间 O(S)</strong
+              >，用于倒序树的节点。
+            </p>
+          </article>
+        </div>
+        <article class="border-2 border-cyan-300 bg-slate-900 p-6">
+          <h3 class="text-2xl font-black">完整过程</h3>
+          <ol class="mt-5 grid gap-4 md:grid-cols-3">
+            <li class="border-l-4 border-cyan-300 bg-slate-800 p-4">
+              <strong>1. 倒序读取</strong>
+              <p class="mt-2 text-sm leading-6 text-slate-300">
+                从词尾向词首走，令相同后缀成为同一条树路径。
+              </p>
+            </li>
+            <li class="border-l-4 border-amber-300 bg-slate-800 p-4">
+              <strong>2. 标记新节点</strong>
+              <p class="mt-2 text-sm leading-6 text-slate-300">
+                插入途中若创建节点，记录该词提供了新的编码信息。
+              </p>
+            </li>
+            <li class="border-l-4 border-rose-400 bg-slate-800 p-4">
+              <strong>3. 累加长度</strong>
+              <p class="mt-2 text-sm leading-6 text-slate-300">
+                仅为创建过节点的单词累加 <code>word.length + 1</code>。
+              </p>
+            </li>
+          </ol>
+        </article>
+        <div class="grid gap-5 lg:grid-cols-2">
+          <article
+            class="border-2 border-rose-400 bg-rose-50 p-6 text-slate-900"
+          >
+            <h3 class="text-xl font-black">边界与常见错误</h3>
+            <ul class="mt-4 space-y-3 leading-7">
+              <li>• 单个单词仍要计入末尾的 <code>#</code>。</li>
+              <li>• 必须倒序建树；正向建树共享的是前缀，不符合题意。</li>
+              <li>• 不能只用集合检查任意子串，判断的是完整后缀关系。</li>
+              <li>• 题目保证单词互不相同，重复词不是额外编码段。</li>
+            </ul>
+          </article>
+          <article class="border-2 border-cyan-300 bg-slate-900 p-6">
+            <h3 class="text-xl font-black">替代方案与追问</h3>
+            <dl class="mt-4 space-y-4 text-sm leading-6 text-slate-300">
+              <div>
+                <dt class="font-black text-cyan-300">替代方案：排序后检查</dt>
+                <dd>
+                  按倒序字符串排序，只需比较相邻词的前缀关系；实现紧凑，但不如树结构直观地表达共享后缀。
+                </dd>
+              </div>
+              <div>
+                <dt class="font-black text-cyan-300">
+                  为什么可以按任意顺序插入？
+                </dt>
+                <dd>
+                  无论短词先到还是长词先到，只有创建新节点的词才会被计数；共享路径不会重复计入。
+                </dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+        <article class="overflow-hidden border-2 border-cyan-300 bg-slate-950">
+          <div
+            class="flex flex-col gap-4 border-b-2 border-cyan-300 bg-slate-900 p-5 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <p
+                class="font-mono text-xs font-black uppercase tracking-widest text-amber-300"
+              >
+                Submit-ready code
+              </p>
+              <h3 class="mt-1 text-2xl font-black">四语言可提交代码</h3>
+            </div>
+            <div
+              class="flex gap-2 overflow-x-auto"
+              role="tablist"
+              aria-label="代码语言"
+            >
+              <button
+                id="tab-java"
+                class="code-tab rounded bg-amber-300 px-4 py-2 text-sm font-black text-slate-950"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="panel-java"
+                data-lang="java"
+              >
+                Java
+              </button>
+              <button
+                id="tab-javascript"
+                class="code-tab rounded border border-slate-500 px-4 py-2 text-sm font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-javascript"
+                tabindex="-1"
+                data-lang="javascript"
+              >
+                JavaScript
+              </button>
+              <button
+                id="tab-python"
+                class="code-tab rounded border border-slate-500 px-4 py-2 text-sm font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-python"
+                tabindex="-1"
+                data-lang="python"
+              >
+                Python
+              </button>
+              <button
+                id="tab-cpp"
+                class="code-tab rounded border border-slate-500 px-4 py-2 text-sm font-black"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-cpp"
+                tabindex="-1"
+                data-lang="cpp"
+              >
+                C++
+              </button>
+            </div>
+          </div>
+          <pre
+            id="panel-java"
+            class="code-panel overflow-x-auto p-5 text-sm leading-6"
+            role="tabpanel"
+            aria-labelledby="tab-java"
+            tabindex="0"
+          ><code>class Solution {
+    static class Node {
+        Node[] next = new Node[26];
+    }
+
+    public int minimumLengthEncoding(String[] words) {
+        Node root = new Node();
+        int answer = 0;
+        for (String word : words) {
+            Node node = root;
+            boolean created = false;
+            for (int i = word.length() - 1; i >= 0; i--) {
+                int index = word.charAt(i) - 'a';
+                if (node.next[index] == null) {
+                    node.next[index] = new Node();
+                    created = true;
+                }
+                node = node.next[index];
+            }
+            if (created) answer += word.length() + 1;
+        }
+        return answer;
+    }
+}</code></pre>
+          <pre
+            id="panel-javascript"
+            class="code-panel overflow-x-auto p-5 text-sm leading-6"
+            role="tabpanel"
+            aria-labelledby="tab-javascript"
+            tabindex="0"
+            hidden
+          ><code>var minimumLengthEncoding = function (words) {
+  const root = {};
+  let answer = 0;
+  for (const word of words) {
+    let node = root;
+    let created = false;
+    for (let i = word.length - 1; i >= 0; i--) {
+      const ch = word[i];
+      if (!node[ch]) {
+        node[ch] = {};
+        created = true;
+      }
+      node = node[ch];
+    }
+    if (created) answer += word.length + 1;
+  }
+  return answer;
+};</code></pre>
+          <pre
+            id="panel-python"
+            class="code-panel overflow-x-auto p-5 text-sm leading-6"
+            role="tabpanel"
+            aria-labelledby="tab-python"
+            tabindex="0"
+            hidden
+          ><code>from typing import List
+
+
+class Solution:
+    def minimumLengthEncoding(self, words: List[str]) -> int:
+        root = {}
+        answer = 0
+        for word in words:
+            node = root
+            created = False
+            for ch in reversed(word):
+                if ch not in node:
+                    node[ch] = {}
+                    created = True
+                node = node[ch]
+            if created:
+                answer += len(word) + 1
+        return answer</code></pre>
+          <pre
+            id="panel-cpp"
+            class="code-panel overflow-x-auto p-5 text-sm leading-6"
+            role="tabpanel"
+            aria-labelledby="tab-cpp"
+            tabindex="0"
+            hidden
+          ><code>class Solution {
+    struct Node {
+        Node* next[26] = {};
+    };
+
+public:
+    int minimumLengthEncoding(vector&lt;string&gt;&amp; words) {
+        Node root;
+        int answer = 0;
+        for (const string&amp; word : words) {
+            Node* node = &amp;root;
+            bool created = false;
+            for (int i = static_cast&lt;int&gt;(word.size()) - 1; i >= 0; --i) {
+                int index = word[i] - 'a';
+                if (node-&gt;next[index] == nullptr) {
+                    node-&gt;next[index] = new Node();
+                    created = true;
+                }
+                node = node-&gt;next[index];
+            }
+            if (created) answer += static_cast&lt;int&gt;(word.size()) + 1;
+        }
+        return answer;
+    }
+};</code></pre>
+        </article>
+      </section>
+    </main>
+    <footer
+      class="border-t-4 border-cyan-300 bg-slate-950 px-4 py-8 text-center font-mono text-sm text-slate-400"
+    >
+      LCR 065 · 后缀共享编码 · 面试快速复习
+    </footer>
+    <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    <script data-cfasync="false">
+      (() => {
+        "use strict";
+        const words = ["time", "me", "bell"];
+        const states = [
+          { active: null, covered: [], kept: [], label: "准备开始：三个单词尚未处理", current: "—", reference: "—", total: 0 },
+          { active: "time", covered: ["me"], kept: ["time"], label: "检查 “time”：末尾包含 “me”", current: "time", reference: "time#", total: 5 },
+          { active: "me", covered: ["me"], kept: ["time"], label: "“me” 已被 “time#” 覆盖，不新增编码段", current: "me", reference: "time#", total: 5 },
+          { active: "bell", covered: ["me"], kept: ["time", "bell"], label: "“bell” 需要独立结尾，追加新段", current: "bell", reference: "time#bell#", total: 10 },
+        ];
+        let step = 0;
+        const byId = (id) => document.getElementById(id);
+        function render() {
+          const state = states[step];
+          byId("words").innerHTML = words
+            .map((word) => {
+              const status = state.active === word ? "active" : state.covered.includes(word) ? "covered" : state.kept.includes(word) ? "kept" : "idle";
+              return \`<div class="word rounded border-2 border-slate-700 bg-slate-950 px-5 py-4 font-mono font-black" data-state="\${status}">"\${word}"</div>\`;
+            })
+            .join("");
+          byId("step-label").textContent = state.label;
+          byId("current").textContent = state.current;
+          byId("reference").textContent = state.reference;
+          byId("total").textContent = String(state.total);
+          byId("previous").disabled = step === 0;
+          byId("next").disabled = step === states.length - 1;
+        }
+        function move(delta) {
+          step = Math.max(0, Math.min(states.length - 1, step + delta));
+          render();
+        }
+        function selectLanguage(lang) {
+          document.querySelectorAll(".code-tab").forEach((tab) => {
+            const active = tab.dataset.lang === lang;
+            tab.setAttribute("aria-selected", String(active));
+            tab.tabIndex = active ? 0 : -1;
+            tab.className = \`code-tab rounded px-4 py-2 text-sm font-black \${active ? "bg-amber-300 text-slate-950" : "border border-slate-500"}\`;
+          });
+          document.querySelectorAll(".code-panel").forEach((panel) => {
+            panel.hidden = panel.id !== \`panel-\${lang}\`;
+          });
+        }
+        byId("previous").addEventListener("click", () => move(-1));
+        byId("next").addEventListener("click", () => move(1));
+        byId("reset").addEventListener("click", () => {
+          step = 0;
+          render();
+          byId("live").textContent = "示例已恢复。";
+        });
+        byId("solution-toggle").addEventListener("click", () => {
+          const content = byId("solution-content");
+          const nextExpanded = content.hidden;
+          content.hidden = !nextExpanded;
+          byId("solution-toggle").setAttribute("aria-expanded", String(nextExpanded));
+          byId("solution-toggle").textContent = nextExpanded ? "收起题解" : "查看题解";
+          if (nextExpanded) byId("solution-title").focus({ preventScroll: true });
+        });
+        document.querySelectorAll(".code-tab").forEach((tab) => tab.addEventListener("click", () => selectLanguage(tab.dataset.lang)));
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && !byId("solution-content").hidden) byId("solution-toggle").click();
+          if (event.target.matches("input, textarea, select")) return;
+          if (event.key === "ArrowLeft") move(-1);
+          if (event.key === "ArrowRight") move(1);
+          if (event.key.toLowerCase() === "r") byId("reset").click();
+        });
+        render();
+      })();
+    </script>
+  </body>
+</html>
