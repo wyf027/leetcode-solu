@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="LCP 71 集水器：并查集连通性逐步讲解" />
+    <title>LCP 71 · 集水器 | 交互讲解</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        background: #f8fafc;
+      }
+      button {
+        box-shadow: none !important;
+        transition:
+          transform 0.18s ease,
+          background-color 0.18s ease;
+      }
+      button:hover:not(:disabled) {
+        box-shadow: 0 6px 18px rgb(15 23 42 / 0.14) !important;
+        transform: translateY(-1px);
+      }
+      button:active:not(:disabled) {
+        box-shadow: 0 2px 8px rgb(15 23 42 / 0.16) !important;
+        transform: translateY(0);
+      }
+      button:focus-visible {
+        outline: 3px solid #0ea5e9;
+        outline-offset: 3px;
+      }
+      button:disabled {
+        box-shadow: none !important;
+        opacity: 0.48;
+        cursor: not-allowed;
+      }
+      .cell {
+        min-height: 54px;
+        border: 1px solid #cbd5e1;
+        background: white;
+        position: relative;
+        overflow: hidden;
+      }
+      .cell::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        background: #38bdf8;
+        transition: opacity 0.2s ease;
+      }
+      .cell.water::after {
+        opacity: 0.25;
+      }
+      .diag-l::before,
+      .diag-r::before {
+        content: "";
+        position: absolute;
+        width: 142%;
+        height: 2px;
+        background: #0f172a;
+        top: 50%;
+        left: -21%;
+        z-index: 2;
+      }
+      .diag-l::before {
+        transform: rotate(45deg);
+      }
+      .diag-r::before {
+        transform: rotate(-45deg);
+      }
+      .triangle {
+        position: absolute;
+        inset: 7px;
+        z-index: 3;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: #0369a1;
+      }
+      .code {
+        white-space: pre;
+        overflow: auto;
+        tab-size: 2;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+      @media (max-width: 390px) {
+        .cell {
+          min-height: 44px;
+        }
+        .triangle {
+          font-size: 9px;
+          inset: 3px;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen text-slate-800">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      <header
+        class="rounded-3xl bg-gradient-to-br from-sky-950 via-sky-800 to-cyan-700 p-6 text-white sm:p-10"
+      >
+        <p class="mb-3 text-sm font-semibold tracking-[.18em] text-cyan-200">
+          HARD · UNION-FIND · PLANAR CONNECTIVITY
+        </p>
+        <h1 class="text-3xl font-black tracking-tight sm:text-5xl">
+          LCP 71 · 集水器
+        </h1>
+        <p class="mt-4 max-w-3xl text-sky-100">
+          把每个方格拆成上、下、左、右四个区域；从底向上扫描，分别回答“能否向下流走”和“最初是否进过水”。
+        </p>
+        <div class="mt-6 flex flex-wrap gap-3 text-sm">
+          <span class="rounded-full bg-white/15 px-3 py-1"
+            >shape = “l” / “r” / “.”</span
+          ><span class="rounded-full bg-white/15 px-3 py-1"
+            >每个方格体积 = 2</span
+          ><span class="rounded-full bg-white/15 px-3 py-1">O(nm α(nm))</span>
+        </div>
+      </header>
+
+      <section
+        class="mt-6 grid gap-6 lg:grid-cols-[1.15fr_.85fr]"
+        aria-labelledby="problem-title"
+      >
+        <article class="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 id="problem-title" class="text-xl font-bold">题意</h2>
+          <p class="mt-3 leading-7">
+            矩阵
+            <code class="rounded bg-slate-100 px-1">shape</code>
+            的每个字符是一块斜隔板：<code>"l"</code> 从左上到右下，<code
+              >"r"</code
+            >
+            从左下到右上，<code>"."</code>
+            没有隔板。整个装置先浸在水中：内部完全封闭的腔体从一开始就是空气；其余位置有水。竖直取出后，水不能穿过隔板、却会从能抵达左右或下边界的通路流走。返回最终剩余水量。
+          </p>
+          <div
+            class="mt-5 rounded-xl bg-sky-50 p-4 text-sm leading-6 text-sky-950"
+          >
+            <strong>示例：</strong>
+            <code>shape = ["....rl", "l.lr.r", ".l..r.", "..lr.."]</code
+            >，答案为
+            <code>18</code
+            >。字符串中的空格不存在；若输入包含空格，页面会把它显示为
+            <code>␠</code>，以免视觉歧义。
+          </div>
+        </article>
+        <aside class="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+          <h2 class="text-xl font-bold text-amber-950">
+            为什么不能只做一次洪泛？
+          </h2>
+          <p class="mt-3 leading-7 text-amber-950">
+            有些区域虽然围住了、不会向下漏水，却是装置内部的密闭空气腔，起初没有水。答案必须同时满足：<strong>取出后能留水</strong>，并且<strong>初始时连接过顶部外部水域</strong>。
+          </p>
+        </aside>
+      </section>
+
+      <section
+        class="mt-6 rounded-2xl border border-slate-200 bg-white p-6"
+        aria-labelledby="lab-title"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="lab-title" class="text-xl font-bold">连通性实验室</h2>
+            <p class="mt-1 text-sm text-slate-600">
+              用一小段示意网格观察“从底到顶”的扫描状态。
+            </p>
+          </div>
+          <p
+            id="status"
+            class="rounded-full bg-slate-100 px-3 py-1 text-sm"
+            aria-live="polite"
+          >
+            第 1 / 4 行：建立底部与左右泄水边界。
+          </p>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-[1fr_300px]">
+          <div>
+            <div
+              id="grid"
+              class="grid max-w-xl grid-cols-6"
+              aria-label="斜隔板扫描示意"
+            ></div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <span class="rounded bg-sky-100 px-2 py-1 text-xs text-sky-900"
+                >蓝色：本层暂时可蓄水</span
+              ><span class="rounded bg-slate-100 px-2 py-1 text-xs"
+                >深线：隔板</span
+              >
+            </div>
+          </div>
+          <div class="rounded-xl bg-slate-950 p-5 text-slate-100">
+            <p id="stepTitle" class="font-bold text-cyan-300">
+              1. 从最后一行开始
+            </p>
+            <p id="stepText" class="mt-3 text-sm leading-6 text-slate-300">
+              先把左右、下边界连到超级汇点；它们代表水一旦取出就能流向的外部。
+            </p>
+            <div class="mt-5 flex flex-wrap gap-2">
+              <button
+                id="prev"
+                type="button"
+                class="rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold"
+              >
+                ← 上一步</button
+              ><button
+                id="next"
+                type="button"
+                class="rounded-lg bg-cyan-400 px-3 py-2 text-sm font-bold text-slate-950"
+              >
+                下一步 →</button
+              ><button
+                id="play"
+                type="button"
+                class="rounded-lg border border-slate-500 px-3 py-2 text-sm"
+              >
+                自动播放
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="mt-6 rounded-2xl border border-slate-200 bg-white p-6"
+        aria-labelledby="verify-title"
+      >
+        <h2 id="verify-title" class="text-xl font-bold">测试与验证</h2>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <div class="rounded-xl border border-slate-200 p-4">
+            <p class="text-xs font-bold text-slate-500">输入</p>
+            <code class="mt-1 block text-sm"
+              >shape = ["rlrr", "llrl", "llr."]</code
+            >
+            <p class="mt-3 text-xs font-bold text-slate-500">期望输出</p>
+            <code>6</code>
+            <p class="mt-3 text-xs font-bold text-slate-500">实际输出</p>
+            <code>6（示例基准）</code>
+            <p class="mt-3 font-semibold text-emerald-700">
+              通过状态：待完整验收
+            </p>
+          </div>
+          <div class="rounded-xl border border-slate-200 p-4">
+            <p class="text-xs font-bold text-slate-500">输入</p>
+            <code class="mt-1 block text-sm"
+              >shape = ["...rl...", "..r..l..", ...]</code
+            >
+            <p class="mt-3 text-xs font-bold text-slate-500">期望输出</p>
+            <code>30</code>
+            <p class="mt-3 text-xs font-bold text-slate-500">实际输出</p>
+            <code>30（示例基准）</code>
+            <p class="mt-3 font-semibold text-emerald-700">
+              通过状态：待完整验收
+            </p>
+          </div>
+        </div>
+        <p class="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
+          快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+        </p>
+      </section>
+
+      <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+        <button
+          id="solutionToggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="solution"
+          class="w-full rounded-xl bg-sky-700 px-5 py-3 text-left font-bold text-white"
+        >
+          查看题解 <span class="float-right" aria-hidden="true">⌄</span>
+        </button>
+        <div id="solution" hidden class="pt-6">
+          <div class="grid gap-5 lg:grid-cols-2">
+            <article>
+              <h2 class="text-xl font-bold">核心洞察</h2>
+              <ol class="mt-3 list-decimal space-y-2 pl-5 leading-7">
+                <li>
+                  每格拆成
+                  <code>u,d,l,r</code> 四个扇区；斜板只把同侧的两个扇区连起来。
+                </li>
+                <li>
+                  自底向上合并：当前行的左右边界及下方已经确定，若一个扇区不连外界，便可记为“能留水”。
+                </li>
+                <li>
+                  扫描结束后把最上边界接到超级汇点。一个候选扇区也接到该汇点，说明它原本在外部水域；否则它是密闭空气腔。
+                </li>
+                <li>四扇区模型每个真实半方格会计两次，因此候选计数除以 2。</li>
+              </ol>
+            </article>
+            <article class="rounded-xl bg-slate-50 p-5">
+              <h3 class="font-bold">复杂度与边界</h3>
+              <p class="mt-2 leading-7">
+                最多 <code>50 × 50 × 4</code> 个节点。并查集总时间
+                <code>O(nm α(nm))</code>，空间
+                <code>O(nm)</code
+                >。边界需要额外的左右列和最下一行；把数组默认节点 0
+                当超级汇点，便可统一处理泄水边界。
+              </p>
+              <h3 class="mt-4 font-bold">替代方案与常见错误</h3>
+              <p class="mt-2 leading-7">
+                也可建立半三角形面图再做两次连通性搜索，但实现更易漏掉对角板的两侧。常见错误是把内部空气腔当水、只从顶向下判断、或把
+                <code>l</code> 与 <code>r</code> 的连接方向写反。
+              </p>
+            </article>
+          </div>
+          <h3 class="mt-7 text-xl font-bold">完整过程</h3>
+          <p class="mt-2 leading-7">
+            扫到第 i 行时，尚未连接 i−1
+            行，所以组件若已能到左、右、下边界，取出时必会漏水；反之记录为候选。最后再以顶部外界过滤候选，即可剔除起初从未进水的封闭区域。
+          </p>
+          <h3 class="mt-7 text-xl font-bold">面试追问</h3>
+          <p class="mt-2 leading-7">
+            若每个三角形的体积不同，可以在并查集根上维护体积并在最终组件条件成立时累加；若板能移动，则需改为离线动态连通性或按操作逆序并查集。
+          </p>
+          <h3 class="mt-7 text-xl font-bold">四语言可提交代码</h3>
+          <div
+            class="mt-3 flex flex-wrap gap-2"
+            role="tablist"
+            aria-label="语言代码"
+          >
+            <button
+              class="lang rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
+              data-lang="java"
+              role="tab"
+              aria-selected="true"
+            >
+              Java</button
+            ><button
+              class="lang rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold"
+              data-lang="javascript"
+              role="tab"
+              aria-selected="false"
+            >
+              JavaScript</button
+            ><button
+              class="lang rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold"
+              data-lang="python"
+              role="tab"
+              aria-selected="false"
+            >
+              Python</button
+            ><button
+              class="lang rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold"
+              data-lang="cpp"
+              role="tab"
+              aria-selected="false"
+            >
+              C++
+            </button>
+          </div>
+          <pre
+            id="code"
+            class="code mt-3 rounded-xl bg-slate-950 p-4 text-xs leading-5 text-slate-100"
+            aria-live="polite"
+          ></pre>
+        </div>
+      </section>
+    </main>
+    <script data-cfasync="false">
+      const codes = {
+        java: `class Solution {\n  private int[] p;\n  public int reservoir(String[] shape) {\n    int n=shape.length,m=shape[0].length(),cnt=1;\n    int[][] u=new int[n+1][m+2],d=new int[n+1][m+2],l=new int[n+1][m+2],r=new int[n+1][m+2];\n    for(int i=0;i<n;i++) for(int j=1;j<=m;j++){u[i][j]=cnt++; d[i][j]=cnt++; l[i][j]=cnt++; r[i][j]=cnt++;}\n    p=new int[cnt]; for(int i=0;i<cnt;i++)p[i]=i; boolean[] ok=new boolean[cnt];\n    for(int i=n-1;i>=0;i--){\n      for(int j=0;j<=m;j++) join(r[i][j],l[i][j+1]);\n      for(int j=1;j<=m;j++){ join(d[i][j],u[i+1][j]); char c=shape[i].charAt(j-1);\n        if(c=='.'){join(l[i][j],u[i][j]);join(l[i][j],d[i][j]);join(l[i][j],r[i][j]);}\n        else if(c=='l'){join(l[i][j],d[i][j]);join(r[i][j],u[i][j]);}\n        else {join(l[i][j],u[i][j]);join(r[i][j],d[i][j]);}\n      }\n      for(int j=1;j<=m;j++) for(int x:new int[]{u[i][j],d[i][j],l[i][j],r[i][j]}) ok[x]=find(x)!=find(0);\n    }\n    for(int j=1;j<=m;j++)join(u[0][j],0); int ans=0;\n    for(int i=0;i<cnt;i++) if(ok[i]&&find(i)==find(0))ans++; return ans/2;\n  }\n  private int find(int x){return p[x]==x?x:(p[x]=find(p[x]));}\n  private void join(int a,int b){p[find(a)]=find(b);}\n}`,
+        javascript: `var reservoir = function(shape) {\n  const n=shape.length,m=shape[0].length; let cnt=1;\n  const make=()=>Array.from({length:n+1},()=>Array(m+2).fill(0));\n  const [u,d,l,r]=[make(),make(),make(),make()];\n  for(let i=0;i<n;i++) for(let j=1;j<=m;j++) {u[i][j]=cnt++;d[i][j]=cnt++;l[i][j]=cnt++;r[i][j]=cnt++;}\n  const p=Array.from({length:cnt},(_,i)=>i);\n  const find=x=>p[x]===x?x:(p[x]=find(p[x])); const join=(a,b)=>p[find(a)]=find(b); const ok=Array(cnt).fill(false);\n  for(let i=n-1;i>=0;i--){\n    for(let j=0;j<=m;j++) join(r[i][j],l[i][j+1]);\n    for(let j=1;j<=m;j++){ join(d[i][j],u[i+1][j]); const c=shape[i][j-1];\n      if(c==='.') [u[i][j],d[i][j],r[i][j]].forEach(x=>join(l[i][j],x));\n      else if(c==='l'){join(l[i][j],d[i][j]);join(r[i][j],u[i][j]);}\n      else {join(l[i][j],u[i][j]);join(r[i][j],d[i][j]);}\n    }\n    for(let j=1;j<=m;j++) [u[i][j],d[i][j],l[i][j],r[i][j]].forEach(x=>ok[x]=find(x)!==find(0));\n  }\n  for(let j=1;j<=m;j++)join(u[0][j],0); return ok.reduce((s,b,i)=>s+(b&&find(i)===find(0)),0)/2;\n};`,
+        python: `class Solution:\n    def reservoir(self, shape: List[str]) -> int:\n        n, m = len(shape), len(shape[0]); cnt = 1\n        u = [[0]*(m+2) for _ in range(n+1)]; d = [[0]*(m+2) for _ in range(n+1)]\n        l = [[0]*(m+2) for _ in range(n+1)]; r = [[0]*(m+2) for _ in range(n+1)]\n        for i in range(n):\n            for j in range(1, m+1):\n                u[i][j], d[i][j], l[i][j], r[i][j] = cnt, cnt+1, cnt+2, cnt+3; cnt += 4\n        p = list(range(cnt))\n        def find(x):\n            if p[x] != x: p[x] = find(p[x])\n            return p[x]\n        def join(a, b): p[find(a)] = find(b)\n        ok = [False]*cnt\n        for i in range(n-1, -1, -1):\n            for j in range(m+1): join(r[i][j], l[i][j+1])\n            for j, ch in enumerate(shape[i], 1):\n                join(d[i][j], u[i+1][j])\n                if ch == '.':\n                    for x in (u[i][j], d[i][j], r[i][j]): join(l[i][j], x)\n                elif ch == 'l': join(l[i][j], d[i][j]); join(r[i][j], u[i][j])\n                else: join(l[i][j], u[i][j]); join(r[i][j], d[i][j])\n            for j in range(1, m+1):\n                for x in (u[i][j], d[i][j], l[i][j], r[i][j]): ok[x] = find(x) != find(0)\n        for j in range(1, m+1): join(u[0][j], 0)\n        return sum(ok[i] and find(i) == find(0) for i in range(cnt)) // 2`,
+        cpp: `class Solution {\n public:\n  int reservoir(vector<string>& s) {\n    int n=s.size(),m=s[0].size(),cnt=1;\n    vector u(n+1,vector<int>(m+2)),d=u,l=u,r=u;\n    for(int i=0;i<n;i++)for(int j=1;j<=m;j++)u[i][j]=cnt++,d[i][j]=cnt++,l[i][j]=cnt++,r[i][j]=cnt++;\n    vector<int> p(cnt); iota(p.begin(),p.end(),0);\n    auto find=[&](auto&& self,int x)->int{return p[x]==x?x:p[x]=self(self,p[x]);};\n    auto join=[&](int a,int b){p[find(find,a)]=find(find,b);}; vector<bool> ok(cnt);\n    for(int i=n-1;i>=0;i--){\n      for(int j=0;j<=m;j++)join(r[i][j],l[i][j+1]);\n      for(int j=1;j<=m;j++){join(d[i][j],u[i+1][j]); char c=s[i][j-1];\n        if(c=='.')join(l[i][j],u[i][j]),join(l[i][j],d[i][j]),join(l[i][j],r[i][j]);\n        else if(c=='l')join(l[i][j],d[i][j]),join(r[i][j],u[i][j]);\n        else join(l[i][j],u[i][j]),join(r[i][j],d[i][j]);}\n      for(int j=1;j<=m;j++)for(int x:{u[i][j],d[i][j],l[i][j],r[i][j]})ok[x]=find(find,x)!=find(find,0);}\n    for(int j=1;j<=m;j++)join(u[0][j],0); int ans=0;\n    for(int i=0;i<cnt;i++)ans+=ok[i]&&find(find,i)==find(find,0); return ans/2;\n  }\n};`,
+      };
+      const rows = ["....rl", "l.lr.r", ".l..r.", "..lr.."],
+        steps = [
+          [
+            "1. 从最后一行开始",
+            "先把左右、下边界连到超级汇点；它们代表水一旦取出就能流向的外部。",
+            3,
+          ],
+          [
+            "2. 连接横向与向下通路",
+            "同一行相邻方格通过左右扇区相连；当前格的下扇区连到下一行的上扇区。",
+            2,
+          ],
+          [
+            "3. 按隔板类型拆分",
+            "“.”四扇区全连；“l”和“r”各保留隔板两侧的一对连通扇区。",
+            1,
+          ],
+          [
+            "4. 标记候选并过滤空气腔",
+            "不接泄水边界的扇区可蓄水；最后只保留连接过顶部外部水域的候选。",
+            0,
+          ],
+        ];
+      let step = 0,
+        timer = null;
+      function draw() {
+        const g = document.querySelector("#grid");
+        g.innerHTML = "";
+        rows.forEach((row, i) =>
+          [...row].forEach((ch) => {
+            const x = document.createElement("div");
+            x.className =
+              "cell " +
+              (i >= steps[step][2] ? "water " : "") +
+              (ch === "l" ? "diag-l" : ch === "r" ? "diag-r" : "");
+            x.innerHTML =
+              '<span class="triangle">' + (ch === "." ? "·" : ch) + "</span>";
+            g.append(x);
+          }),
+        );
+        document.querySelector("#stepTitle").textContent = steps[step][0];
+        document.querySelector("#stepText").textContent = steps[step][1];
+        document.querySelector("#status").textContent =
+          `第 ${step + 1} / ${steps.length} 步：${steps[step][0]}`;
+        document.querySelector("#prev").disabled = step === 0;
+        document.querySelector("#next").disabled = step === steps.length - 1;
+      }
+      document.querySelector("#prev").onclick = () => {
+        step--;
+        draw();
+      };
+      document.querySelector("#next").onclick = () => {
+        step++;
+        draw();
+      };
+      document.querySelector("#play").onclick = () => {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+          event.currentTarget.textContent = "自动播放";
+          return;
+        }
+        event.currentTarget.textContent = "暂停";
+        timer = setInterval(() => {
+          if (step === steps.length - 1) {
+            clearInterval(timer);
+            timer = null;
+            document.querySelector("#play").textContent = "自动播放";
+          } else {
+            step++;
+            draw();
+          }
+        }, 1100);
+      };
+      const toggle = document.querySelector("#solutionToggle"),
+        sol = document.querySelector("#solution");
+      toggle.onclick = () => {
+        const open = toggle.getAttribute("aria-expanded") === "true";
+        toggle.setAttribute("aria-expanded", String(!open));
+        sol.hidden = open;
+        if (!open) sol.querySelector(".lang").focus();
+      };
+      document.querySelectorAll(".lang").forEach(
+        (b) =>
+          (b.onclick = () => {
+            document.querySelectorAll(".lang").forEach((x) => {
+              x.className =
+                "lang rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold";
+              x.setAttribute("aria-selected", "false");
+            });
+            b.className =
+              "lang rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white";
+            b.setAttribute("aria-selected", "true");
+            document.querySelector("#code").textContent = codes[b.dataset.lang];
+          }),
+      );
+      document.querySelector("#code").textContent = codes.java;
+      draw();
+    </script>
+  </body>
+</html>
