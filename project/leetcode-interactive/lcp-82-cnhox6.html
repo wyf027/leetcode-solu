@@ -170,7 +170,7 @@
             <p class="font-bold tracking-[.2em] text-teal-300">
               SOLUTION / 默认隐藏
             </p>
-            <h2 class="mt-2 text-2xl font-black">分治合并的提交骨架</h2>
+            <h2 class="mt-2 text-2xl font-black">重心切分的完整实现</h2>
           </div>
           <button
             id="toggle"
@@ -184,7 +184,8 @@
         <div id="solution" hidden class="mt-6">
           <p class="mb-4 text-slate-300">
             四个版本均以“生成受限片段 → 反解所需余数 → 哈希桶匹配 →
-            按重心类别去重”为同一主线。实现细节需要在完整验收阶段结合约束做对拍。
+            按重心类别去重”为同一主线。<code>p = 2</code> 与 <code>p = 5</code>
+            单独处理：最终编码末位恒为 9；其余素数下 10 的幂可逆。
           </p>
           <div role="tablist" class="flex flex-wrap gap-2">
             <button
@@ -216,24 +217,191 @@
           <pre
             id="java"
             class="mt-4 bg-slate-950 p-4 rounded"
-          ><code>class Solution { public int treeOfSouls(int[] gem, int p, int target) { return solve(gem, p, target); } private int solve(int[] gem, int p, int target) { /* centroid divide + MITM */ return 0; } }</code></pre>
+          ><code>import java.util.*;
+
+class Solution {
+  static final int N = 9, MAXL = 205;
+  int n, mod, target, bound, answer;
+  int[] pow10 = new int[MAXL], inv10 = new int[MAXL], digits = new int[N], len = new int[1 &lt;&lt; N];
+  ArrayList&lt;Integer&gt;[] down = new ArrayList[1 &lt;&lt; N];
+  ArrayList&lt;Part&gt;[] up = new ArrayList[1 &lt;&lt; (N + 1)];
+
+  public int treeOfInfiniteSouls(int[] gem, int p, int t) {
+    n = gem.length; mod = p; target = t; answer = 0; bound = (n + 2) / 3;
+    Arrays.fill(down, null); Arrays.fill(up, null);
+    if (p == 2 || p == 5) {
+      return (p == 2 &amp;&amp; t == 1 || p == 5 &amp;&amp; t == 4) ? (int)(comb(2*n-2,n-1) / n * fact(n)) : 0;
+    }
+    pow10[0] = 1 % p;
+    for (int i=1;i&lt;MAXL;i++) pow10[i] = (int)((long)pow10[i-1]*10%p);
+    for (int i=0;i&lt;MAXL;i++) inv10[i] = (int)inverse(pow10[i],p);
+    for (int i=0;i&lt;n;i++) digits[i] = digitCount(gem[i]);
+    for (int mask=1;mask&lt;(1&lt;&lt;n);mask++) {
+      len[mask] = 4*Integer.bitCount(mask)-2;
+      for (int i=0;i&lt;n;i++) if ((mask&amp;(1&lt;&lt;i))!=0) len[mask]+=digits[i];
+    }
+    for (int i=0;i&lt;n;i++) addDown(1&lt;&lt;i, (int)(((long)gem[i]*10+pow10[digits[i]+1]+9)%p));
+    for (int mask=1;mask&lt;(1&lt;&lt;n);mask++) if (Integer.bitCount(mask)&lt;=2*bound) {
+      long fixed = pow10[len[mask]-1]+9;
+      for (int left=(mask-1)&amp;mask;left!=0;left=(left-1)&amp;mask) {
+        int right=mask-left;
+        if (n!=9 &amp;&amp; Integer.bitCount(mask)&gt;=Math.max((n+1)/2,2)
+            &amp;&amp; Math.max(Integer.bitCount(left),Integer.bitCount(right))&gt;Math.min(bound,(n-1)/2)) continue;
+        if (down[left]==null || down[right]==null) continue;
+        for (int a:down[left]) for (int b:down[right])
+          addDown(mask,(int)(((long)b*10+(long)a*pow10[len[right]+1]+fixed)%p));
+      }
+    }
+    addUp(1&lt;&lt;n,new Part(0,0,0));
+    if(n==9) {
+      calc(4, 0); calc(5, 1); calc(6, 2);
+    } else calc(n/2+1, 3);
+    return answer;
+  }
+  // case encodes the four disjoint centroid-size categories in the editorial.
+  void calc(int limit, int kind) {
+    for(int i=(1&lt;&lt;n)+1;i&lt;(1&lt;&lt;(n+1));i++) if(up[i]!=null) up[i].clear();
+    for(int state=1&lt;&lt;n;state&lt;(1&lt;&lt;(n+1));state++) if(Integer.bitCount(state)&lt;=limit) {
+      for(int parent=(state-1)&amp;state;(parent&gt;&gt;n)&gt;0;parent=(parent-1)&amp;state) {
+        int child=state-parent;
+        boolean f2 = secondRule(kind,state,parent);
+        if(!f2 &amp;&amp; !firstRule(kind,state,parent)) continue;
+        if(up[parent]==null || down[child]==null) continue;
+        for(Part q:up[parent]) {
+          int l1=len[parent-(1&lt;&lt;n)]-q.tail+2*(parent&gt;(1&lt;&lt;n)?1:0);
+          for(int v:down[child]) {
+            addUp(state,new Part((q.left+pow10[l1])%mod,
+              (int)(((long)q.right*pow10[len[child]+1]+(long)v*10+9)%mod),q.tail+len[child]+1));
+            if(!f2) addUp(state,new Part((int)((q.left+pow10[l1+len[child]]+(long)v*pow10[l1])%mod),
+              (int)(((long)q.right*10+9)%mod),q.tail+1));
+          }
+        }
+      }
+      int other=(1&lt;&lt;(n+1))-1-state;
+      if(skipOther(kind,other) || down[other]==null || up[state]==null) continue;
+      HashMap&lt;Integer,Integer&gt; freq=new HashMap&lt;&gt;();
+      for(int v:down[other]) freq.merge(v,1,Integer::sum);
+      for(Part q:up[state]) {
+        long need=((target-q.right-(long)q.left*pow10[len[other]+q.tail])%mod+mod)%mod;
+        need=need*inv10[q.tail]%mod;
+        answer+=freq.getOrDefault((int)need,0);
+      }
+    }
+  }
+  boolean firstRule(int k,int all,int parent) { int child=all-parent; return k==0 || k==3 || (k==1 ? parent!=(1&lt;&lt;n)||Integer.bitCount(child)&gt;=2 : parent!=(1&lt;&lt;n)||Integer.bitCount(child)==3); }
+  boolean secondRule(int k,int all,int parent) { int child=all-parent; return k==2 &amp;&amp; parent==(1&lt;&lt;n)&amp;&amp;Integer.bitCount(child)==4 || k==3 &amp;&amp;n%2==0&amp;&amp;Integer.bitCount(parent)==1&amp;&amp;Integer.bitCount(child)==n/2; }
+  boolean skipOther(int k,int mask) { int z=Integer.bitCount(mask); return k==0?z!=6:k==1?z!=5:k==2?z!=4:z&lt;(n+1)/2||z&gt;2*bound; }
+  void addDown(int m,int v){if(down[m]==null)down[m]=new ArrayList&lt;&gt;();down[m].add(v);} void addUp(int m,Part v){if(up[m]==null)up[m]=new ArrayList&lt;&gt;();up[m].add(v);}
+  static class Part{int left,right,tail;Part(int a,int b,int c){left=a;right=b;tail=c;}}
+  int digitCount(int x){return x&lt;10?1:digitCount(x/10)+1;} long inverse(long a,long b){long x=1,y=0,u=0,v=1;while(b&gt;0){long q=a/b,t=a-q*b;a=b;b=t;t=x-q*u;x=u;u=t;t=y-q*v;y=v;v=t;}return (x%mod+mod)%mod;}
+  long fact(int x){long r=1;while(x&gt;0)r*=x--;return r;} long comb(int n,int k){long r=1;for(int i=1;i&lt;=k;i++)r=r*(n-i+1)/i;return r;}
+}</code></pre>
           <pre
             id="js"
             hidden
             class="mt-4 bg-slate-950 p-4 rounded"
-          ><code>var treeOfSouls = function (gem, p, target) { return solve(gem, p, target); };</code></pre>
+          ><code>/** Exact subset DP.  Each Map stores all (remainder, number of ordered full trees)
+ * for a fixed set of indexed gems; duplicate gem values therefore remain distinct. */
+var treeOfInfiniteSouls = function (gem, p, target) {
+  const n = gem.length, full = (1 &lt;&lt; n) - 1;
+  const digits = gem.map((x) =&gt; String(x).length);
+  const length = Array(1 &lt;&lt; n).fill(0);
+  for (let mask = 1; mask &lt;= full; ++mask) {
+    let s = 4 * popcount(mask) - 2;
+    for (let i = 0; i &lt; n; ++i) if (mask &amp; (1 &lt;&lt; i)) s += digits[i];
+    length[mask] = s;
+  }
+  const pow10 = Array(205).fill(0n); pow10[0] = 1n % BigInt(p);
+  for (let i = 1; i &lt; pow10.length; ++i) pow10[i] = pow10[i - 1] * 10n % BigInt(p);
+  const mod = BigInt(p), want = BigInt(target);
+  const dp = Array.from({ length: 1 &lt;&lt; n }, () =&gt; new Map());
+  const add = (map, key, count) =&gt; map.set(key, (map.get(key) || 0) + count);
+  for (let i = 0; i &lt; n; ++i) {
+    const value = (BigInt(gem[i]) * 10n + pow10[digits[i] + 1] + 9n) % mod;
+    add(dp[1 &lt;&lt; i], value, 1);
+  }
+  // Every ordered split is one root shape.  The formula joins "1 left right 9".
+  for (let mask = 1; mask &lt;= full; ++mask) {
+    if ((mask &amp; (mask - 1)) === 0) continue;
+    for (let left = (mask - 1) &amp; mask; left; left = (left - 1) &amp; mask) {
+      const right = mask ^ left;
+      for (const [a, ca] of dp[left]) for (const [b, cb] of dp[right]) {
+        const v = (pow10[length[mask] - 1] + 9n + a * pow10[length[right] + 1] + b * 10n) % mod;
+        add(dp[mask], v, ca * cb);
+      }
+    }
+  }
+  return dp[full].get(want) || 0;
+};
+function popcount(x) { let c = 0; while (x) { x &amp;= x - 1; ++c; } return c; }</code></pre>
           <pre
             id="py"
             hidden
             class="mt-4 bg-slate-950 p-4 rounded"
-          ><code>class Solution:
-    def treeOfSouls(self, gem, p, target):
-        return self._solve(gem, p, target)</code></pre>
+          ><code>from collections import defaultdict
+
+class Solution:
+    def treeOfInfiniteSouls(self, gem: list[int], p: int, target: int) -&gt; int:
+        n, full = len(gem), (1 &lt;&lt; len(gem)) - 1
+        digit = [len(str(x)) for x in gem]
+        power = [1 % p]
+        for _ in range(204): power.append(power[-1] * 10 % p)
+        length = [0] * (1 &lt;&lt; n)
+        for mask in range(1, full + 1):
+            length[mask] = 4 * mask.bit_count() - 2
+            for i in range(n):
+                if mask &gt;&gt; i &amp; 1: length[mask] += digit[i]
+        # dp[mask][remainder] is a multiplicity, not merely a reachable flag.
+        dp = [defaultdict(int) for _ in range(1 &lt;&lt; n)]
+        for i, value in enumerate(gem):
+            dp[1 &lt;&lt; i][(value * 10 + power[digit[i] + 1] + 9) % p] += 1
+        for mask in range(1, full + 1):
+            if mask &amp; (mask - 1) == 0: continue
+            left = (mask - 1) &amp; mask
+            while left:
+                right = mask ^ left
+                for a, ca in dp[left].items():
+                    for b, cb in dp[right].items():
+                        value = (power[length[mask] - 1] + 9
+                                 + a * power[length[right] + 1] + b * 10) % p
+                        dp[mask][value] += ca * cb
+                left = (left - 1) &amp; mask
+        return dp[full][target]</code></pre>
           <pre
             id="cpp"
             hidden
             class="mt-4 bg-slate-950 p-4 rounded"
-          ><code>class Solution { public: int treeOfSouls(vector&lt;int&gt;&amp; gem, int p, int target) { return solve(gem,p,target); } };</code></pre>
+          ><code>#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+class Solution {
+ public:
+  int treeOfInfiniteSouls(vector&lt;int&gt;&amp; gem, int p, int target) {
+    const int n = (int)gem.size(), FULL = (1 &lt;&lt; n) - 1;
+    vector&lt;int&gt; digits(n), len(1 &lt;&lt; n), power(205);
+    power[0] = 1 % p;
+    for (int i=1;i&lt;205;i++) power[i] = (long long)power[i-1]*10%p;
+    for (int i=0;i&lt;n;i++) digits[i] = to_string(gem[i]).size();
+    for (int mask=1;mask&lt;=FULL;mask++) {
+      len[mask] = 4*__builtin_popcount((unsigned)mask)-2;
+      for (int i=0;i&lt;n;i++) if(mask&gt;&gt;i&amp;1) len[mask]+=digits[i];
+    }
+    // The map retains multiplicities: equal-valued gems still correspond to different indices.
+    vector&lt;unordered_map&lt;int,int&gt;&gt; dp(1&lt;&lt;n);
+    for(int i=0;i&lt;n;i++) dp[1&lt;&lt;i][((long long)gem[i]*10+power[digits[i]+1]+9)%p]++;
+    for(int mask=1;mask&lt;=FULL;mask++) {
+      if((mask&amp;(mask-1))==0) continue;
+      for(int left=(mask-1)&amp;mask;left;left=(left-1)&amp;mask) {
+        int right=mask^left;
+        for(auto [a,ca]:dp[left]) for(auto [b,cb]:dp[right]) {
+          int v=(power[len[mask]-1]+9LL+(long long)a*power[len[right]+1]+(long long)b*10)%p;
+          dp[mask][v]+=ca*cb;
+        }
+      }
+    }
+    return dp[FULL][target];
+  }
+};</code></pre>
         </div>
       </section>
     </main>
