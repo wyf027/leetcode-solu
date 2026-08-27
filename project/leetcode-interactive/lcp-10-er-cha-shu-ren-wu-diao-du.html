@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>LCP 10 · 二叉树任务调度｜双核树形 DP</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      button {
+        box-shadow: none !important;
+        transition:
+          transform 0.18s ease,
+          background-color 0.18s ease;
+      }
+      button:hover,
+      button:active {
+        box-shadow: 0 8px 18px rgb(52 211 153/0.18) !important;
+      }
+      button:focus-visible {
+        outline: 3px solid #fbbf24;
+        outline-offset: 3px;
+      }
+      button:disabled {
+        box-shadow: none !important;
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .card {
+        background: linear-gradient(
+          135deg,
+          rgb(15 23 42/0.92),
+          rgb(30 41 59/0.78)
+        );
+        border: 1px solid rgb(71 85 105/0.58);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-7">
+      <header
+        class="rounded-3xl border border-emerald-300/25 bg-gradient-to-br from-emerald-500/15 via-slate-900 to-violet-500/15 p-7 sm:p-10"
+      >
+        <p class="font-mono text-sm text-emerald-200">
+          LCP 10 · HARD · er-cha-shu-ren-wu-diao-du
+        </p>
+        <h1 class="mt-3 text-3xl font-black sm:text-5xl">二叉树任务调度</h1>
+        <p class="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+          二叉树的左右孩子是父任务的前导任务，必须先完成。系统有两个 CPU
+          核；任务可以暂停并稍后继续，但同一个任务不能同时占用两个核。求完成整棵任务树的最短时间。
+        </p>
+        <p class="mt-5 text-sm text-emerald-100">
+          节点数 ≤ 1000，单节点耗时 ≤ 1000；允许非整数时刻切换任务。
+        </p>
+      </header>
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="problem"
+      >
+        <h2 id="problem" class="text-2xl font-bold">题意与示例</h2>
+        <p class="mt-4 leading-7 text-slate-300">
+          左右子树互不依赖，可以穿插到两个 CPU
+          上执行；但父节点必须等待两棵子树全部完成，然后独占一个 CPU
+          执行自身任务。
+        </p>
+        <div class="mt-5 grid gap-4 md:grid-cols-3">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-emerald-200">示例 1</h3>
+            <code class="mt-3 block">root = [47, 74, 31]</code>
+            <p class="mt-3">输出：<b class="text-amber-200">121</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              两个孩子并行 31，剩余 43 与根任务 47 串行。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-emerald-200">示例 2</h3>
+            <code class="mt-3 block break-words"
+              >root = [15,21,null,24,null,27,26]</code
+            >
+            <p class="mt-3">输出：<b class="text-amber-200">87</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              链式依赖造成关键路径，无法仅按总工作量除以 2。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-emerald-200">示例 3</h3>
+            <code class="mt-3 block">root = [1,3,2,null,null,4,4]</code>
+            <p class="mt-3">输出：<b class="text-amber-200">7.5</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              允许在 0.5 时刻抢占与切换任务。
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="card mt-7 rounded-3xl p-6 sm:p-8" aria-labelledby="lab">
+        <div class="flex flex-wrap justify-between gap-4">
+          <div>
+            <h2 id="lab" class="text-2xl font-bold">双核时间线实验室</h2>
+            <p class="mt-2 text-slate-400">
+              回放示例 1：左任务 74、右任务 31，最后执行根任务 47。
+            </p>
+          </div>
+          <span
+            id="step-label"
+            class="rounded-full bg-emerald-300/15 px-3 py-1 font-mono text-emerald-100"
+            >步骤 0 / 3</span
+          >
+        </div>
+        <div class="mt-5 rounded-2xl bg-slate-950 p-5">
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="rounded-xl bg-slate-900 p-4">
+              <p class="text-sm text-slate-400">CPU 1</p>
+              <div id="cpu1" class="mt-3 h-10 rounded-lg bg-slate-800"></div>
+            </div>
+            <div class="rounded-xl bg-slate-900 p-4">
+              <p class="text-sm text-slate-400">CPU 2</p>
+              <div id="cpu2" class="mt-3 h-10 rounded-lg bg-slate-800"></div>
+            </div>
+          </div>
+          <div class="mt-5 grid gap-3 text-sm sm:grid-cols-3">
+            <p class="rounded-xl bg-slate-900 p-3">
+              完成时间 <code id="time">0</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">
+              子树工作量 <code>105</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">关键路径 <code>74</code></p>
+          </div>
+          <p id="explain" class="mt-5 min-h-12 text-slate-300"></p>
+        </div>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            id="prev"
+            class="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2"
+          >
+            ← 上一步</button
+          ><button
+            id="next"
+            class="rounded-xl bg-emerald-300 px-4 py-2 font-bold text-slate-950"
+          >
+            下一步 →</button
+          ><button
+            id="auto"
+            class="rounded-xl border border-violet-300/50 bg-violet-400/10 px-4 py-2"
+          >
+            自动播放
+          </button>
+        </div>
+        <p
+          id="status"
+          role="status"
+          aria-live="polite"
+          class="mt-4 text-sm text-emerald-200"
+        ></p>
+      </section>
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="verify"
+      >
+        <h2 id="verify" class="text-2xl font-bold">测试与验证</h2>
+        <div class="mt-5 grid gap-4 md:grid-cols-3">
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code>root = [47,74,31]</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>121</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>121（树形 DP 推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="break-words">root = [15,21,null,24,null,27,26]</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>87</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>87（树形 DP 推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code>root = [1,3,2,null,null,4,4]</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>7.5</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>7.5（树形 DP 推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+        </div>
+        <p
+          class="mt-5 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100"
+        >
+          快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+        </p>
+        <p class="mt-3 text-sm text-slate-400">
+          本轮已执行：Prettier 格式化、提交前审计。HTML
+          Validate、浏览器与算法对拍留待后续统一回归。
+        </p>
+      </section>
+      <section class="mt-7 text-center">
+        <button
+          id="solution-toggle"
+          class="rounded-xl bg-amber-300 px-5 py-3 font-bold text-slate-950"
+          aria-expanded="false"
+          aria-controls="solution"
+        >
+          查看题解
+        </button>
+        <p
+          id="solution-status"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </section>
+      <section
+        id="solution"
+        class="card mt-5 rounded-3xl p-6 sm:p-8"
+        hidden
+        tabindex="-1"
+        aria-labelledby="solution-title"
+      >
+        <h2 id="solution-title" class="text-2xl font-bold">
+          题解：每棵子树维护工作量与最短时间
+        </h2>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-emerald-200">DP 状态</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              后序遍历。对子树返回 <code>(sum,time)</code>：sum
+              是全部任务总耗时，time 是两个 CPU 完成该子树的最短时间。空树返回
+              (0,0)。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-violet-200">合并左右子树</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              两个独立子树共同执行至少受三条下界约束：不能短于左子树最优时间
+              <code>lt</code>，不能短于右子树最优时间
+              <code>rt</code>，也不能短于总工作量除以两个
+              CPU：<code>(ls+rs)/2</code>。允许任意时刻抢占，所以这三条下界的最大值可以达到。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-emerald-200">转移、边界与复杂度</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              <code>sum=ls+rs+val</code
+              >，<code>time=max(lt,rt,(ls+rs)/2)+val</code>。父任务必须等孩子全完成，所以
+              val 最后串行加入。每个节点访问一次，时间 O(n)；递归栈
+              O(h)。单节点返回 val，链形树自然退化为全部串行。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-rose-200">替代方案、追问与常见错误</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              离散时间背包无法处理 0.5 时刻，显式模拟调度也没有必要。若 CPU
+              数增加到
+              k，只有总工作量下界还不够，需要更丰富的子树调度轮廓。常见错误：只取总和/2、只算最长根到叶路径、把根节点与孩子并行、使用整数除法。
+            </p>
+          </article>
+        </div>
+        <h3 class="mt-7 text-xl font-bold">四份可提交代码</h3>
+        <div
+          class="mt-4 flex flex-wrap gap-2"
+          role="tablist"
+          aria-label="代码语言"
+        >
+          <button
+            class="lang rounded-lg bg-emerald-300 px-3 py-2 text-slate-950"
+            data-lang="java"
+            role="tab"
+            aria-selected="true"
+          >
+            Java</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="javascript"
+            role="tab"
+            aria-selected="false"
+          >
+            JavaScript</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="python"
+            role="tab"
+            aria-selected="false"
+          >
+            Python</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="cpp"
+            role="tab"
+            aria-selected="false"
+          >
+            C++
+          </button>
+        </div>
+        <pre
+          id="code"
+          class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm leading-6"
+          tabindex="0"
+        ></pre>
+      </section>
+    </main>
+    <script data-cfasync="false">
+      const states = [
+        { t: 0, a: 0, b: 0, text: "等待调度。" },
+        {
+          t: 31,
+          a: 31,
+          b: 31,
+          text: "两个叶任务并行执行 31 分钟；右任务完成。",
+        },
+        { t: 74, a: 74, b: 31, text: "CPU 1 继续完成左任务剩余的 43 分钟。" },
+        {
+          t: 121,
+          a: 121,
+          b: 31,
+          text: "所有前导任务完成，CPU 1 串行执行根任务 47 分钟。",
+        },
+      ];
+      let step = 0,
+        timer = null;
+      const $ = (id) => document.getElementById(id);
+      function render() {
+        const s = states[step];
+        $("step-label").textContent = `步骤 ${step} / 3`;
+        $("cpu1").innerHTML =
+          `<div class="h-full rounded-lg bg-emerald-400/50" style="width:${(s.a / 121) * 100}%"></div>`;
+        $("cpu2").innerHTML =
+          `<div class="h-full rounded-lg bg-violet-400/50" style="width:${(s.b / 121) * 100}%"></div>`;
+        $("time").textContent = s.t;
+        $("explain").textContent = s.text;
+        $("prev").disabled = step === 0;
+        $("next").disabled = step === 3;
+        $("status").textContent = `已到步骤 ${step}，完成时间 ${s.t}`;
+      }
+      function move(d) {
+        step = Math.max(0, Math.min(3, step + d));
+        render();
+      }
+      $("prev").onclick = () => move(-1);
+      $("next").onclick = () => move(1);
+      $("auto").onclick = () => {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+          $("auto").textContent = "自动播放";
+          return;
+        }
+        if (step === 3) step = 0;
+        $("auto").textContent = "停止播放";
+        timer = setInterval(
+          () => (step === 3 ? $("auto").click() : move(1)),
+          850,
+        );
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") move(1);
+        if (e.key === "ArrowLeft") move(-1);
+      });
+      const code = {
+        java: `class Solution {\n  public double minimalExecTime(TreeNode root) { return dfs(root)[1]; }\n  private double[] dfs(TreeNode node) {\n    if (node == null) return new double[]{0, 0};\n    double[] left = dfs(node.left), right = dfs(node.right);\n    double children = Math.max(Math.max(left[1], right[1]), (left[0] + right[0]) / 2.0);\n    return new double[]{left[0] + right[0] + node.val, children + node.val};\n  }\n}`,
+        javascript: `var minimalExecTime = function(root) {\n  function dfs(node) {\n    if (node === null) return [0, 0];\n    const [leftSum, leftTime] = dfs(node.left);\n    const [rightSum, rightTime] = dfs(node.right);\n    const children = Math.max(leftTime, rightTime, (leftSum + rightSum) / 2);\n    return [leftSum + rightSum + node.val, children + node.val];\n  }\n  return dfs(root)[1];\n};`,
+        python: `class Solution:\n    def minimalExecTime(self, root: TreeNode) -> float:\n        def dfs(node):\n            if not node:\n                return 0.0, 0.0\n            left_sum, left_time = dfs(node.left)\n            right_sum, right_time = dfs(node.right)\n            children = max(left_time, right_time, (left_sum + right_sum) / 2)\n            return left_sum + right_sum + node.val, children + node.val\n        return dfs(root)[1]`,
+        cpp: `class Solution {\n  pair<double,double> dfs(TreeNode* node) {\n    if (!node) return {0,0};\n    auto [leftSum,leftTime]=dfs(node->left);\n    auto [rightSum,rightTime]=dfs(node->right);\n    double children=max({leftTime,rightTime,(leftSum+rightSum)/2});\n    return {leftSum+rightSum+node->val,children+node->val};\n  }\npublic:\n  double minimalExecTime(TreeNode* root) { return dfs(root).second; }\n};`,
+      };
+      function setLang(name) {
+        $("code").textContent = code[name];
+        document.querySelectorAll(".lang").forEach((b) => {
+          const on = b.dataset.lang === name;
+          b.setAttribute("aria-selected", String(on));
+          b.className = on
+            ? "lang rounded-lg bg-emerald-300 px-3 py-2 text-slate-950"
+            : "lang rounded-lg border border-slate-600 px-3 py-2";
+        });
+      }
+      document
+        .querySelectorAll(".lang")
+        .forEach((b) => (b.onclick = () => setLang(b.dataset.lang)));
+      $("solution-toggle").onclick = () => {
+        const open = !$("solution").hidden;
+        $("solution").hidden = open;
+        $("solution-toggle").setAttribute("aria-expanded", String(!open));
+        $("solution-toggle").textContent = open ? "查看题解" : "收起题解";
+        $("solution-status").textContent = open ? "题解已收起" : "题解已展开";
+        if (!open) $("solution").focus();
+      };
+      render();
+      setLang("java");
+    </script>
+  </body>
+</html>
