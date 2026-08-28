@@ -451,9 +451,13 @@
             <h2 id="lab-title" class="text-2xl mt-2">用样例观察最短增广</h2>
           </div>
           <div class="flex flex-wrap gap-2">
-            <button class="btn" data-sample="-1,2,-1">样例 1</button
-            ><button class="btn" data-sample="4,-1,-2">样例 2</button
-            ><button class="btn rose" data-sample="-3,-3,5">无解样例</button>
+            <button type="button" class="btn" data-sample="-1,2,-1">
+              样例 1</button
+            ><button type="button" class="btn" data-sample="4,-1,-2">
+              样例 2</button
+            ><button type="button" class="btn rose" data-sample="-3,-3,5">
+              无解样例
+            </button>
           </div>
         </div>
         <label class="mt-4 text-sm font-bold" for="balanceInput"
@@ -463,14 +467,16 @@
           class="w-full mt-2"
           aria-describedby="inputHelp"
         >
--1, 2, -1</textarea>
+-1, 2, -1</textarea
+        >
         <p id="inputHelp" class="text-xs text-slate-400">
           可输入 1 到 1000 个整数；点击计算会实际运行最小费用流。
         </p>
         <div class="flex flex-wrap gap-2 mt-3">
-          <button id="runBtn" class="btn mint">计算最少移动次数</button
-          ><button id="stepBtn" class="btn">查看下一次增广</button
-          ><button id="resetBtn" class="btn">重置演示</button>
+          <button type="button" id="runBtn" class="btn mint">
+            计算最少移动次数</button
+          ><button type="button" id="stepBtn" class="btn">查看下一次增广</button
+          ><button type="button" id="resetBtn" class="btn">重置演示</button>
         </div>
         <div id="message" class="note mt-4">
           准备好：先计算总和，再让每一单位亏空沿当前最短路径补齐。
@@ -539,24 +545,52 @@
             <h2 class="text-2xl mt-2">代码前先说清楚：流量就是转账次数</h2>
           </div>
           <button
+            type="button"
             id="solutionToggle"
             class="btn"
             aria-expanded="false"
-            aria-controls="solution"
+            aria-controls="solution-panel"
           >
             展开题解与四语言实现
           </button>
         </div>
-        <div id="solution" class="hidden mt-6">
+        <div id="solution-panel" class="mt-6" hidden>
           <p class="accent text-slate-300">
             每次最短路找到一批可从某个盈余送至某个亏空的单位；批量推送瓶颈容量。反向边让后续路径可以回退旧方案，因此最终总费用是全局最优。
           </p>
+          <div class="grid two-col gap-6 mt-4 text-slate-300">
+            <article>
+              <h3 class="text-lg font-bold">完整过程</h3>
+              <ol>
+                <li>总和小于 0 时，守恒意味着任何转账都无解。</li>
+                <li>
+                  从虚拟源向每个正余额点注入其盈余；负余额点向汇要求其亏空。
+                </li>
+                <li>
+                  环的两侧相邻边费用都为
+                  1。反复找残量网络中的最短增广路并批量推送。
+                </li>
+              </ol>
+            </article>
+            <article>
+              <h3 class="text-lg font-bold">边界、替代与面试追问</h3>
+              <p>
+                全非负直接为 0；n = 1 也只由总和决定。此题 n ≤ 1000，SPFA
+                最小费用最大流足够直观；追求稳定复杂度时可用势能 + Dijkstra。
+              </p>
+              <p class="mt-3">
+                <b>常见错误：</b>只按“最近盈余”贪心、漏掉环的反向边、或用 32
+                位累计费用。
+              </p>
+            </article>
+          </div>
           <div
             class="flex flex-wrap gap-2 mt-4"
             role="tablist"
             aria-label="语言代码"
           >
             <button
+              type="button"
               class="btn tab"
               role="tab"
               aria-selected="true"
@@ -564,6 +598,7 @@
             >
               C++</button
             ><button
+              type="button"
               class="btn tab"
               role="tab"
               aria-selected="false"
@@ -571,6 +606,7 @@
             >
               Java</button
             ><button
+              type="button"
               class="btn tab"
               role="tab"
               aria-selected="false"
@@ -578,12 +614,13 @@
             >
               Python</button
             ><button
+              type="button"
               class="btn tab"
               role="tab"
               aria-selected="false"
-              data-lang="ts"
+              data-lang="js"
             >
-              TypeScript
+              JavaScript
             </button>
           </div>
           <pre id="codeView" class="mt-3" aria-live="polite"></pre>
@@ -622,26 +659,116 @@
     </footer>
     <script data-cfasync="false">
       const codes = {
-        cpp: String.raw`class Solution { public:
- long long minimumMoves(vector<int>& b) { /* build S/i/T + cycle; run min-cost max-flow */
-  long long sum=accumulate(b.begin(),b.end(),0LL); if(sum<0) return -1;
-  return minCostFlow(b); // edge cost: neighbor transfer = 1
- } };`,
-        java: String.raw`class Solution {
-  public long minimumMoves(int[] balance) {
-    long sum = 0; for (int x : balance) sum += x;
+        cpp: String.raw`class Solution {
+  struct E { int v, rev; long long cap, cost; };
+  vector<vector<E>> g;
+  void add(int u, int v, long long cap, long long cost) {
+    g[u].push_back({v, (int)g[v].size(), cap, cost});
+    g[v].push_back({u, (int)g[u].size() - 1, 0, -cost});
+  }
+public:
+  long long minMoves(vector<int>& balance) {
+    long long sum = 0, need = 0;
+    for (int x : balance) { sum += x; if (x < 0) need -= x; }
     if (sum < 0) return -1;
-    return minCostFlow(balance); // S->surplus, deficit->T, cycle edges cost 1
+    const int n = balance.size(), S = n, T = n + 1;
+    g.assign(n + 2, {}); const long long INF = (1LL << 60);
+    for (int i = 0; i < n; ++i) {
+      if (balance[i] > 0) add(S, i, balance[i], 0);
+      if (balance[i] < 0) add(i, T, -1LL * balance[i], 0);
+      add(i, (i + 1) % n, INF, 1);
+      add(i, (i - 1 + n) % n, INF, 1);
+    }
+    long long flow = 0, ans = 0;
+    while (flow < need) {
+      vector<long long> d(n + 2, INF); vector<int> pv(n + 2), pe(n + 2), inq(n + 2);
+      queue<int> q; d[S] = 0; q.push(S); inq[S] = 1;
+      while (!q.empty()) { int u = q.front(); q.pop(); inq[u] = 0;
+        for (int k = 0; k < (int)g[u].size(); ++k) { E &e = g[u][k];
+          if (e.cap && d[e.v] > d[u] + e.cost) { d[e.v] = d[u] + e.cost; pv[e.v] = u; pe[e.v] = k; if (!inq[e.v]) q.push(e.v), inq[e.v] = 1; }
+        }
+      }
+      long long push = need - flow;
+      for (int v = T; v != S; v = pv[v]) push = min(push, g[pv[v]][pe[v]].cap);
+      for (int v = T; v != S; v = pv[v]) { E &e = g[pv[v]][pe[v]]; e.cap -= push; g[v][e.rev].cap += push; }
+      flow += push; ans += push * d[T];
+    }
+    return ans;
+  }
+};`,
+        java: String.raw`import java.util.*;
+class Solution {
+  static class E { int v, rev; long cap, cost; E(int v,int rev,long cap,long cost){this.v=v;this.rev=rev;this.cap=cap;this.cost=cost;} }
+  List<E>[] g;
+  void add(int u,int v,long cap,long cost){ g[u].add(new E(v,g[v].size(),cap,cost)); g[v].add(new E(u,g[u].size()-1,0,-cost)); }
+  public long minMoves(int[] balance) {
+    long sum=0, need=0; for(int x:balance){sum+=x;if(x<0)need-=x;}
+    if(sum<0)return -1; int n=balance.length,S=n,T=n+1; g=new ArrayList[n+2]; for(int i=0;i<n+2;i++)g[i]=new ArrayList<>();
+    long INF=1L<<60;
+    for(int i=0;i<n;i++){ if(balance[i]>0)add(S,i,balance[i],0); if(balance[i]<0)add(i,T,-(long)balance[i],0); add(i,(i+1)%n,INF,1); add(i,(i-1+n)%n,INF,1); }
+    long flow=0,ans=0; while(flow<need){ long[] d=new long[n+2]; Arrays.fill(d,INF); int[] pv=new int[n+2],pe=new int[n+2]; boolean[] in=new boolean[n+2]; ArrayDeque<Integer> q=new ArrayDeque<>(); d[S]=0;q.add(S);in[S]=true;
+      while(!q.isEmpty()){int u=q.poll();in[u]=false;for(int k=0;k<g[u].size();k++){E e=g[u].get(k);if(e.cap>0&&d[e.v]>d[u]+e.cost){d[e.v]=d[u]+e.cost;pv[e.v]=u;pe[e.v]=k;if(!in[e.v]){in[e.v]=true;q.add(e.v);}}}}
+      long push=need-flow; for(int v=T;v!=S;v=pv[v])push=Math.min(push,g[pv[v]].get(pe[v]).cap); for(int v=T;v!=S;v=pv[v]){E e=g[pv[v]].get(pe[v]);e.cap-=push;g[v].get(e.rev).cap+=push;} flow+=push;ans+=push*d[T];
+    } return ans;
   }
 }`,
-        python: String.raw`class Solution:
-    def minimumMoves(self, balance: List[int]) -> int:
-        if sum(balance) < 0:
+        python: String.raw`from collections import deque
+from typing import List
+
+class Solution:
+    def minMoves(self, balance: List[int]) -> int:
+        total = sum(balance)
+        if total < 0:
             return -1
-        return self.min_cost_flow(balance)  # residual reverse edges are essential`,
-        ts: String.raw`function minimumMoves(balance: number[]): number {
-  if (balance.reduce((a, x) => a + x, 0) < 0) return -1;
-  return minCostFlow(balance); // use number / bigint according to constraints
+        n, source, sink = len(balance), len(balance), len(balance) + 1
+        graph = [[] for _ in range(n + 2)]
+        def add(u, v, cap, cost):
+            graph[u].append([v, len(graph[v]), cap, cost])
+            graph[v].append([u, len(graph[u]) - 1, 0, -cost])
+        need = sum(-x for x in balance if x < 0)
+        inf = 10 ** 30
+        for i, x in enumerate(balance):
+            if x > 0: add(source, i, x, 0)
+            if x < 0: add(i, sink, -x, 0)
+            add(i, (i + 1) % n, inf, 1)
+            add(i, (i - 1) % n, inf, 1)
+        flow = cost = 0
+        while flow < need:
+            dist = [inf] * (n + 2); parent = [None] * (n + 2)
+            dist[source] = 0; q = deque([source]); in_q = [False] * (n + 2); in_q[source] = True
+            while q:
+                u = q.popleft(); in_q[u] = False
+                for ei, e in enumerate(graph[u]):
+                    v, rev, cap, w = e
+                    if cap and dist[v] > dist[u] + w:
+                        dist[v] = dist[u] + w; parent[v] = (u, ei)
+                        if not in_q[v]: q.append(v); in_q[v] = True
+            push = need - flow; v = sink
+            while v != source: u, ei = parent[v]; push = min(push, graph[u][ei][2]); v = u
+            v = sink
+            while v != source:
+                u, ei = parent[v]; e = graph[u][ei]; e[2] -= push; graph[v][e[1]][2] += push; v = u
+            flow += push; cost += push * dist[sink]
+        return cost`,
+        js: String.raw`function minMoves(balance) {
+  const total = balance.reduce((s, x) => s + x, 0);
+  if (total < 0) return -1;
+  const n = balance.length, S = n, T = n + 1, INF = 1e18;
+  const g = Array.from({ length: n + 2 }, () => []);
+  const add = (u, v, cap, cost) => { g[u].push({ v, rev: g[v].length, cap, cost }); g[v].push({ v: u, rev: g[u].length - 1, cap: 0, cost: -cost }); };
+  let need = 0;
+  balance.forEach((x, i) => { if (x > 0) add(S, i, x, 0); if (x < 0) { add(i, T, -x, 0); need -= x; } add(i, (i + 1) % n, INF, 1); add(i, (i - 1 + n) % n, INF, 1); });
+  let flow = 0, answer = 0;
+  while (flow < need) {
+    const dist = Array(n + 2).fill(INF), pv = Array(n + 2), pe = Array(n + 2), inQ = Array(n + 2).fill(false), q = [S];
+    dist[S] = 0; inQ[S] = true;
+    for (let head = 0; head < q.length; head++) { const u = q[head]; inQ[u] = false; g[u].forEach((e, ei) => { if (e.cap > 0 && dist[e.v] > dist[u] + e.cost) { dist[e.v] = dist[u] + e.cost; pv[e.v] = u; pe[e.v] = ei; if (!inQ[e.v]) { inQ[e.v] = true; q.push(e.v); } } }); }
+    let push = need - flow;
+    for (let v = T; v !== S; v = pv[v]) push = Math.min(push, g[pv[v]][pe[v]].cap);
+    for (let v = T; v !== S; v = pv[v]) { const e = g[pv[v]][pe[v]]; e.cap -= push; g[v][e.rev].cap += push; }
+    flow += push; answer += push * dist[T];
+  }
+  return answer;
 }`,
       };
       const el = (id) => document.getElementById(id);
@@ -798,8 +925,9 @@
           }),
       );
       el("solutionToggle").onclick = () => {
-        const box = el("solution"),
-          open = box.classList.toggle("hidden") === false;
+        const box = el("solution-panel"),
+          open = box.hidden;
+        box.hidden = !open;
         el("solutionToggle").textContent = open
           ? "收起题解与四语言实现"
           : "展开题解与四语言实现";
