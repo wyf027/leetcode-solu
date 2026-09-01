@@ -72,26 +72,43 @@
                   () =>
                     new Promise((resolve) => {
                       const liveScript = document.createElement("script");
+                      const sourceURL = pendingScript.getAttribute("src");
+                      const replayManagedAttributes = new Set([
+                        "type",
+                        "src",
+                        "async",
+                        "defer",
+                        "data-cfasync",
+                      ]);
+
+                      // The preview runs behind Cloudflare and replays scripts
+                      // after document.write(). Opt out before assigning src so
+                      // older pages cannot have their Tailwind runtime deferred
+                      // or rewritten. The promise chain already preserves source
+                      // order, so async/defer must not be copied onto live scripts.
+                      liveScript.setAttribute("data-cfasync", "false");
+                      liveScript.async = false;
                       [...pendingScript.attributes].forEach(
                         ({ name, value }) => {
-                          if (name !== "type")
+                          if (!replayManagedAttributes.has(name.toLowerCase()))
                             liveScript.setAttribute(name, value);
                         },
                       );
 
-                      if (pendingScript.src) {
+                      if (sourceURL) {
                         liveScript.addEventListener("load", resolve, {
                           once: true,
                         });
                         liveScript.addEventListener("error", resolve, {
                           once: true,
                         });
+                        liveScript.setAttribute("src", sourceURL);
                       } else {
                         liveScript.textContent = pendingScript.textContent;
                       }
 
                       pendingScript.replaceWith(liveScript);
-                      if (!pendingScript.src) resolve();
+                      if (!sourceURL) resolve();
                     }),
                 ),
               Promise.resolve(),
