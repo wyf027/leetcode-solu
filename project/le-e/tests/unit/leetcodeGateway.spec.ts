@@ -197,4 +197,102 @@ describe('LeetCodeGateway', () => {
       error: { code: 'PARSE_ERROR' },
     })
   })
+
+  it('maps ChromeNotLogin stdout to auth required even when the CLI exits successfully', async () => {
+    const { gateway, runCaptured } = harness()
+    runCaptured.mockResolvedValue(commandResult({ stdout: 'ChromeNotLogin\n' }))
+
+    await expect(gateway.listProblems()).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'AUTH_REQUIRED',
+        detail: 'ChromeNotLogin',
+      },
+    })
+  })
+
+  it('injects an in-memory Cookie into CLI commands until it is cleared', async () => {
+    const { gateway, runCaptured } = harness()
+    runCaptured.mockResolvedValue(commandResult({ stdout: fixture('list-basic.txt') }))
+
+    expect(gateway.configureSessionTokens('session-example', 'csrf-example')).toMatchObject({
+      ok: true,
+    })
+    await gateway.listProblems()
+
+    const injectedEnvironment = runCaptured.mock.calls[0]?.[0].env
+    expect({
+      LEETCODE_SESSION: injectedEnvironment?.LEETCODE_SESSION,
+      LEETCODE_CSRF: injectedEnvironment?.LEETCODE_CSRF,
+      LEETCODE_SITE: injectedEnvironment?.LEETCODE_SITE,
+    }).toEqual({
+      LEETCODE_SESSION: 'session-example',
+      LEETCODE_CSRF: 'csrf-example',
+      LEETCODE_SITE: 'leetcode.cn',
+    })
+
+    gateway.clearSessionCookie()
+    await gateway.listProblems()
+    expect(runCaptured.mock.calls[1]?.[0].env?.LEETCODE_SESSION).toBeUndefined()
+    expect(runCaptured.mock.calls[1]?.[0].env?.LEETCODE_CSRF).toBeUndefined()
+  })
+
+  it('clears the in-memory Cookie after an authentication rejection', async () => {
+    const { gateway, runCaptured } = harness()
+    runCaptured
+      .mockResolvedValueOnce(commandResult({ stdout: 'ChromeNotLogin\n' }))
+      .mockResolvedValueOnce(commandResult({ stdout: fixture('list-basic.txt') }))
+
+    gateway.configureSessionTokens('session-example', 'csrf-example')
+    await gateway.listProblems()
+    await gateway.listProblems()
+
+    expect(runCaptured.mock.calls[0]?.[0].env?.LEETCODE_SESSION).toBe('session-example')
+    expect(runCaptured.mock.calls[1]?.[0].env?.LEETCODE_SESSION).toBeUndefined()
+  })
+
+  it('clears an existing in-memory Cookie when replacement input is incomplete', async () => {
+    const { gateway, runCaptured } = harness()
+    runCaptured.mockResolvedValue(commandResult({ stdout: fixture('list-basic.txt') }))
+    gateway.configureSessionTokens('session-example', 'csrf-example')
+
+    expect(gateway.configureSessionTokens('replacement-example', '')).toMatchObject({ ok: false })
+    await gateway.listProblems()
+
+    expect(runCaptured.mock.calls[0]?.[0].env?.LEETCODE_SESSION).toBeUndefined()
+    expect(runCaptured.mock.calls[0]?.[0].env?.LEETCODE_CSRF).toBeUndefined()
+  })
+
+  it('keeps inherited edit credential-free and protects bridged auth keys', async () => {
+    const { gateway, runCaptured, runInherited } = harness()
+    runInherited.mockResolvedValue(commandResult())
+    runCaptured.mockResolvedValue(commandResult())
+    gateway.configureSessionTokens('session-example', 'csrf-example')
+
+    await gateway.edit(1)
+    await gateway.edit(1, {
+      bridgeEnvironment: {
+        LE_E_EDITOR_SOCKET: '/tmp/le-e-example.sock',
+        LEETCODE_SESSION: 'bridge-session-override',
+        LEETCODE_CSRF: 'bridge-csrf-override',
+        LEETCODE_SITE: 'leetcode.com',
+      },
+    })
+
+    const inheritedEnvironment = runInherited.mock.calls[0]?.[0].env
+    expect(inheritedEnvironment?.LEETCODE_SESSION).toBeUndefined()
+    expect(inheritedEnvironment?.LEETCODE_CSRF).toBeUndefined()
+    const bridgedEnvironment = runCaptured.mock.calls[0]?.[0].env
+    expect({
+      LEETCODE_SESSION: bridgedEnvironment?.LEETCODE_SESSION,
+      LEETCODE_CSRF: bridgedEnvironment?.LEETCODE_CSRF,
+      LEETCODE_SITE: bridgedEnvironment?.LEETCODE_SITE,
+      LE_E_EDITOR_SOCKET: bridgedEnvironment?.LE_E_EDITOR_SOCKET,
+    }).toEqual({
+      LEETCODE_SESSION: 'session-example',
+      LEETCODE_CSRF: 'csrf-example',
+      LEETCODE_SITE: 'leetcode.cn',
+      LE_E_EDITOR_SOCKET: '/tmp/le-e-example.sock',
+    })
+  })
 })

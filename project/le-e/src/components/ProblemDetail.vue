@@ -177,6 +177,8 @@ const favoriteLabel = computed(() => {
         :style="favoriteActive ? THEME.warning : THEME.muted"
       />
     </TView>
+    <!-- vue-tui detects controlled scrolling from the raw camel-case VNode prop names. -->
+    <!-- eslint-disable vue/attribute-hyphenation, vue/v-on-event-hyphenation -->
     <TVirtualMarkdown
       :x="1"
       :y="4"
@@ -184,9 +186,10 @@ const favoriteLabel = computed(() => {
       :h="Math.max(1, height - 5)"
       :content="content"
       :blocks="markdownBlocks"
-      :scroll-top="scroll"
+      :scrollTop="scroll"
       :style="loading ? THEME.warning : THEME.normal"
-      @update:scroll-top="emit('updateScroll', $event)"
+      @update:scrollTop="emit('updateScroll', $event)"
     />
+    <!-- eslint-enable vue/attribute-hyphenation, vue/v-on-event-hyphenation -->
   </TBox>
 </template>

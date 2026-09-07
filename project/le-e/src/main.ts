@@ -16,6 +16,7 @@ import { createChineseProblemCatalog } from './infrastructure/chineseProblemCata
 import { createLeetCodeGateway } from './infrastructure/leetcodeGateway'
 import { createProcessRunner } from './infrastructure/processRunner'
 import { createSourceBridgeSession } from './infrastructure/sourceBridgeServer'
+import { createSessionTokenStore } from './infrastructure/sessionTokens'
 import { loadSourceFile } from './infrastructure/sourceFile'
 import { createTerminalLifecycle } from './infrastructure/terminalLifecycle'
 import type { TerminalLifecycle } from './infrastructure/terminalLifecycle'
@@ -33,6 +34,7 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
   })
   const inputBus = createTerminalInputBus()
   const vimEditorRunner = createProcessRunner()
+  const sessionTokens = createSessionTokenStore()
   const controller = createAppController({
     gateway: createLeetCodeGateway({
       runner: createProcessRunner(),
@@ -40,12 +42,14 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
       ...(options.cliCommand === undefined
         ? { chineseCatalog: createChineseProblemCatalog() }
         : {}),
+      sessionTokens,
     }),
     favoritesGateway: createAccountFavoritesGateway({
       runner: createProcessRunner(),
       command:
         options.accountHelperCommand ??
         resolve('work/clearloop-leetcode-cli-v0.5.4/target/release/le-e-account'),
+      sessionTokens,
     }),
     editorBridge: {
       createBridge: createSourceBridgeSession,

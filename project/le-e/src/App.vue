@@ -6,6 +6,7 @@ import type { AppController } from './application/createAppController'
 import { createKeyRouter } from './application/keyRouter'
 import type { UiInteractionState } from './application/keyRouter'
 import type { TerminalInputBus } from './application/terminalInput'
+import CookieLoginDialog from './components/CookieLoginDialog.vue'
 import FavoriteFolderList from './components/FavoriteFolderList.vue'
 import HeaderBar from './components/HeaderBar.vue'
 import HelpOverlay from './components/HelpOverlay.vue'
@@ -34,6 +35,9 @@ const ui = reactive<UiInteractionState>({
   searchMode: false,
   searchDraft: '',
   searchOriginal: '',
+  cookieSessionDraft: '',
+  cookieCsrfDraft: '',
+  cookieField: 'session',
   helpOpen: false,
   detailScroll: 0,
   logScroll: 0,
@@ -105,7 +109,12 @@ const favoriteInSelectedFolder = computed(() => {
 })
 const headerHeight = 4
 const footerHeight = 2
-const logHeight = computed(() => (props.controller.state.logExpanded ? 8 : 3))
+const logHeight = computed(() => {
+  if (!props.controller.state.logExpanded) return 3
+  return testResult.value?.outcome === 'failed'
+    ? Math.min(16, Math.max(8, props.screen.rows - headerHeight - footerHeight - 8))
+    : 8
+})
 const middleHeight = computed(() =>
   Math.max(8, props.screen.rows - headerHeight - footerHeight - logHeight.value),
 )
@@ -221,12 +230,15 @@ onUnmounted(removeInputHandler)
     />
     <LogPanel
       :logs="controller.state.logs"
+      :test-result="testResult"
       :x="0"
       :y="logY"
       :width="screen.cols"
       :height="logHeight"
       :focused="ui.focus === 'log'"
       :scroll="ui.logScroll"
+      @focus="ui.focus = 'log'"
+      @update-scroll="ui.logScroll = $event"
     />
     <TText
       :x="1"
@@ -236,8 +248,8 @@ onUnmounted(removeInputHandler)
         controller.state.lastError
           ? `${controller.state.lastError.code}: ${controller.state.lastError.message}`
           : showingFavoriteFolders
-            ? '↑↓/jk 选择收藏夹 · Enter 打开 · 点击打开 · ? 帮助'
-            : '↑↓/jk 移动 · Enter 详情 · Esc 返回收藏夹 · e Vim 编辑 · t 测试 · s 提交 · ? 帮助'
+            ? 'Tab 切换窗口 · ↑↓/jk 选择收藏夹 · Enter 打开 · 点击打开 · ? 帮助'
+            : 'Tab 切换窗口 · 左侧 ↑↓/jk 选题（Shift 10/Ctrl 100）· 右侧 ↑↓/jk 滚动 · Enter 详情 · ? 帮助'
       "
       :style="controller.state.lastError ? THEME.error : THEME.muted"
     />
@@ -245,7 +257,7 @@ onUnmounted(removeInputHandler)
       :x="1"
       :y="footerY + 1"
       :w="Math.max(1, screen.cols - 2)"
-      value="a 收藏/取消 · v 题库/收藏页 · [ ] 切换收藏夹 · Esc/Backspace 返回 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
+      value="a 收藏 · c Token登录 · v 页面 · [ ] 收藏夹 · Esc 返回 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
       :style="THEME.muted"
     />
     <HelpOverlay v-if="ui.helpOpen" :cols="screen.cols" :rows="screen.rows" />
@@ -255,6 +267,16 @@ onUnmounted(removeInputHandler)
       :rows="screen.rows"
       :problem="selectedProblem"
       :test-status="testStatus"
+    />
+    <CookieLoginDialog
+      v-if="controller.state.cookieLogin.open"
+      :cols="screen.cols"
+      :rows="screen.rows"
+      :session-length="ui.cookieSessionDraft.length"
+      :csrf-length="ui.cookieCsrfDraft.length"
+      :active-field="ui.cookieField"
+      :submitting="controller.state.cookieLogin.submitting"
+      :error="controller.state.cookieLogin.error"
     />
   </template>
 </template>

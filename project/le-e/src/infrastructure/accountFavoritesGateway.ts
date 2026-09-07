@@ -1,9 +1,16 @@
+import { env as processEnvironment } from 'node:process'
+
 import { ERROR_CODES } from '../domain/errors'
 import type { AppResult } from '../domain/errors'
 import type { FavoriteFolder, FavoriteQuestionRef } from '../domain/favorite'
 import { RUNTIME_CONFIG } from '../config/runtime'
 import { sanitizeOutput } from './parsers/outputSanitizer'
 import type { ProcessRunner } from './processRunner'
+import { createSessionTokenStore } from './sessionTokens'
+import type { SessionTokenStore } from './sessionTokens'
+
+const EXPLICIT_AUTH_ERROR =
+  /(?:ChromeNotLogin|cookies? seems expired|please make sure you have logined|maybe you not login|authentication required|unauthorized)/i
 
 function safeArgument(value: string): boolean {
   return (
@@ -22,6 +29,7 @@ export interface AccountFavoritesGateway {
 export interface CreateAccountFavoritesGatewayOptions {
   readonly runner: ProcessRunner
   readonly command: string
+  readonly sessionTokens?: SessionTokenStore
 }
 
 function parseQuestion(value: unknown): FavoriteQuestionRef | null {
@@ -82,6 +90,7 @@ function parseJson(stdout: string): AppResult<Record<string, unknown>> {
 export function createAccountFavoritesGateway({
   runner,
   command,
+  sessionTokens = createSessionTokenStore(),
 }: CreateAccountFavoritesGatewayOptions): AccountFavoritesGateway {
   const execute = async (
     args: readonly string[],
@@ -96,7 +105,23 @@ export function createAccountFavoritesGateway({
     try {
       const request = { command, args, timeoutMs: 30_000 }
       if (signal !== undefined) Object.assign(request, { signal })
+      const sessionEnvironment = sessionTokens.environment()
+      if (sessionEnvironment !== undefined) {
+        Object.assign(request, { env: { ...processEnvironment, ...sessionEnvironment } })
+      }
       const result = await runner.runCaptured(request)
+      const detail = sanitizeOutput(`${result.stdout}\n${result.stderr}`).text.trim()
+      if (!result.timedOut && !result.cancelled && EXPLICIT_AUTH_ERROR.test(detail)) {
+        sessionTokens.clear()
+        return {
+          ok: false,
+          error: {
+            code: ERROR_CODES.authRequired,
+            message: 'LeetCode authentication is required or has expired.',
+            ...(detail === '' ? {} : { detail }),
+          },
+        }
+      }
       if (result.exitCode !== 0 || result.signal !== null || result.timedOut || result.cancelled) {
         return {
           ok: false,

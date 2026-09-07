@@ -60,6 +60,42 @@ enum Command {
     Remove { folder: String, question: String },
 }
 
+async fn graphql_data(response: reqwest::Response) -> Result<Value> {
+    if matches!(response.status().as_u16(), 401 | 403) {
+        return Err(anyhow::anyhow!("Authentication required.").into());
+    }
+    let payload: Value = response.error_for_status()?.json().await?;
+    if let Some(errors) = payload.get("errors").filter(|errors| !errors.is_null()) {
+        if errors.as_array().map_or(true, |items| !items.is_empty()) {
+            let text = errors.to_string().to_lowercase();
+            let auth = [
+                "unauthenticated",
+                "unauthorized",
+                "not logged in",
+                "not authenticated",
+                "authentication required",
+                "login required",
+                "please log in",
+                "请先登录",
+                "未登录",
+            ]
+            .iter()
+            .any(|marker| text.contains(marker));
+            return Err(anyhow::anyhow!(if auth {
+                "Authentication required."
+            } else {
+                "Favorite GraphQL request failed."
+            })
+            .into());
+        }
+    }
+    payload
+        .get("data")
+        .filter(|data| data.is_object())
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("Favorite response data is missing.").into())
+}
+
 async fn favorite_questions(client: &LeetCode, favorite_slug: &str) -> Result<Vec<Value>> {
     let mut questions = Vec::new();
     let mut skip = 0;
@@ -79,22 +115,25 @@ async fn favorite_questions(client: &LeetCode, favorite_slug: &str) -> Result<Ve
                 variables,
             )
             .await?;
-        let payload: Value = response.json().await?;
-        let Some(result) = payload
-            .get("data")
-            .and_then(|data| data.get("favoriteQuestionList"))
-        else {
-            break;
-        };
-        if let Some(items) = result.get("questions").and_then(Value::as_array) {
-            questions.extend(items.iter().filter_map(|question| {
-                Some(json!({
-                    "title": question.get("title")?.as_str()?,
-                    "slug": question.get("titleSlug")?.as_str()?,
-                }))
-            }));
-        }
-        if result.get("hasMore").and_then(Value::as_bool) != Some(true) {
+        let data = graphql_data(response).await?;
+        let result = data
+            .get("favoriteQuestionList")
+            .ok_or_else(|| anyhow::anyhow!("Favorite question list is missing."))?;
+        let items = result
+            .get("questions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Favorite questions are missing."))?;
+        questions.extend(items.iter().filter_map(|question| {
+            Some(json!({
+                "title": question.get("title")?.as_str()?,
+                "slug": question.get("titleSlug")?.as_str()?,
+            }))
+        }));
+        let has_more = result
+            .get("hasMore")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| anyhow::anyhow!("Favorite pagination is missing."))?;
+        if !has_more {
             break;
         }
         skip += 100;
@@ -111,8 +150,7 @@ async fn favorite_folders(client: &LeetCode) -> Result<Vec<Value>> {
             "{}".to_string(),
         )
         .await?;
-    let payload: Value = response.json().await?;
-    let data = payload.get("data").cloned().unwrap_or(Value::Null);
+    let data = graphql_data(response).await?;
     let mut pending = Vec::new();
     for (field, writable) in [
         ("myCreatedFavoriteList", true),
@@ -122,8 +160,7 @@ async fn favorite_folders(client: &LeetCode) -> Result<Vec<Value>> {
             .get(field)
             .and_then(|list| list.get("favorites"))
             .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow::anyhow!("Favorite folder list is missing."))?;
         for folder in items {
             let Some(slug) = folder.get("slug").and_then(Value::as_str) else {
                 continue;
@@ -171,10 +208,9 @@ async fn mutate(
         .graphql(operation, query.to_string(), variables)
         .await?;
     let status = response.status().as_u16();
-    let payload: Value = response.json().await?;
-    let result = payload
-        .get("data")
-        .and_then(|data| data.get(operation))
+    let data = graphql_data(response).await?;
+    let result = data
+        .get(operation)
         .cloned()
         .unwrap_or_else(|| json!({ "ok": false, "error": "Favorite operation failed." }));
     println!("{}", json!({ "status": status, "result": result }));
