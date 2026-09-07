@@ -33,6 +33,12 @@ import {
 } from './submitState'
 import type { SubmitDialogState } from './submitState'
 
+export interface CookieLoginState {
+  open: boolean
+  submitting: boolean
+  error: string | null
+}
+
 export interface AppControllerState {
   phase: 'idle' | 'starting' | 'ready' | 'error'
   cliVersion: string | null
@@ -51,6 +57,7 @@ export interface AppControllerState {
   testResults: Map<number, ParsedTestResult>
   submissionStatuses: Map<number, SubmissionStatus>
   submitDialog: SubmitDialogState
+  cookieLogin: CookieLoginState
   logExpanded: boolean
   viewMode: 'all' | 'favorites'
   favoritePage: 'folders' | 'questions'
@@ -79,6 +86,9 @@ export interface AppController {
   testSelected(): Promise<boolean>
   openSubmitDialog(): boolean
   handleSubmitDialogKey(key: string): Promise<boolean>
+  openCookieLogin(): void
+  dismissCookieLogin(): void
+  loginWithSessionTokens(session: string, csrf: string): Promise<boolean>
   toggleLog(): void
 }
 
@@ -128,6 +138,7 @@ export function createAppController({
     testResults: new Map(),
     submissionStatuses: new Map(),
     submitDialog: closeSubmitDialog(),
+    cookieLogin: { open: false, submitting: false, error: null },
     logExpanded: true,
     viewMode: 'all',
     favoritePage: 'folders',
@@ -137,6 +148,7 @@ export function createAppController({
   let nextLogId = 1
   let activeEditorAbortController: AbortController | null = null
   let activeDetailAbortController: AbortController | null = null
+  let activeRefreshAbortController: AbortController | null = null
   let pendingDetailLoad: (() => void) | undefined
 
   const addLog = (
@@ -161,6 +173,10 @@ export function createAppController({
 
   const setError = (error: AppError): void => {
     state.lastError = error
+    if (error.code === ERROR_CODES.authRequired) {
+      state.cookieLogin.open = true
+      state.cookieLogin.error = '请分别粘贴 LEETCODE_SESSION 和 csrftoken。'
+    }
     addLog(`${error.code}: ${error.message}`, 'error')
     if (error.detail !== undefined && error.detail !== '') addLog(error.detail, 'error')
   }
@@ -279,9 +295,11 @@ export function createAppController({
 
   const refresh = async (): Promise<boolean> => {
     if (!beginOperation('refresh-list')) return false
+    const abortController = new AbortController()
+    activeRefreshAbortController = abortController
     try {
       addLog('Refreshing LeetCode problems...')
-      const listResult = await gateway.listProblems(gatewayOptions())
+      const listResult = await gateway.listProblems(gatewayOptions(abortController.signal))
       if (!listResult.ok) {
         state.stale = true
         setError(listResult.error)
@@ -289,7 +307,7 @@ export function createAppController({
       }
 
       state.activeOperation = 'refresh-starred'
-      const starredResult = await gateway.listStarred(gatewayOptions())
+      const starredResult = await gateway.listStarred(gatewayOptions(abortController.signal))
       if (!starredResult.ok) {
         state.stale = true
         setError(starredResult.error)
@@ -313,11 +331,16 @@ export function createAppController({
         ]),
       )
       if (favoritesGateway !== undefined) {
-        const favoriteResult = await favoritesGateway.listFolders()
+        const favoriteResult = await favoritesGateway.listFolders(abortController.signal)
         if (favoriteResult.ok) {
           replaceFavoriteFolders(favoriteResult.value)
         } else {
           replaceFavoriteFolders([])
+          if (favoriteResult.error.code === ERROR_CODES.authRequired) {
+            state.stale = true
+            setError(favoriteResult.error)
+            return false
+          }
           addLog(
             `${favoriteResult.error.message} ${favoriteResult.error.detail ?? ''}`.trim(),
             'warn',
@@ -336,7 +359,51 @@ export function createAppController({
       addLog(`Loaded ${state.problems.length} problem(s).`)
       return true
     } finally {
+      if (activeRefreshAbortController === abortController) activeRefreshAbortController = null
       finishOperation()
+    }
+  }
+
+  const openCookieLogin = (): void => {
+    state.cookieLogin.open = true
+    state.cookieLogin.error = null
+  }
+
+  const dismissCookieLogin = (): void => {
+    if (state.cookieLogin.submitting) activeRefreshAbortController?.abort()
+    gateway.clearSessionCookie()
+    state.cookieLogin.open = false
+    state.cookieLogin.error = null
+  }
+
+  const loginWithSessionTokens = async (session: string, csrf: string): Promise<boolean> => {
+    if (state.cookieLogin.submitting) return false
+    if (state.activeOperation !== null) {
+      state.cookieLogin.error = '请等待当前操作完成后再登录。'
+      return false
+    }
+
+    const configured = gateway.configureSessionTokens(session, csrf)
+    if (!configured.ok) {
+      state.cookieLogin.open = true
+      state.cookieLogin.error = configured.error.message
+      return false
+    }
+
+    state.cookieLogin.open = true
+    state.cookieLogin.submitting = true
+    state.cookieLogin.error = null
+    try {
+      const refreshed = await refresh()
+      if (refreshed) {
+        state.cookieLogin.open = false
+        state.cookieLogin.error = null
+      } else if (state.lastError?.code === ERROR_CODES.authRequired) {
+        state.cookieLogin.error = 'Cookie 无效或已过期，请重新粘贴。'
+      }
+      return refreshed
+    } finally {
+      state.cookieLogin.submitting = false
     }
   }
 
@@ -702,7 +769,11 @@ export function createAppController({
       }
       const currentIndex = visible.findIndex(({ id }) => id === state.selectedProblemId)
       const start = currentIndex < 0 ? 0 : currentIndex
-      const next = Math.min(visible.length - 1, Math.max(0, start + delta))
+      const candidate = start + delta
+      const next =
+        candidate < 0
+          ? ((candidate % visible.length) + visible.length) % visible.length
+          : Math.min(visible.length - 1, candidate)
       const nextId = visible[next]?.id ?? null
       if (state.selectedProblemId !== nextId) activeDetailAbortController?.abort()
       state.selectedProblemId = nextId
@@ -712,6 +783,8 @@ export function createAppController({
     dispose() {
       activeEditorAbortController?.abort()
       activeDetailAbortController?.abort()
+      activeRefreshAbortController?.abort()
+      gateway.clearSessionCookie()
     },
     testSelected,
     openSubmitDialog,
@@ -722,6 +795,9 @@ export function createAppController({
         ? false
         : submitProblem(transition.confirmedProblemId)
     },
+    openCookieLogin,
+    dismissCookieLogin,
+    loginWithSessionTokens,
     toggleLog() {
       state.logExpanded = !state.logExpanded
     },

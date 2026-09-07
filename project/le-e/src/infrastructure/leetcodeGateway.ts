@@ -12,11 +12,13 @@ import { sanitizeOutput } from './parsers/outputSanitizer'
 import { parseRunResult } from './parsers/runResultParser'
 import { ProcessSpawnError } from './processRunner'
 import type { CapturedProcessRequest, ProcessRunner } from './processRunner'
+import { createSessionTokenStore } from './sessionTokens'
+import type { SessionTokenStore } from './sessionTokens'
 
 const VERIFIED_VERSION = '0.5.4'
 const VERSION_PATTERN = /\bleetcode\s+(?<version>\d+\.\d+\.\d+)\b/i
 const EXPLICIT_AUTH_ERROR =
-  /(?:cookies? seems expired|please make sure you have logined|maybe you not login|authentication required|unauthorized)/i
+  /(?:ChromeNotLogin|cookies? seems expired|please make sure you have logined|maybe you not login|authentication required|unauthorized)/i
 const SITE_OR_NETWORK_ERROR =
   /(?:error sending request|network issue|dns|connection (?:failed|refused|reset)|tls|certificate|request timed out|http status|failed to download)/i
 const UNSUPPORTED_QUESTION_ERROR = /no support for database and shell questions yet/i
@@ -46,6 +48,8 @@ export interface GatewayRunValue {
 }
 
 export interface LeetCodeGateway {
+  configureSessionTokens(session: string, csrf: string): AppResult<void>
+  clearSessionCookie(): void
   preflight(options?: GatewayCallOptions): Promise<AppResult<CliVersionInfo>>
   listProblems(options?: GatewayCallOptions): Promise<AppResult<ParsedProblemList>>
   listStarred(options?: GatewayCallOptions): Promise<AppResult<ParsedProblemList>>
@@ -60,6 +64,7 @@ export interface CreateLeetCodeGatewayOptions {
   readonly command?: string
   readonly now?: () => number
   readonly chineseCatalog?: ChineseProblemCatalog
+  readonly sessionTokens?: SessionTokenStore
 }
 
 interface SafeForwarder {
@@ -145,8 +150,6 @@ function commandError(result: CommandResult, submit: boolean): AppError | null {
     }
   }
 
-  if (result.exitCode === 0 && result.signal === null) return null
-
   if (EXPLICIT_AUTH_ERROR.test(detail)) {
     return {
       code: ERROR_CODES.authRequired,
@@ -154,6 +157,8 @@ function commandError(result: CommandResult, submit: boolean): AppError | null {
       detail,
     }
   }
+
+  if (result.exitCode === 0 && result.signal === null) return null
 
   if (SITE_OR_NETWORK_ERROR.test(detail)) {
     return {
@@ -214,7 +219,16 @@ export function createLeetCodeGateway({
   command = 'leetcode',
   now = Date.now,
   chineseCatalog,
+  sessionTokens = createSessionTokenStore(),
 }: CreateLeetCodeGatewayOptions): LeetCodeGateway {
+  const commandEnvironment = (
+    extra?: Readonly<Record<string, string>>,
+  ): NodeJS.ProcessEnv | undefined => {
+    const environment = sessionTokens.environment()
+    if (environment === undefined && extra === undefined) return undefined
+    return { ...processEnvironment, ...extra, ...environment }
+  }
+
   const normalizedTitle = (title: string) =>
     title.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
   const warnChineseFallback = (options: GatewayCallOptions): void => {
@@ -276,8 +290,9 @@ export function createLeetCodeGateway({
 
     if (timeoutMs !== undefined) Object.assign(request, { timeoutMs })
     if (options.signal !== undefined) Object.assign(request, { signal: options.signal })
-    if (environment !== undefined) {
-      Object.assign(request, { env: { ...processEnvironment, ...environment } })
+    const env = commandEnvironment(environment)
+    if (env !== undefined) {
+      Object.assign(request, { env })
     }
     if (stdoutForwarder !== undefined) {
       Object.assign(request, { onStdoutChunk: (chunk: string) => stdoutForwarder.push(chunk) })
@@ -291,6 +306,7 @@ export function createLeetCodeGateway({
       stdoutForwarder?.flush()
       stderrForwarder?.flush()
       const error = commandError(result, submit)
+      if (error?.code === ERROR_CODES.authRequired) sessionTokens.clear()
       return error === null ? { ok: true, value: result } : { ok: false, error }
     } catch (error) {
       stdoutForwarder?.flush()
@@ -300,6 +316,21 @@ export function createLeetCodeGateway({
   }
 
   return {
+    configureSessionTokens(session, csrf) {
+      const validated = sessionTokens.configure(session, csrf)
+      if (!validated.ok) {
+        return {
+          ok: false,
+          error: { code: ERROR_CODES.authRequired, message: validated.error },
+        }
+      }
+      return { ok: true, value: undefined }
+    },
+
+    clearSessionCookie() {
+      sessionTokens.clear()
+    },
+
     async preflight(options = {}) {
       const executed = await executeCaptured(
         ['--version'],
@@ -399,6 +430,7 @@ export function createLeetCodeGateway({
       try {
         const result = safeCommandResult(await runner.runInherited(request))
         const error = commandError(result, false)
+        if (error?.code === ERROR_CODES.authRequired) sessionTokens.clear()
         return error === null ? { ok: true, value: result } : { ok: false, error }
       } catch (error) {
         return { ok: false, error: spawnError(error) }

@@ -1,9 +1,9 @@
 # LeetCode Vue TUI
 
-- Status: delivery approved — fuzzy search PR merge in progress
-- Branch: `feat/le-e-fuzzy-search-20260824`
+- Status: review — shared session tokens for favorites
+- Branch: `feat/le-e-pane-focus-scroll-20260827`
 - Active writer: Codex in the isolated `leetcode-solu` worktree
-- Updated: 2026-08-19
+- Updated: 2026-08-28
 
 ## Objective
 
@@ -57,8 +57,8 @@ bridge, test output, explicitly confirmed submission, and a bounded log panel.
 
 ## Next action
 
-Deliver the verified fuzzy problem search through a pull request to `main`.
-Commit, push, and merge authorization was granted on 2026-08-24.
+Review and verify shared session tokens for the CLI and favorites helper.
+Commit, push, and pull-request delivery still require explicit authorization.
 
 ## Design artifact
 
@@ -337,6 +337,180 @@ Commit, push, and merge authorization was granted on 2026-08-24.
   folding for stable behavior across machines.
 - `pnpm check` passed: Prettier, ESLint, `vue-tsc --noEmit`, 51 tests, and the
   terminal Vite build. `git diff --check` passed.
+
+### Task 29 — complete
+
+- Tab and Shift+Tab switch only between the left problem/folder pane and the
+  right detail pane; filter and log surfaces no longer intercept the cycle.
+- Arrow Up/Down and `j`/`k` move the selected problem while the left pane is
+  active, and scroll the statement while the detail pane is active.
+- Focused pane borders remain the visual active-window indicator. Footer and
+  help text describe the switching and scrolling contract.
+- Focused RED verification showed the previous second Tab stopped on the log
+  panel; the existing arrow-routing assertions already passed.
+- Terminal input compatibility covers `Tab`, `Shift+Tab`, `BackTab`, and
+  `ISO_Left_Tab`. Active search continues to own Tab until confirmed/cancelled.
+- Real fake-TUI acceptance at 120x35 showed `> Detail` after the first Tab and
+  `> 题库` after the second; the diagnostic process exited cleanly with `q`.
+- Independent review found no functional blocker. Its `j/k`, search-precedence,
+  and footer-copy gaps were fixed before final verification.
+- Pinned pnpm 11.15.1 checks passed individually: Prettier, ESLint,
+  `vue-tsc --noEmit`, 54 tests, and the terminal Vite build. `git diff --check`
+  passed. The aggregate `pnpm check` wrapper could not run because its nested
+  bare `pnpm` resolved to system pnpm 12; no version constraint was bypassed.
+- Follow-up live screenshots exposed two rendering gaps. Bordered list rows begin
+  at `y=1`, so their drawable capacity is `height - 3`; using `height - 2`
+  placed the selected page-boundary row under the bottom border. Both problem
+  and favorite-folder lists now use the drawable capacity.
+- vue-tui detects controlled Markdown scrolling from the original VNode prop
+  name. Passing `scroll-top` resolved the value but failed the library's
+  `scrollTop` ownership check, so arrow updates were ignored. ProblemDetail now
+  passes and listens with the camel-case controlled prop/event contract.
+- A 120x35 live fake-TUI run with 50 rows moved through the first page boundary:
+  item 19 remained visible and retained the cyan selected style on the final
+  drawable row. The shared list-viewport regression covers the same 21-row pane
+  geometry for both problem and favorite-folder lists.
+- The same live TUI loaded an 80-line statement in the focused detail pane.
+  Three Arrow Down inputs changed the first rendered statement line from 1 to
+  4, proving the controlled scroll reaches the Markdown viewport. The temporary
+  verification fixture was restored after the run.
+- Final pinned pnpm 11.15.1 verification passed: Prettier, ESLint, `vue-tsc
+  --noEmit`, all 56 tests, terminal Vite build, and `git diff --check`.
+- Independent read-only review rechecked vue-tui's content origin and clipping
+  math plus the compiled camel-case scroll contract, and reported no blocker.
+
+### Task 30 — complete
+
+- List viewports now retain their current start row while the selected item
+  moves upward inside the visible range. The viewport moves only after the
+  selection crosses above the current first visible row; downward and large
+  jumps still bring an off-screen selection into view.
+- Upward movement wraps through the filtered visible problem list, so Arrow Up
+  or `k` on the first problem selects the final problem. Positive movement keeps
+  the existing lower-bound behavior at the final problem.
+- Shift+Arrow Up/Down moves 10 problems and Control+Arrow Up/Down moves 100.
+  The modifiers apply only to problem navigation: favorite-folder movement and
+  focused detail scrolling retain one-step behavior. Control takes precedence
+  if both modifiers are present.
+- Focused RED tests captured the previous eager viewport, clamped first-item
+  movement, and one-item modifier behavior. GREEN verification covers the
+  stateful viewport boundary, upward wrap, key modifiers, and unchanged detail
+  scrolling.
+- A 120x35 live fake-TUI run with 130 problems verified item 1 Arrow Up → item
+  130; item 130 Arrow Up → item 129 while the first visible item remained 113;
+  Shift+Arrow Up moved 129 → 119 without moving that viewport; and Control+Arrow
+  Up moved 119 → 19. The temporary verification fixture was restored.
+- Pinned pnpm 11.15.1 checks passed: Prettier, ESLint, `vue-tsc --noEmit`, all 61
+  tests, the terminal Vite build, and `git diff --check`. One full-suite run hit
+  the existing one-second process-runner fixture timeout under tool contention;
+  the isolated fixture and the immediate full serial rerun both passed.
+- Independent read-only review found and then verified the fix for one modifier
+  boundary: filters, favorite folders, and detail focus remain single-step.
+  Final review reported no blocker.
+
+### Task 31 — complete
+
+- The real CLI can return `ChromeNotLogin` on stdout with exit code zero when
+  Chrome has no usable LeetCode login. The gateway previously accepted that
+  process result as success, then the problem-list parser misreported it as an
+  unknown list format.
+- Classify explicit authentication output before accepting a zero exit code and
+  include the CLI's `ChromeNotLogin` marker in the existing auth signatures.
+  Keep parsing rules unchanged and do not automate browser login.
+- TDD RED reproduced `PARSE_ERROR` for `ChromeNotLogin` plus exit zero. The
+  minimal gateway change made the same test return `AUTH_REQUIRED` with the
+  sanitized CLI detail; focused gateway tests pass.
+- Pinned pnpm 11.15.1 verification passed: Prettier, ESLint, `vue-tsc
+  --noEmit`, all 62 tests, terminal Vite build, and `git diff --check`.
+- Independent read-only review confirmed timeout, cancellation, unsupported
+  questions, networking, submit semantics, parsing, and output sanitization
+  remain intact, and reported no issue at any severity.
+
+### Task 32 — complete
+
+- The user selected session-only token login: no write to
+  `~/.leetcode/leetcode.toml`, no browser Cookie reads, and no persistence after
+  TUI exit.
+- `AUTH_REQUIRED` opens a masked login overlay automatically; `c` opens it
+  manually. It has separate `LEETCODE_SESSION` and `csrftoken` fields.
+  Tab/Shift+Tab switches fields; Enter advances from the first field and submits
+  from the second only when both are present. Missing input stays masked in place
+  and focuses the missing field without starting a CLI process.
+- The two raw drafts exist only in private UI interaction state while typing.
+  The rendered component receives only their lengths and the active field.
+  Validated values move directly into the LeetCode gateway closure and reach
+  captured CLI subprocesses through
+  `LEETCODE_SESSION`, `LEETCODE_CSRF`, and `LEETCODE_SITE=leetcode.cn`. The
+  unredactable inherited edit fallback deliberately receives no session token;
+  the TUI's controlled bridge edit remains authenticated.
+- Invalid replacement input, CLI authentication rejection, cancellation, and
+  controller disposal clear the in-memory credential. The credential is never
+  added to public controller state, application logs, command arguments, or task
+  documentation. The newer `sl-session` format remains unsupported by the
+  clearloop CLI boundary.
+- TDD RED covered separate token validation, per-field paste routing, Tab focus,
+  two-step Enter behavior, missing-field retention, gateway configuration,
+  automatic auth prompt, safe public state, cancellation, and masked display.
+  GREEN verification also covers central captured commands, bridge environment
+  merging, inherited edit exclusion, and aborting active verification via Escape.
+- A 120x35 fake-TUI acceptance opened two bordered fields with `c`, displayed
+  only mask bullets, moved from `LEETCODE_SESSION` to `csrftoken` on Enter,
+  refreshed three problems after the second Enter, closed the overlay, and exited
+  cleanly with `q`. Only synthetic token values were used.
+- Independent security review initially found cancellation and inherited-output
+  gaps. After the changes above, its focused re-review reported no remaining
+  blocker.
+- A final security review of the two-field iteration found only the environment
+  control-character boundary. It now rejects those values before spawn without
+  echoing either token; the reviewer reported no remaining blocker.
+- Final pinned pnpm 11.15.1 verification passed: Prettier, ESLint, `vue-tsc
+  --noEmit`, all 82 tests, terminal Vite build, `git diff --check`, proof that
+  the fake CLI fixture was restored, and proof that the superseded single-Cookie
+  parser and test are absent.
+
+### Task 33 — review
+
+- Root cause: the main LeetCode gateway received the two in-memory tokens, but
+  `AccountFavoritesGateway` spawned `le-e-account` without an environment. The
+  helper already supports `LEETCODE_SESSION`, `LEETCODE_CSRF`, and
+  `LEETCODE_SITE`, so it fell back to the unavailable Chrome-cookie path.
+- A single session token store is now created in `main` and shared by both
+  gateways. The main gateway owns configure/clear behavior; the favorites
+  gateway reads the same environment for `folders`, `add`, and `remove` without
+  duplicating credentials or exposing them through controller state.
+- Explicit authentication rejection from `le-e-account` is sanitized, clears
+  the shared store, returns `AUTH_REQUIRED`, and causes the controller to reopen
+  token login instead of reporting Ready with an empty favorites page.
+- TDD RED reproduced the missing shared environment and the controller's former
+  success result after a favorites authentication failure. Focused GREEN
+  verification passes the session-store, favorites-gateway, LeetCode-gateway,
+  and controller suites plus `vue-tsc --noEmit`.
+- Full verification and independent security review are pending.
+
+### Failed-test presentation — 2026-09-07 local implementation
+
+- Reused the selected problem's parsed test result in LogPanel: a prominent
+  failure summary, yellow multiline input, red differing actual-output lines,
+  green differing expected-output lines, and muted matching lines. Raw logs
+  remain below the summary; terminal-width wrapping preserves long values.
+- Input lines are not inferred to be separate test cases because a problem can
+  take multiple parameters. The comparison is textual output-line comparison.
+- Expanded failures use up to 16 terminal rows. Clicking the log panel focuses
+  it for arrow/j/k scrolling; a new selected result resets the viewport.
+- Changes remain in the existing feature worktree and preserve earlier edits.
+  No tests were changed or run, and no build was run, per user direction.
+- Type checking passed. Terminal visual acceptance and delivery remain pending.
+
+### TUI delivery — 2026-09-07 authorized
+
+- User requested submission and merge of the accumulated TUI changes: pane
+  navigation, viewport behavior, session-token login, favorites authentication,
+  and failed-test presentation. Existing related test changes are included as
+  authored earlier; this delivery does not modify or execute tests or builds.
+- Target is GitHub `wyf027/leetcode-solu`, main. Fetched main at
+  `4f9ab9ded3d3e599e1c5d8aa4bb1769be6fc631a`; it has no intervening changes
+  to `project/le-e` or this task card compared with the local base.
+- Independent read-only review and delivery checks precede push and merge.
 
 ### Repository delivery — approved
 

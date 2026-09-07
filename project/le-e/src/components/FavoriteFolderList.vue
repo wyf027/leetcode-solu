@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { TBox, TText, TView } from '@simon_he/vue-tui'
 import stringWidth from 'string-width'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import type { FavoriteFolder } from '../domain/favorite'
 import { THEME } from '../styles/theme'
+import { borderedListContentRows, nextListWindowStart } from './listViewport'
 
 const props = defineProps<{
   folders: FavoriteFolder[]
@@ -19,14 +20,19 @@ const props = defineProps<{
 
 const emit = defineEmits<{ open: [slug: string] }>()
 
-const contentRows = computed(() => Math.max(1, props.height - 2))
+// Rows start at y=1 inside a bordered TBox, so the last drawable row is height - 3.
+const contentRows = computed(() => borderedListContentRows(props.height))
 const selectedIndex = computed(() =>
   props.folders.findIndex(({ slug }) => slug === props.selectedSlug),
 )
-const start = computed(() => {
-  const index = Math.max(0, selectedIndex.value)
-  return Math.max(0, index - contentRows.value + 1)
-})
+const start = ref(0)
+watch(
+  [selectedIndex, contentRows, () => props.folders.length],
+  ([index, rows, length]) => {
+    start.value = nextListWindowStart(start.value, index, rows, length)
+  },
+  { immediate: true },
+)
 const visible = computed(() => props.folders.slice(start.value, start.value + contentRows.value))
 
 const clip = (value: string, width: number): string => {

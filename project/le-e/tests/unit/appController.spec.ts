@@ -5,6 +5,7 @@ import { ERROR_CODES } from '../../src/domain/errors'
 import type { AppResult } from '../../src/domain/errors'
 import type { CommandResult, ParsedRunResult } from '../../src/domain/operation'
 import type { ParsedProblemList, ProblemSummary } from '../../src/domain/problem'
+import type { AccountFavoritesGateway } from '../../src/infrastructure/accountFavoritesGateway'
 import type {
   CliVersionInfo,
   GatewayRunValue,
@@ -56,8 +57,10 @@ function runValue(result: ParsedRunResult): GatewayRunValue {
   return { command: commandResult(), result }
 }
 
-function harness() {
+function harness(options: { favorites?: boolean } = {}) {
   const gateway = {
+    configureSessionTokens: vi.fn<LeetCodeGateway['configureSessionTokens']>(),
+    clearSessionCookie: vi.fn<LeetCodeGateway['clearSessionCookie']>(),
     preflight: vi.fn<LeetCodeGateway['preflight']>(),
     listProblems: vi.fn<LeetCodeGateway['listProblems']>(),
     listStarred: vi.fn<LeetCodeGateway['listStarred']>(),
@@ -66,6 +69,8 @@ function harness() {
     test: vi.fn<LeetCodeGateway['test']>(),
     submit: vi.fn<LeetCodeGateway['submit']>(),
   } satisfies LeetCodeGateway
+
+  gateway.configureSessionTokens.mockReturnValue({ ok: true, value: undefined })
 
   gateway.preflight.mockResolvedValue({
     ok: true,
@@ -99,6 +104,13 @@ function harness() {
     }),
   })
 
+  const favoritesGateway = {
+    listFolders: vi.fn<AccountFavoritesGateway['listFolders']>(),
+    add: vi.fn<AccountFavoritesGateway['add']>(),
+    remove: vi.fn<AccountFavoritesGateway['remove']>(),
+  } satisfies AccountFavoritesGateway
+  favoritesGateway.listFolders.mockResolvedValue({ ok: true, value: [] })
+
   let timestamp = 0
   const finishEdit = (): void => {
     releaseEdit?.()
@@ -130,8 +142,9 @@ function harness() {
     vimEditor: {
       open: vi.fn(async () => {}),
     },
+    ...(options.favorites ? { favoritesGateway } : {}),
   })
-  return { controller, gateway }
+  return { controller, gateway, favoritesGateway }
 }
 
 async function prepareProblem(
@@ -151,6 +164,141 @@ async function prepareProblem(
 }
 
 describe('createAppController', () => {
+  it('reopens token login when the favorites helper rejects authentication', async () => {
+    const { controller, favoritesGateway, gateway } = harness({ favorites: true })
+    gateway.listProblems.mockResolvedValue({
+      ok: true,
+      value: parsedList([summary(1, 'Two Sum')]),
+    })
+    gateway.listStarred.mockResolvedValue({ ok: true, value: parsedList([]) })
+    favoritesGateway.listFolders.mockResolvedValue({
+      ok: false,
+      error: { code: ERROR_CODES.authRequired, message: 'Authentication required.' },
+    })
+
+    await expect(controller.refresh()).resolves.toBe(false)
+
+    expect(controller.state.lastError?.code).toBe(ERROR_CODES.authRequired)
+    expect(controller.state.cookieLogin.open).toBe(true)
+  })
+
+  it('opens the Cookie login dialog when startup requires authentication', async () => {
+    const { controller, gateway } = harness()
+    gateway.listProblems.mockResolvedValue({
+      ok: false,
+      error: { code: ERROR_CODES.authRequired, message: 'Authentication required.' },
+    })
+
+    await expect(controller.start()).resolves.toBe(false)
+
+    expect(controller.state.cookieLogin).toMatchObject({
+      open: true,
+      submitting: false,
+      error: '请分别粘贴 LEETCODE_SESSION 和 csrftoken。',
+    })
+  })
+
+  it('uses a valid Cookie to refresh and keeps it out of public state and logs', async () => {
+    const { controller, gateway } = harness()
+    gateway.listProblems.mockResolvedValue({
+      ok: true,
+      value: parsedList([summary(1, 'Two Sum')]),
+    })
+    gateway.listStarred.mockResolvedValue({ ok: true, value: parsedList([]) })
+    controller.openCookieLogin()
+
+    await expect(
+      controller.loginWithSessionTokens('session-example', 'csrf-example'),
+    ).resolves.toBe(true)
+
+    expect(gateway.configureSessionTokens).toHaveBeenCalledWith('session-example', 'csrf-example')
+    expect(controller.state.cookieLogin).toEqual({ open: false, submitting: false, error: null })
+    expect(JSON.stringify(controller.state)).not.toContain('session-example')
+    expect(controller.state.logs.map(({ message }) => message).join('\n')).not.toContain(
+      'session-example',
+    )
+  })
+
+  it('keeps Cookie login open with a safe error when the input is incomplete', async () => {
+    const { controller, gateway } = harness()
+    gateway.configureSessionTokens.mockReturnValue({
+      ok: false,
+      error: {
+        code: ERROR_CODES.authRequired,
+        message: '请分别填写 LEETCODE_SESSION 和 csrftoken。',
+      },
+    })
+    controller.openCookieLogin()
+
+    await expect(controller.loginWithSessionTokens('session-example', '')).resolves.toBe(false)
+
+    expect(controller.state.cookieLogin).toMatchObject({
+      open: true,
+      submitting: false,
+      error: '请分别填写 LEETCODE_SESSION 和 csrftoken。',
+    })
+    expect(gateway.listProblems).not.toHaveBeenCalled()
+    expect(JSON.stringify(controller.state)).not.toContain('session-example')
+  })
+
+  it('clears the in-memory Cookie when the controller is disposed', () => {
+    const { controller, gateway } = harness()
+
+    controller.dispose()
+
+    expect(gateway.clearSessionCookie).toHaveBeenCalledOnce()
+  })
+
+  it('clears the in-memory Cookie when login is cancelled', () => {
+    const { controller, gateway } = harness()
+    controller.openCookieLogin()
+
+    controller.dismissCookieLogin()
+
+    expect(controller.state.cookieLogin).toEqual({
+      open: false,
+      submitting: false,
+      error: null,
+    })
+    expect(gateway.clearSessionCookie).toHaveBeenCalledOnce()
+  })
+
+  it('aborts an active Cookie verification refresh when login is cancelled', async () => {
+    const { controller, gateway } = harness()
+    let receivedSignal: AbortSignal | undefined
+    let markStarted: (() => void) | undefined
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    gateway.listProblems.mockImplementation(async (options = {}) => {
+      receivedSignal = options.signal
+      markStarted?.()
+      if (options.signal === undefined) {
+        return {
+          ok: false,
+          error: { code: ERROR_CODES.commandCancelled, message: 'Cancelled.' },
+        }
+      }
+      await new Promise<void>((resolve) =>
+        options.signal?.addEventListener('abort', () => resolve(), { once: true }),
+      )
+      return {
+        ok: false,
+        error: { code: ERROR_CODES.commandCancelled, message: 'Cancelled.' },
+      }
+    })
+    controller.openCookieLogin()
+
+    const login = controller.loginWithSessionTokens('session-example', 'csrf-example')
+    await started
+    controller.dismissCookieLogin()
+
+    await expect(login).resolves.toBe(false)
+    expect(receivedSignal?.aborted).toBe(true)
+    expect(gateway.clearSessionCookie).toHaveBeenCalledOnce()
+    expect(controller.state.cookieLogin.open).toBe(false)
+  })
+
   it('refreshes list then starred data and commits one merged snapshot', async () => {
     const { controller, gateway } = harness()
     const order: string[] = []
@@ -172,6 +320,37 @@ describe('createAppController', () => {
     ])
     expect(controller.state.selectedProblemId).toBe(1)
     expect(controller.state.stale).toBe(false)
+  })
+
+  it('wraps upward from the first visible problem to the last', async () => {
+    const { controller, gateway } = harness()
+    gateway.listProblems.mockResolvedValue({
+      ok: true,
+      value: parsedList([summary(1, 'One'), summary(2, 'Two'), summary(3, 'Three')]),
+    })
+
+    await controller.refresh()
+    controller.moveSelection(-1)
+
+    expect(controller.state.selectedProblemId).toBe(3)
+    controller.moveSelection(1)
+    expect(controller.state.selectedProblemId).toBe(3)
+  })
+
+  it('wraps negative large-step movement inside the visible problem list', async () => {
+    const { controller, gateway } = harness()
+    gateway.listProblems.mockResolvedValue({
+      ok: true,
+      value: parsedList(
+        Array.from({ length: 105 }, (_, index) => summary(index + 1, `Problem ${index + 1}`)),
+      ),
+    })
+
+    await controller.refresh()
+    controller.selectProblem(103)
+    controller.moveSelection(-100)
+
+    expect(controller.state.selectedProblemId).toBe(3)
   })
 
   it('keeps the last good snapshot when either refresh command fails', async () => {
