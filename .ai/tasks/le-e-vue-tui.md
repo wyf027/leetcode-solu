@@ -511,6 +511,13 @@ Commit, push, and pull-request delivery still require explicit authorization.
   `4f9ab9ded3d3e599e1c5d8aa4bb1769be6fc631a`; it has no intervening changes
   to `project/le-e` or this task card compared with the local base.
 - Independent read-only review and delivery checks precede push and merge.
+- Review identified an omitted LEETCODE_CSRF redaction alias and a helper
+  response-validation gap. Added the alias to all three sanitizer patterns and
+  checked HTTP/GraphQL failures in the shared helper response path. Missing
+  list/pagination data now fails instead of returning a successful empty list.
+- Type checking, source lint, formatting, and diff checks passed. Rust source
+  parsing/format validation is performed with rustfmt; compilation and helper
+  installation are intentionally not run under the no-build constraint.
 
 ### Repository delivery — approved
 

@@ -6,11 +6,12 @@ import { RUNTIME_CONFIG } from '../../config/runtime'
 import type { OutputLimits, SanitizedOutput } from '../../domain/operation'
 
 const TRUNCATION_MARKER = '[TRUNCATED]'
-const JSON_SECRET = /"(LEETCODE_SESSION|csrftoken|cookie|authorization)"\s*:\s*"[^"\r\n]*"/gi
+const JSON_SECRET =
+  /"(LEETCODE_SESSION|LEETCODE_CSRF|csrftoken|cookie|authorization)"\s*:\s*"[^"\r\n]*"/gi
 const SECRET_HEADER =
-  /^(\s*(?:set-cookie|cookie|authorization|LEETCODE_SESSION|csrftoken)\s*:\s*).+$/gim
+  /^(\s*(?:set-cookie|cookie|authorization|LEETCODE_SESSION|LEETCODE_CSRF|csrftoken)\s*:\s*).+$/gim
 const SECRET_ASSIGNMENT =
-  /\b(LEETCODE_SESSION|csrftoken)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s;,&\r\n]+)/gi
+  /\b(LEETCODE_SESSION|LEETCODE_CSRF|csrftoken)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s;,&\r\n]+)/gi
 
 function truncateUtf8(value: string, maximumBytes: number): string {
   let bytes = 0
