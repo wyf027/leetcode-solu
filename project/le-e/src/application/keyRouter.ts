@@ -271,6 +271,7 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       clearCookieDrafts(ui)
       controller.openCookieLogin()
     } else if (lower === 'd') cycleDifficulty(controller)
+    else if (lower === 'g') controller.cycleLanguage()
     else if (lower === 'e') void controller.editSelected()
     else if (lower === 't') void controller.testSelected()
     else if (lower === 's') controller.openSubmitDialog()

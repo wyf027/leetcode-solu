@@ -6,6 +6,7 @@ import { THEME } from '../styles/theme'
 defineProps<{ cols: number; rows: number }>()
 
 const helpLines = [
+  'g           切换语言：JavaScript → Python 3 → Java → C++（切换后先按 e）',
   'Tab / Shift+Tab  切换题目列表 / 题目详情',
   '↑↓ / j k   移动或滚动              Enter   打开文件夹 / 加载详情',
   'Shift+↑↓    跳 10 题                Ctrl+↑↓ 跳 100 题 · 首题 ↑ 回末题',

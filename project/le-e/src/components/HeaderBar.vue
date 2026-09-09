@@ -3,6 +3,7 @@ import { TBox, TText } from '@simon_he/vue-tui'
 
 import type { AppControllerState } from '../application/createAppController'
 import { THEME } from '../styles/theme'
+import { LANGUAGES } from '../config/languages'
 
 const props = defineProps<{
   state: AppControllerState
@@ -31,7 +32,7 @@ const favoriteFolderName = (): string =>
     :w="width"
     :h="4"
     border
-    :title="`le-e · LeetCode ${state.cliVersion ?? '…'} · JavaScript · ${state.viewMode === 'all' ? '题库' : '我的收藏'}`"
+    :title="`le-e · LeetCode ${state.cliVersion ?? '…'} · ${LANGUAGES.find(({ value }) => value === state.language)?.label ?? state.language} [g 切换语言] · ${state.viewMode === 'all' ? '题库' : '我的收藏'}`"
     :padding="0"
     :style="focused ? THEME.borderActive : THEME.border"
     :title-style="THEME.title"
@@ -40,7 +41,7 @@ const favoriteFolderName = (): string =>
       :x="1"
       :y="1"
       :w="Math.max(1, width - 2)"
-      :value="`${focused ? '>' : ' '} 搜索: ${searchMode ? `${searchDraft}▏` : state.filters.query || '—'}   难度: ${state.filters.difficulty}   收藏夹: ${favoriteFolderName()}   状态: ${statusText()}`"
+      :value="`${focused ? '>' : ' '} 搜索 [/]: ${searchMode ? `${searchDraft}▏  Enter 确认 · Esc 取消` : state.filters.query || '题号 / 题目名'}   难度: ${state.filters.difficulty}   收藏夹: ${favoriteFolderName()}   状态: ${statusText()}`"
     />
   </TBox>
 </template>

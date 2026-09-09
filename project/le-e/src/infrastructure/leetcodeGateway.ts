@@ -14,6 +14,7 @@ import { ProcessSpawnError } from './processRunner'
 import type { CapturedProcessRequest, ProcessRunner } from './processRunner'
 import { createSessionTokenStore } from './sessionTokens'
 import type { SessionTokenStore } from './sessionTokens'
+import type { Language } from '../config/languages'
 
 const VERIFIED_VERSION = '0.5.4'
 const VERSION_PATTERN = /\bleetcode\s+(?<version>\d+\.\d+\.\d+)\b/i
@@ -34,6 +35,7 @@ export interface GatewayCallOptions {
 }
 
 export interface GatewayEditOptions extends GatewayCallOptions {
+  readonly language?: Language
   readonly bridgeEnvironment?: Readonly<Record<string, string>>
 }
 
@@ -256,7 +258,18 @@ export function createLeetCodeGateway({
         ok: true,
         value: {
           ...parsed.value,
-          summaries: parsed.value.summaries.map(localize),
+          summaries: parsed.value.summaries.map((problem) => {
+            const localized = localizations.get(problem.id)
+            const candidates = parsed.value.collisionCandidates.get(problem.id)
+            const canonical =
+              localized === undefined
+                ? undefined
+                : candidates?.find(
+                    (candidate) =>
+                      normalizedTitle(candidate.title) === normalizedTitle(localized.originalTitle),
+                  )
+            return localize(canonical ?? problem)
+          }),
           collisionCandidates: new Map(
             [...parsed.value.collisionCandidates].map(([id, candidates]) => [
               id,
@@ -414,7 +427,7 @@ export function createLeetCodeGateway({
       if (idError !== null) return idError
       if (options.bridgeEnvironment !== undefined) {
         return executeCaptured(
-          ['edit', String(id), '--lang', RUNTIME_CONFIG.language],
+          ['edit', String(id), '--lang', options.language ?? RUNTIME_CONFIG.language],
           undefined,
           options,
           false,
@@ -423,7 +436,7 @@ export function createLeetCodeGateway({
       }
       const request = {
         command,
-        args: ['edit', String(id), '--lang', RUNTIME_CONFIG.language],
+        args: ['edit', String(id), '--lang', options.language ?? RUNTIME_CONFIG.language],
       }
       if (options.signal !== undefined) Object.assign(request, { signal: options.signal })
 

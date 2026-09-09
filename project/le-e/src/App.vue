@@ -257,12 +257,13 @@ onUnmounted(removeInputHandler)
       :x="1"
       :y="footerY + 1"
       :w="Math.max(1, screen.cols - 2)"
-      value="a 收藏 · c Token登录 · v 页面 · [ ] 收藏夹 · Esc 返回 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
+      value="/ 搜索 · a 收藏 · c Token登录 · v 页面 · [ ] 收藏夹 · Esc 返回 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
       :style="THEME.muted"
     />
     <HelpOverlay v-if="ui.helpOpen" :cols="screen.cols" :rows="screen.rows" />
     <SubmitDialog
       v-if="controller.state.submitDialog.open"
+      :language="controller.state.language"
       :cols="screen.cols"
       :rows="screen.rows"
       :problem="selectedProblem"
