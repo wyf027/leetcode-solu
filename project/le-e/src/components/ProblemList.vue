@@ -23,6 +23,15 @@ const props = defineProps<{
 const contentRows = computed(() => borderedListContentRows(props.height))
 const selectedIndex = computed(() => props.problems.findIndex(({ id }) => id === props.selectedId))
 const start = ref(0)
+defineExpose({
+  scrollBy(delta: number) {
+    if (props.loading) return
+    start.value = Math.max(
+      0,
+      Math.min(Math.max(0, props.problems.length - contentRows.value), start.value + delta),
+    )
+  },
+})
 watch(
   [selectedIndex, contentRows, () => props.problems.length],
   ([index, rows, length]) => {

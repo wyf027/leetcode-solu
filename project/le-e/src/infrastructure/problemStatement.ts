@@ -4,7 +4,7 @@ import sharp from 'sharp'
 
 import { sanitizeOutput } from './parsers/outputSanitizer'
 
-const IMAGE_TIMEOUT_MS = 8_000
+const IMAGE_TIMEOUT_MS = 30_000
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024
 const MAX_IMAGE_OUTPUT_BYTES = 1024 * 1024
 const MAX_IMAGES_PER_STATEMENT = 4

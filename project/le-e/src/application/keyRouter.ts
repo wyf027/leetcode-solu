@@ -1,7 +1,7 @@
 import type { AppController } from './createAppController'
 import type { TerminalInputEvent } from './terminalInput'
 
-export type UiFocus = 'filters' | 'problems' | 'detail' | 'log'
+export type UiFocus = 'filters' | 'problems' | 'detail' | 'log' | 'editor'
 export type CookieLoginField = 'session' | 'csrf'
 
 export interface UiInteractionState {
@@ -271,6 +271,7 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       clearCookieDrafts(ui)
       controller.openCookieLogin()
     } else if (lower === 'd') cycleDifficulty(controller)
+    else if (lower === 'g') controller.cycleLanguage()
     else if (lower === 'e') void controller.editSelected()
     else if (lower === 't') void controller.testSelected()
     else if (lower === 's') controller.openSubmitDialog()

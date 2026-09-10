@@ -33,6 +33,9 @@ import {
 } from './submitState'
 import type { SubmitDialogState } from './submitState'
 
+import { LANGUAGES } from '../config/languages'
+import type { Language } from '../config/languages'
+
 export interface CookieLoginState {
   open: boolean
   submitting: boolean
@@ -40,6 +43,7 @@ export interface CookieLoginState {
 }
 
 export interface AppControllerState {
+  language: Language
   phase: 'idle' | 'starting' | 'ready' | 'error'
   cliVersion: string | null
   cliVersionSupported: boolean
@@ -71,6 +75,7 @@ export interface AppController {
   refresh(): Promise<boolean>
   visibleProblems(): ProblemSummary[]
   setQuery(query: string): void
+  cycleLanguage(): void
   setDifficulty(difficulty: Difficulty | 'all'): void
   toggleStarredOnly(): void
   toggleView(): void
@@ -104,7 +109,7 @@ export interface CreateAppControllerOptions {
 
 export interface EditorBridgeDependencies {
   createBridge(options: { readonly signal: AbortSignal }): Promise<SourceBridgeSession>
-  loadSource(path: string): Promise<ValidatedSourceFile>
+  loadSource(path: string, language?: Language): Promise<ValidatedSourceFile>
 }
 
 export interface VimEditorDependencies {
@@ -121,6 +126,7 @@ export function createAppController({
   favoritesGateway,
 }: CreateAppControllerOptions): AppController {
   const state: AppControllerState = reactive({
+    language: 'javascript',
     phase: 'idle',
     cliVersion: null,
     cliVersionSupported: true,
@@ -450,7 +456,7 @@ export function createAppController({
     }
     setError({
       code: ERROR_CODES.editorBridgeProtocol,
-      message: 'Vim could not be opened through the editor bridge.',
+      message: 'The code editor could not be opened through the editor bridge.',
       detail: error instanceof Error ? error.message : String(error),
     })
   }
@@ -482,6 +488,7 @@ export function createAppController({
         ...gatewayOptions(),
         signal: abortController.signal,
         bridgeEnvironment: bridge.environment,
+        language: state.language,
       })
 
       const openResult = await Promise.race([
@@ -500,11 +507,11 @@ export function createAppController({
         return false
       }
 
-      const document = await editorBridge.loadSource(openResult.request.path)
+      const document = await editorBridge.loadSource(openResult.request.path, state.language)
       terminalSuspended = true
       await suspendForEditor()
       await vimEditor.open(document.path, { signal: abortController.signal })
-      await editorBridge.loadSource(document.path)
+      await editorBridge.loadSource(document.path, state.language)
       await bridge.complete()
 
       const editResult = await editPromise
@@ -515,17 +522,17 @@ export function createAppController({
       }
 
       state.sourceReadyIds.add(id)
-      addLog(`Vim saved the JavaScript source for problem ${id}.`)
+      addLog(`Editor closed; ${state.language} source for problem ${id} is ready.`)
       succeeded = true
     } catch (error) {
       if (!abortController.signal.aborted) {
-        await bridge?.reject('The Vim editor handoff failed.').catch(() => {})
+        await bridge?.reject('The code editor handoff failed.').catch(() => {})
         if (error instanceof SourceFileError || error instanceof EditorBridgeProtocolError) {
           setEditorBridgeError(error)
         } else {
           setError({
-            code: ERROR_CODES.terminalRestore,
-            message: 'The Vim editor handoff failed.',
+            code: ERROR_CODES.editorLaunch,
+            message: 'The code editor handoff failed.',
             detail: error instanceof Error ? error.message : String(error),
           })
         }
@@ -539,7 +546,7 @@ export function createAppController({
           state.phase = 'error'
           setError({
             code: ERROR_CODES.terminalRestore,
-            message: 'The terminal could not be restored after Vim exited.',
+            message: 'The terminal could not be restored after the editor exited.',
             detail: error instanceof Error ? error.message : String(error),
           })
         }
@@ -558,11 +565,14 @@ export function createAppController({
     const id = state.selectedProblemId
     const problem = selectedProblem(id)
     if (id === null || problem?.identityStatus !== 'resolved' || !state.sourceReadyIds.has(id)) {
-      addLog('Press e first to prepare and confirm the JavaScript source.', 'warn')
+      addLog(`Press e first to prepare and confirm the ${state.language} source.`, 'warn')
       return false
     }
     if (!beginOperation('test')) return false
 
+    state.logs = []
+    state.logExpanded = true
+    addLog(`执行 #${id} · ${state.language}`)
     state.testStatuses.set(id, 'running')
     state.testResults.delete(id)
     try {
@@ -590,7 +600,7 @@ export function createAppController({
     const id = state.selectedProblemId
     const problem = selectedProblem(id)
     if (id === null || problem?.identityStatus !== 'resolved' || !state.sourceReadyIds.has(id)) {
-      addLog('Press e first to prepare and confirm the JavaScript source.', 'warn')
+      addLog(`Press e first to prepare and confirm the ${state.language} source.`, 'warn')
       return false
     }
     if (state.activeOperation !== null) {
@@ -651,6 +661,17 @@ export function createAppController({
     },
     refresh,
     visibleProblems,
+    cycleLanguage() {
+      if (state.activeOperation !== null || state.submitDialog.open) return
+      const index = LANGUAGES.findIndex(({ value }) => value === state.language)
+      state.language = LANGUAGES[(index + 1) % LANGUAGES.length]!.value
+      state.sourceReadyIds.clear()
+      state.testStatuses.clear()
+      state.testResults.clear()
+      state.submissionStatuses.clear()
+      state.submitDialog = closeSubmitDialog()
+      addLog(`Language: ${state.language}. Press e to prepare source. Existing files are kept.`)
+    },
     setQuery(query) {
       state.filters = { ...state.filters, query }
       syncSelection()
@@ -770,10 +791,7 @@ export function createAppController({
       const currentIndex = visible.findIndex(({ id }) => id === state.selectedProblemId)
       const start = currentIndex < 0 ? 0 : currentIndex
       const candidate = start + delta
-      const next =
-        candidate < 0
-          ? ((candidate % visible.length) + visible.length) % visible.length
-          : Math.min(visible.length - 1, candidate)
+      const next = ((candidate % visible.length) + visible.length) % visible.length
       const nextId = visible[next]?.id ?? null
       if (state.selectedProblemId !== nextId) activeDetailAbortController?.abort()
       state.selectedProblemId = nextId
