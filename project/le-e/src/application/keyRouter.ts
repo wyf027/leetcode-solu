@@ -1,7 +1,7 @@
 import type { AppController } from './createAppController'
 import type { TerminalInputEvent } from './terminalInput'
 
-export type UiFocus = 'filters' | 'problems' | 'detail' | 'log'
+export type UiFocus = 'filters' | 'problems' | 'detail' | 'log' | 'editor'
 export type CookieLoginField = 'session' | 'csrf'
 
 export interface UiInteractionState {

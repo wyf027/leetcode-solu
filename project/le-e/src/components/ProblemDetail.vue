@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { TBox, TText, TView } from '@simon_he/vue-tui'
+import { detectTerminalGraphicsCapabilities } from '@simon_he/vue-tui/cli'
+import { env as processEnvironment } from 'node:process'
 import {
   TVirtualMarkdown,
   buildMarkdownBlocks,
@@ -11,11 +13,12 @@ import type {
   TuiMarkdownInlineSegment,
   TuiMarkdownTableCell,
 } from '@simon_he/vue-tui/markdown'
-import { computed } from 'vue'
+import { computed, shallowRef, ref, watch, onUnmounted } from 'vue'
 
 import type { ParsedTestResult } from '../domain/operation'
 import type { ProblemDetail as ProblemDetailModel, ProblemSummary } from '../domain/problem'
 import { THEME } from '../styles/theme'
+import { renderTerminalImageBlocks } from '../infrastructure/terminalImageBlocks'
 
 const props = defineProps<{
   problem: ProblemSummary | null
@@ -135,11 +138,55 @@ const failedCase = computed(() => {
 const content = computed(() =>
   failedCase.value === '' ? statement.value : `${failedCase.value}\n\n${statement.value}`,
 )
-const markdownBlocks = computed(() => {
-  const maximumWidth = Math.max(8, props.width - 4)
+const markdownWidth = computed(() => Math.max(1, props.width - 3))
+const sourceBlocks = computed(() => {
+  const maximumWidth = markdownWidth.value
   return buildMarkdownBlocks(content.value, markdownParser).blocks.map((block) =>
     resizeBlockImages(block, maximumWidth),
   )
+})
+const nativeImages = detectTerminalGraphicsCapabilities({
+  env: processEnvironment,
+  stdoutIsTTY: !!process.stdout.isTTY,
+}).supported
+const markdownBlocks = shallowRef<readonly TuiMarkdownBlock[]>([])
+const documentRevision = ref(0)
+let imageRenderVersion = 0
+watch(
+  sourceBlocks,
+  async (blocks) => {
+    const version = ++imageRenderVersion
+    markdownBlocks.value = blocks.map((block) =>
+      block.type === 'inline'
+        ? {
+            ...block,
+            segments: block.segments.flatMap((segment) =>
+              segment.graphic?.kind === 'image'
+                ? [
+                    { text: '正在准备图片…', style: THEME.muted },
+                    ...Array.from(
+                      {
+                        length: Math.max(0, Math.min(256, segment.graphic.displayHeight ?? 1) - 1),
+                      },
+                      () => ({ text: '', hardBreak: true }),
+                    ),
+                  ]
+                : [segment],
+            ),
+          }
+        : block,
+    )
+    documentRevision.value++
+    const rendered = await renderTerminalImageBlocks(blocks, nativeImages)
+    if (version === imageRenderVersion) {
+      markdownBlocks.value = rendered
+      documentRevision.value++
+    }
+  },
+  { immediate: true },
+)
+onUnmounted(() => {
+  imageRenderVersion++
 })
 
 const favoriteLabel = computed(() => {
@@ -180,10 +227,11 @@ const favoriteLabel = computed(() => {
     <!-- vue-tui detects controlled scrolling from the raw camel-case VNode prop names. -->
     <!-- eslint-disable vue/attribute-hyphenation, vue/v-on-event-hyphenation -->
     <TVirtualMarkdown
+      :key="`${x}:${y}:${width}:${height}:${documentRevision}`"
       :x="1"
       :y="4"
-      :w="Math.max(1, width - 2)"
-      :h="Math.max(1, height - 5)"
+      :w="markdownWidth"
+      :h="Math.max(1, height - 6)"
       :content="content"
       :blocks="markdownBlocks"
       :scrollTop="scroll"

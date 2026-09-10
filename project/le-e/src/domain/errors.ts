@@ -9,6 +9,7 @@ export const ERROR_CODES = {
   parse: 'PARSE_ERROR',
   submitUnknown: 'SUBMIT_STATUS_UNKNOWN',
   terminalRestore: 'TERMINAL_RESTORE_FAILED',
+  editorLaunch: 'EDITOR_LAUNCH_FAILED',
   editorBridgeNotConfigured: 'EDITOR_BRIDGE_NOT_CONFIGURED',
   editorBridgeProtocol: 'EDITOR_BRIDGE_PROTOCOL_ERROR',
   sourceFileRejected: 'SOURCE_FILE_REJECTED',

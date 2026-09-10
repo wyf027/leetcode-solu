@@ -26,6 +26,15 @@ const selectedIndex = computed(() =>
   props.folders.findIndex(({ slug }) => slug === props.selectedSlug),
 )
 const start = ref(0)
+defineExpose({
+  scrollBy(delta: number) {
+    if (props.loading) return
+    start.value = Math.max(
+      0,
+      Math.min(Math.max(0, props.folders.length - contentRows.value), start.value + delta),
+    )
+  },
+})
 watch(
   [selectedIndex, contentRows, () => props.folders.length],
   ([index, rows, length]) => {

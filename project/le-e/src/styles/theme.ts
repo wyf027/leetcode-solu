@@ -1,6 +1,7 @@
 export const THEME = {
   normal: { fg: 'whiteBright' },
   border: { fg: 'gray' },
+  dividerHover: { fg: 'cyanBright' },
   borderActive: { fg: 'cyanBright', bold: true },
   title: { fg: 'cyanBright', bold: true },
   muted: { fg: 'gray' },

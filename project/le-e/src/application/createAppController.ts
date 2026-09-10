@@ -456,7 +456,7 @@ export function createAppController({
     }
     setError({
       code: ERROR_CODES.editorBridgeProtocol,
-      message: 'Vim could not be opened through the editor bridge.',
+      message: 'The code editor could not be opened through the editor bridge.',
       detail: error instanceof Error ? error.message : String(error),
     })
   }
@@ -522,17 +522,17 @@ export function createAppController({
       }
 
       state.sourceReadyIds.add(id)
-      addLog(`Vim saved the ${state.language} source for problem ${id}.`)
+      addLog(`Editor closed; ${state.language} source for problem ${id} is ready.`)
       succeeded = true
     } catch (error) {
       if (!abortController.signal.aborted) {
-        await bridge?.reject('The Vim editor handoff failed.').catch(() => {})
+        await bridge?.reject('The code editor handoff failed.').catch(() => {})
         if (error instanceof SourceFileError || error instanceof EditorBridgeProtocolError) {
           setEditorBridgeError(error)
         } else {
           setError({
-            code: ERROR_CODES.terminalRestore,
-            message: 'The Vim editor handoff failed.',
+            code: ERROR_CODES.editorLaunch,
+            message: 'The code editor handoff failed.',
             detail: error instanceof Error ? error.message : String(error),
           })
         }
@@ -546,7 +546,7 @@ export function createAppController({
           state.phase = 'error'
           setError({
             code: ERROR_CODES.terminalRestore,
-            message: 'The terminal could not be restored after Vim exited.',
+            message: 'The terminal could not be restored after the editor exited.',
             detail: error instanceof Error ? error.message : String(error),
           })
         }
@@ -570,6 +570,9 @@ export function createAppController({
     }
     if (!beginOperation('test')) return false
 
+    state.logs = []
+    state.logExpanded = true
+    addLog(`执行 #${id} · ${state.language}`)
     state.testStatuses.set(id, 'running')
     state.testResults.delete(id)
     try {

@@ -11,6 +11,7 @@ function parseFailedTestCase(lines: readonly string[]): FailedTestCase | undefin
   let current: 'input' | 'actual' | 'expected' | null = null
 
   for (const line of lines) {
+    if (/^\s*Stdout:/i.test(line)) break
     const match = TEST_CASE_FIELD.exec(line)
     const groups = match?.groups
     if (groups) {
@@ -25,6 +26,10 @@ function parseFailedTestCase(lines: readonly string[]): FailedTestCase | undefin
 
   if (values.input === undefined && values.actual === undefined && values.expected === undefined) {
     return undefined
+  }
+  for (const key of ['input', 'actual', 'expected'] as const) {
+    const value = values[key]
+    if (value !== undefined) values[key] = value.replace(/[↩↵] ?/g, '\n')
   }
   return { ...values }
 }
@@ -54,12 +59,17 @@ export function parseRunResult(input: string, kind: 'test' | 'submit'): ParsedRu
 
   if (FAILURE_STATUS.test(firstStatusLine)) {
     const failedCase = kind === 'test' ? parseFailedTestCase(lines) : undefined
+    const details = lines
+      .slice(lines.findIndex((line) => line.trim() === firstStatusLine) + 1)
+      .join('\n')
+      .trim()
     return {
       kind,
       outcome: kind === 'test' ? 'failed' : 'rejected',
       message: firstStatusLine,
       truncated: sanitized.truncated,
       ...(failedCase === undefined ? {} : { failedCase }),
+      ...(kind === 'test' && details !== '' ? { details } : {}),
     } as ParsedRunResult
   }
 
