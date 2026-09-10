@@ -133,14 +133,19 @@ export function createEmbeddedMicro(command = 'micro') {
         state.error = ''
         // Credentials are only needed by the CLI, not by the editor or its child shell.
         const environment: NodeJS.ProcessEnv = {
-          ...processEnvironment,
           TERM: 'xterm-256color',
           MICRO_CONFIG_HOME: configDirectory,
           LE_E_SOURCE_PATH: path,
         }
-        for (const key of Object.keys(environment)) {
-          if (/LEETCODE_(?:SESSION|CSRF)|LE_E_EDITOR_(?:SOCKET|TOKEN)/i.test(key))
-            delete environment[key]
+        for (const [key, value] of Object.entries(processEnvironment)) {
+          if (
+            /^(?:PATH|HOME|USER|LOGNAME|SHELL|TMPDIR|TMP|TEMP|LANG|LANGUAGE|LC_[A-Z_]+|TZ|TERMINFO|TERMINFO_DIRS|COLORTERM|__CF_USER_TEXT_ENCODING)$/.test(
+              key,
+            ) &&
+            value !== undefined
+          ) {
+            environment[key] = value
+          }
         }
         signal.throwIfAborted()
         if (disposed) throw new Error('Micro has been disposed.')

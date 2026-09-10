@@ -2,6 +2,10 @@
 
 ## GitHub delivery
 
+- Final review narrowed Micro's inherited environment to explicit runtime and
+  locale variables (including HOME/PATH), excluding unrelated credentials. Its
+  terminal, private config and source-path overrides remain explicit.
+
 - User requested committing/syncing code to wyf027/leetcode-solu. Append this
   implementation to existing open PR #2213 (fix/le-e-image-timeout-20260909),
   which currently ends at 68454fec; merging requires separate user authorization.
