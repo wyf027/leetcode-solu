@@ -6,6 +6,10 @@ import { THEME } from '../styles/theme'
 defineProps<{ cols: number; rows: number }>()
 
 const helpLines = [
+  '补全下拉框：↑↓ 选择 · Tab/Enter 确认 · Esc 关闭 · Ctrl+Space/⌘I 触发',
+  '⌘C/X/V 复制/剪切/粘贴 · ⌘A 全选（start:ghostty 窗口）',
+  '⌘Z / ⇧⌘Z 撤销/重做 · ⌘S 保存 · ⌘F 查找',
+  '⌘G / ⇧⌘G 下/上一匹配 · ⌘D 多选 · ⌘/ 注释',
   'g           切换语言：JavaScript → Python 3 → Java → C++（切换后先按 e）',
   'F6 / Shift+F6 切换栏目（Micro 内 Tab 保留缩进/补全）',
   'b 收起/展开题目列表 · 拖动中线调整宽度 · 编辑器外 Ctrl+←→ 调整宽度',
@@ -20,10 +24,8 @@ const helpLines = [
   'e           打开 Micro 编辑             t       运行 CLI 测试',
   's           提交确认                    l       折叠/展开日志',
   'r           刷新                        q       退出',
-  '',
   'F2 保存 · F3 保存并执行 · F4 保存并提交确认（也可点击底部按钮）',
-  'Micro: Ctrl+S 保存 · Ctrl+Q 退出 · 执行/提交前自动保存并结束编辑',
-  '',
+  'Micro: Ctrl+S 保存 · Ctrl+Q 退出 · 执行/提交前自动保存，保留编辑器',
   '按 ? 或 Esc 关闭帮助。',
 ]
 </script>
@@ -31,9 +33,9 @@ const helpLines = [
 <template>
   <TBox
     :x="Math.floor(cols * 0.12)"
-    :y="4"
+    :y="1"
     :w="Math.floor(cols * 0.76)"
-    :h="Math.min(19, rows - 8)"
+    :h="Math.min(helpLines.length + 4, rows - 2)"
     :z-index="20"
     border
     title="le-e 帮助"

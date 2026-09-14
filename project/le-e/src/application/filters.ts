@@ -15,14 +15,12 @@ export function filterProblems(
   filters: ProblemFilters,
 ): ProblemSummary[] {
   const query = normalizeSearchText(filters.query)
-  const numericQuery = /^\d+$/.test(query)
 
   return problems.filter((problem) => {
     const matchesQuery =
       query === '' ||
-      (numericQuery && String(problem.id).includes(query)) ||
-      [problem.title, problem.localizedTitle ?? ''].some((title) =>
-        normalizeSearchText(title).includes(query),
+      [problem.frontendId ?? String(problem.id), problem.title, problem.localizedTitle ?? ''].some(
+        (title) => normalizeSearchText(title).includes(query),
       )
     const matchesDifficulty =
       filters.difficulty === 'all' || problem.difficulty === filters.difficulty

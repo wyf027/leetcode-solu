@@ -1,5 +1,9 @@
-use clap::{Parser, Subcommand};
-use leetcode_cli::{Result, plugins::LeetCode};
+use clap::{Args as ClapArgs, Parser, Subcommand};
+use leetcode_cli::{
+    Cache, Result,
+    cmd::{EditArgs, ExecArgs, PickArgs, TestArgs},
+    plugins::LeetCode,
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -55,9 +59,22 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    IdentityVersion,
+    List,
+    Pick { id: i32 },
+    Edit(EditCommand),
+    Test { id: i32 },
+    Exec { id: i32 },
     Folders,
     Add { folder: String, question: String },
     Remove { folder: String, question: String },
+}
+
+#[derive(ClapArgs)]
+struct EditCommand {
+    id: i32,
+    #[arg(short, long)]
+    lang: Option<String>,
 }
 
 async fn graphql_data(response: reqwest::Response) -> Result<Value> {
@@ -217,9 +234,83 @@ async fn mutate(
     Ok(())
 }
 
+fn requires_question_id(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::List
+            | Command::Pick { .. }
+            | Command::Edit(_)
+            | Command::Test { .. }
+            | Command::Exec { .. }
+    )
+}
+
+fn require_question_id_mode() -> Result<()> {
+    if std::env::var("LEETCODE_USE_QUESTION_ID").as_deref() == Ok("1") {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Question identity mode is required.").into())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    match Args::parse().command {
+    let args = Args::parse();
+    if requires_question_id(&args.command) {
+        require_question_id_mode()?;
+    }
+    match args.command {
+        Command::IdentityVersion => {
+            println!("leetcode 0.5.4 le-e-question-id-v1");
+            Ok(())
+        }
+        Command::List => {
+            let problems = Cache::new()?.refresh_catalog().await?;
+            for problem in &problems {
+                println!("{}", serde_json::to_string(&problem)?);
+            }
+            println!("{}", json!({ "complete": true, "count": problems.len() }));
+            Ok(())
+        }
+        Command::Pick { id } => {
+            PickArgs {
+                id: Some(id),
+                name: None,
+                plan: None,
+                query: None,
+                tag: None,
+                daily: false,
+            }
+            .run()
+            .await
+        }
+        Command::Edit(EditCommand { id, lang }) => {
+            EditArgs {
+                id: Some(id),
+                daily: false,
+                lang,
+            }
+            .run()
+            .await
+        }
+        Command::Test { id } => {
+            TestArgs {
+                id: Some(id),
+                testcase: None,
+                daily: false,
+                watch: false,
+            }
+            .run()
+            .await
+        }
+        Command::Exec { id } => {
+            ExecArgs {
+                id: Some(id),
+                daily: false,
+            }
+            .run()
+            .await
+        }
         Command::Folders => {
             let client = LeetCode::new()?;
             println!(

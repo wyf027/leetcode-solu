@@ -15,7 +15,10 @@ export function resolveProblemIdentity(
   detail: ProblemDetail,
   collisionCandidates: readonly ProblemSummary[] = [current],
 ): IdentityResolution {
-  if (current.id !== detail.id) {
+  if (
+    current.id !== detail.id ||
+    (current.slug !== undefined && detail.slug !== undefined && current.slug !== detail.slug)
+  ) {
     return {
       status: 'conflict',
       summary: { ...current, identityStatus: 'conflict' },
@@ -24,7 +27,10 @@ export function resolveProblemIdentity(
   }
 
   const pickedTitle = normalizedTitle(detail.title)
-  if (normalizedTitle(current.title) === pickedTitle) {
+  if (
+    (current.slug !== undefined && current.slug === detail.slug) ||
+    normalizedTitle(current.title) === pickedTitle
+  ) {
     return {
       status: 'resolved',
       summary: { ...current, identityStatus: 'resolved' },
@@ -32,9 +38,10 @@ export function resolveProblemIdentity(
     }
   }
 
-  const matchingCandidate = collisionCandidates.find(
-    ({ title }) => normalizedTitle(title) === pickedTitle,
-  )
+  const matchingCandidate =
+    current.frontendId !== undefined
+      ? undefined
+      : collisionCandidates.find(({ title }) => normalizedTitle(title) === pickedTitle)
   if (matchingCandidate) {
     return {
       status: 'resolved',

@@ -26,7 +26,15 @@ defineProps<{
     :style="THEME.overlay"
     :title-style="THEME.warning"
   >
-    <TText :x="1" :y="1" :value="problem ? `#${problem.id} ${problem.title}` : 'Unknown problem'" />
+    <TText
+      :x="1"
+      :y="1"
+      :value="
+        problem
+          ? `#${problem.frontendId ?? problem.id} ${problem.localizedTitle ?? problem.title}`
+          : 'Unknown problem'
+      "
+    />
     <TText :x="1" :y="2" :value="`Language: ${language} · source prepared in this session`" />
     <TText :x="1" :y="3" :value="`Latest test: ${testStatus}`" />
     <TText

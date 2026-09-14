@@ -48,6 +48,7 @@ const ui = reactive<UiInteractionState>({
 })
 const problemList = ref<InstanceType<typeof ProblemList> | null>(null)
 const folderList = ref<InstanceType<typeof FavoriteFolderList> | null>(null)
+const codePane = ref<InstanceType<typeof CodePane> | null>(null)
 
 const tooSmall = computed(
   () =>
@@ -59,13 +60,36 @@ const selectedProblem = computed(
   () =>
     visibleProblems.value.find(({ id }) => id === props.controller.state.selectedProblemId) ?? null,
 )
+const submitProblem = computed(
+  () =>
+    props.controller.state.problems.find(
+      ({ id }) => id === props.controller.state.submitDialog.problemId,
+    ) ?? null,
+)
+const submitTestStatus = computed(
+  () =>
+    props.controller.state.testStatuses.get(props.controller.state.submitDialog.problemId ?? -1) ??
+    'not-run',
+)
 const selectedDetail = computed(() => {
   const id = props.controller.state.selectedProblemId
-  return id === null ? null : (props.controller.state.details.get(id) ?? null)
+  const detail = id === null ? undefined : props.controller.state.details.get(id)
+  const problem = selectedProblem.value
+  if (!detail || !problem) return null
+  const matches =
+    detail.slug !== undefined && problem.slug !== undefined
+      ? detail.slug === problem.slug
+      : detail.title.normalize('NFKC').trim().toLocaleLowerCase() ===
+        problem.title.normalize('NFKC').trim().toLocaleLowerCase()
+  return matches ? detail : null
 })
 const sourceReady = computed(() => {
   const id = props.controller.state.selectedProblemId
-  return id !== null && props.controller.state.sourceReadyIds.has(id)
+  return (
+    id !== null &&
+    selectedProblem.value?.identityStatus === 'resolved' &&
+    props.controller.state.sourceReadyIds.has(id)
+  )
 })
 const testStatus = computed(() => {
   const id = props.controller.state.selectedProblemId
@@ -106,10 +130,10 @@ const favoriteInSelectedFolder = computed(() => {
   const problem = selectedProblem.value
   const folder = selectedFavoriteFolder.value
   if (problem === null || folder === null) return false
-  return folder.questions.some(
-    (question) =>
-      (problem.slug !== undefined && question.slug === problem.slug) ||
-      question.title.normalize('NFKC').trim().toLocaleLowerCase() ===
+  return folder.questions.some((question) =>
+    problem.slug !== undefined
+      ? question.slug === problem.slug
+      : question.title.normalize('NFKC').trim().toLocaleLowerCase() ===
         problem.title.normalize('NFKC').trim().toLocaleLowerCase(),
   )
 })
@@ -119,7 +143,8 @@ const listCollapsed = ref(false)
 const splitRatio = ref(0.5)
 const requestedListWidth = ref<number | null>(null)
 const requestedLogHeight = ref<number | null>(null)
-const availableHeight = computed(() => props.screen.rows - headerHeight - footerHeight - 1)
+// Adjacent panes share their border cell, which is also the resize hit target.
+const availableHeight = computed(() => props.screen.rows - headerHeight - footerHeight + 1)
 const logHeight = computed(() =>
   props.controller.state.logExpanded
     ? Math.max(
@@ -142,7 +167,7 @@ const listWidth = computed(() =>
         ),
       ),
 )
-const detailX = computed(() => listWidth.value + 1)
+const detailX = computed(() => listWidth.value - 1)
 const detailAreaWidth = computed(() => props.screen.cols - detailX.value)
 const workspaceY = computed(() => headerHeight)
 const middleHeight = computed(() => availableHeight.value - logHeight.value)
@@ -150,14 +175,14 @@ const detailWidth = computed(() =>
   Math.max(
     30,
     Math.min(
-      detailAreaWidth.value - 31,
-      Math.floor((detailAreaWidth.value - 1) * splitRatio.value),
+      detailAreaWidth.value - 29,
+      Math.floor((detailAreaWidth.value + 1) * splitRatio.value),
     ),
   ),
 )
-const editorX = computed(() => detailX.value + detailWidth.value + 1)
+const editorX = computed(() => detailX.value + detailWidth.value - 1)
 const editorWidth = computed(() => props.screen.cols - editorX.value)
-const logY = computed(() => workspaceY.value + middleHeight.value + 1)
+const logY = computed(() => workspaceY.value + middleHeight.value - 1)
 const footerY = computed(() => props.screen.rows - footerHeight)
 const loadingDetail = computed(() => props.controller.state.activeOperation === 'load-detail')
 
@@ -205,17 +230,13 @@ const hoveredDivider = computed<Divider | null>(() => {
   if (!position || position.x < 0 || position.x >= props.screen.cols) return null
   if (
     !listCollapsed.value &&
-    position.x === listWidth.value &&
+    position.x === detailX.value &&
     position.y >= workspaceY.value &&
-    position.y < logY.value - 1
+    position.y < logY.value
   )
     return 'list'
-  if (position.y === logY.value - 1) return 'log'
-  if (
-    position.x === editorX.value - 1 &&
-    position.y >= workspaceY.value &&
-    position.y < logY.value - 1
-  )
+  if (position.y === logY.value) return 'log'
+  if (position.x === editorX.value && position.y >= workspaceY.value && position.y < logY.value)
     return 'width'
   return null
 })
@@ -227,21 +248,21 @@ watch(hoveredDivider, (divider) =>
 onUnmounted(() => props.setPointerShape?.('default'))
 let suppressDragClick = false
 let microMouseDown = false
-let editTask: Promise<boolean> | undefined
 const actionMessage = ref('')
 const editorAction = async (action: 'save' | 'test' | 'submit') => {
   if (actionBusy.value || props.controller.state.submitDialog.open) return
+  if (['test', 'submit'].includes(props.controller.state.activeOperation ?? '')) return
   if (props.controller.state.activeOperation !== null && !props.editor?.state.active) return
   actionBusy.value = true
   actionMessage.value = '正在保存…'
   try {
     if (props.editor?.state.active) {
-      if (!(await props.editor.save(action !== 'save'))) {
+      if (!(await props.editor.save(false))) {
         actionMessage.value = props.editor.state.error
         return
       }
-      if (action !== 'save' && !(await editTask)) {
-        actionMessage.value = '编辑器未正常结束，已取消操作。'
+      if (!(await props.controller.confirmEditorSaved())) {
+        actionMessage.value = '未能确认当前源码已保存，已取消操作。'
         return
       }
     } else if (action === 'save') {
@@ -251,7 +272,7 @@ const editorAction = async (action: 'save' | 'test' | 'submit') => {
     if (action === 'save') actionMessage.value = '已保存。'
     else {
       actionMessage.value = ''
-      ui.focus = 'log'
+      if (!props.editor?.state.active) ui.focus = 'log'
       if (action === 'test') await props.controller.testSelected()
       else props.controller.openSubmitDialog()
     }
@@ -266,13 +287,29 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
     dragging.value = false
     pointer.value = null
     microMouseDown = false
-    return props.editor?.state.active ? true : handleInput(event)
+    return props.editor?.state.active || (event.type === 'keydown' && event.metaKey)
+      ? true
+      : handleInput(event)
   }
   const modal =
     ui.helpOpen ||
     ui.searchMode ||
     props.controller.state.cookieLogin.open ||
     props.controller.state.submitDialog.open
+  // Keep Micro mounted, but freeze input while a judge request reads the saved file.
+  if (
+    props.editor?.state.active &&
+    ['test', 'submit'].includes(props.controller.state.activeOperation ?? '') &&
+    event.type !== 'wheel'
+  )
+    return true
+  if (event.type === 'keydown' && event.metaKey) {
+    if (modal) return handleInput(event)
+    if (!modal && !actionBusy.value && ui.focus === 'editor' && props.editor?.state.active) {
+      return props.editor.input(event)
+    }
+    return true
+  }
   if (modal) {
     dragging.value = false
     pointer.value = null
@@ -297,6 +334,7 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
     return true
   }
   if (actionBusy.value && event.type !== 'wheel') return true
+  if (!dragging.value && codePane.value?.handleCompletionPointer(event)) return true
   if (event.type === 'wheel') {
     if (dragging.value || !Number.isFinite(event.deltaY) || event.deltaY === 0) return true
     const step = Math.sign(event.deltaY) * 3
@@ -306,13 +344,13 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
         0,
         ui.logScroll + (testResult.value?.outcome === 'failed' ? step : -step),
       )
-    } else if (event.cellY >= workspaceY.value && event.cellY < logY.value - 1) {
-      if (!listCollapsed.value && event.cellX < listWidth.value) {
+    } else if (event.cellY >= workspaceY.value && event.cellY < logY.value) {
+      if (!listCollapsed.value && event.cellX < detailX.value) {
         if (showingFavoriteFolders.value) folderList.value?.scrollBy(step)
         else problemList.value?.scrollBy(step)
-      } else if (event.cellX >= detailX.value && event.cellX < editorX.value - 1) {
+      } else if (event.cellX > detailX.value && event.cellX < editorX.value) {
         ui.detailScroll = Math.max(0, ui.detailScroll + step)
-      } else if (event.cellX >= editorX.value) {
+      } else if (event.cellX > editorX.value) {
         props.editor?.mouse(event, editorX.value + 1, workspaceY.value + 1)
       }
     }
@@ -334,9 +372,9 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
     }
     if (
       event.type === 'pointerdown' &&
-      event.cellX === editorX.value - 1 &&
+      event.cellX === editorX.value &&
       event.cellY >= workspaceY.value &&
-      event.cellY < logY.value - 1
+      event.cellY < logY.value
     ) {
       dragging.value = 'width'
       return true
@@ -344,35 +382,35 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
     if (
       event.type === 'pointerdown' &&
       !listCollapsed.value &&
-      event.cellX === listWidth.value &&
+      event.cellX === detailX.value &&
       event.cellY >= workspaceY.value &&
-      event.cellY < logY.value - 1
+      event.cellY < logY.value
     ) {
       dragging.value = 'list'
       return true
     }
-    if (event.type === 'pointerdown' && event.cellY === logY.value - 1) {
+    if (event.type === 'pointerdown' && event.cellY === logY.value) {
       dragging.value = 'log'
       return true
     }
     if (event.type === 'pointermove' && dragging.value) {
       if (dragging.value === 'width') {
         splitRatio.value =
-          Math.max(30, Math.min(detailAreaWidth.value - 31, event.cellX - detailX.value)) /
-          (detailAreaWidth.value - 1)
+          Math.max(30, Math.min(detailAreaWidth.value - 29, event.cellX - detailX.value + 1)) /
+          (detailAreaWidth.value + 1)
       } else if (dragging.value === 'list') {
-        requestedListWidth.value = Math.max(24, Math.min(props.screen.cols - 62, event.cellX))
+        requestedListWidth.value = Math.max(24, Math.min(props.screen.cols - 62, event.cellX + 1))
       } else {
         if (!props.controller.state.logExpanded) props.controller.toggleLog()
         requestedLogHeight.value = Math.max(
           3,
-          Math.min(footerY.value - event.cellY - 1, availableHeight.value - 8),
+          Math.min(footerY.value - event.cellY, availableHeight.value - 8),
         )
       }
       return true
     }
     if (event.type === 'click' || event.type === 'pointerdown') {
-      if (event.cellY === headerHeight && event.cellX < listWidth.value) {
+      if (event.cellY === headerHeight && event.cellX < detailX.value) {
         if (event.type === 'click') toggleList()
         return true
       }
@@ -380,7 +418,7 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
         ui.focus =
           event.cellX >= editorX.value
             ? 'editor'
-            : !listCollapsed.value && event.cellX < listWidth.value
+            : !listCollapsed.value && event.cellX < detailX.value
               ? 'problems'
               : 'detail'
       else if (event.cellY >= logY.value) ui.focus = 'log'
@@ -389,7 +427,7 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
       event.cellX > editorX.value &&
       event.cellX < props.screen.cols - 1 &&
       event.cellY > workspaceY.value &&
-      event.cellY < logY.value - 1 &&
+      event.cellY < logY.value &&
       props.editor?.state.active
     ) {
       if (props.editor.mouse(event, editorX.value + 1, workspaceY.value + 1)) {
@@ -433,7 +471,7 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
     props.controller.state.activeOperation === null
   ) {
     actionMessage.value = ''
-    editTask = props.controller.editSelected()
+    void props.controller.editSelected()
     return true
   }
   if (
@@ -506,7 +544,7 @@ onUnmounted(removeInputHandler)
     <TText
       :x="1"
       :y="headerHeight"
-      :w="Math.max(1, listWidth - 1)"
+      :w="Math.max(1, listWidth - 2)"
       :z-index="2"
       :value="listCollapsed ? '▶' : `◀ 收起 [b] · ${problemListTitle}`"
       :style="THEME.title"
@@ -565,15 +603,17 @@ onUnmounted(removeInputHandler)
       @update-scroll="ui.detailScroll = $event"
     />
     <TText
-      :x="editorX - 1"
+      :x="editorX"
       :y="workspaceY"
       :w="1"
-      :h="middleHeight"
-      :value="Array.from({ length: middleHeight }, () => '│').join('\n')"
+      :z-index="3"
+      :h="middleHeight - 1"
+      :value="Array.from({ length: middleHeight - 1 }, () => '│').join('\n')"
       :style="hoveredDivider === 'width' ? THEME.dividerHover : THEME.border"
     />
     <CodePane
       v-if="editor"
+      ref="codePane"
       :editor="editor"
       :x="editorX"
       :y="workspaceY"
@@ -595,20 +635,13 @@ onUnmounted(removeInputHandler)
     />
     <TText
       v-if="!listCollapsed"
-      :x="listWidth"
+      :x="detailX"
       :y="workspaceY"
       :w="1"
-      :h="middleHeight"
-      :value="Array.from({ length: middleHeight }, () => '│').join('\n')"
+      :z-index="3"
+      :h="middleHeight - 1"
+      :value="Array.from({ length: middleHeight - 1 }, () => '│').join('\n')"
       :style="hoveredDivider === 'list' ? THEME.dividerHover : THEME.border"
-    />
-    <TText
-      :x="0"
-      :y="logY - 1"
-      :w="screen.cols"
-      :h="1"
-      :value="'── ↕ 拖动调整日志高度 ' + '─'.repeat(screen.cols)"
-      :style="hoveredDivider === 'log' ? THEME.dividerHover : THEME.border"
     />
     <TText
       v-if="hoveredDivider && pointer"
@@ -618,11 +651,11 @@ onUnmounted(removeInputHandler)
       :x="
         hoveredDivider !== 'log'
           ? hoveredDivider === 'list'
-            ? listWidth
-            : editorX - 1
+            ? detailX
+            : editorX
           : Math.max(32, Math.min(screen.cols - 1, pointer.x))
       "
-      :y="hoveredDivider !== 'log' ? Math.max(workspaceY, Math.min(logY - 2, pointer.y)) : logY - 1"
+      :y="hoveredDivider !== 'log' ? Math.max(workspaceY, Math.min(logY - 1, pointer.y)) : logY"
       :value="hoveredDivider === 'log' ? '↕' : '↔'"
       :style="THEME.dividerHover"
     />
@@ -680,8 +713,8 @@ onUnmounted(removeInputHandler)
       :language="controller.state.language"
       :cols="screen.cols"
       :rows="screen.rows"
-      :problem="selectedProblem"
-      :test-status="testStatus"
+      :problem="submitProblem"
+      :test-status="submitTestStatus"
     />
     <CookieLoginDialog
       v-if="controller.state.cookieLogin.open"

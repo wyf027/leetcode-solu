@@ -5,7 +5,9 @@ export type SolveStatus = 'solved' | 'attempted' | 'unsolved' | 'locked' | 'unkn
 export type IdentityStatus = 'provisional' | 'resolved' | 'conflict'
 
 export interface ProblemSummary {
+  /** Stable LeetCode questionId, never the number stripped from a frontend label. */
   readonly id: number
+  readonly frontendId?: string
   readonly title: string
   readonly localizedTitle?: string
   readonly slug?: string
@@ -18,6 +20,7 @@ export interface ProblemSummary {
 
 export interface ProblemDetail {
   readonly id: number
+  readonly slug?: string
   readonly title: string
   readonly localizedTitle?: string
   readonly statement: string

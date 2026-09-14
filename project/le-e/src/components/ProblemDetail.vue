@@ -114,7 +114,7 @@ const heading = computed(() => {
   if (props.problem === null) return 'Select a problem.'
   const source = props.sourceReady ? 'source ready' : 'press e to prepare source'
   const title = props.detail?.localizedTitle ?? props.problem.localizedTitle ?? props.problem.title
-  return `[${props.problem.id}] ${title} · ${props.problem.difficulty} · ${source}`
+  return `[${props.problem.frontendId ?? props.problem.id}] ${title} · ${props.problem.difficulty} · ${source}`
 })
 
 const statement = computed(() => {

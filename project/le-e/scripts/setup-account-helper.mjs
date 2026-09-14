@@ -7,6 +7,10 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const sourceDirectory = resolve(projectRoot, 'work/clearloop-leetcode-cli-v0.5.4')
 const helperSource = resolve(projectRoot, 'tools/leetcode-account-helper/le-e-account.rs')
 const pluginPatch = resolve(projectRoot, 'tools/leetcode-account-helper/leetcode-plugin.patch')
+const questionIdentityPatch = resolve(
+  projectRoot,
+  'tools/leetcode-account-helper/question-identity.patch',
+)
 const helperTarget = resolve(sourceDirectory, 'src/bin/le-e-account.rs')
 const expectedRevision = '99b0dacdf9a03bc03e10ada80dbe80c0490024a5'
 
@@ -53,13 +57,16 @@ if (revision !== expectedRevision) {
   throw new Error('The account helper source is not the verified clearloop/leetcode-cli v0.5.4.')
 }
 
-let patchAlreadyApplied = true
-try {
-  await run('git', ['apply', '--reverse', '--check', pluginPatch], sourceDirectory, true)
-} catch {
-  patchAlreadyApplied = false
+const applyPatch = async (patch) => {
+  try {
+    await run('git', ['apply', '--reverse', '--check', patch], sourceDirectory, true)
+  } catch {
+    await run('git', ['apply', patch], sourceDirectory)
+  }
 }
-if (!patchAlreadyApplied) await run('git', ['apply', pluginPatch], sourceDirectory)
+
+await applyPatch(pluginPatch)
+await applyPatch(questionIdentityPatch)
 
 await copyFile(helperSource, helperTarget)
 await run('cargo', ['build', '--release', '--quiet', '--bin', 'le-e-account'], sourceDirectory)

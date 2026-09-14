@@ -87,6 +87,7 @@ export interface AppController {
   moveSelection(delta: number): void
   loadSelectedDetail(): Promise<boolean>
   editSelected(): Promise<boolean>
+  confirmEditorSaved(): Promise<boolean>
   dispose(): void
   testSelected(): Promise<boolean>
   openSubmitDialog(): boolean
@@ -153,6 +154,7 @@ export function createAppController({
   })
   let nextLogId = 1
   let activeEditorAbortController: AbortController | null = null
+  let editorDocument: { id: number; path: string; language: Language } | null = null
   let activeDetailAbortController: AbortController | null = null
   let activeRefreshAbortController: AbortController | null = null
   let pendingDetailLoad: (() => void) | undefined
@@ -188,7 +190,14 @@ export function createAppController({
   }
 
   const beginOperation = (operation: OperationKind): boolean => {
-    if (state.activeOperation !== null) {
+    if (
+      state.activeOperation !== null &&
+      !(
+        state.activeOperation === 'edit' &&
+        editorDocument !== null &&
+        (operation === 'test' || operation === 'submit')
+      )
+    ) {
       addLog(`Operation ${state.activeOperation} is already running.`, 'warn')
       return false
     }
@@ -198,7 +207,8 @@ export function createAppController({
   }
 
   const finishOperation = (): void => {
-    state.activeOperation = null
+    state.activeOperation = activeEditorAbortController === null ? null : 'edit'
+    if (state.activeOperation === 'edit') return
     const pending = pendingDetailLoad
     pendingDetailLoad = undefined
     pending?.()
@@ -218,10 +228,10 @@ export function createAppController({
   }
 
   const favoriteQuestionFor = (folder: FavoriteFolder, problem: ProblemSummary) =>
-    folder.questions.find(
-      (question) =>
-        (problem.slug !== undefined && question.slug === problem.slug) ||
-        question.title.normalize('NFKC').trim().toLocaleLowerCase() ===
+    folder.questions.find((question) =>
+      problem.slug !== undefined
+        ? question.slug === problem.slug
+        : question.title.normalize('NFKC').trim().toLocaleLowerCase() ===
           problem.title.normalize('NFKC').trim().toLocaleLowerCase(),
     )
 
@@ -236,14 +246,15 @@ export function createAppController({
       state.filters,
     )
     return folder.questions
-      .map((question) =>
-        favoriteCandidates.find(
-          (problem) =>
-            problem.slug === question.slug ||
-            problem.title.normalize('NFKC').trim().toLocaleLowerCase() ===
+      .map((question) => {
+        const problem = favoriteCandidates.find((problem) =>
+          problem.slug !== undefined
+            ? problem.slug === question.slug
+            : problem.title.normalize('NFKC').trim().toLocaleLowerCase() ===
               question.title.normalize('NFKC').trim().toLocaleLowerCase(),
-        ),
-      )
+        )
+        return problem === undefined ? undefined : { ...problem, slug: question.slug }
+      })
       .filter((problem) => problem !== undefined)
   }
 
@@ -256,7 +267,7 @@ export function createAppController({
   }
 
   const selectedProblem = (id = state.selectedProblemId): ProblemSummary | undefined =>
-    id === null ? undefined : state.problems.find((problem) => problem.id === id)
+    id === null ? undefined : visibleProblems().find((problem) => problem.id === id)
 
   const replaceProblem = (replacement: ProblemSummary): void => {
     const index = state.problems.findIndex(({ id }) => id === replacement.id)
@@ -267,9 +278,10 @@ export function createAppController({
   const resolveIdentity = async (id: number, signal?: AbortSignal): Promise<boolean> => {
     const current = selectedProblem(id)
     if (!current) return false
-    if (current.identityStatus === 'resolved' && state.details.has(id)) return true
-
-    const detailResult = await gateway.loadDetail(id, gatewayOptions(signal))
+    const detailResult = await gateway.loadDetail(id, {
+      ...gatewayOptions(signal),
+      ...(current.slug ? { problemSlug: current.slug } : {}),
+    })
     if (signal?.aborted === true) return false
     if (!detailResult.ok) {
       setError(detailResult.error)
@@ -396,7 +408,7 @@ export function createAppController({
       return false
     }
 
-    state.cookieLogin.open = true
+    state.cookieLogin.open = false
     state.cookieLogin.submitting = true
     state.cookieLogin.error = null
     try {
@@ -474,6 +486,7 @@ export function createAppController({
 
     const abortController = new AbortController()
     activeEditorAbortController = abortController
+    state.sourceReadyIds.delete(id)
     let bridge: SourceBridgeSession | undefined
     let editPromise: ReturnType<LeetCodeGateway['edit']> | undefined
     let commandCompleted = false
@@ -508,6 +521,7 @@ export function createAppController({
       }
 
       const document = await editorBridge.loadSource(openResult.request.path, state.language)
+      editorDocument = { id, path: document.path, language: state.language }
       terminalSuspended = true
       await suspendForEditor()
       await vimEditor.open(document.path, { signal: abortController.signal })
@@ -522,7 +536,9 @@ export function createAppController({
       }
 
       state.sourceReadyIds.add(id)
-      addLog(`Editor closed; ${state.language} source for problem ${id} is ready.`)
+      addLog(
+        `Editor closed; ${state.language} source for problem ${selectedProblem(id)?.frontendId ?? id} is ready.`,
+      )
       succeeded = true
     } catch (error) {
       if (!abortController.signal.aborted) {
@@ -552,13 +568,36 @@ export function createAppController({
         }
       }
       if (activeEditorAbortController === abortController) activeEditorAbortController = null
+      editorDocument = null
       abortController.abort()
       if (editPromise !== undefined && !commandCompleted) await editPromise.catch(() => {})
       await bridge?.dispose().catch(() => {})
       if (!restored) state.sourceReadyIds.delete(id)
-      finishOperation()
+      if (state.activeOperation === 'edit') finishOperation()
     }
     return succeeded && restored
+  }
+
+  const confirmEditorSaved = async (): Promise<boolean> => {
+    const document = editorDocument
+    if (
+      !document ||
+      !editorBridge ||
+      state.activeOperation !== 'edit' ||
+      state.selectedProblemId !== document.id ||
+      state.language !== document.language
+    )
+      return false
+    try {
+      await editorBridge.loadSource(document.path, document.language)
+      if (editorDocument !== document || state.activeOperation !== 'edit') return false
+      state.sourceReadyIds.add(document.id)
+      return true
+    } catch (error) {
+      state.sourceReadyIds.delete(document.id)
+      setEditorBridgeError(error)
+      return false
+    }
   }
 
   const testSelected = async (): Promise<boolean> => {
@@ -572,7 +611,7 @@ export function createAppController({
 
     state.logs = []
     state.logExpanded = true
-    addLog(`执行 #${id} · ${state.language}`)
+    addLog(`执行 #${problem.frontendId ?? id} · ${state.language}`)
     state.testStatuses.set(id, 'running')
     state.testResults.delete(id)
     try {
@@ -589,7 +628,7 @@ export function createAppController({
       }
       state.testStatuses.set(id, result.value.result.outcome)
       state.testResults.set(id, result.value.result)
-      addLog(`Test ${id}: ${result.value.result.message}`)
+      addLog(`Test ${problem.frontendId ?? id}: ${result.value.result.message}`)
       return true
     } finally {
       finishOperation()
@@ -603,7 +642,10 @@ export function createAppController({
       addLog(`Press e first to prepare and confirm the ${state.language} source.`, 'warn')
       return false
     }
-    if (state.activeOperation !== null) {
+    if (
+      state.activeOperation !== null &&
+      !(state.activeOperation === 'edit' && editorDocument !== null)
+    ) {
       addLog(`Operation ${state.activeOperation} is already running.`, 'warn')
       return false
     }
@@ -630,7 +672,7 @@ export function createAppController({
         return false
       }
       state.submissionStatuses.set(id, result.value.result.outcome)
-      addLog(`Submit ${id}: ${result.value.result.message}`)
+      addLog(`Submit ${problem.frontendId ?? id}: ${result.value.result.message}`)
       return true
     } finally {
       finishOperation()
@@ -764,8 +806,8 @@ export function createAppController({
         replaceProblem({ ...problem, starred: isStarred })
         addLog(
           existing === undefined
-            ? `已收藏 #${problem.id} 到 ${folder.name}。`
-            : `已从 ${folder.name} 取消收藏 #${problem.id}。`,
+            ? `已收藏 #${problem.frontendId ?? problem.id} 到 ${folder.name}。`
+            : `已从 ${folder.name} 取消收藏 #${problem.frontendId ?? problem.id}。`,
         )
         return true
       } finally {
@@ -798,6 +840,7 @@ export function createAppController({
     },
     loadSelectedDetail,
     editSelected,
+    confirmEditorSaved,
     dispose() {
       activeEditorAbortController?.abort()
       activeDetailAbortController?.abort()

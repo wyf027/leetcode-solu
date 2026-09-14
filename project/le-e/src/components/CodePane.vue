@@ -4,6 +4,7 @@ import type { Style } from '@simon_he/vue-tui'
 import { computed, watch } from 'vue'
 
 import type { EmbeddedMicro } from '../infrastructure/embeddedMicro'
+import type { TerminalInputEvent } from '../application/terminalInput'
 import { THEME } from '../styles/theme'
 
 const props = defineProps<{
@@ -96,6 +97,44 @@ const runs = computed(() => {
   }
   return output
 })
+const popup = computed(() => {
+  void props.editor.state.revision
+  const state = props.editor.state,
+    terminal = props.editor.terminal
+  if (!props.focused || !state.active || state.saving || !state.completionItems.length) return null
+  const count = Math.max(1, Math.min(6, state.completionItems.length, terminal.rows - 4))
+  const w = Math.min(
+    terminal.cols,
+    Math.max(18, ...state.completionItems.map((word) => word.length + 4)),
+  )
+  const h = count + 2,
+    cursor = terminal.buffer.active
+  const x = Math.max(0, Math.min(terminal.cols - w, cursor.cursorX - state.completionPrefix.length))
+  const y =
+    cursor.cursorY + h + 1 <= terminal.rows - 2
+      ? cursor.cursorY + 1
+      : Math.max(0, cursor.cursorY - h)
+  const start = Math.max(0, state.completionIndex - count + 1)
+  return { x, y, w, h, start, items: state.completionItems.slice(start, start + count) }
+})
+defineExpose({
+  handleCompletionPointer(event: TerminalInputEvent): boolean {
+    const menu = popup.value
+    if (!menu || !('cellX' in event)) return false
+    const x = event.cellX - props.x - 1 - menu.x,
+      y = event.cellY - props.y - 1 - menu.y
+    if (x < 0 || x >= menu.w || y < 0 || y >= menu.h) return false
+    if (event.type === 'wheel')
+      props.editor.selectCompletion(props.editor.state.completionIndex + Math.sign(event.deltaY))
+    else if (y > 0 && y < menu.h - 1) {
+      const index = menu.start + y - 1
+      if (event.type === 'pointermove' || event.type === 'pointerdown')
+        props.editor.selectCompletion(index)
+      if (event.type === 'click') props.editor.acceptCompletion(index)
+    }
+    return true
+  },
+})
 </script>
 
 <template>
@@ -130,5 +169,35 @@ const runs = computed(() => {
       :value="'按 e 打开 Micro，直接输入代码。\nCtrl+S 保存 · Ctrl+Q 退出\n底部按钮可保存、执行和提交。'"
       :style="THEME.muted"
     />
+    <TBox
+      v-if="popup"
+      :x="popup.x"
+      :y="popup.y"
+      :w="popup.w"
+      :h="popup.h"
+      :z-index="20"
+      border
+      :padding="0"
+      :style="{ fg: 'gray', bg: '#202630' }"
+    >
+      <TText
+        v-for="(word, index) in popup.items"
+        :key="word"
+        :x="0"
+        :y="index"
+        :w="popup.w - 2"
+        :h="1"
+        :value="
+          `${popup.start + index === editor.state.completionIndex ? '›' : ' '} ${word}`.padEnd(
+            popup.w - 2,
+          )
+        "
+        :style="
+          popup.start + index === editor.state.completionIndex
+            ? THEME.selected
+            : { fg: 'whiteBright', bg: '#202630' }
+        "
+      />
+    </TBox>
   </TBox>
 </template>

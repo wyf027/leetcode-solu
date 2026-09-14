@@ -56,7 +56,7 @@ const rowText = (problem: ProblemSummary): string => {
   const starred = problem.starred ? '★' : ' '
   const solved =
     problem.solveStatus === 'solved' ? '✓' : problem.solveStatus === 'attempted' ? '~' : ' '
-  const prefix = `${marker}${starred}${solved} ${String(problem.id).padStart(4)} `
+  const prefix = `${marker}${starred}${solved} ${(problem.frontendId ?? String(problem.id)).padStart(4)} `
   const difficulty = problem.difficulty.padEnd(6)
   const titleWidth = Math.max(
     8,

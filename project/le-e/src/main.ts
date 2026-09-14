@@ -40,7 +40,11 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
   const controller = createAppController({
     gateway: createLeetCodeGateway({
       runner: createProcessRunner(),
-      ...(options.cliCommand === undefined ? {} : { command: options.cliCommand }),
+      command:
+        options.cliCommand ??
+        options.accountHelperCommand ??
+        resolve('work/clearloop-leetcode-cli-v0.5.4/target/release/le-e-account'),
+      identityMode: options.cliCommand === undefined,
       ...(options.cliCommand === undefined
         ? { chineseCatalog: createChineseProblemCatalog() }
         : {}),

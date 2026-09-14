@@ -2,7 +2,7 @@ import headless from '@xterm/headless'
 import pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { delimiter, dirname, join, resolve } from 'node:path'
-import { constants } from 'node:fs'
+import { constants, writeFileSync } from 'node:fs'
 import { access, stat, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -11,6 +11,7 @@ import { reactive } from 'vue'
 import { env as processEnvironment } from 'node:process'
 
 import type { TerminalInputEvent } from '../application/terminalInput'
+import { MICRO_COMPLETION_PLUGIN } from './microCompletion'
 
 async function resolveEditorCommand(command: string): Promise<string> {
   const candidates = command.includes('/')
@@ -40,6 +41,7 @@ const SAVE_PLUGIN = `
 local config = import("micro/config")
 local micro = import("micro")
 function init()
+    configureCompletion()
     local bound, err = config.TryBindKey("F8", "lua:initlua.save", true)
     if not bound or err ~= nil then return end
     local ready = io.open(config.ConfigDir .. "/save-ready", "w")
@@ -64,6 +66,7 @@ function save(bp)
     if not ok then micro.InfoBar():Error("Source save failed; operation cancelled.") end
     return ok
 end
+${MICRO_COMPLETION_PLUGIN}
 `
 
 export function createEmbeddedMicro(command = 'micro') {
@@ -80,6 +83,38 @@ export function createEmbeddedMicro(command = 'micro') {
     cursorVisible: true,
     saving: false,
     error: '',
+    completionPrefix: '',
+    completionItems: [] as string[],
+    completionIndex: 0,
+  })
+  const dismissCompletion = () => {
+    state.completionItems = []
+    state.completionPrefix = ''
+    state.completionIndex = 0
+  }
+  const completionHandler = terminal.parser.registerOscHandler(777, (data) => {
+    if (!data.startsWith('lee-completion;')) return false
+    if (data.length > 4096 || state.saving) return true
+    const [, prefix = '', candidates = ''] = data.split(';')
+    const items = candidates
+      .split(',')
+      .filter(
+        (word) =>
+          /^[A-Za-z_][A-Za-z0-9_.]*$/.test(word) &&
+          word.length <= 64 &&
+          word.startsWith(prefix) &&
+          word.length > prefix.length,
+      )
+      .slice(0, 32)
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(prefix) || items.length === 0) dismissCompletion()
+    else {
+      if (prefix !== state.completionPrefix) state.completionIndex = 0
+      state.completionPrefix = prefix
+      state.completionItems = items
+      state.completionIndex = Math.min(state.completionIndex, items.length - 1)
+    }
+    state.revision++
+    return true
   })
   let configDirectory: string | undefined
   let preserveRecovery = false
@@ -115,9 +150,29 @@ export function createEmbeddedMicro(command = 'micro') {
     killTimer.unref()
   }
 
+  const acceptCompletion = (index = state.completionIndex): void => {
+    const word = state.completionItems[index],
+      prefix = state.completionPrefix
+    const processHandle = child,
+      directory = configDirectory
+    if (!word || !prefix || !processHandle || !directory || state.saving) return
+    dismissCompletion()
+    try {
+      writeFileSync(join(directory, 'completion-request'), `${prefix}\n${word}\n`, { mode: 0o600 })
+      if (child === processHandle && !disposed) processHandle.write('\x1b[20~')
+    } catch {
+      state.error = '无法应用补全，请重试。'
+    }
+  }
+
   return {
     state,
     terminal,
+    dismissCompletion,
+    acceptCompletion,
+    selectCompletion(index: number) {
+      state.completionIndex = Math.max(0, Math.min(state.completionItems.length - 1, index))
+    },
     async open(path: string, { signal }: { signal: AbortSignal }): Promise<void> {
       signal.throwIfAborted()
       if (disposed) throw new Error('Micro has been disposed.')
@@ -127,10 +182,16 @@ export function createEmbeddedMicro(command = 'micro') {
       preserveRecovery = false
       configDirectory = await mkdtemp(join(tmpdir(), 'le-e-micro-'))
       try {
+        await writeFile(
+          join(configDirectory, 'settings.json'),
+          JSON.stringify({ showchars: 'ispace=│,itab=│' }),
+          { mode: 0o600 },
+        )
         await writeFile(join(configDirectory, 'init.lua'), SAVE_PLUGIN, { mode: 0o600 })
         terminal.reset()
         state.cursorVisible = true
         state.error = ''
+        dismissCompletion()
         // Credentials are only needed by the CLI, not by the editor or its child shell.
         const environment: NodeJS.ProcessEnv = {
           TERM: 'xterm-256color',
@@ -171,6 +232,7 @@ export function createEmbeddedMicro(command = 'micro') {
             killTimer = undefined
             child = undefined
             state.active = false
+            dismissCompletion()
             state.revision++
             if (signal.aborted) reject(new Error('Micro was cancelled.'))
             else if (exitCode !== 0 || exitSignal)
@@ -190,6 +252,7 @@ export function createEmbeddedMicro(command = 'micro') {
     },
     async save(close = false): Promise<boolean> {
       if (!child || !configDirectory || state.saving) return false
+      dismissCompletion()
       const directory = configDirectory
       const processHandle = child
       const id = randomUUID()
@@ -244,11 +307,67 @@ export function createEmbeddedMicro(command = 'micro') {
       if (!child) return false
       if (state.saving) return true
       if (event.type === 'paste') {
+        dismissCompletion()
         const text = (event.text ?? '').replace(/\r?\n/g, '\r')
         child.write(terminal.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text)
         return true
       }
       if (event.type !== 'keydown') return event.type === 'keyup' || event.type === 'input'
+      if (
+        state.completionItems.length &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey
+      ) {
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+          state.completionIndex =
+            (state.completionIndex +
+              (event.key === 'ArrowDown' ? 1 : state.completionItems.length - 1)) %
+            state.completionItems.length
+          return true
+        }
+        if (event.key === 'Tab' || event.key === 'Enter') {
+          void acceptCompletion()
+          return true
+        }
+        if (event.key === 'Escape') {
+          dismissCompletion()
+          return true
+        }
+      }
+      dismissCompletion()
+      if (event.metaKey) {
+        // macOS editor shortcuts. Unknown Command combinations must never insert text.
+        if (event.altKey || event.ctrlKey) return true
+        const key = event.key.toLowerCase()
+        const shortcuts: Record<string, string> = {
+          c: '\x03',
+          x: '\x18',
+          v: '\x16',
+          a: '\x01',
+          z: event.shiftKey ? '\x19' : '\x1a',
+          s: '\x13',
+          f: '\x06',
+          g: event.shiftKey ? '\x10' : '\x0e',
+          d: '\x1bn',
+          i: '\x00',
+          '/': '\x1f',
+        }
+        const arrows: Record<string, string> = {
+          arrowleft: 'H',
+          arrowright: 'F',
+          arrowup: 'H',
+          arrowdown: 'F',
+        }
+        if (arrows[key]) {
+          const modifier =
+            (key === 'arrowup' || key === 'arrowdown' ? 5 : 1) + (event.shiftKey ? 1 : 0)
+          child.write(modifier === 1 ? `\x1b[${arrows[key]}` : `\x1b[1;${modifier}${arrows[key]}`)
+        } else if ((!event.shiftKey || key === 'z' || key === 'g') && shortcuts[key])
+          child.write(shortcuts[key])
+        return true
+      }
       const modifier =
         1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0)
       const cursorKeys: Record<string, string> = {
@@ -305,6 +424,7 @@ export function createEmbeddedMicro(command = 'micro') {
     },
     mouse(event: TerminalInputEvent, x: number, y: number): boolean {
       if (state.saving) return true
+      if (event.type === 'pointerdown' || event.type === 'wheel') dismissCompletion()
       if (!child || !('cellX' in event) || terminal.modes.mouseTrackingMode === 'none') return false
       const col = Math.min(terminal.cols, Math.max(1, event.cellX - x + 1))
       const row = Math.min(terminal.rows, Math.max(1, event.cellY - y + 1))
@@ -334,6 +454,7 @@ export function createEmbeddedMicro(command = 'micro') {
       disposed = true
       stop()
       parsed.dispose()
+      completionHandler.dispose()
       replies.dispose()
       terminal.dispose()
     },

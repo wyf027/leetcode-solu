@@ -1,0 +1,329 @@
+--- a/src/cache/models.rs
++++ b/src/cache/models.rs
+@@ -32,6 +32,51 @@
+     pub desc: String,
+ }
+
++#[derive(Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct CatalogProblem {
++    pub id: i32,
++    pub frontend_id: String,
++    pub slug: String,
++    pub title: String,
++    pub difficulty: String,
++    pub acceptance: Option<f32>,
++    pub solve_status: String,
++    pub starred: bool,
++}
++
++impl CatalogProblem {
++    pub fn from_problem(problem: Problem, frontend_id: String) -> Self {
++        let difficulty = match problem.level {
++            1 => "Easy",
++            2 => "Medium",
++            3 => "Hard",
++            _ => "Unknown",
++        }
++        .to_string();
++        let solve_status = if problem.locked {
++            "locked"
++        } else {
++            match problem.status.as_str() {
++                "ac" => "solved",
++                "notac" => "attempted",
++                _ => "unsolved",
++            }
++        }
++        .to_string();
++        Self {
++            id: problem.id,
++            frontend_id,
++            slug: problem.slug,
++            title: problem.name,
++            difficulty,
++            acceptance: problem.percent.is_finite().then_some(problem.percent),
++            solve_status,
++            starred: problem.starred,
++        }
++    }
++}
++
+ impl Problem {
+     fn display_level(&self) -> &str {
+         match self.level {
+--- a/src/cache/parser.rs
++++ b/src/cache/parser.rs
+@@ -10,23 +10,23 @@
+         let total_acs = stat.get("total_acs")?.as_f64()? as f32;
+         let total_submitted = stat.get("total_submitted")?.as_f64()? as f32;
+
++        let id = stat.get("question_id")?.as_i64()? as i32;
+         let fid_obj = stat.get("frontend_question_id")?;
+         let fid = match fid_obj.as_i64() {
+             // Handle on leetcode-com
+             Some(s) => s as i32,
+             // Handle on leetcode-cn
+             None => fid_obj
+-                .as_str()?
+-                .split(' ')
+-                .next_back()?
+-                .parse::<i32>()
+-                .ok()?,
++                .as_str()
++                .and_then(|value| value.split(' ').next_back())
++                .and_then(|value| value.parse::<i32>().ok())
++                .unwrap_or(id),
+         };
+
+         problems.push(Problem {
+             category: v.get("category_slug")?.as_str()?.to_string(),
+             fid,
+-            id: stat.get("question_id")?.as_i64()? as i32,
++            id,
+             level: p.get("difficulty")?.as_object()?.get("level")?.as_i64()? as i32,
+             locked: p.get("paid_only")?.as_bool()?,
+             name: stat.get("question__title")?.as_str()?.to_string(),
+--- a/src/helper.rs
++++ b/src/helper.rs
+@@ -189,14 +189,27 @@
+
+     use crate::{Error, cache::models::Problem};
+
++    fn collision_safe_pick(problem: &Problem, pick: String) -> String {
++        let pick = if std::env::var("LEETCODE_USE_QUESTION_ID").as_deref() == Ok("1")
++            && !pick.contains("${slug}")
++        {
++            format!("{pick}-${{id}}-${{slug}}")
++        } else {
++            pick
++        };
++        pick.replace("${fid}", &problem.fid.to_string())
++            .replace("${id}", &problem.id.to_string())
++            .replace("${slug}", &problem.slug)
++    }
++
+     /// Generate test cases path by fid
+     pub fn test_cases_path(problem: &Problem) -> crate::Result<String> {
+         let conf = crate::config::Config::locate()?;
+-        let mut path = format!("{}/{}.tests.dat", conf.storage.code()?, conf.code.pick);
+-
+-        path = path.replace("${fid}", &problem.fid.to_string());
+-        path = path.replace("${slug}", &problem.slug.to_string());
+-        Ok(path)
++        Ok(format!(
++            "{}/{}.tests.dat",
++            conf.storage.code()?,
++            collision_safe_pick(problem, conf.code.pick),
++        ))
+     }
+
+     /// Generate code path by fid
+@@ -207,17 +220,12 @@
+             lang = l.ok_or(Error::NoneError)?;
+         }
+
+-        let mut path = format!(
++        Ok(format!(
+             "{}/{}.{}",
+             conf.storage.code()?,
+-            conf.code.pick,
++            collision_safe_pick(problem, conf.code.pick),
+             suffix(&lang)?,
+-        );
+-
+-        path = path.replace("${fid}", &problem.fid.to_string());
+-        path = path.replace("${slug}", &problem.slug.to_string());
+-
+-        Ok(path)
++        ))
+     }
+
+     /// Load python scripts
+--- a/src/cache/mod.rs
++++ b/src/cache/mod.rs
+@@ -34,6 +34,31 @@
+ pub struct Cache(pub LeetCode);
+
+ impl Cache {
++    fn use_question_id() -> bool {
++        std::env::var("LEETCODE_USE_QUESTION_ID").as_deref() == Ok("1")
++    }
++
++    fn expected_slug() -> Result<String, Error> {
++        std::env::var("LEETCODE_EXPECTED_SLUG")
++            .ok()
++            .filter(|value| !value.is_empty())
++            .ok_or_else(|| anyhow!("A non-empty expected question slug is required.").into())
++    }
++
++    fn get_problem_by_lookup(&self, lookup: i32) -> Result<Problem, Error> {
++        let p: Problem = if Self::use_question_id() {
++            problems.filter(id.eq(lookup)).first(&mut self.conn()?)?
++        } else {
++            problems.filter(fid.eq(lookup)).first(&mut self.conn()?)?
++        };
++        if Self::use_question_id() && p.slug != Self::expected_slug()? {
++            return Err(
++                anyhow!("Selected question slug did not match the requested question.").into(),
++            );
++        }
++        Ok(p)
++    }
++
+     /// Ref to sqlite connection
+     fn conn(&self) -> Result<SqliteConnection, Error> {
+         Ok(conn(self.0.conf.storage.cache()?))
+@@ -103,11 +128,57 @@
+             .execute(&mut self.conn()?)?;
+
+         Ok(ps)
++    }
++
++    pub async fn refresh_catalog(self) -> Result<Vec<CatalogProblem>, Error> {
++        let mut ps: Vec<Problem> = vec![];
++        let mut frontend_ids: HashMap<i32, String> = HashMap::new();
++        for category_name in &self.0.conf.sys.categories.to_owned() {
++            let json: Value = self
++                .0
++                .clone()
++                .get_category_problems(category_name)
++                .await?
++                .json()
++                .await?;
++            if let Some(pairs) = json.get("stat_status_pairs").and_then(Value::as_array) {
++                for pair in pairs {
++                    let Some(stat) = pair.get("stat") else {
++                        continue;
++                    };
++                    let Some(question_id) = stat.get("question_id").and_then(Value::as_i64) else {
++                        continue;
++                    };
++                    let Some(frontend_id) = stat.get("frontend_question_id") else {
++                        continue;
++                    };
++                    let frontend_id = frontend_id
++                        .as_str()
++                        .map(ToString::to_string)
++                        .or_else(|| frontend_id.as_i64().map(|value| value.to_string()));
++                    if let Some(frontend_id) = frontend_id {
++                        frontend_ids.insert(question_id as i32, frontend_id);
++                    }
++                }
++            }
++            parser::problem(&mut ps, json).ok_or(Error::NoneError)?;
++        }
++        diesel::replace_into(problems)
++            .values(&ps)
++            .execute(&mut self.conn()?)?;
++        Ok(ps
++            .into_iter()
++            .filter_map(|problem| {
++                frontend_ids
++                    .remove(&problem.id)
++                    .map(|frontend_id| CatalogProblem::from_problem(problem, frontend_id))
++            })
++            .collect())
+     }
+
+     /// Get problem
+     pub fn get_problem(&self, rfid: i32) -> Result<Problem, Error> {
+-        let p: Problem = problems.filter(fid.eq(rfid)).first(&mut self.conn()?)?;
++        let p = self.get_problem_by_lookup(rfid)?;
+         if p.category != "algorithms" {
+             return Err(anyhow!("No support for database and shell questions yet").into());
+         }
+@@ -147,13 +218,18 @@
+     /// Get question
+     #[allow(clippy::useless_let_if_seq)]
+     pub async fn get_question(&self, rfid: i32) -> Result<Question, Error> {
+-        let target: Problem = problems.filter(fid.eq(rfid)).first(&mut self.conn()?)?;
++        let target = self.get_problem_by_lookup(rfid)?;
+
++        let selected_id = if Self::use_question_id() {
++            target.id
++        } else {
++            target.fid
++        };
+         let ids = match target.level {
+-            1 => target.fid.to_string().green(),
+-            2 => target.fid.to_string().yellow(),
+-            3 => target.fid.to_string().red(),
+-            _ => target.fid.to_string().dimmed(),
++            1 => selected_id.to_string().green(),
++            2 => selected_id.to_string().yellow(),
++            3 => selected_id.to_string().red(),
++            _ => selected_id.to_string().dimmed(),
+         };
+
+         println!(
+--- a/src/plugins/leetcode.rs
++++ b/src/plugins/leetcode.rs
+@@ -3,6 +3,7 @@
+     Result,
+     config::{self, Config},
+ };
++use anyhow::anyhow;
+ use reqwest::{
+     Client, ClientBuilder, Response,
+     header::{HeaderMap, HeaderName, HeaderValue},
+@@ -18,6 +19,23 @@
+ }
+
+ impl LeetCode {
++    fn transient_cookies() -> Result<Option<(String, String)>> {
++        let session = std::env::var("LEETCODE_SESSION");
++        let csrf = std::env::var("LEETCODE_CSRF");
++        match (session, csrf) {
++            (Err(_), Err(_)) => Ok(None),
++            (Ok(session), Ok(csrf))
++                if !session.is_empty()
++                    && !csrf.is_empty()
++                    && !session.chars().any(char::is_control)
++                    && !csrf.chars().any(char::is_control) =>
++            {
++                Ok(Some((session, csrf)))
++            }
++            _ => Err(anyhow!("LeetCode session credentials are invalid.").into()),
++        }
++    }
++
+     /// Parse reqwest headers
+     fn headers(mut headers: HeaderMap, ts: Vec<(&str, &str)>) -> Result<HeaderMap> {
+         for (k, v) in ts.into_iter() {
+@@ -31,8 +49,14 @@
+
+     /// New LeetCode client
+     pub fn new() -> Result<LeetCode> {
++        let transient_cookies = Self::transient_cookies()?;
+         let conf = config::Config::locate()?;
+-        let (cookie, csrf) = if conf.cookies.csrf.is_empty() || conf.cookies.session.is_empty() {
++        let (cookie, csrf) = if let Some((session, csrf)) = transient_cookies {
++            (
++                format!("LEETCODE_SESSION={session};csrftoken={csrf};"),
++                csrf,
++            )
++        } else if conf.cookies.csrf.is_empty() || conf.cookies.session.is_empty() {
+             let cookies = super::chrome::cookies()?;
+             (cookies.to_string(), cookies.csrf)
+         } else {
+--- a/src/config/mod.rs
++++ b/src/config/mod.rs
+@@ -46,11 +46,12 @@
+
+         let s = fs::read_to_string(&conf)?;
+         match toml::from_str::<Config>(&s) {
+-            Ok(mut config) => {
+-                // Override config.cookies with environment variables
+-                config.cookies = config.cookies.with_env_override();
+-
+-                match config.cookies.site {
++            Ok(config) => {
++                let site = std::env::var(cookies::LEETCODE_SITE_ENV)
++                    .ok()
++                    .and_then(|value| value.parse::<cookies::LeetcodeSite>().ok())
++                    .unwrap_or_else(|| config.cookies.site.clone());
++                match site {
+                     cookies::LeetcodeSite::LeetcodeCom => Ok(config),
+                     cookies::LeetcodeSite::LeetcodeCn => {
+                         let mut config = config;
