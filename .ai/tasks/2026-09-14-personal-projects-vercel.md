@@ -1,6 +1,6 @@
 # Personal Projects on Vercel
 
-- Status: screenshot tool and browser projects published; leetcode-solu pull request pending.
+- Status: screenshot tool, browser projects, and GitHub Pages gallery published; real provider generation pending.
 - Coordination repository: `wyf027/leetcode-solu`.
 - Branch: `feat/personal-projects-vercel-20260914`.
 - Worktree: `/Users/wuyangfan/Documents/Codex/2026-09-09/gong/work/leetcode-solu-personal-projects-vercel`.
@@ -33,7 +33,10 @@ Customize `wyf027/screenshot-to-code`, deploy the browser-runnable projects unde
   - `docs/superpowers/plans/2026-09-14-wyf-screenshot-studio.md`
   - `docs/superpowers/plans/2026-09-14-leetcode-vercel-projects.md`
   - `docs/superpowers/plans/2026-09-14-github-pages-project-gallery.md`
-- Next action: deliver the leetcode-solu changes, then publish the GitHub Pages gallery.
+- Leetcode-solu PR #2215 merged as `29415212`.
+- GitHub Pages gallery PRs #1-#3 merged; final Pages run `34836204576` succeeded.
+- Live homepage: `https://wyf027.github.io/`, HTTP 200 with 12 verified project cards.
+- Next action: complete one provider-backed screenshot generation after the user manually supplies a key.
 
 ## Vercel Session
 
@@ -49,7 +52,7 @@ Customize `wyf027/screenshot-to-code`, deploy the browser-runnable projects unde
 | --- | --- | --- | --- | --- | --- |
 | `classic-atlas` | `dpl_5VkNwmqueY8CU7D4UW7y7NB1NZkS` | https://wyf-classic-atlas.vercel.app/ | Ready | 200 / pass | yes |
 | `classic-games` | `dpl_7e6B12bePDHmLtwUeK3TH3CAHqpP` | https://wyf-classic-games.vercel.app/ | Ready | 200 / pass | yes |
-| `classic-sci-fi-atlas` | `dpl_DbWMpkWDBbfCdp4Zy8wfTPuT8pw5` | https://wyf-classic-sci-fi-atlas.vercel.app/ | Ready | 200 / pass | yes |
+| `classic-sci-fi-atlas` | `dpl_DbWMpkWDBbfCdp4Zy8wfTPuT8pw5` | https://wyf-classic-sci-fi-atlas.vercel.app/ | Ready | 200 / title pass | no |
 | `daodejing-atlas` | `dpl_Daa538LiYXWTUYo7e7kdrfijKQpA` | https://wyf-daodejing-atlas.vercel.app/ | Ready | 200 / title pass | no |
 | `declarative-partial-updates-demo` | `dpl_6v5EgPET18JW579i9TexFrY7FACM` | https://wyf-declarative-partial-updates-dem.vercel.app/ | Ready | 200 / pass | yes |
 | `drag-sort` | `dpl_5cpv8G55q4rZpAAikbdM6Qcm8PkH` | https://wyf-drag-sort.vercel.app/ | Ready | 200 / pass | yes |
@@ -65,6 +68,7 @@ Customize `wyf027/screenshot-to-code`, deploy the browser-runnable projects unde
 
 - All thirteen production aliases rendered their expected application shell.
 - `daodejing-atlas` requests 657 image assets that are absent from the repository, so its text shell is deployed but it is excluded from the homepage.
+- `classic-sci-fi-atlas` contains 2995 Git LFS image pointers. The real objects total 7.58 GiB, exceed the Vercel Hobby static-file limit, and render as broken book images, so the deployed index is excluded from the homepage.
 - `nodepod-demo` started its virtual HTTP service, rendered the iframe response, and returned `/api/status` data. SharedArrayBuffer-dependent synchronous features remain unavailable without COOP/COEP headers.
 - `declarative-partial-updates-demo` reports its expected experimental Chrome document-patching warning.
 - The remaining observed console messages are existing Tailwind CDN or accessibility warnings; no failed navigation request was reproduced.
