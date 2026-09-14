@@ -1,6 +1,6 @@
 # Personal Projects on Vercel
 
-- Status: design approved; written specification awaiting user review.
+- Status: design approved; implementation plans ready for execution choice.
 - Coordination repository: `wyf027/leetcode-solu`.
 - Branch: `feat/personal-projects-vercel-20260914`.
 - Worktree: `/Users/wuyangfan/Documents/Codex/2026-09-09/gong/work/leetcode-solu-personal-projects-vercel`.
@@ -23,4 +23,8 @@ Customize `wyf027/screenshot-to-code`, deploy the browser-runnable projects unde
 - Existing screenshot-to-code Vercel deployment identified.
 - GitHub Pages source confirmed as `gh-pages`.
 - No implementation has started.
-- Next action after specification approval: write the implementation plan.
+- Plans:
+  - \`docs/superpowers/plans/2026-09-14-wyf-screenshot-studio.md\`
+  - \`docs/superpowers/plans/2026-09-14-leetcode-vercel-projects.md\`
+  - \`docs/superpowers/plans/2026-09-14-github-pages-project-gallery.md\`
+- Next action: execute the plans in the listed order.
