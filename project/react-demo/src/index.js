@@ -19,10 +19,6 @@ const App = () => {
   }}>{arr}</ul>
 }
 
-const Child = () => {
-  return <span>App -- big react</span>
-}
-
 ReactDOM.createRoot(document.getElementById('root')).render(
   <App />
 )
