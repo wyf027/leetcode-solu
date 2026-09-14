@@ -55,9 +55,10 @@ Add this line to the root .gitignore:
 
 ~~~gitignore
 .vercel/
+.env*
 ~~~
 
-This pattern covers .vercel directories created inside every project root.
+These patterns cover Vercel metadata and downloaded local environment files inside every project root.
 
 - [ ] **Step 3: Create the drag-sort entry page**
 
@@ -137,7 +138,7 @@ git commit -m "feat: add project demo entry pages"
 npx --yes vercel@59.16.0 whoami
 ~~~
 
-Expected username: leno23. A 403 response means the saved credential is expired.
+Expected username: yangfanwu027-3170. A 403 response means the saved credential is expired.
 
 - [ ] **Step 2: Recover an expired login**
 
@@ -157,6 +158,7 @@ Add only the username, scope, CLI version, and successful timestamp to the task 
 
 **Files:**
 - Generated but ignored: project/*/.vercel/project.json
+- Generated but ignored: project/*/.env.local
 - Modify: .ai/tasks/2026-09-14-personal-projects-vercel.md
 
 **Interfaces:**
@@ -181,10 +183,11 @@ For each directory in the exact list above, run:
 
 ~~~bash
 npx --yes vercel@59.16.0 link --yes --scope leno23s-projects --project "wyf-$project" --cwd "project/$project"
+npx --yes vercel@59.16.0 git disconnect --yes --scope leno23s-projects --cwd "project/$project"
 npx --yes vercel@59.16.0 deploy --prod --yes --scope leno23s-projects --cwd "project/$project"
 ~~~
 
-Wait for each deployment to reach Ready before starting the next. Save the production URL and assigned stable alias in the task card immediately after each success.
+The link command may connect the repository automatically; disconnect it before deployment so future Git pushes do not fan out across thirteen projects. Wait for each deployment to reach Ready before starting the next. Save the production URL and assigned stable alias in the task card immediately after each success.
 
 - [ ] **Step 3: Inspect each completed deployment**
 

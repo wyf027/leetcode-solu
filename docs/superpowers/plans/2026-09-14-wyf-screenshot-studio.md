@@ -169,6 +169,8 @@ git commit -m "fix: keep provider keys session-only"
 - Modify: frontend/index.html
 - Modify: frontend/src/hooks/useBrowserTabIndicator.ts
 - Modify: frontend/src/components/messages/OnboardingNote.tsx
+- Modify: frontend/src/components/recording/ScreenRecorder.tsx
+- Modify: frontend/src/components/sidebar/IconStrip.tsx
 - Modify: frontend/src/components/unified-input/UnifiedInputPane.tsx
 - Modify: frontend/src/components/unified-input/tabs/UploadTab.tsx
 - Modify: frontend/src/components/unified-input/ScreenshotToCodeControls.tsx
@@ -178,6 +180,7 @@ git commit -m "fix: keep provider keys session-only"
 - Modify: frontend/src/components/preview/CodeTab.tsx
 - Modify: frontend/src/generateCode.ts
 - Modify: frontend/src/urls.ts
+- Modify: frontend/vite.config.ts
 - Modify: README.md
 
 **Interfaces:**
@@ -198,7 +201,7 @@ Set frontend/index.html to use:
 <meta name="twitter:description" content="把截图转换为可预览、可复制的前端代码" />
 ~~~
 
-Remove the upstream twitter:site and upstream Open Graph image tags. Keep the existing favicon and font loading.
+Remove the upstream twitter:site and upstream Open Graph image tags. Remove the hosted injectHead placeholder and its Plausible injection from vite.config.ts. Keep the existing favicon and font loading.
 
 - [ ] **Step 2: Update the browser-tab title**
 
@@ -251,7 +254,7 @@ Generating… -> 正在生成…
 Extract image assets from original -> 从原图提取素材
 ~~~
 
-Apply them in UnifiedInputPane.tsx and ScreenshotToCodeControls.tsx. In OutputSettingsSection.tsx use 输出技术： as the default label and 选择输出技术 as the empty-selection prompt.
+Apply them in UnifiedInputPane.tsx, ScreenshotToCodeControls.tsx, ScreenRecorder.tsx, and IconStrip.tsx. In OutputSettingsSection.tsx use 输出技术： as the default label and 选择输出技术 as the empty-selection prompt.
 
 - [ ] **Step 5: Translate upload validation and the upload surface**
 
