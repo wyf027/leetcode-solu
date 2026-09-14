@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screenshot Workflow Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#172033',
+            muted: '#667085',
+            line: '#d7deea'
+          }
+        }
+      }
+    };
+  </script>
+</head>
+<body class="min-h-screen bg-[#f7f8fb] text-ink">
+  <header class="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 class="text-xl font-semibold tracking-normal">Screenshot Workflow Lite</h1>
+        <p class="mt-1 text-sm text-muted">把截图复刻任务拆成可执行 workflow，再导出给模型或人工继续写 HTML。</p>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <button id="copyMarkdown" class="rounded-md border border-line bg-white px-3 py-2 font-medium hover:border-slate-400">复制 Markdown</button>
+        <button id="downloadJson" class="rounded-md bg-slate-900 px-3 py-2 font-medium text-white hover:bg-slate-700">导出 JSON</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+    <section class="rounded-lg border border-line bg-white">
+      <div class="border-b border-line p-4">
+        <h2 class="text-base font-semibold">输入</h2>
+        <p class="mt-1 text-sm text-muted">图片不会离开浏览器；当前版本只生成工作流草稿。</p>
+      </div>
+      <div class="space-y-4 p-4">
+        <label class="block">
+          <span class="text-sm font-medium">截图</span>
+          <input id="imageInput" type="file" accept="image/*" class="mt-2 block w-full rounded-md border border-line bg-white p-2 text-sm">
+        </label>
+
+        <div id="previewBox" class="flex min-h-44 items-center justify-center rounded-lg border border-dashed border-line bg-slate-50 text-sm text-muted">
+          上传截图后在这里预览
+        </div>
+
+        <label class="block">
+          <span class="text-sm font-medium">目标页面</span>
+          <input id="goalInput" class="mt-2 w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-slate-500" value="生成一个 LeetCode 题解首页卡片列表">
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-medium">技术栈</span>
+          <select id="stackInput" class="mt-2 w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-slate-500">
+            <option>HTML + Tailwind</option>
+            <option>React + Tailwind</option>
+            <option>Vue + Tailwind</option>
+            <option>HTML + CSS</option>
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-medium">约束</span>
+          <textarea id="notesInput" class="mt-2 h-28 w-full resize-y rounded-md border border-line px-3 py-2 text-sm leading-6 outline-none focus:border-slate-500">保留主要布局、文字层级、间距和响应式表现；移动端不能横向滚动。</textarea>
+        </label>
+
+        <button id="generateBtn" class="w-full rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500">生成 workflow</button>
+      </div>
+    </section>
+
+    <section class="grid gap-4">
+      <div class="rounded-lg border border-line bg-white">
+        <div class="flex flex-col gap-2 border-b border-line p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 class="text-base font-semibold">Workflow 画布</h2>
+            <p id="workflowSummary" class="mt-1 text-sm text-muted">已准备默认 screenshot-to-code 流程。</p>
+          </div>
+          <span id="nodeCount" class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">6 个节点</span>
+        </div>
+        <div id="canvas" class="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3"></div>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-2">
+        <section class="rounded-lg border border-line bg-white">
+          <div class="border-b border-line p-4">
+            <h2 class="text-base font-semibold">给模型的提示词</h2>
+          </div>
+          <pre id="promptOutput" class="max-h-[440px] overflow-auto whitespace-pre-wrap p-4 text-sm leading-6 text-slate-700"></pre>
+        </section>
+
+        <section class="rounded-lg border border-line bg-white">
+          <div class="border-b border-line p-4">
+            <h2 class="text-base font-semibold">Workflow JSON</h2>
+          </div>
+          <pre id="jsonOutput" class="max-h-[440px] overflow-auto p-4 text-xs leading-5 text-slate-700"></pre>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <template id="nodeTemplate">
+    <article class="relative rounded-lg border border-line bg-white p-4 shadow-sm">
+      <div class="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p class="node-step text-xs font-semibold uppercase tracking-wide text-blue-600"></p>
+          <h3 class="node-title mt-1 text-base font-semibold"></h3>
+        </div>
+        <span class="node-kind rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600"></span>
+      </div>
+      <p class="node-desc text-sm leading-6 text-slate-600"></p>
+      <div class="node-output mt-4 rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-600"></div>
+    </article>
+  </template>
+
+  <script>
+    const baseNodes = [
+      {
+        id: 'inspect',
+        title: '识别截图结构',
+        kind: 'vision',
+        description: '读取页面分区、主次信息、组件类型、交互入口和异常状态。',
+        output: 'layout_map, component_list'
+      },
+      {
+        id: 'tokens',
+        title: '抽取设计约束',
+        kind: 'design',
+        description: '整理颜色、字体层级、间距、圆角、阴影和移动端断点。',
+        output: 'design_tokens'
+      },
+      {
+        id: 'content',
+        title: '还原内容骨架',
+        kind: 'content',
+        description: '保留可见文字，缺失内容用贴近业务的占位数据补齐。',
+        output: 'content_schema'
+      },
+      {
+        id: 'build',
+        title: '生成前端代码',
+        kind: 'code',
+        description: '按目标技术栈生成单页实现，优先使用原生布局和少量状态。',
+        output: 'index_html_or_component'
+      },
+      {
+        id: 'check',
+        title: '自检响应式',
+        kind: 'verify',
+        description: '检查桌面和手机宽度下是否溢出、遮挡、错位或文字截断。',
+        output: 'fix_list'
+      },
+      {
+        id: 'export',
+        title: '交付结果',
+        kind: 'deliver',
+        description: '输出最终代码、复刻说明和剩余差异，方便继续人工修。',
+        output: 'final_artifact'
+      }
+    ];
+
+    const state = {
+      imageName: '',
+      imageSize: '',
+      nodes: baseNodes
+    };
+
+    const el = (id) => document.getElementById(id);
+
+    function workflow() {
+      return {
+        name: 'screenshot-to-code-lite',
+        goal: el('goalInput').value.trim(),
+        stack: el('stackInput').value,
+        constraints: el('notesInput').value.trim(),
+        screenshot: state.imageName ? { name: state.imageName, size: state.imageSize } : null,
+        nodes: state.nodes.map((node, index) => ({ order: index + 1, ...node }))
+      };
+    }
+
+    function promptText(data) {
+      return [
+        '# Screenshot to Code Workflow',
+        '',
+        `目标：${data.goal}`,
+        `技术栈：${data.stack}`,
+        `截图：${data.screenshot ? `${data.screenshot.name} (${data.screenshot.size})` : '待上传或由用户提供'}`,
+        '',
+        '约束：',
+        data.constraints,
+        '',
+        '请按下面 workflow 执行：',
+        ...data.nodes.map((node) => `${node.order}. ${node.title}：${node.description} 输出 ${node.output}。`),
+        '',
+        '交付要求：生成可直接运行的页面代码；说明无法从截图确认的内容；不要引入不必要依赖。'
+      ].join('\n');
+    }
+
+    function render() {
+      const data = workflow();
+      const canvas = el('canvas');
+      const template = el('nodeTemplate');
+      canvas.textContent = '';
+
+      data.nodes.forEach((node) => {
+        const card = template.content.firstElementChild.cloneNode(true);
+        card.querySelector('.node-step').textContent = `Step ${node.order}`;
+        card.querySelector('.node-title').textContent = node.title;
+        card.querySelector('.node-kind').textContent = node.kind;
+        card.querySelector('.node-desc').textContent = node.description;
+        card.querySelector('.node-output').textContent = `输出：${node.output}`;
+        canvas.appendChild(card);
+      });
+
+      el('nodeCount').textContent = `${data.nodes.length} 个节点`;
+      el('workflowSummary').textContent = `${data.stack} · ${data.goal || '未填写目标'}`;
+      el('promptOutput').textContent = promptText(data);
+      el('jsonOutput').textContent = JSON.stringify(data, null, 2);
+    }
+
+    function downloadJson() {
+      const blob = new Blob([JSON.stringify(workflow(), null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'screenshot-workflow.json';
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function copyWithTextarea(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.className = 'fixed -left-full top-0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }
+
+    async function copyMarkdown() {
+      const text = promptText(workflow());
+      try {
+        if (!navigator.clipboard) throw new Error('clipboard unavailable');
+        await navigator.clipboard.writeText(text);
+      } catch {
+        copyWithTextarea(text);
+      }
+      const button = el('copyMarkdown');
+      const oldText = button.textContent;
+      button.textContent = '已复制';
+      setTimeout(() => { button.textContent = oldText; }, 1200);
+    }
+
+    el('imageInput').addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      state.imageName = file.name;
+      state.imageSize = `${Math.round(file.size / 1024)} KB`;
+
+      const image = document.createElement('img');
+      image.alt = '上传的截图预览';
+      image.className = 'max-h-72 w-full rounded-lg object-contain';
+      image.src = URL.createObjectURL(file);
+      image.onload = () => URL.revokeObjectURL(image.src);
+
+      const preview = el('previewBox');
+      preview.textContent = '';
+      preview.appendChild(image);
+      render();
+    });
+
+    ['goalInput', 'stackInput', 'notesInput'].forEach((id) => {
+      el(id).addEventListener('input', render);
+      el(id).addEventListener('change', render);
+    });
+
+    el('generateBtn').addEventListener('click', render);
+    el('downloadJson').addEventListener('click', downloadJson);
+    el('copyMarkdown').addEventListener('click', copyMarkdown);
+
+    render();
+  </script>
+</body>
+</html>
