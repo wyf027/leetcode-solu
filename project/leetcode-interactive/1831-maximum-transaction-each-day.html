@@ -1,0 +1,124 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>1831 每天的最大交易</title><style>
+/* Tailwind CSS utility 等价内联子集 */
+*{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#172033;font:16px/1.8 system-ui,sans-serif}.max-w-5xl{max-width:1024px}.mx-auto{margin:auto}.p-6{padding:24px}.mt-6{margin-top:24px}.bg-white{background:white}.border{border:1px solid #dbe3ef}.rounded-xl{border-radius:16px}.text-sm{font-size:14px}.text-slate-500{color:#526277}.flex{display:flex}.flex-wrap{flex-wrap:wrap}.gap-3{gap:12px}.overflow-x-auto{overflow-x:auto}.font-bold{font-weight:700}h1{font-size:clamp(28px,5vw,44px);line-height:1.2}h2{font-size:23px}h3{font-size:18px}pre{max-width:100%;overflow:auto;padding:18px;border-radius:10px;background:#142035;color:#dbeafe;font:13px/1.7 monospace}code{overflow-wrap:anywhere}pre code{overflow-wrap:normal}button{font:inherit;padding:9px 15px;min-height:44px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer;box-shadow:none}button:hover:not(:disabled){background:#dbeafe}button:active:not(:disabled){background:#bfdbfe}button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}button:focus-visible{outline:3px solid #2563eb;outline-offset:3px;box-shadow:none}a:focus-visible{outline:3px solid #2563eb}a{color:#1d4ed8}[hidden]{display:none!important}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{text-align:left;padding:8px;border-bottom:1px solid #ddd}.lane{border:1px solid #cbd5e1;border-radius:10px;padding:14px;margin:12px 0}.bar{height:10px;background:#94a3b8;border-radius:4px;margin:5px 0 12px}.winner{background:#0d9488}.badge{color:#3730a3;background:#e0e7ff;padding:4px 10px;border-radius:20px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}@media(max-width:420px){.p-6{padding:16px}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style></head><body><main class="max-w-5xl mx-auto p-6"><header><p class="text-sm text-slate-500">DATABASE LAB / 067 · <span class="badge">MEDIUM · 付费题</span></p><h1>每天的最大交易</h1><p>1831 / Maximum Transaction Each Day</p><p class="text-slate-500">同一天，可能有不止一笔最大的交易。你的查询能全部找出来吗？</p></header>
+<section class="mt-6 p-6 bg-white border rounded-xl"><h2>题目任务</h2><p>给定 Transactions 表，找出每个自然日金额最高的交易，返回它们的 transaction_id。同日最高金额并列时全部保留，结果按 transaction_id 升序排列。</p><div class="overflow-x-auto"><table><tr><th>字段</th><th>类型</th><th>含义</th></tr><tr><td>transaction_id</td><td>int</td><td>唯一交易 ID，主键</td></tr><tr><td>day</td><td>datetime</td><td>交易发生时间</td></tr><tr><td>amount</td><td>int</td><td>交易金额</td></tr></table></div><h3>约束</h3><p>每行代表一笔交易；ID 唯一，同日可有多笔交易。“一天”按完整年月日判断，忽略时分秒。公开题面没有额外列出行数与金额上下界，本页不补造范围。</p><p class="text-sm text-slate-500">元数据部分建表模板将 day 写作 DATE，但示例含时分秒；这里采用题面的 datetime 表达。</p></section>
+<section class="mt-6 p-6 bg-white border rounded-xl"><h2>官方示例 · 完整参数</h2><pre>Transactions = {
+  "headers": ["transaction_id", "day", "amount"],
+  "rows": [
+    [8, "2021-4-3 15:57:28", 57],
+    [9, "2021-4-28 08:47:25", 21],
+    [1, "2021-4-29 13:28:30", 58],
+    [5, "2021-4-28 16:39:59", 40],
+    [6, "2021-4-29 23:39:28", 58]
+  ]
+}</pre><pre>输出 = {"headers":["transaction_id"],"rows":[[1],[5],[6],[8]]}</pre><p>4 月 3 日只有 ID 8；4 月 28 日选金额 40 的 ID 5；4 月 29 日两笔金额都是 58，所以 ID 1 和 6 都返回。</p></section>
+<section class="mt-6 p-6 bg-white border rounded-xl"><h2>日期分区工作台</h2><p>逐步观察时间戳分组、金额排名与并列保留。条形长度代表金额；文字同步标出状态。</p><div class="flex flex-wrap gap-3"><button id="prev">上一步</button><button id="next">下一步</button><button id="play" aria-pressed="false">自动播放</button><button id="reset">重置</button></div><p id="step" role="status" aria-live="polite" class="font-bold"></p><div id="lanes"></div><p id="result"></p><p class="text-sm text-slate-500">Tab 聚焦，Enter / 空格操作；减少动态效果偏好下自动播放改为单步推进。</p></section>
+<section class="mt-6 p-6 bg-white border rounded-xl"><h2>测试与验证</h2><p class="badge">快速生成模式：待补验证</p><div id="cases"></div></section>
+<section class="mt-6 p-6 bg-white border rounded-xl"><h2>独立题解</h2><p>先思考：如何定义日期分区？如何保留并列第一？</p><button id="toggle" aria-controls="solution" aria-expanded="false">查看题解</button><div id="solution" hidden><h3 id="heading" tabindex="-1">核心洞察</h3><p>按 DATE(day) 分区，再按 amount 降序使用 RANK 排名。全部并列最高交易的名次都为 1。</p><h3>完整过程</h3><ol><li>取完整年月日，去除时分秒。</li><li>在每个日期分区内按金额降序排名。</li><li>外层过滤 rnk = 1，不能在同层 WHERE 使用窗口别名。</li><li>只输出交易 ID，按数值升序排列。</li></ol><h3>正确性</h3><p>每行恰好属于一个日期分区。某行排名为 1，当且仅当同日没有更大金额，因此它恰好是该日最大交易。所有并列最大行都取得排名 1，其他行均被过滤。最后排序仅改变输出顺序，满足 ID 升序要求。</p><h3>边界与常见错误</h3><ul><li>同日全相等要全部返回；单笔日期返回该笔；空表返回空结果。</li><li>ROW_NUMBER = 1 会丢失并列。RANK 与 DENSE_RANK 的首名在这里相同。</li><li>DAY(day) 只有日号，会混淆跨月、跨年记录；完整时间戳分区又会错误拆分同一天。</li><li>只求 MAX(amount) 不足以返回交易 ID；不要遗漏最终 ORDER BY。</li><li>本地代码以有效、非 NULL、无时区记录为输入契约。业务若含 NULL 或时区，需先约定归日与空值口径。</li></ul><h3>复杂度</h3><p>设 n 为记录数、d 为日期数、k 为结果数。窗口查询典型排序成本 O(n log n)，中间空间通常 O(n)，实际依赖数据库执行计划。下面哈希映射参考实现期望时间 O(n + k log k)，空间 O(d + k)；C++ 使用有序 map，时间 O(n log(d+1) + k log k)。</p><h3>替代方案</h3><p>先按日期 GROUP BY 求最大金额，再以日期和金额两列回连原表，同样保留并列。也可用 NOT EXISTS 判断同日不存在更大金额，但缺乏有效索引时可能反复扫描。</p><h3>面试追问</h3><p>每天前三个不同金额档位用 DENSE_RANK ≤ 3；只要三条记录用 ROW_NUMBER，并补充 ID 作为确定性排序条件。大表考虑日期生成列及组合索引，效果要由执行计划判断。跨时区业务先确定业务日期。</p><h3>MySQL 8+ · 可提交主解</h3><pre><code>WITH ranked AS (
+    SELECT transaction_id,
+           RANK() OVER (
+               PARTITION BY DATE(day)
+               ORDER BY amount DESC
+           ) AS rnk
+    FROM Transactions
+)
+SELECT transaction_id
+FROM ranked
+WHERE rnk = 1
+ORDER BY transaction_id;</code></pre><p>数据库题以 SQL 为主。以下四种语言是完整的本地语义参考函数，并非本题官方提交签名；均采用两遍扫描再排序。</p>
+<h3>Java 17 · 本地语义参考</h3><pre><code>import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
+
+class Solution {
+    record Transaction(int transaction_id, LocalDateTime day, int amount) {}
+    public List&lt;Integer&gt; findMaximumTransaction(List&lt;Transaction&gt; rows) {
+        Map&lt;LocalDate, Integer&gt; maximum = new HashMap&lt;&gt;();
+        for (Transaction t : rows)
+            maximum.merge(t.day().toLocalDate(), t.amount(), Math::max);
+        List&lt;Integer&gt; result = new ArrayList&lt;&gt;();
+        for (Transaction t : rows)
+            if (t.amount() == maximum.get(t.day().toLocalDate()))
+                result.add(t.transaction_id());
+        result.sort(Integer::compare);
+        return result;
+    }
+}</code></pre>
+<h3>JavaScript · 本地语义参考</h3><pre><code>// rows: {transaction_id: number, day: string, amount: number}[]
+// 日期允许 YYYY-M-D HH:mm:ss 或补零格式，不做时区转换。
+function findMaximumTransaction(rows) {
+    const key = day =&gt; day.split(/[ T]/)[0].split('-').map(Number).join('-');
+    const maximum = new Map();
+    for (const row of rows) {
+        const d = key(row.day);
+        maximum.set(d, Math.max(maximum.get(d) ?? -Infinity, row.amount));
+    }
+    return rows.filter(r =&gt; r.amount === maximum.get(key(r.day)))
+        .map(r =&gt; r.transaction_id).sort((a, b) =&gt; a - b);
+}</code></pre>
+<h3>Python · 本地语义参考（非 Pandas 签名）</h3><pre><code>from datetime import datetime
+from typing import NamedTuple
+
+class Transaction(NamedTuple):
+    transaction_id: int
+    day: datetime
+    amount: int
+
+def find_maximum_transaction(rows: list[Transaction]) -&gt; list[int]:
+    maximum = {}
+    for row in rows:
+        day = row.day.date()
+        maximum[day] = max(maximum.get(day, row.amount), row.amount)
+    return sorted(row.transaction_id for row in rows
+                  if row.amount == maximum[row.day.date()])</code></pre>
+<h3>C++17 · 本地语义参考</h3><pre><code>#include &lt;algorithm&gt;
+#include &lt;map&gt;
+#include &lt;sstream&gt;
+#include &lt;string&gt;
+#include &lt;tuple&gt;
+#include &lt;vector&gt;
+using namespace std;
+struct Transaction { int transaction_id; string day; int amount; };
+class Solution {
+    using Date = tuple&lt;int, int, int&gt;;
+    static Date dateKey(const string&amp; day) {
+        istringstream in(day);
+        int y, m, d; char dash;
+        in &gt;&gt; y &gt;&gt; dash &gt;&gt; m &gt;&gt; dash &gt;&gt; d;
+        return {y, m, d};
+    }
+public:
+    vector&lt;int&gt; findMaximumTransaction(const vector&lt;Transaction&gt;&amp; rows) {
+        map&lt;Date, int&gt; maximum;
+        for (const auto&amp; t : rows) {
+            auto [it, inserted] = maximum.emplace(dateKey(t.day), t.amount);
+            if (!inserted) it-&gt;second = max(it-&gt;second, t.amount);
+        }
+        vector&lt;int&gt; result;
+        for (const auto&amp; t : rows)
+            if (t.amount == maximum.at(dateKey(t.day)))
+                result.push_back(t.transaction_id);
+        sort(result.begin(), result.end());
+        return result;
+    }
+};</code></pre></div></section>
+<footer class="mt-6 text-sm text-slate-500"><p>来源：本轮 official-metadata.json（题名、数据库元数据与完整示例）；<a href="https://leetcode.com/problems/maximum-transaction-each-day/">官方入口</a>；<a href="https://leetcode.ca/2021-06-22-1831-Maximum-Transaction-Each-Day/">公开题面补充</a>。题意为简要转述。</p><p>仅生成 HTML，所有验证待补。</p></footer><div id="announce" class="sr-only" aria-live="polite"></div></main>
+<script data-cfasync="false">
+const rows=[[8,'2021-04-03 15:57:28',57],[9,'2021-04-28 08:47:25',21],[1,'2021-04-29 13:28:30',58],[5,'2021-04-28 16:39:59',40],[6,'2021-04-29 23:39:28',58]];
+const labels=['原始交易，尚未分区','按完整日期分区','按金额降序排名','保留所有排名为 1 的交易','汇总并按 ID 升序排列'];
+const $=id=>document.getElementById(id);let stage=0,timer=null;
+function node(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
+function stop(){clearInterval(timer);timer=null;$('play').textContent='自动播放';$('play').setAttribute('aria-pressed','false');}
+function render(){
+ $('step').textContent=`步骤 ${stage+1} / 5 · ${labels[stage]}`;$('prev').disabled=stage===0;$('next').disabled=stage===4;$('lanes').replaceChildren();
+ const groups=stage===0?[['未分区',rows]]:[...new Set(rows.map(r=>r[1].slice(0,10)))].map(d=>[d,rows.filter(r=>r[1].startsWith(d))]);
+ for(const [date,list] of groups){const lane=node('div',undefined,'lane');lane.append(node('h3',date));const ordered=stage>=2?[...list].sort((a,b)=>b[2]-a[2]):list;const max=Math.max(...list.map(r=>r[2]));for(const r of ordered){const win=r[2]===max;let label=`ID ${r[0]} · ${r[1]} · 金额 ${r[2]}`;if(stage>=2)label+=` · 排名 ${1+list.filter(x=>x[2]>r[2]).length}`;if(stage>=3)label+=win?' · 保留':' · 排除';lane.append(node('div',label,'text-sm'));const bar=node('div',undefined,'bar'+(stage>=3&&win?' winner':''));bar.style.width=`${r[2]/58*100}%`;bar.setAttribute('aria-hidden','true');lane.append(bar);} $('lanes').append(lane);}
+ $('result').textContent=stage===4?'最终 ID：1 → 5 → 6 → 8':stage===3?'绿色条形与“保留”标签标出各日期的全部最高交易。':'输出尚未汇总。';
+}
+$('prev').onclick=()=>{stop();stage=Math.max(0,stage-1);render();};$('next').onclick=()=>{stop();stage=Math.min(4,stage+1);render();};$('reset').onclick=()=>{stop();stage=0;render();};
+$('play').onclick=()=>{if(timer){stop();return;}if(matchMedia('(prefers-reduced-motion: reduce)').matches){stage=stage===4?0:stage+1;render();return;}if(stage===4)stage=0;render();$('play').textContent='暂停';$('play').setAttribute('aria-pressed','true');timer=setInterval(()=>{stage++;render();if(stage===4)stop();},1600);};
+$('toggle').onclick=()=>{const open=$('solution').hidden;$('solution').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').textContent=open?'收起题解':'查看题解';$('announce').textContent=open?'题解已展开':'题解已收起';if(open)$('heading').focus();else $('toggle').focus();};
+const cases=[['官方示例',rows,[1,5,6,8]],['同日并列',[[2,'2021-04-01 01:00:00',10],[7,'2021-04-01 23:59:59',10]],[2,7]],['跨月同日号',[[4,'2021-04-01 00:00:00',20],[3,'2021-05-01 00:00:00',10]],[3,4]],['空表',[],[]],['单条交易',[[9,'2021-04-01 10:00:00',7]],[9]]];
+for(const [title,input,expected] of cases){const box=node('article',undefined,'mt-6');box.append(node('h3',title),node('p','输入：Transactions(transaction_id, day, amount)'),node('pre',JSON.stringify(input,null,2)),node('p','期望输出：'),node('pre',JSON.stringify({headers:['transaction_id'],rows:expected.map(id=>[id])})),node('p','实际输出：待补验证'),node('p','通过状态：待补验证'));$('cases').append(box);}render();
+</script></body></html>
