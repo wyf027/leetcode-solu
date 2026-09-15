@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="3905 多源图像渲染：按层收集竞争颜色的多源 BFS 交互讲解。"
+    />
+    <title>3905 · 多源图像渲染｜交互讲解</title>
+    <style data-tailwind-compiled="true">
+      *,
+      ::before,
+      ::after {
+        box-sizing: border-box;
+      }
+      html {
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "PingFang SC",
+          sans-serif;
+        color: #172033;
+        background: #eff6ff;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 85% 3%, #dbeafe 0, transparent 28%),
+          linear-gradient(135deg, #f0f9ff, #f8fafc 52%, #f5f3ff);
+      }
+      button {
+        font: inherit;
+      }
+      .wrap {
+        width: min(1120px, calc(100% - 32px));
+        margin-inline: auto;
+      }
+      .hero {
+        padding: 48px 0 28px;
+      }
+      .eyebrow {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 11px;
+        border-radius: 999px;
+        background: #dbeafe;
+        color: #1d4ed8;
+        font-size: 13px;
+        font-weight: 800;
+      }
+      .hero h1 {
+        font-size: clamp(30px, 5vw, 52px);
+        letter-spacing: -0.04em;
+        margin: 14px 0 10px;
+      }
+      .lead,
+      .muted {
+        color: #475569;
+        line-height: 1.7;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 20px;
+        padding-bottom: 22px;
+      }
+      .card {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #dbeafe;
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
+      }
+      .card h2 {
+        font-size: 20px;
+        margin: 0 0 14px;
+      }
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+      .two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .btn {
+        border: 1px solid #2563eb;
+        background: #2563eb;
+        color: #fff;
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-weight: 800;
+        cursor: pointer;
+        box-shadow: none;
+        transition:
+          transform 0.16s,
+          box-shadow 0.16s;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(37, 99, 235, 0.24);
+      }
+      .btn:active {
+        transform: none;
+        box-shadow: 0 3px 8px rgba(37, 99, 235, 0.22);
+      }
+      .btn:focus-visible {
+        outline: 3px solid #f59e0b;
+        outline-offset: 3px;
+        box-shadow: none;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+      .btn.alt {
+        background: #fff;
+        color: #1d4ed8;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .stack-card {
+        margin-top: 20px;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(var(--columns, 3), minmax(0, 1fr));
+        gap: 8px;
+        max-width: 390px;
+        margin: 12px auto;
+      }
+      .cell {
+        aspect-ratio: 1;
+        display: grid;
+        place-items: center;
+        border: 1px solid #cbd5e1;
+        border-radius: 13px;
+        background: #f8fafc;
+        font:
+          800 20px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        transition:
+          background 0.2s,
+          color 0.2s,
+          transform 0.2s;
+      }
+      .cell.new {
+        outline: 3px solid #fbbf24;
+        outline-offset: 1px;
+      }
+      .key {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chip {
+        padding: 5px 9px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .chip.zero {
+        background: #e2e8f0;
+        color: #475569;
+      }
+      .case-picker {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .case-button[aria-pressed="true"] {
+        background: #1d4ed8;
+        color: #fff;
+        box-shadow: 0 0 0 3px #bfdbfe;
+      }
+      .result-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .result-card {
+        min-width: 0;
+        border: 1px solid #dbeafe;
+        border-radius: 14px;
+        padding: 14px;
+        background: #f8fbff;
+      }
+      .result-card code {
+        overflow-wrap: anywhere;
+      }
+      .result-card p {
+        margin: 8px 0 0;
+        line-height: 1.55;
+      }
+      .step {
+        border-left: 4px solid #60a5fa;
+        padding: 12px 14px;
+        background: #f8fbff;
+        border-radius: 0 12px 12px 0;
+        line-height: 1.65;
+      }
+      .mono,
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .code {
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 14px;
+        padding: 16px;
+        overflow: auto;
+        line-height: 1.55;
+        font-size: 13px;
+        white-space: pre;
+      }
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .table td,
+      .table th {
+        padding: 10px;
+        border-bottom: 1px solid #e2e8f0;
+        text-align: left;
+        vertical-align: top;
+      }
+      .table th {
+        color: #334155;
+      }
+      .notice {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        color: #854d0e;
+        border-radius: 14px;
+        padding: 14px;
+        line-height: 1.65;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 16px 0;
+      }
+      .tab[aria-selected="true"] {
+        background: #1d4ed8;
+        color: white;
+      }
+      .solution {
+        margin: 16px 0 44px;
+      }
+      .solution[hidden] {
+        display: none;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      @media (max-width: 760px) {
+        .hero {
+          padding-top: 30px;
+        }
+        .layout,
+        .two,
+        .result-grid {
+          grid-template-columns: 1fr;
+        }
+        .wrap {
+          width: min(100% - 24px, 1120px);
+        }
+        .card {
+          padding: 18px;
+        }
+        .board {
+          max-width: 100%;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        ::before,
+        ::after {
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="wrap hero">
+      <span class="eyebrow">LeetCode 3905 · Medium · 多源 BFS</span>
+      <h1>多源图像渲染</h1>
+      <p class="lead">
+        让多个颜色同时向四邻域扩散；同一时刻撞到同一格时，留下数值更大的颜色。
+      </p>
+    </header>
+    <main class="wrap">
+      <section class="layout" aria-label="题意与交互演示">
+        <article class="card">
+          <h2>题意</h2>
+          <p class="muted">
+            给定 <code>n</code> 行、<code>m</code> 列网格，以及
+            <code>sources = [r, c, color]</code>。源格已着色，其他格为
+            <code>0</code
+            >。每一单位时间，所有已着色格同时向上下左右的未着色邻格传播；同一层的竞争取最大颜色。返回最终网格。
+          </p>
+          <div class="grid two">
+            <div class="step">
+              <strong>示例输入</strong><br /><code>n = 3, m = 3</code
+              ><br /><code>sources = [[0,0,1],[2,2,2]]</code>
+            </div>
+            <div class="step">
+              <strong>示例输出</strong><br /><code
+                >[[1,1,2],[1,2,2],[2,2,2]]</code
+              ><br />数字 <code>2</code> 在同层碰撞中获胜。
+            </div>
+          </div>
+          <div class="notice">
+            <strong>约束摘要：</strong
+            ><code>1 ≤ n × m ≤ 10^5</code>，源坐标互不相同，颜色范围为
+            <code>1…10^6</code>。逐层处理，不能把本层刚染色的格马上继续扩散。
+          </div>
+        </article>
+        <aside class="card">
+          <h2>推荐策略</h2>
+          <p class="muted">
+            多源 BFS：队列保存当前波前；本层的候选邻居暂存到映射中，对同一坐标取
+            <code>max</code>；整层结束后再写入网格与下一层队列。
+          </p>
+          <p><strong>时间：</strong><code>O(n × m)</code></p>
+          <p><strong>空间：</strong><code>O(n × m)</code></p>
+        </aside>
+      </section>
+      <section class="card" aria-labelledby="sim-title" data-test-visualizer>
+        <h2 id="sim-title">同步扩散演示</h2>
+        <p id="step-text" class="muted">
+          选择测试用例后，从源点开始逐层执行。黄色描边代表本轮新写入的格。
+        </p>
+        <div
+          id="legend"
+          class="key"
+          role="group"
+          aria-label="当前用例颜色图例"
+        ></div>
+        <div
+          id="board"
+          class="board"
+          role="img"
+          aria-live="polite"
+          aria-label="同步扩散网格"
+        ></div>
+        <div class="controls">
+          <button id="prev" class="btn alt" type="button">上一步</button
+          ><button id="next" class="btn" type="button">下一步</button
+          ><button id="play" class="btn alt" type="button" aria-pressed="false">
+            运行到结束</button
+          ><button id="reset" class="btn alt" type="button">重置</button>
+        </div>
+        <p id="live" class="sr-only" aria-live="polite"></p>
+      </section>
+      <section
+        id="test-cases"
+        class="card stack-card"
+        data-test-section
+        aria-labelledby="tests-title"
+      >
+        <h2 id="tests-title">测试与验证</h2>
+        <p class="muted">
+          每个用例都从自己的输入重新构造 BFS
+          帧；只有真实运行到终态后才计算实际输出并判定。
+        </p>
+        <div class="case-picker" role="group" aria-label="选择测试用例">
+          <button
+            class="btn alt case-button"
+            type="button"
+            data-test-case-id="case-a"
+            aria-pressed="true"
+          >
+            用例 A</button
+          ><button
+            class="btn alt case-button"
+            type="button"
+            data-test-case-id="case-b"
+            aria-pressed="false"
+          >
+            用例 B
+          </button>
+        </div>
+        <div class="result-grid">
+          <article class="result-card">
+            <strong>用例 A</strong>
+            <p>输入：<code data-test-input-for="case-a"></code></p>
+            <p>期望输出：<code data-test-expected-for="case-a"></code></p>
+            <p>实际输出：<code data-test-actual-for="case-a">—</code></p>
+            <p>状态：<code data-test-status-for="case-a">未执行</code></p>
+          </article>
+          <article class="result-card">
+            <strong>用例 B</strong>
+            <p>输入：<code data-test-input-for="case-b"></code></p>
+            <p>期望输出：<code data-test-expected-for="case-b"></code></p>
+            <p>实际输出：<code data-test-actual-for="case-b">—</code></p>
+            <p>状态：<code data-test-status-for="case-b">未执行</code></p>
+          </article>
+        </div>
+      </section>
+      <section class="card stack-card">
+        <button
+          id="solution-toggle"
+          class="btn"
+          type="button"
+          aria-controls="solution-panel"
+          aria-expanded="false"
+        >
+          查看题解</button
+        ><span id="solution-live" class="sr-only" aria-live="polite"></span>
+        <div id="solution-panel" class="solution" hidden>
+          <h2>题解：把“同时”锁在层边界</h2>
+          <div class="grid two">
+            <div>
+              <h3>核心洞察</h3>
+              <p class="muted">
+                当前队列只代表同一个时间层。遍历它的四邻居时，不能直接入下一轮队列；应先在
+                <code>next</code>
+                中按坐标合并竞争颜色。这样同一时刻抵达才有机会比较最大值。
+              </p>
+              <h3>过程</h3>
+              <ol class="muted">
+                <li>初始化答案网格并加入所有源。</li>
+                <li>取当前整层队列，扫描四方向的未着色邻格。</li>
+                <li><code>next[key] = max(next[key], color)</code>。</li>
+                <li>层扫描结束，统一落盘 <code>next</code>，成为新波前。</li>
+              </ol>
+            </div>
+            <div>
+              <h3>边界与常见错误</h3>
+              <ul class="muted">
+                <li>单个源时每格都继承该颜色。</li>
+                <li>源点已经着色，不能被后续波覆盖。</li>
+                <li>逐个直接写邻居会破坏“同时扩散”。</li>
+                <li>不能把跨层竞争也拿来比较：只有同一层才竞争。</li>
+              </ul>
+              <h3>替代方案与追问</h3>
+              <p class="muted">
+                可用优先队列按距离和颜色排序，但本题规则是严格的层同步，普通分层
+                BFS 更直接。追问：若障碍格为
+                <code>-1</code>，只需在扩散时跳过即可。
+              </p>
+            </div>
+          </div>
+          <h3>四语言可提交代码</h3>
+          <div class="tabs" role="tablist" aria-label="代码语言">
+            <button
+              class="btn alt tab"
+              role="tab"
+              aria-selected="true"
+              data-lang="java"
+              type="button"
+            >
+              Java</button
+            ><button
+              class="btn alt tab"
+              role="tab"
+              aria-selected="false"
+              data-lang="js"
+              type="button"
+            >
+              JavaScript</button
+            ><button
+              class="btn alt tab"
+              role="tab"
+              aria-selected="false"
+              data-lang="py"
+              type="button"
+            >
+              Python</button
+            ><button
+              class="btn alt tab"
+              role="tab"
+              aria-selected="false"
+              data-lang="cpp"
+              type="button"
+            >
+              C++
+            </button>
+          </div>
+          <pre id="code" class="code" tabindex="0"></pre>
+        </div>
+      </section>
+    </main>
+    <template id="java"
+      >class Solution { public int[][] colorGrid(int n, int m, int[][] sources)
+      { int[][] ans = new int[n][m]; List&lt;int[]&gt; q = new
+      ArrayList&lt;&gt;(); for (int[] s : sources) { ans[s[0]][s[1]] = s[2];
+      q.add(s); } int[] d = {-1, 0, 1, 0, -1}; while (!q.isEmpty()) {
+      Map&lt;Integer, Integer&gt; next = new HashMap&lt;&gt;(); for (int[] cur :
+      q) for (int k = 0; k &lt; 4; k++) { int x = cur[0] + d[k], y = cur[1] +
+      d[k + 1]; if (x &gt;= 0 &amp;&amp; x &lt; n &amp;&amp; y &gt;= 0
+      &amp;&amp; y &lt; m &amp;&amp; ans[x][y] == 0) { int key = x * m + y;
+      next.merge(key, cur[2], Math::max); } } q = new ArrayList&lt;&gt;(); for
+      (var e : next.entrySet()) { int x=e.getKey()/m,y=e.getKey()%m;
+      ans[x][y]=e.getValue(); q.add(new int[]{x,y,e.getValue()}); } } return
+      ans; } }</template
+    >
+    <template id="js"
+      >/** @param {number} n @param {number} m @param {number[][]} sources
+      @return {number[][]} */ var colorGrid = function(n, m, sources) { const
+      ans = Array.from({ length: n }, () =&gt; Array(m).fill(0)); let q =
+      sources.map(([r, c, color]) =&gt; (ans[r][c] = color, [r, c, color]));
+      const d = [-1, 0, 1, 0, -1]; while (q.length) { const next = new Map();
+      for (const [r, c, color] of q) for (let k = 0; k &lt; 4; k++) { const x =
+      r + d[k], y = c + d[k + 1]; if (x &gt;= 0 &amp;&amp; x &lt; n &amp;&amp; y
+      &gt;= 0 &amp;&amp; y &lt; m &amp;&amp; ans[x][y] === 0) { const key = x *
+      m + y; next.set(key, Math.max(next.get(key) ?? 0, color)); } } q = []; for
+      (const [key, color] of next) { const x = Math.floor(key / m), y = key % m;
+      ans[x][y] = color; q.push([x, y, color]); } } return ans; };</template
+    >
+    <template id="py"
+      >class Solution: def colorGrid(self, n: int, m: int, sources:
+      list[list[int]]) -&gt; list[list[int]]: ans = [[0] * m for _ in range(n)]
+      q = [] for r, c, color in sources: ans[r][c] = color q.append((r, c,
+      color)) dirs = (-1, 0, 1, 0, -1) while q: nxt = {} for r, c, color in q:
+      for k in range(4): x, y = r + dirs[k], c + dirs[k + 1] if 0 &lt;= x &lt; n
+      and 0 &lt;= y &lt; m and ans[x][y] == 0: nxt[(x, y)] = max(nxt.get((x, y),
+      0), color) q = [] for (x, y), color in nxt.items(): ans[x][y] = color
+      q.append((x, y, color)) return ans</template
+    >
+    <template id="cpp"
+      >class Solution { public: vector&lt;vector&lt;int&gt;&gt; colorGrid(int n,
+      int m, vector&lt;vector&lt;int&gt;&gt;&amp; sources) {
+      vector&lt;vector&lt;int&gt;&gt; ans(n, vector&lt;int&gt;(m));
+      vector&lt;array&lt;int, 3&gt;&gt; q; for (auto&amp; s : sources)
+      ans[s[0]][s[1]] = s[2], q.push_back({s[0], s[1], s[2]}); int d[5] = {-1,
+      0, 1, 0, -1}; while (!q.empty()) { unordered_map&lt;int, int&gt; nxt; for
+      (auto [r, c, color] : q) for (int k = 0; k &lt; 4; ++k) { int x = r +
+      d[k], y = c + d[k + 1]; if (x &gt;= 0 &amp;&amp; x &lt; n &amp;&amp; y
+      &gt;= 0 &amp;&amp; y &lt; m &amp;&amp; ans[x][y] == 0) nxt[x * m + y] =
+      max(nxt[x * m + y], color); } q.clear(); for (auto&amp; [key, color] :
+      nxt) { int x = key / m, y = key % m; ans[x][y] = color; q.push_back({x, y,
+      color}); } } return ans; } };</template
+    >
+    <script data-cfasync="false">
+      const cases = [
+        {
+          id: "case-a",
+          label: "用例 A",
+          input: {
+            n: 3,
+            m: 3,
+            sources: [
+              [0, 0, 1],
+              [2, 2, 2],
+            ],
+          },
+          expected: [
+            [1, 1, 2],
+            [1, 2, 2],
+            [2, 2, 2],
+          ],
+        },
+        {
+          id: "case-b",
+          label: "用例 B",
+          input: { n: 2, m: 2, sources: [[1, 1, 5]] },
+          expected: [
+            [5, 5],
+            [5, 5],
+          ],
+        },
+      ];
+      const cloneMatrix = (matrix) => matrix.map((row) => [...row]);
+      const buildFrames = (input) => {
+        const grid = Array.from({ length: input.n }, () =>
+          Array(input.m).fill(0),
+        );
+        let frontier = input.sources.map(([row, column, color]) => {
+          grid[row][column] = color;
+          return [row, column, color];
+        });
+        const frames = [
+          {
+            grid: cloneMatrix(grid),
+            fresh: frontier.map(([row, column]) => row * input.m + column),
+            message: "源点已同时进入第 0 层队列。",
+          },
+        ];
+        const directions = [-1, 0, 1, 0, -1];
+        let layer = 0;
+        while (frontier.length) {
+          const candidates = new Map();
+          frontier.forEach(([row, column, color]) => {
+            for (let direction = 0; direction < 4; direction += 1) {
+              const nextRow = row + directions[direction];
+              const nextColumn = column + directions[direction + 1];
+              if (
+                nextRow < 0 ||
+                nextRow >= input.n ||
+                nextColumn < 0 ||
+                nextColumn >= input.m ||
+                grid[nextRow][nextColumn] !== 0
+              ) {
+                continue;
+              }
+              const key = nextRow * input.m + nextColumn;
+              candidates.set(key, Math.max(candidates.get(key) ?? 0, color));
+            }
+          });
+          if (candidates.size === 0) break;
+          frontier = [];
+          candidates.forEach((color, key) => {
+            const row = Math.floor(key / input.m);
+            const column = key % input.m;
+            grid[row][column] = color;
+            frontier.push([row, column, color]);
+          });
+          layer += 1;
+          frames.push({
+            grid: cloneMatrix(grid),
+            fresh: [...candidates.keys()],
+            message: `第 ${layer} 层先合并同格竞争，再统一写入 ${candidates.size} 个格。`,
+          });
+        }
+        frames[frames.length - 1].message += " 扩散结束。";
+        return frames;
+      };
+      const normalizeOutput = (value) =>
+        Array.isArray(value)
+          ? value.map((entry) => normalizeOutput(entry))
+          : Number(value);
+      const outputsEqual = (left, right) =>
+        JSON.stringify(normalizeOutput(left)) ===
+        JSON.stringify(normalizeOutput(right));
+      const colorStyle = (value) => {
+        if (value === 0) return { background: "#f8fafc", color: "#64748b" };
+        const hue = (value * 79) % 360;
+        return {
+          background: `hsl(${hue} 78% 92%)`,
+          color: `hsl(${hue} 64% 32%)`,
+        };
+      };
+      const board = document.querySelector("#board"),
+        legend = document.querySelector("#legend"),
+        note = document.querySelector("#step-text"),
+        live = document.querySelector("#live"),
+        previousButton = document.querySelector("#prev"),
+        nextButton = document.querySelector("#next"),
+        playButton = document.querySelector("#play"),
+        resetButton = document.querySelector("#reset");
+      let activeCase = cases[0],
+        frames = buildFrames(activeCase.input),
+        stepIndex = 0,
+        actual = null,
+        status = "idle",
+        timer = null,
+        playResolve = null;
+      const getState = () => ({
+        activeCaseId: activeCase.id,
+        stepIndex,
+        stepCount: frames.length - 1,
+        actual: actual === null ? null : cloneMatrix(actual),
+        status,
+      });
+      const updatePlayButton = () => {
+        const playing = timer !== null || playResolve !== null;
+        playButton.textContent = playing ? "停止播放" : "运行到结束";
+        playButton.setAttribute("aria-pressed", String(playing));
+      };
+      const cancelAutoplay = () => {
+        if (timer !== null) window.clearTimeout(timer);
+        timer = null;
+        const resolve = playResolve;
+        playResolve = null;
+        updatePlayButton();
+        if (resolve) resolve(getState());
+      };
+      const renderResult = () => {
+        const actualNode = document.querySelector(
+          `[data-test-actual-for="${activeCase.id}"]`,
+        );
+        const statusNode = document.querySelector(
+          `[data-test-status-for="${activeCase.id}"]`,
+        );
+        actualNode.textContent = actual === null ? "—" : JSON.stringify(actual);
+        statusNode.textContent =
+          status === "passed"
+            ? "通过 (passed)"
+            : status === "failed"
+              ? "失败 (failed)"
+              : status === "running"
+                ? "运行中"
+                : "未执行";
+      };
+      const paint = () => {
+        const frame = frames[stepIndex];
+        board.replaceChildren();
+        board.style.setProperty("--columns", String(activeCase.input.m));
+        board.setAttribute(
+          "aria-label",
+          `${activeCase.input.n} 行 ${activeCase.input.m} 列同步扩散网格`,
+        );
+        frame.grid.flat().forEach((value, index) => {
+          const cell = document.createElement("div");
+          const style = colorStyle(value);
+          cell.className = `cell${frame.fresh.includes(index) ? " new" : ""}`;
+          cell.textContent = String(value);
+          cell.style.background = style.background;
+          cell.style.color = style.color;
+          board.append(cell);
+        });
+        note.textContent = `${activeCase.label} · 第 ${stepIndex}/${frames.length - 1} 步：${frame.message}`;
+        live.textContent = note.textContent;
+        previousButton.disabled = stepIndex === 0;
+        nextButton.disabled = stepIndex === frames.length - 1;
+        renderResult();
+      };
+      const renderLegend = () => {
+        legend.replaceChildren();
+        const colors = [
+          ...new Set(activeCase.input.sources.map((source) => source[2])),
+        ];
+        colors.forEach((value) => {
+          const chip = document.createElement("span");
+          const style = colorStyle(value);
+          chip.className = "chip";
+          chip.textContent = `颜色 ${value}`;
+          chip.style.background = style.background;
+          chip.style.color = style.color;
+          legend.append(chip);
+        });
+        const empty = document.createElement("span");
+        empty.className = "chip zero";
+        empty.textContent = "未着色 0";
+        legend.append(empty);
+      };
+      const finishIfTerminal = () => {
+        if (stepIndex !== frames.length - 1) return;
+        actual = cloneMatrix(frames[stepIndex].grid);
+        status = outputsEqual(actual, activeCase.expected)
+          ? "passed"
+          : "failed";
+      };
+      const advance = () => {
+        if (stepIndex < frames.length - 1) stepIndex += 1;
+        status = "running";
+        finishIfTerminal();
+        paint();
+        return getState();
+      };
+      const selectCase = (id) => {
+        const selected = cases.find((testCase) => testCase.id === id);
+        if (!selected) throw new Error(`未知测试用例：${id}`);
+        cancelAutoplay();
+        activeCase = selected;
+        frames = buildFrames(activeCase.input);
+        stepIndex = 0;
+        actual = null;
+        status = "idle";
+        document.querySelectorAll("[data-test-case-id]").forEach((button) => {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.testCaseId === activeCase.id),
+          );
+        });
+        renderLegend();
+        paint();
+        return getState();
+      };
+      const next = () => {
+        cancelAutoplay();
+        return advance();
+      };
+      const previous = () => {
+        cancelAutoplay();
+        stepIndex = Math.max(0, stepIndex - 1);
+        actual = null;
+        status = stepIndex === 0 ? "idle" : "running";
+        paint();
+        return getState();
+      };
+      const reset = () => selectCase(activeCase.id);
+      const playToEnd = () => {
+        cancelAutoplay();
+        if (stepIndex === frames.length - 1) {
+          finishIfTerminal();
+          paint();
+          return Promise.resolve(getState());
+        }
+        status = "running";
+        paint();
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          while (stepIndex < frames.length - 1) advance();
+          return Promise.resolve(getState());
+        }
+        return new Promise((resolve) => {
+          playResolve = resolve;
+          updatePlayButton();
+          const tick = () => {
+            timer = null;
+            advance();
+            if (stepIndex === frames.length - 1) {
+              const complete = playResolve;
+              playResolve = null;
+              updatePlayButton();
+              complete?.(getState());
+              return;
+            }
+            timer = window.setTimeout(tick, 450);
+          };
+          timer = window.setTimeout(tick, 450);
+        });
+      };
+      cases.forEach((testCase) => {
+        const inputNode = document.querySelector(
+          `[data-test-input-for="${testCase.id}"]`,
+        );
+        const expectedNode = document.querySelector(
+          `[data-test-expected-for="${testCase.id}"]`,
+        );
+        inputNode.textContent = `n=${testCase.input.n}, m=${testCase.input.m}, sources=${JSON.stringify(testCase.input.sources)}`;
+        expectedNode.textContent = JSON.stringify(testCase.expected);
+      });
+      document.querySelectorAll("[data-test-case-id]").forEach((button) => {
+        button.addEventListener("click", () =>
+          selectCase(button.dataset.testCaseId),
+        );
+      });
+      previousButton.addEventListener("click", previous);
+      nextButton.addEventListener("click", next);
+      resetButton.addEventListener("click", reset);
+      playButton.addEventListener("click", () => {
+        if (timer !== null || playResolve !== null) cancelAutoplay();
+        else void playToEnd();
+      });
+      window.__leetcodeTestViz = {
+        version: 1,
+        cases,
+        getState,
+        selectCase,
+        next,
+        previous,
+        reset,
+        playToEnd,
+      };
+      renderLegend();
+      paint();
+      const toggle = document.querySelector("#solution-toggle"),
+        panel = document.querySelector("#solution-panel"),
+        solutionLive = document.querySelector("#solution-live");
+      toggle.onclick = () => {
+        const open = panel.hidden;
+        panel.hidden = !open;
+        toggle.setAttribute("aria-expanded", String(open));
+        toggle.textContent = open ? "收起题解" : "查看题解";
+        solutionLive.textContent = open ? "题解已展开" : "题解已收起";
+        if (open) panel.querySelector(".tab").focus();
+      };
+      const code = document.querySelector("#code");
+      const show = (lang) =>
+        (code.textContent = document
+          .querySelector("#" + lang)
+          .content.textContent.trim());
+      document.querySelectorAll(".tab").forEach(
+        (b) =>
+          (b.onclick = () => {
+            document
+              .querySelectorAll(".tab")
+              .forEach((x) => x.setAttribute("aria-selected", "false"));
+            b.setAttribute("aria-selected", "true");
+            show(b.dataset.lang);
+          }),
+      );
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !panel.hidden) {
+          toggle.click();
+          toggle.focus();
+        }
+      });
+      show("java");
+      paint();
+    </script>
+  </body>
+</html>
