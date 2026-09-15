@@ -7,6 +7,7 @@ export type OperationKind =
   | 'test'
   | 'submit'
   | 'favorite'
+  | 'load-plans'
 
 export interface CommandResult {
   readonly command: string
@@ -44,6 +45,7 @@ export type ParsedRunResult =
       readonly message: string
       readonly truncated: boolean
       readonly failedCase?: FailedTestCase
+      readonly details?: string
     }
   | {
       readonly kind: 'submit'

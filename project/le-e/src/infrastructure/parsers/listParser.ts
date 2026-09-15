@@ -107,3 +107,85 @@ export function parseProblemList(
     },
   }
 }
+
+/** Machine catalogue from the identity-aware helper. Reject partial/ambiguous data. */
+export function parseQuestionCatalog(input: string): AppResult<ParsedProblemList> {
+  try {
+    const lines = input
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    const end = lines.pop()
+    if (end?.complete !== true || end.count !== lines.length)
+      throw new Error('Incomplete catalogue')
+    const ids = new Set<number>()
+    const slugs = new Set<string>()
+    const summaries: ProblemSummary[] = lines.map((row) => {
+      const { id, frontendId, slug, title, difficulty, acceptance, solveStatus, starred } = row
+      if (
+        typeof id !== 'number' ||
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        id > 2147483647 ||
+        typeof frontendId !== 'string' ||
+        frontendId.trim() === '' ||
+        frontendId.length > 80 ||
+        typeof slug !== 'string' ||
+        !/^[a-zA-Z0-9-]{1,240}$/.test(slug) ||
+        typeof title !== 'string' ||
+        title.trim() === '' ||
+        !['Easy', 'Medium', 'Hard'].includes(String(difficulty)) ||
+        !(
+          acceptance === null ||
+          (typeof acceptance === 'number' &&
+            Number.isFinite(acceptance) &&
+            acceptance >= 0 &&
+            acceptance <= 100)
+        ) ||
+        !['solved', 'attempted', 'unsolved', 'locked', 'unknown'].includes(String(solveStatus)) ||
+        typeof starred !== 'boolean' ||
+        ids.has(id) ||
+        slugs.has(slug)
+      )
+        throw new Error('Invalid catalogue identity')
+      ids.add(id)
+      slugs.add(slug)
+      return {
+        id,
+        frontendId,
+        slug,
+        title,
+        difficulty: difficulty as Difficulty,
+        acceptance,
+        solveStatus: solveStatus as SolveStatus,
+        starred,
+        identityStatus: 'provisional',
+      }
+    })
+    const collator = new Intl.Collator('en', { numeric: true })
+    summaries.sort((a, b) => {
+      const aLabel = a.frontendId!,
+        bLabel = b.frontendId!
+      const category = Number(!/^\d+$/.test(aLabel)) - Number(!/^\d+$/.test(bLabel))
+      return category || collator.compare(aLabel, bLabel) || a.id - b.id
+    })
+    return {
+      ok: true,
+      value: {
+        summaries,
+        collisionCandidates: new Map(),
+        duplicateCount: 0,
+        unparsedLineCount: 0,
+        sourceTruncated: false,
+      },
+    }
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: ERROR_CODES.parse,
+        message: '题库的唯一标识数据缺失、重复或不完整，请更新题库助手后重试。',
+      },
+    }
+  }
+}

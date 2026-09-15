@@ -1,7 +1,8 @@
 import type { AppController } from './createAppController'
 import type { TerminalInputEvent } from './terminalInput'
+import { readClipboardText } from '../infrastructure/clipboard'
 
-export type UiFocus = 'filters' | 'problems' | 'detail' | 'log'
+export type UiFocus = 'filters' | 'problems' | 'detail' | 'log' | 'editor'
 export type CookieLoginField = 'session' | 'csrf'
 
 export interface UiInteractionState {
@@ -21,6 +22,7 @@ export interface KeyRouterOptions {
   readonly controller: AppController
   readonly ui: UiInteractionState
   readonly requestExit: () => void
+  readonly readClipboard?: () => Promise<string>
 }
 
 const specialKeys = new Set([
@@ -180,7 +182,7 @@ function problemMovementStep(
   event: TerminalInputEvent,
 ): number {
   if (ui.focus !== 'problems') return 1
-  if (controller.state.viewMode === 'favorites' && controller.state.favoritePage === 'folders') {
+  if (controller.state.viewMode !== 'all' && controller.state.favoritePage === 'folders') {
     return 1
   }
   if (event.type !== 'keydown') return 1
@@ -207,7 +209,42 @@ function moveFocusedArea(
 
 export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInputEvent) => boolean {
   const { controller, ui, requestExit } = options
+  let inputRevision = 0
   return (event) => {
+    if (event.type === 'keydown' || event.type === 'paste') inputRevision++
+    if (
+      event.type === 'keydown' &&
+      event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      event.key.toLowerCase() === 'v' &&
+      (controller.state.cookieLogin.open || ui.searchMode)
+    ) {
+      if (controller.state.cookieLogin.submitting) return true
+      const revision = inputRevision
+      const cookie = controller.state.cookieLogin.open
+      const field = ui.cookieField
+      const stillCurrent = () =>
+        revision === inputRevision &&
+        (cookie
+          ? controller.state.cookieLogin.open &&
+            !controller.state.cookieLogin.submitting &&
+            ui.cookieField === field
+          : ui.searchMode && !controller.state.cookieLogin.open)
+      void (options.readClipboard ?? readClipboardText)()
+        .then((text) => {
+          if (!stillCurrent()) return
+          const paste = { type: 'paste' as const, text }
+          if (cookie) routeCookieLogin(paste, options)
+          else routeSearch(paste, options)
+        })
+        .catch(() => {
+          if (cookie && stillCurrent())
+            controller.state.cookieLogin.error = '无法读取剪贴板，请使用终端菜单粘贴。'
+        })
+      return true
+    }
+    if (event.type === 'keydown' && event.metaKey) return true
     if (ctrl(event, 'c')) {
       requestExit()
       return true
@@ -242,11 +279,9 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       const step = key === 'ArrowDown' ? problemMovementStep(controller, ui, event) : 1
       moveFocusedArea(controller, ui, 1, step)
     } else if (key === 'Enter') {
-      if (
-        controller.state.viewMode === 'favorites' &&
-        controller.state.favoritePage === 'folders'
-      ) {
-        controller.openFavoriteFolder()
+      if (controller.state.viewMode !== 'all' && controller.state.favoritePage === 'folders') {
+        if (controller.state.viewMode === 'official') void controller.openOfficialPlan()
+        else controller.openFavoriteFolder()
         ui.focus = 'problems'
       } else {
         ui.focus = 'detail'
@@ -264,6 +299,7 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       ui.searchDraft = controller.state.filters.query
     } else if (lower === 'f') controller.toggleStarredOnly()
     else if (lower === 'v') controller.toggleView()
+    else if (lower === 'o') void controller.showOfficialPlans()
     else if (key === '[') controller.moveFavoriteFolder(-1)
     else if (key === ']') controller.moveFavoriteFolder(1)
     else if (lower === 'a') void controller.toggleFavoriteSelected()
@@ -271,6 +307,7 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       clearCookieDrafts(ui)
       controller.openCookieLogin()
     } else if (lower === 'd') cycleDifficulty(controller)
+    else if (lower === 'g') controller.cycleLanguage()
     else if (lower === 'e') void controller.editSelected()
     else if (lower === 't') void controller.testSelected()
     else if (lower === 's') controller.openSubmitDialog()

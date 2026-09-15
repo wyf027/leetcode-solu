@@ -17,6 +17,11 @@ import type {
   LeetCodeGateway,
 } from '../infrastructure/leetcodeGateway'
 import type { AccountFavoritesGateway } from '../infrastructure/accountFavoritesGateway'
+import { OfficialStudyPlanAccessError } from '../infrastructure/officialStudyPlans'
+import type {
+  OfficialStudyPlan,
+  createOfficialStudyPlansGateway,
+} from '../infrastructure/officialStudyPlans'
 import { EditorBridgeProtocolError } from '../infrastructure/editorBridgeProtocol'
 import type { SourceBridgeSession } from '../infrastructure/sourceBridgeServer'
 import { SourceFileError } from '../infrastructure/sourceFile'
@@ -33,6 +38,9 @@ import {
 } from './submitState'
 import type { SubmitDialogState } from './submitState'
 
+import { LANGUAGES } from '../config/languages'
+import type { Language } from '../config/languages'
+
 export interface CookieLoginState {
   open: boolean
   submitting: boolean
@@ -40,6 +48,7 @@ export interface CookieLoginState {
 }
 
 export interface AppControllerState {
+  language: Language
   phase: 'idle' | 'starting' | 'ready' | 'error'
   cliVersion: string | null
   cliVersionSupported: boolean
@@ -59,10 +68,13 @@ export interface AppControllerState {
   submitDialog: SubmitDialogState
   cookieLogin: CookieLoginState
   logExpanded: boolean
-  viewMode: 'all' | 'favorites'
+  viewMode: 'all' | 'favorites' | 'official'
   favoritePage: 'folders' | 'questions'
   favoriteFolders: FavoriteFolder[]
   selectedFavoriteFolderSlug: string | null
+  officialPlans: OfficialStudyPlan[]
+  selectedOfficialPlanSlug: string | null
+  officialError: string | null
 }
 
 export interface AppController {
@@ -70,7 +82,11 @@ export interface AppController {
   start(): Promise<boolean>
   refresh(): Promise<boolean>
   visibleProblems(): ProblemSummary[]
+  visibleOfficialPlans(): OfficialStudyPlan[]
+  showOfficialPlans(): Promise<boolean>
+  openOfficialPlan(slug?: string): Promise<boolean>
   setQuery(query: string): void
+  cycleLanguage(): void
   setDifficulty(difficulty: Difficulty | 'all'): void
   toggleStarredOnly(): void
   toggleView(): void
@@ -82,6 +98,7 @@ export interface AppController {
   moveSelection(delta: number): void
   loadSelectedDetail(): Promise<boolean>
   editSelected(): Promise<boolean>
+  confirmEditorSaved(): Promise<boolean>
   dispose(): void
   testSelected(): Promise<boolean>
   openSubmitDialog(): boolean
@@ -100,11 +117,12 @@ export interface CreateAppControllerOptions {
   readonly editorBridge?: EditorBridgeDependencies
   readonly vimEditor?: VimEditorDependencies
   readonly favoritesGateway?: AccountFavoritesGateway
+  readonly officialGateway?: ReturnType<typeof createOfficialStudyPlansGateway>
 }
 
 export interface EditorBridgeDependencies {
   createBridge(options: { readonly signal: AbortSignal }): Promise<SourceBridgeSession>
-  loadSource(path: string): Promise<ValidatedSourceFile>
+  loadSource(path: string, language?: Language): Promise<ValidatedSourceFile>
 }
 
 export interface VimEditorDependencies {
@@ -119,8 +137,10 @@ export function createAppController({
   editorBridge,
   vimEditor,
   favoritesGateway,
+  officialGateway,
 }: CreateAppControllerOptions): AppController {
   const state: AppControllerState = reactive({
+    language: 'javascript',
     phase: 'idle',
     cliVersion: null,
     cliVersionSupported: true,
@@ -144,12 +164,19 @@ export function createAppController({
     favoritePage: 'folders',
     favoriteFolders: [],
     selectedFavoriteFolderSlug: null,
+    officialPlans: [],
+    selectedOfficialPlanSlug: null,
+    officialError: null,
   })
   let nextLogId = 1
   let activeEditorAbortController: AbortController | null = null
+  let editorDocument: { id: number; path: string; language: Language } | null = null
   let activeDetailAbortController: AbortController | null = null
   let activeRefreshAbortController: AbortController | null = null
   let pendingDetailLoad: (() => void) | undefined
+  let officialAbort: AbortController | null = null
+  const loadedPlans = new Set<string>()
+  let officialQuery = ''
 
   const addLog = (
     message: string,
@@ -182,7 +209,14 @@ export function createAppController({
   }
 
   const beginOperation = (operation: OperationKind): boolean => {
-    if (state.activeOperation !== null) {
+    if (
+      state.activeOperation !== null &&
+      !(
+        state.activeOperation === 'edit' &&
+        editorDocument !== null &&
+        (operation === 'test' || operation === 'submit')
+      )
+    ) {
       addLog(`Operation ${state.activeOperation} is already running.`, 'warn')
       return false
     }
@@ -192,7 +226,8 @@ export function createAppController({
   }
 
   const finishOperation = (): void => {
-    state.activeOperation = null
+    state.activeOperation = activeEditorAbortController === null ? null : 'edit'
+    if (state.activeOperation === 'edit') return
     const pending = pendingDetailLoad
     pendingDetailLoad = undefined
     pending?.()
@@ -201,6 +236,13 @@ export function createAppController({
   const selectedFavoriteFolder = (): FavoriteFolder | undefined =>
     state.favoriteFolders.find(({ slug }) => slug === state.selectedFavoriteFolderSlug)
 
+  const visibleOfficialPlans = (): OfficialStudyPlan[] => {
+    const query = state.filters.query.normalize('NFKC').toLowerCase().trim()
+    return state.officialPlans.filter((plan) =>
+      `${plan.name} ${plan.slug}`.normalize('NFKC').toLowerCase().includes(query),
+    )
+  }
+
   const replaceFavoriteFolders = (folders: readonly FavoriteFolder[]): void => {
     const selectedStillExists = folders.some(
       ({ slug }) => slug === state.selectedFavoriteFolderSlug,
@@ -208,14 +250,14 @@ export function createAppController({
     state.favoriteFolders = [...folders]
     if (selectedStillExists) return
     state.selectedFavoriteFolderSlug = state.favoriteFolders[0]?.slug ?? null
-    state.favoritePage = 'folders'
+    if (state.viewMode === 'favorites') state.favoritePage = 'folders'
   }
 
   const favoriteQuestionFor = (folder: FavoriteFolder, problem: ProblemSummary) =>
-    folder.questions.find(
-      (question) =>
-        (problem.slug !== undefined && question.slug === problem.slug) ||
-        question.title.normalize('NFKC').trim().toLocaleLowerCase() ===
+    folder.questions.find((question) =>
+      problem.slug !== undefined
+        ? question.slug === problem.slug
+        : question.title.normalize('NFKC').trim().toLocaleLowerCase() ===
           problem.title.normalize('NFKC').trim().toLocaleLowerCase(),
     )
 
@@ -223,26 +265,30 @@ export function createAppController({
     const filtered = filterProblems(state.problems, state.filters)
     if (state.viewMode === 'all') return filtered
     if (state.favoritePage === 'folders') return []
-    const folder = selectedFavoriteFolder()
+    const folder =
+      state.viewMode === 'official'
+        ? state.officialPlans.find(({ slug }) => slug === state.selectedOfficialPlanSlug)
+        : selectedFavoriteFolder()
     if (folder === undefined) return []
     const favoriteCandidates = filterProblems(
       [...state.problems, ...[...state.collisionCandidates.values()].flat()],
       state.filters,
     )
     return folder.questions
-      .map((question) =>
-        favoriteCandidates.find(
-          (problem) =>
-            problem.slug === question.slug ||
-            problem.title.normalize('NFKC').trim().toLocaleLowerCase() ===
+      .map((question) => {
+        const problem = favoriteCandidates.find((problem) =>
+          problem.slug !== undefined
+            ? problem.slug === question.slug
+            : problem.title.normalize('NFKC').trim().toLocaleLowerCase() ===
               question.title.normalize('NFKC').trim().toLocaleLowerCase(),
-        ),
-      )
+        )
+        return problem === undefined ? undefined : { ...problem, slug: question.slug }
+      })
       .filter((problem) => problem !== undefined)
   }
 
   const syncSelection = (): void => {
-    if (state.viewMode === 'favorites' && state.favoritePage === 'folders') {
+    if (state.viewMode !== 'all' && state.favoritePage === 'folders') {
       state.selectedProblemId = null
       return
     }
@@ -250,7 +296,7 @@ export function createAppController({
   }
 
   const selectedProblem = (id = state.selectedProblemId): ProblemSummary | undefined =>
-    id === null ? undefined : state.problems.find((problem) => problem.id === id)
+    id === null ? undefined : visibleProblems().find((problem) => problem.id === id)
 
   const replaceProblem = (replacement: ProblemSummary): void => {
     const index = state.problems.findIndex(({ id }) => id === replacement.id)
@@ -258,12 +304,120 @@ export function createAppController({
     syncSelection()
   }
 
+  const loadOfficialPlans = async (): Promise<boolean> => {
+    if (!officialGateway || !beginOperation('load-plans')) return false
+    const abort = new AbortController()
+    officialAbort = abort
+    state.officialError = null
+    try {
+      state.officialPlans = [...(await officialGateway.list(abort.signal))]
+      if (abort.signal.aborted) return false
+      loadedPlans.clear()
+      const plans = visibleOfficialPlans()
+      state.selectedOfficialPlanSlug =
+        plans.find((p) => p.slug === state.selectedOfficialPlanSlug)?.slug ?? plans[0]?.slug ?? null
+      return true
+    } catch {
+      if (!abort.signal.aborted) state.officialError = '官方题单加载失败，按 r 重试。'
+      return false
+    } finally {
+      if (officialAbort === abort) officialAbort = null
+      finishOperation()
+    }
+  }
+
+  const showOfficialPlans = async (): Promise<boolean> => {
+    if (state.activeOperation !== null || activeEditorAbortController !== null) return false
+    state.viewMode = 'official'
+    state.favoritePage = 'folders'
+    state.filters = { ...state.filters, query: officialQuery, starredOnly: false }
+    syncSelection()
+    if (!state.officialPlans.length) return loadOfficialPlans()
+    return true
+  }
+
+  const openOfficialPlan = async (
+    slug = state.selectedOfficialPlanSlug ?? undefined,
+  ): Promise<boolean> => {
+    if (
+      !slug ||
+      !officialGateway ||
+      state.activeOperation !== null ||
+      activeEditorAbortController !== null
+    )
+      return false
+    const index = state.officialPlans.findIndex((p) => p.slug === slug)
+    if (index < 0) return false
+    state.selectedOfficialPlanSlug = slug
+    state.officialError = null
+    if (!loadedPlans.has(slug)) {
+      if (!beginOperation('load-plans')) return false
+      const abort = new AbortController()
+      officialAbort = abort
+      state.officialError = null
+      try {
+        const plan = await officialGateway.load(slug, abort.signal)
+        if (abort.signal.aborted) return false
+        state.officialPlans[index] = plan
+        loadedPlans.add(slug)
+      } catch (error) {
+        if (!abort.signal.aborted) {
+          state.officialError =
+            error instanceof OfficialStudyPlanAccessError
+              ? '此题单需要访问权限或已下架，请在力扣网页登录并确认会员权限。'
+              : '题单内容加载失败，请点击题单或按 Enter 重试。'
+          if (state.favoritePage === 'questions') {
+            state.favoritePage = 'folders'
+            state.filters = { ...state.filters, query: officialQuery }
+            syncSelection()
+          }
+        }
+        return false
+      } finally {
+        if (officialAbort === abort) officialAbort = null
+        finishOperation()
+      }
+    }
+    const selectedPlan = state.officialPlans[index]!
+    if (selectedPlan.questions.length === 0 && selectedPlan.questionCount > 0) {
+      state.officialError = '此题单未公开题目，请在力扣网页登录并确认会员权限。'
+      state.favoritePage = 'folders'
+      syncSelection()
+      return false
+    }
+    if (state.favoritePage === 'folders') officialQuery = state.filters.query
+    state.filters = { ...state.filters, query: '' }
+    state.viewMode = 'official'
+    state.favoritePage = 'questions'
+    state.selectedProblemId = null
+    syncSelection()
+    const plan = state.officialPlans[index]!
+    if (plan.questions.length < plan.questionCount) {
+      addLog(
+        `公开可见 ${plan.questions.length}/${plan.questionCount} 道题；其余题目请在力扣网页确认访问权限。`,
+        'warn',
+      )
+    }
+    const slugs = new Set(state.problems.map((p) => p.slug))
+    const unavailable = plan.questions.filter((q) => !slugs.has(q.slug)).length
+    if (unavailable) addLog(`${unavailable} 道题未在当前题库中找到，可能受站点或权限限制。`, 'warn')
+    return true
+  }
+
+  const refreshOfficial = async (): Promise<boolean> => {
+    if (state.activeOperation !== null || activeEditorAbortController !== null) return false
+    if (state.favoritePage === 'folders') return loadOfficialPlans()
+    loadedPlans.delete(state.selectedOfficialPlanSlug ?? '')
+    return openOfficialPlan()
+  }
+
   const resolveIdentity = async (id: number, signal?: AbortSignal): Promise<boolean> => {
     const current = selectedProblem(id)
     if (!current) return false
-    if (current.identityStatus === 'resolved' && state.details.has(id)) return true
-
-    const detailResult = await gateway.loadDetail(id, gatewayOptions(signal))
+    const detailResult = await gateway.loadDetail(id, {
+      ...gatewayOptions(signal),
+      ...(current.slug ? { problemSlug: current.slug } : {}),
+    })
     if (signal?.aborted === true) return false
     if (!detailResult.ok) {
       setError(detailResult.error)
@@ -390,7 +544,7 @@ export function createAppController({
       return false
     }
 
-    state.cookieLogin.open = true
+    state.cookieLogin.open = false
     state.cookieLogin.submitting = true
     state.cookieLogin.error = null
     try {
@@ -450,7 +604,7 @@ export function createAppController({
     }
     setError({
       code: ERROR_CODES.editorBridgeProtocol,
-      message: 'Vim could not be opened through the editor bridge.',
+      message: 'The code editor could not be opened through the editor bridge.',
       detail: error instanceof Error ? error.message : String(error),
     })
   }
@@ -468,6 +622,7 @@ export function createAppController({
 
     const abortController = new AbortController()
     activeEditorAbortController = abortController
+    state.sourceReadyIds.delete(id)
     let bridge: SourceBridgeSession | undefined
     let editPromise: ReturnType<LeetCodeGateway['edit']> | undefined
     let commandCompleted = false
@@ -482,6 +637,7 @@ export function createAppController({
         ...gatewayOptions(),
         signal: abortController.signal,
         bridgeEnvironment: bridge.environment,
+        language: state.language,
       })
 
       const openResult = await Promise.race([
@@ -500,11 +656,12 @@ export function createAppController({
         return false
       }
 
-      const document = await editorBridge.loadSource(openResult.request.path)
+      const document = await editorBridge.loadSource(openResult.request.path, state.language)
+      editorDocument = { id, path: document.path, language: state.language }
       terminalSuspended = true
       await suspendForEditor()
       await vimEditor.open(document.path, { signal: abortController.signal })
-      await editorBridge.loadSource(document.path)
+      await editorBridge.loadSource(document.path, state.language)
       await bridge.complete()
 
       const editResult = await editPromise
@@ -515,17 +672,19 @@ export function createAppController({
       }
 
       state.sourceReadyIds.add(id)
-      addLog(`Vim saved the JavaScript source for problem ${id}.`)
+      addLog(
+        `Editor closed; ${state.language} source for problem ${selectedProblem(id)?.frontendId ?? id} is ready.`,
+      )
       succeeded = true
     } catch (error) {
       if (!abortController.signal.aborted) {
-        await bridge?.reject('The Vim editor handoff failed.').catch(() => {})
+        await bridge?.reject('The code editor handoff failed.').catch(() => {})
         if (error instanceof SourceFileError || error instanceof EditorBridgeProtocolError) {
           setEditorBridgeError(error)
         } else {
           setError({
-            code: ERROR_CODES.terminalRestore,
-            message: 'The Vim editor handoff failed.',
+            code: ERROR_CODES.editorLaunch,
+            message: 'The code editor handoff failed.',
             detail: error instanceof Error ? error.message : String(error),
           })
         }
@@ -539,30 +698,56 @@ export function createAppController({
           state.phase = 'error'
           setError({
             code: ERROR_CODES.terminalRestore,
-            message: 'The terminal could not be restored after Vim exited.',
+            message: 'The terminal could not be restored after the editor exited.',
             detail: error instanceof Error ? error.message : String(error),
           })
         }
       }
       if (activeEditorAbortController === abortController) activeEditorAbortController = null
+      editorDocument = null
       abortController.abort()
       if (editPromise !== undefined && !commandCompleted) await editPromise.catch(() => {})
       await bridge?.dispose().catch(() => {})
       if (!restored) state.sourceReadyIds.delete(id)
-      finishOperation()
+      if (state.activeOperation === 'edit') finishOperation()
     }
     return succeeded && restored
+  }
+
+  const confirmEditorSaved = async (): Promise<boolean> => {
+    const document = editorDocument
+    if (
+      !document ||
+      !editorBridge ||
+      state.activeOperation !== 'edit' ||
+      state.selectedProblemId !== document.id ||
+      state.language !== document.language
+    )
+      return false
+    try {
+      await editorBridge.loadSource(document.path, document.language)
+      if (editorDocument !== document || state.activeOperation !== 'edit') return false
+      state.sourceReadyIds.add(document.id)
+      return true
+    } catch (error) {
+      state.sourceReadyIds.delete(document.id)
+      setEditorBridgeError(error)
+      return false
+    }
   }
 
   const testSelected = async (): Promise<boolean> => {
     const id = state.selectedProblemId
     const problem = selectedProblem(id)
     if (id === null || problem?.identityStatus !== 'resolved' || !state.sourceReadyIds.has(id)) {
-      addLog('Press e first to prepare and confirm the JavaScript source.', 'warn')
+      addLog(`Press e first to prepare and confirm the ${state.language} source.`, 'warn')
       return false
     }
     if (!beginOperation('test')) return false
 
+    state.logs = []
+    state.logExpanded = true
+    addLog(`执行 #${problem.frontendId ?? id} · ${state.language}`)
     state.testStatuses.set(id, 'running')
     state.testResults.delete(id)
     try {
@@ -579,7 +764,7 @@ export function createAppController({
       }
       state.testStatuses.set(id, result.value.result.outcome)
       state.testResults.set(id, result.value.result)
-      addLog(`Test ${id}: ${result.value.result.message}`)
+      addLog(`Test ${problem.frontendId ?? id}: ${result.value.result.message}`)
       return true
     } finally {
       finishOperation()
@@ -590,10 +775,13 @@ export function createAppController({
     const id = state.selectedProblemId
     const problem = selectedProblem(id)
     if (id === null || problem?.identityStatus !== 'resolved' || !state.sourceReadyIds.has(id)) {
-      addLog('Press e first to prepare and confirm the JavaScript source.', 'warn')
+      addLog(`Press e first to prepare and confirm the ${state.language} source.`, 'warn')
       return false
     }
-    if (state.activeOperation !== null) {
+    if (
+      state.activeOperation !== null &&
+      !(state.activeOperation === 'edit' && editorDocument !== null)
+    ) {
       addLog(`Operation ${state.activeOperation} is already running.`, 'warn')
       return false
     }
@@ -620,7 +808,7 @@ export function createAppController({
         return false
       }
       state.submissionStatuses.set(id, result.value.result.outcome)
-      addLog(`Submit ${id}: ${result.value.result.message}`)
+      addLog(`Submit ${problem.frontendId ?? id}: ${result.value.result.message}`)
       return true
     } finally {
       finishOperation()
@@ -649,10 +837,28 @@ export function createAppController({
       }
       return refresh()
     },
-    refresh,
+    refresh: () => (state.viewMode === 'official' ? refreshOfficial() : refresh()),
     visibleProblems,
+    visibleOfficialPlans,
+    showOfficialPlans,
+    openOfficialPlan,
+    cycleLanguage() {
+      if (state.activeOperation !== null || state.submitDialog.open) return
+      const index = LANGUAGES.findIndex(({ value }) => value === state.language)
+      state.language = LANGUAGES[(index + 1) % LANGUAGES.length]!.value
+      state.sourceReadyIds.clear()
+      state.testStatuses.clear()
+      state.testResults.clear()
+      state.submissionStatuses.clear()
+      state.submitDialog = closeSubmitDialog()
+      addLog(`Language: ${state.language}. Press e to prepare source. Existing files are kept.`)
+    },
     setQuery(query) {
       state.filters = { ...state.filters, query }
+      if (state.viewMode === 'official' && state.favoritePage === 'folders') {
+        officialQuery = query
+        state.selectedOfficialPlanSlug = visibleOfficialPlans()[0]?.slug ?? null
+      }
       syncSelection()
     },
     setDifficulty(difficulty) {
@@ -664,16 +870,35 @@ export function createAppController({
       syncSelection()
     },
     toggleView() {
+      if (state.activeOperation !== null || activeEditorAbortController !== null) return
       activeDetailAbortController?.abort()
       if (state.viewMode === 'all') {
         state.viewMode = 'favorites'
         state.favoritePage = 'folders'
+      } else if (state.viewMode === 'favorites' && officialGateway) {
+        void showOfficialPlans()
+        return
       } else {
         state.viewMode = 'all'
+        state.filters = { ...state.filters, query: '' }
       }
       syncSelection()
     },
     moveFavoriteFolder(delta) {
+      if (state.viewMode === 'official') {
+        if (state.activeOperation !== null || activeEditorAbortController !== null) return
+        if (state.favoritePage === 'questions') {
+          state.favoritePage = 'folders'
+          state.filters = { ...state.filters, query: officialQuery }
+        }
+        const plans = visibleOfficialPlans()
+        if (!plans.length) return
+        const index = plans.findIndex((p) => p.slug === state.selectedOfficialPlanSlug)
+        state.selectedOfficialPlanSlug =
+          plans[(((Math.max(0, index) + delta) % plans.length) + plans.length) % plans.length]!.slug
+        syncSelection()
+        return
+      }
       if (state.favoriteFolders.length === 0) return
       activeDetailAbortController?.abort()
       if (state.viewMode === 'all') state.favoritePage = 'folders'
@@ -698,9 +923,11 @@ export function createAppController({
       return true
     },
     closeFavoriteFolder() {
-      if (state.viewMode !== 'favorites' || state.favoritePage !== 'questions') return false
+      if (state.viewMode === 'all' || state.favoritePage !== 'questions') return false
+      if (state.activeOperation !== null || activeEditorAbortController !== null) return false
       activeDetailAbortController?.abort()
       state.favoritePage = 'folders'
+      if (state.viewMode === 'official') state.filters = { ...state.filters, query: officialQuery }
       syncSelection()
       return true
     },
@@ -743,8 +970,8 @@ export function createAppController({
         replaceProblem({ ...problem, starred: isStarred })
         addLog(
           existing === undefined
-            ? `已收藏 #${problem.id} 到 ${folder.name}。`
-            : `已从 ${folder.name} 取消收藏 #${problem.id}。`,
+            ? `已收藏 #${problem.frontendId ?? problem.id} 到 ${folder.name}。`
+            : `已从 ${folder.name} 取消收藏 #${problem.frontendId ?? problem.id}。`,
         )
         return true
       } finally {
@@ -758,7 +985,7 @@ export function createAppController({
       }
     },
     moveSelection(delta) {
-      if (state.viewMode === 'favorites' && state.favoritePage === 'folders') {
+      if (state.viewMode !== 'all' && state.favoritePage === 'folders') {
         this.moveFavoriteFolder(delta)
         return
       }
@@ -770,20 +997,19 @@ export function createAppController({
       const currentIndex = visible.findIndex(({ id }) => id === state.selectedProblemId)
       const start = currentIndex < 0 ? 0 : currentIndex
       const candidate = start + delta
-      const next =
-        candidate < 0
-          ? ((candidate % visible.length) + visible.length) % visible.length
-          : Math.min(visible.length - 1, candidate)
+      const next = ((candidate % visible.length) + visible.length) % visible.length
       const nextId = visible[next]?.id ?? null
       if (state.selectedProblemId !== nextId) activeDetailAbortController?.abort()
       state.selectedProblemId = nextId
     },
     loadSelectedDetail,
     editSelected,
+    confirmEditorSaved,
     dispose() {
       activeEditorAbortController?.abort()
       activeDetailAbortController?.abort()
       activeRefreshAbortController?.abort()
+      officialAbort?.abort()
       gateway.clearSessionCookie()
     },
     testSelected,

@@ -60,14 +60,50 @@ const displayRows = computed(() => {
   if (result?.outcome === 'failed') {
     append(`✗ ${result.message}`, THEME.error)
     const fields = result.failedCase
-    // CLI newlines may separate parameters, so do not infer individual test cases.
-    const lines = (value: string) => value.replace(/↵/g, '\n').trimEnd().split('\n')
+    if (!fields && result.details) append(result.details, THEME.error)
+    const lines = (value: string) => value.trimEnd().split('\n')
+    const inputs = fields?.input === undefined ? [] : lines(fields.input)
+    const actual = fields?.actual === undefined ? [] : lines(fields.actual)
+    const expected = fields?.expected === undefined ? [] : lines(fields.expected)
+    // CLI emits one answer per case; input rows can be multiple parameters per case.
+    // Only group complete JSON rows with matching counts; ambiguous/truncated output stays intact.
+    const completeJson = (value: string) => {
+      try {
+        JSON.parse(value)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const grouped =
+      !result.truncated &&
+      actual.length > 0 &&
+      actual.length === expected.length &&
+      inputs.length >= actual.length &&
+      inputs.length % actual.length === 0 &&
+      [...inputs, ...actual, ...expected].every(completeJson)
+    if (grouped) {
+      const parameterCount = inputs.length / actual.length
+      actual.forEach((value, index) => {
+        if (index > 0) append('', THEME.normal)
+        append(`┌ 用例 ${index + 1}`, THEME.title)
+        const parameters = inputs.slice(index * parameterCount, (index + 1) * parameterCount)
+        parameters.forEach((parameter, parameterIndex) =>
+          append(
+            `│ 输入${parameterCount > 1 ? ` ${parameterIndex + 1}` : ''}: ${parameter}`,
+            THEME.warning,
+          ),
+        )
+        const mismatch = value.trim() !== expected[index]?.trim()
+        append(`│ 实际输出: ${value}`, mismatch ? THEME.error : THEME.muted)
+        append(`└ 期望输出: ${expected[index]}`, mismatch ? THEME.success : THEME.muted)
+      })
+      return output
+    }
     if (fields?.input !== undefined) {
       append('┌ 输入', THEME.title)
       for (const line of lines(fields.input)) append(`│ ${line}`, THEME.warning)
     }
-    const actual = fields?.actual === undefined ? [] : lines(fields.actual)
-    const expected = fields?.expected === undefined ? [] : lines(fields.expected)
     if (fields?.actual !== undefined) {
       append('├ 实际输出', THEME.title)
       actual.forEach((line, index) => {
@@ -83,7 +119,7 @@ const displayRows = computed(() => {
       })
     }
     if (result.truncated) append('结果已截断，以下内容可能不完整。', THEME.warning)
-    append('└ 原始日志（点击此窗口，↑↓/jk 滚动）', THEME.muted)
+    return output
   }
   for (const entry of props.logs) append(lineFor(entry), styleFor(entry))
   return output

@@ -1,19 +1,21 @@
 import { env as processEnvironment } from 'node:process'
+import { resolve } from 'node:path'
 
 import { RUNTIME_CONFIG } from '../config/runtime'
 import { ERROR_CODES } from '../domain/errors'
 import type { AppError, AppResult } from '../domain/errors'
 import type { CommandResult, ParsedRunResult } from '../domain/operation'
-import type { ParsedProblemList, ProblemDetail } from '../domain/problem'
+import type { ParsedProblemList, ProblemDetail, ProblemSummary } from '../domain/problem'
 import type { ChineseProblemCatalog } from './chineseProblemCatalog'
 import { parseProblemDetail } from './parsers/detailParser'
-import { parseProblemList } from './parsers/listParser'
+import { parseProblemList, parseQuestionCatalog } from './parsers/listParser'
 import { sanitizeOutput } from './parsers/outputSanitizer'
 import { parseRunResult } from './parsers/runResultParser'
 import { ProcessSpawnError } from './processRunner'
 import type { CapturedProcessRequest, ProcessRunner } from './processRunner'
 import { createSessionTokenStore } from './sessionTokens'
 import type { SessionTokenStore } from './sessionTokens'
+import type { Language } from '../config/languages'
 
 const VERIFIED_VERSION = '0.5.4'
 const VERSION_PATTERN = /\bleetcode\s+(?<version>\d+\.\d+\.\d+)\b/i
@@ -29,11 +31,13 @@ export interface GatewayLogChunk {
 }
 
 export interface GatewayCallOptions {
+  readonly problemSlug?: string
   readonly signal?: AbortSignal
   readonly onLogChunk?: (chunk: GatewayLogChunk) => void
 }
 
 export interface GatewayEditOptions extends GatewayCallOptions {
+  readonly language?: Language
   readonly bridgeEnvironment?: Readonly<Record<string, string>>
 }
 
@@ -62,6 +66,7 @@ export interface LeetCodeGateway {
 export interface CreateLeetCodeGatewayOptions {
   readonly runner: ProcessRunner
   readonly command?: string
+  readonly identityMode?: boolean
   readonly now?: () => number
   readonly chineseCatalog?: ChineseProblemCatalog
   readonly sessionTokens?: SessionTokenStore
@@ -101,8 +106,13 @@ function createSafeForwarder(
   }
 }
 
-function safeCommandResult(result: CommandResult): CommandResult {
-  const stdout = sanitizeOutput(result.stdout)
+function safeCommandResult(result: CommandResult, catalogue = false): CommandResult {
+  const stdout = sanitizeOutput(
+    result.stdout,
+    catalogue
+      ? { ...RUNTIME_CONFIG.outputLimits, streamBytes: 4 * 1024 * 1024 }
+      : RUNTIME_CONFIG.outputLimits,
+  )
   const stderr = sanitizeOutput(result.stderr)
   return {
     ...result,
@@ -216,17 +226,26 @@ function invalidId(id: number): AppResult<never> | null {
 
 export function createLeetCodeGateway({
   runner,
-  command = 'leetcode',
+  command = resolve('work/clearloop-leetcode-cli-v0.5.4/target/release/le-e-account'),
+  identityMode = true,
   now = Date.now,
   chineseCatalog,
   sessionTokens = createSessionTokenStore(),
 }: CreateLeetCodeGatewayOptions): LeetCodeGateway {
+  let identityVerified = false
+  let catalogue: ParsedProblemList | undefined
+  const questions = new Map<number, ProblemSummary>()
   const commandEnvironment = (
     extra?: Readonly<Record<string, string>>,
   ): NodeJS.ProcessEnv | undefined => {
     const environment = sessionTokens.environment()
-    if (environment === undefined && extra === undefined) return undefined
-    return { ...processEnvironment, ...extra, ...environment }
+    if (environment === undefined && extra === undefined && !identityMode) return undefined
+    return {
+      ...processEnvironment,
+      ...extra,
+      ...environment,
+      ...(identityMode ? { LEETCODE_USE_QUESTION_ID: '1' } : {}),
+    }
   }
 
   const normalizedTitle = (title: string) =>
@@ -246,17 +265,39 @@ export function createLeetCodeGateway({
     try {
       const localizations = await chineseCatalog.list(options.signal)
       const localize = (problem: ParsedProblemList['summaries'][number]) => {
-        const localized = localizations.get(problem.id)
+        const localized =
+          problem.slug === undefined
+            ? [...localizations.values()].find((item) => item.frontendId === String(problem.id))
+            : localizations.get(problem.slug)
         return localized === undefined ||
           normalizedTitle(localized.originalTitle) !== normalizedTitle(problem.title)
           ? problem
-          : { ...problem, localizedTitle: localized.title, slug: localized.slug }
+          : {
+              ...problem,
+              frontendId: localized.frontendId,
+              localizedTitle: localized.title,
+              slug: localized.slug,
+            }
       }
       return {
         ok: true,
         value: {
           ...parsed.value,
-          summaries: parsed.value.summaries.map(localize),
+          summaries: parsed.value.summaries.map((problem) => {
+            const localized =
+              problem.slug === undefined
+                ? [...localizations.values()].find((item) => item.frontendId === String(problem.id))
+                : localizations.get(problem.slug)
+            const candidates = parsed.value.collisionCandidates.get(problem.id)
+            const canonical =
+              localized === undefined
+                ? undefined
+                : candidates?.find(
+                    (candidate) =>
+                      normalizedTitle(candidate.title) === normalizedTitle(localized.originalTitle),
+                  )
+            return localize(canonical ?? problem)
+          }),
           collisionCandidates: new Map(
             [...parsed.value.collisionCandidates].map(([id, candidates]) => [
               id,
@@ -278,8 +319,24 @@ export function createLeetCodeGateway({
     submit = false,
     environment?: Readonly<Record<string, string>>,
   ): Promise<AppResult<CommandResult>> => {
+    const isCatalogue = identityMode && args[0] === 'list'
+    const isQuestionOperation = ['pick', 'edit', 'test', 'exec'].includes(args[0] ?? '')
+    const question = isQuestionOperation ? questions.get(Number(args[1])) : undefined
+    if (
+      identityMode &&
+      isQuestionOperation &&
+      (!identityVerified || question?.slug === undefined)
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: ERROR_CODES.commandFailed,
+          message: '题目唯一标识尚未确认，请先运行 pnpm setup:account 并刷新题库。',
+        },
+      }
+    }
     const stdoutForwarder =
-      options.onLogChunk === undefined
+      options.onLogChunk === undefined || isCatalogue
         ? undefined
         : createSafeForwarder('stdout', options.onLogChunk)
     const stderrForwarder =
@@ -287,10 +344,14 @@ export function createLeetCodeGateway({
         ? undefined
         : createSafeForwarder('stderr', options.onLogChunk)
     const request: CapturedProcessRequest = { command, args }
+    if (isCatalogue) Object.assign(request, { outputLimitBytes: 4 * 1024 * 1024 })
 
     if (timeoutMs !== undefined) Object.assign(request, { timeoutMs })
     if (options.signal !== undefined) Object.assign(request, { signal: options.signal })
-    const env = commandEnvironment(environment)
+    const env = commandEnvironment({
+      ...environment,
+      ...(identityMode && question?.slug ? { LEETCODE_EXPECTED_SLUG: question.slug } : {}),
+    })
     if (env !== undefined) {
       Object.assign(request, { env })
     }
@@ -302,7 +363,7 @@ export function createLeetCodeGateway({
     }
 
     try {
-      const result = safeCommandResult(await runner.runCaptured(request))
+      const result = safeCommandResult(await runner.runCaptured(request), isCatalogue)
       stdoutForwarder?.flush()
       stderrForwarder?.flush()
       const error = commandError(result, submit)
@@ -329,15 +390,37 @@ export function createLeetCodeGateway({
 
     clearSessionCookie() {
       sessionTokens.clear()
+      catalogue = undefined
+      questions.clear()
     },
 
     async preflight(options = {}) {
       const executed = await executeCaptured(
-        ['--version'],
+        [identityMode ? 'identity-version' : '--version'],
         RUNTIME_CONFIG.timeoutsMs.standard,
         options,
       )
-      if (!executed.ok) return executed
+      if (!executed.ok)
+        return identityMode
+          ? {
+              ok: false,
+              error: {
+                code: ERROR_CODES.cliVersionUnsupported,
+                message: '题库助手需要更新，请运行 pnpm setup:account 后重启。',
+              },
+            }
+          : executed
+      if (identityMode) {
+        identityVerified = executed.value.stdout.trim() === 'leetcode 0.5.4 le-e-question-id-v1'
+        if (!identityVerified)
+          return {
+            ok: false,
+            error: {
+              code: ERROR_CODES.cliVersionUnsupported,
+              message: '题库助手不支持唯一题目标识，请运行 pnpm setup:account 后重启。',
+            },
+          }
+      }
 
       const match = VERSION_PATTERN.exec(`${executed.value.stdout}\n${executed.value.stderr}`)
       const version = match?.groups?.version
@@ -356,10 +439,35 @@ export function createLeetCodeGateway({
     async listProblems(options = {}) {
       const executed = await executeCaptured(['list'], RUNTIME_CONFIG.timeoutsMs.standard, options)
       if (!executed.ok) return executed
-      return localizeProblemList(parseProblemList(executed.value.stdout), options)
+      const result = await localizeProblemList(
+        identityMode
+          ? parseQuestionCatalog(executed.value.stdout)
+          : parseProblemList(executed.value.stdout),
+        options,
+      )
+      if (result.ok) {
+        catalogue = result.value
+        questions.clear()
+        for (const problem of result.value.summaries) questions.set(problem.id, problem)
+      }
+      return result
     },
 
     async listStarred(options = {}) {
+      if (identityMode) {
+        if (!catalogue)
+          return {
+            ok: false,
+            error: { code: ERROR_CODES.parse, message: '请先加载完整题库，再读取收藏状态。' },
+          }
+        return {
+          ok: true,
+          value: {
+            ...catalogue,
+            summaries: catalogue.summaries.filter((problem) => problem.starred),
+          },
+        }
+      }
       const executed = await executeCaptured(
         ['list', '-q', 's'],
         RUNTIME_CONFIG.timeoutsMs.standard,
@@ -373,6 +481,56 @@ export function createLeetCodeGateway({
     async loadDetail(id, options = {}) {
       const idError = invalidId(id)
       if (idError !== null) return idError
+      const problem = identityMode ? questions.get(id) : undefined
+      const slug = problem?.slug ?? options.problemSlug
+      if (
+        identityMode &&
+        (!problem || (options.problemSlug !== undefined && options.problemSlug !== problem.slug))
+      ) {
+        return {
+          ok: false,
+          error: { code: ERROR_CODES.parse, message: '所选题目的唯一标识不匹配，请刷新题库。' },
+        }
+      }
+      if (slug !== undefined) {
+        try {
+          const detail = await chineseCatalog?.loadDetail(slug, options.signal)
+          if (detail) {
+            if (identityMode && detail.questionId !== id) {
+              return {
+                ok: false,
+                error: {
+                  code: ERROR_CODES.parse,
+                  message: '题面返回了不同的 questionId，已阻止后续操作。',
+                },
+              }
+            }
+            return {
+              ok: true,
+              value: {
+                id,
+                slug,
+                title: detail.originalTitle,
+                localizedTitle: detail.title,
+                statement: detail.statement,
+                fetchedAt: now(),
+              },
+            }
+          }
+        } catch {
+          // Only the identity-aware helper may be used as a fallback.
+        }
+        if (!identityMode || options.signal?.aborted)
+          return {
+            ok: false,
+            error: {
+              code: options.signal?.aborted ? ERROR_CODES.commandCancelled : ERROR_CODES.parse,
+              message: options.signal?.aborted
+                ? '题面加载已取消。'
+                : '未能加载所选题面的内容，请稍后按 Enter 重试。',
+            },
+          }
+      }
       const executed = await executeCaptured(
         ['pick', String(id)],
         RUNTIME_CONFIG.timeoutsMs.standard,
@@ -380,6 +538,10 @@ export function createLeetCodeGateway({
       )
       if (!executed.ok) return executed
       const parsed = parseProblemDetail(executed.value.stdout, id, now())
+      if (identityMode) {
+        if (!parsed.ok || !problem?.slug) return parsed
+        return { ok: true, value: { ...parsed.value, slug: problem.slug } }
+      }
       if (!parsed.ok || chineseCatalog === undefined) return parsed
       try {
         const localized = await chineseCatalog.loadDetail(id, options.signal)
@@ -412,9 +574,9 @@ export function createLeetCodeGateway({
     async edit(id, options = {}) {
       const idError = invalidId(id)
       if (idError !== null) return idError
-      if (options.bridgeEnvironment !== undefined) {
+      if (identityMode || options.bridgeEnvironment !== undefined) {
         return executeCaptured(
-          ['edit', String(id), '--lang', RUNTIME_CONFIG.language],
+          ['edit', String(id), '--lang', options.language ?? RUNTIME_CONFIG.language],
           undefined,
           options,
           false,
@@ -423,7 +585,7 @@ export function createLeetCodeGateway({
       }
       const request = {
         command,
-        args: ['edit', String(id), '--lang', RUNTIME_CONFIG.language],
+        args: ['edit', String(id), '--lang', options.language ?? RUNTIME_CONFIG.language],
       }
       if (options.signal !== undefined) Object.assign(request, { signal: options.signal })
 

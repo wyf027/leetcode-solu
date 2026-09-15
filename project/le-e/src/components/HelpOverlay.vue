@@ -6,20 +6,27 @@ import { THEME } from '../styles/theme'
 defineProps<{ cols: number; rows: number }>()
 
 const helpLines = [
-  'Tab / Shift+Tab  切换题目列表 / 题目详情',
+  '补全下拉框：↑↓ 选择 · Tab/Enter 确认 · Esc 关闭 · Ctrl+Space/⌘I 触发',
+  '⌘C/X/V 复制/剪切/粘贴 · ⌘A 全选（start:ghostty 窗口）',
+  '⌘Z / ⇧⌘Z 撤销/重做 · ⌘S 保存 · ⌘F 查找',
+  '⌘G / ⇧⌘G 下/上一匹配 · ⌘D 多选 · ⌘/ 注释',
+  'g           切换语言：JavaScript → Python 3 → Java → C++（切换后先按 e）',
+  'F6 / Shift+F6 切换栏目（Micro 内 Tab 保留缩进/补全）',
+  'b 收起/展开题目列表 · 拖动中线调整宽度 · 编辑器外 Ctrl+←→ 调整宽度',
   '↑↓ / j k   移动或滚动              Enter   打开文件夹 / 加载详情',
+  '鼠标滚轮：按鼠标位置滚动列表 / 题干 / Micro / 日志（无需切换焦点）',
   'Shift+↑↓    跳 10 题                Ctrl+↑↓ 跳 100 题 · 首题 ↑ 回末题',
   '/           搜索                      f       仅看收藏',
-  'v           题库 / 收藏页            Esc     返回收藏夹',
+  'v           题库 / 收藏 / 官方题单    o       官方题单目录',
+  '官方题单：/ 搜索 · 点击/Enter 打开 · 面包屑/Esc 返回 · r 重试',
   '[ ]         切换收藏夹              Backspace 返回收藏夹',
   'a           收藏/取消当前题          d       切换难度',
   'c           Token 登录（仅当前会话）',
-  'e           使用本机 Vim 编辑           t       运行 CLI 测试',
+  'e           打开 Micro 编辑             t       运行 CLI 测试',
   's           提交确认                    l       折叠/展开日志',
   'r           刷新                        q       退出',
-  '',
-  'Vim: :wq 保存并返回 TUI · :q! 放弃修改并返回 TUI',
-  '',
+  'F2 保存 · F3 保存并执行 · F4 保存并提交确认（也可点击底部按钮）',
+  'Micro: Ctrl+S 保存 · Ctrl+Q 退出 · 执行/提交前自动保存，保留编辑器',
   '按 ? 或 Esc 关闭帮助。',
 ]
 </script>
@@ -27,9 +34,9 @@ const helpLines = [
 <template>
   <TBox
     :x="Math.floor(cols * 0.12)"
-    :y="4"
+    :y="1"
     :w="Math.floor(cols * 0.76)"
-    :h="Math.min(19, rows - 8)"
+    :h="Math.min(helpLines.length + 4, rows - 2)"
     :z-index="20"
     border
     title="le-e 帮助"

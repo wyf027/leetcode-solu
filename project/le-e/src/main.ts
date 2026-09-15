@@ -13,11 +13,13 @@ import { createAppController } from './application/createAppController'
 import { createTerminalInputBus } from './application/terminalInput'
 import { createAccountFavoritesGateway } from './infrastructure/accountFavoritesGateway'
 import { createChineseProblemCatalog } from './infrastructure/chineseProblemCatalog'
+import { createOfficialStudyPlansGateway } from './infrastructure/officialStudyPlans'
 import { createLeetCodeGateway } from './infrastructure/leetcodeGateway'
 import { createProcessRunner } from './infrastructure/processRunner'
 import { createSourceBridgeSession } from './infrastructure/sourceBridgeServer'
 import { createSessionTokenStore } from './infrastructure/sessionTokens'
 import { loadSourceFile } from './infrastructure/sourceFile'
+import { createEmbeddedMicro } from './infrastructure/embeddedMicro'
 import { createTerminalLifecycle } from './infrastructure/terminalLifecycle'
 import type { TerminalLifecycle } from './infrastructure/terminalLifecycle'
 
@@ -25,6 +27,7 @@ export interface RunTerminalAppOptions {
   readonly cliCommand?: string
   readonly accountHelperCommand?: string
   readonly vimCommand?: string
+  readonly editorCommand?: string
 }
 
 export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
@@ -33,12 +36,19 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
     rows: process.stdout.rows ?? 28,
   })
   const inputBus = createTerminalInputBus()
-  const vimEditorRunner = createProcessRunner()
+  const editor = createEmbeddedMicro(options.editorCommand ?? options.vimCommand)
   const sessionTokens = createSessionTokenStore()
   const controller = createAppController({
+    ...(options.cliCommand === undefined
+      ? { officialGateway: createOfficialStudyPlansGateway() }
+      : {}),
     gateway: createLeetCodeGateway({
       runner: createProcessRunner(),
-      ...(options.cliCommand === undefined ? {} : { command: options.cliCommand }),
+      command:
+        options.cliCommand ??
+        options.accountHelperCommand ??
+        resolve('work/clearloop-leetcode-cli-v0.5.4/target/release/le-e-account'),
+      identityMode: options.cliCommand === undefined,
       ...(options.cliCommand === undefined
         ? { chineseCatalog: createChineseProblemCatalog() }
         : {}),
@@ -55,32 +65,26 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
       createBridge: createSourceBridgeSession,
       loadSource: loadSourceFile,
     },
-    vimEditor: {
-      async open(path, { signal }) {
-        const result = await vimEditorRunner.runInherited({
-          command: options.vimCommand ?? 'vim',
-          args: ['--', path],
-          signal,
-        })
-        if (result.cancelled) throw new Error('Vim was cancelled.')
-        if (result.exitCode !== 0) {
-          throw new Error(
-            `Vim exited with ${result.signal === null ? `code ${result.exitCode ?? 'unknown'}` : `signal ${result.signal}`}.`,
-          )
-        }
-      },
-    },
-    suspendForEditor: () => lifecycle.suspend(),
-    resumeAfterEditor: () => lifecycle.resume(),
+    vimEditor: editor,
+    suspendForEditor: () => {},
+    resumeAfterEditor: () => {},
   })
 
   let removeResizeListener: (() => void) | undefined
   let stopped = false
+  let pointerShape = 'default'
+  const setPointerShape = (shape: 'default' | 'ew-resize' | 'ns-resize'): void => {
+    if (shape === pointerShape) return
+    pointerShape = shape
+    // OSC 22 is ignored by terminals without pointer-shape support; App also draws an arrow.
+    if (process.stdout.isTTY) process.stdout.write(`\x1b]22;${shape}\x1b\\`)
+  }
 
   const requestExit = (): void => {
     if (stopped) return
     stopped = true
     controller.dispose()
+    editor.dispose()
     lifecycle.dispose()
     process.exitCode = 0
   }
@@ -89,7 +93,7 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
     cols: screen.cols,
     rows: screen.rows,
     component: App,
-    props: { controller, screen, inputBus, requestExit },
+    props: { controller, screen, inputBus, requestExit, editor, setPointerShape },
     defaultStyle: { fg: 'whiteBright' },
   })
 
@@ -102,6 +106,7 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
       })
     },
     disposeApp() {
+      setPointerShape('default')
       removeResizeListener?.()
       removeResizeListener = undefined
       app.dispose()
@@ -129,6 +134,7 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
           return prevented
         },
         enableMouse: true,
+        enableMouseMotion: true,
         onExit: requestExit,
       })
     },
@@ -136,6 +142,7 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
       return installTerminalCleanup(
         () => {
           controller.dispose()
+          editor.dispose()
           cleanup()
         },
         {
@@ -145,6 +152,11 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
       )
     },
   })
+
+  watch(
+    () => editor.state.revision,
+    () => queueMicrotask(() => lifecycle.forceRender()),
+  )
 
   watch(
     controller.state,
