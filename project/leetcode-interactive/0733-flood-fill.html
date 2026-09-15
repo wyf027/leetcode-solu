@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="LeetCode 733 图像渲染：交互式演示、完整题解与四语言实现。">
+  <title>733. 图像渲染 | Flood Fill</title>
+  <style>
+    /* Tailwind CSS 等价 utility 子集内联，支持单文件离线打开。 */
+    :root {
+      color-scheme: dark;
+      --bg:#071018; --panel:#0d1b26; --panel2:#09151f; --line:rgba(151,188,208,.18);
+      --ink:#f1f7fa; --muted:#9db0be; --subtle:#718594; --aqua:#56e1d0;
+      --sky:#69baff; --amber:#ffc76a; --rose:#ff91a2; --violet:#b8a5ff;
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body {
+      margin:0; min-width:320px; min-height:100vh; overflow-x:hidden; color:var(--ink);
+      background:
+        radial-gradient(circle at 8% 3%,rgba(86,225,208,.13),transparent 30rem),
+        radial-gradient(circle at 92% 16%,rgba(105,186,255,.11),transparent 32rem),var(--bg);
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      line-height:1.65; -webkit-font-smoothing:antialiased;
+    }
+    body::before {
+      content:""; position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:.2;
+      background-image:linear-gradient(rgba(126,167,190,.08) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(126,167,190,.08) 1px,transparent 1px);
+      background-size:38px 38px; mask-image:linear-gradient(to bottom,#000,transparent 75%);
+    }
+    [hidden] { display:none!important; }
+    a { color:inherit; }
+    button { appearance:none; border:0; box-shadow:none; font:inherit; }
+    button:focus-visible { outline:3px solid var(--aqua); outline-offset:3px; box-shadow:none; }
+    button:disabled { cursor:not-allowed; opacity:.42; box-shadow:none; }
+    button:hover:not(:disabled) { box-shadow:0 10px 28px rgba(0,0,0,.25); }
+    button:active:not(:disabled) { transform:translateY(1px); box-shadow:0 3px 10px rgba(0,0,0,.28); }
+    code,pre,.mono { font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-variant-ligatures:none; }
+    code:not(pre code) { border:1px solid rgba(105,186,255,.2); border-radius:7px; background:rgba(105,186,255,.08); color:#d4f1ff; padding:.08em .34em; font-size:.9em; }
+    pre { margin:0; max-width:100%; overflow:auto; overscroll-behavior-inline:contain; padding:1rem 1.1rem; background:#051019; color:#d9e8f1; font-size:.82rem; line-height:1.72; tab-size:4; }
+    ::selection { background:rgba(86,225,208,.28); color:#fff; }
+
+    /* utility subset */
+    .mx-auto{margin-inline:auto}.max-w-6xl{max-width:72rem}.w-full{width:100%}.min-w-0{min-width:0}
+    .grid{display:grid}.flex{display:flex}.items-center{align-items:center}.items-start{align-items:flex-start}
+    .justify-between{justify-content:space-between}.justify-center{justify-content:center}.flex-wrap{flex-wrap:wrap}
+    .gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.gap-6{gap:1.5rem}
+    .text-xs{font-size:.75rem}.text-sm{font-size:.875rem}.font-semibold{font-weight:650}.font-bold{font-weight:760}
+    .text-muted{color:var(--muted)}.text-subtle{color:var(--subtle)}.rounded-full{border-radius:999px}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+    .skip { position:fixed; left:1rem; top:1rem; z-index:50; transform:translateY(-180%); border-radius:10px; background:var(--aqua); color:#03211e; padding:.65rem .9rem; font-weight:750; text-decoration:none; }
+    .skip:focus { transform:translateY(0); }
+    .topbar { position:sticky; top:0; z-index:30; border-bottom:1px solid rgba(151,188,208,.12); background:rgba(7,16,24,.82); backdrop-filter:blur(18px); }
+    .topbar-inner { min-height:66px; padding:.65rem clamp(1rem,4vw,2.25rem); }
+    .mark { display:grid; width:34px; height:34px; place-items:center; border:1px solid rgba(86,225,208,.42); border-radius:11px; background:rgba(86,225,208,.09); color:var(--aqua); font-weight:800; }
+    .nav-link { border-radius:9px; color:var(--muted); padding:.35rem .55rem; text-decoration:none; }
+    .nav-link:hover { background:rgba(255,255,255,.05); color:#fff; }
+    .nav-link:focus-visible { outline:3px solid var(--aqua); outline-offset:3px; }
+
+    .shell { padding:clamp(2.4rem,7vw,5.4rem) clamp(1rem,4vw,2.25rem) 5rem; }
+    .hero { max-width:60rem; padding-bottom:clamp(2rem,6vw,4rem); }
+    .eyebrow { display:inline-flex; align-items:center; gap:.6rem; margin:0 0 1rem; color:#b8cbd7; font-size:.76rem; font-weight:760; letter-spacing:.13em; text-transform:uppercase; }
+    .eyebrow::before { content:""; width:24px; height:2px; background:var(--aqua); }
+    h1,h2,h3,h4,p { margin-top:0; }
+    h1 { max-width:52rem; margin-bottom:1rem; font-size:clamp(2.7rem,8vw,5.9rem); line-height:.98; letter-spacing:-.055em; }
+    h1 .en { display:block; margin-top:.58rem; color:transparent; font-size:.38em; font-weight:580; letter-spacing:.02em; -webkit-text-stroke:1px rgba(213,235,245,.58); }
+    .lede { max-width:47rem; margin-bottom:1.35rem; color:#b5c5d0; font-size:clamp(1.02rem,2vw,1.2rem); }
+    .badge { display:inline-flex; align-items:center; min-height:30px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.025); color:#bdccd6; padding:.22rem .72rem; font-size:.77rem; font-weight:650; }
+    .badge.easy { border-color:rgba(86,225,208,.38); background:rgba(86,225,208,.08); color:#8af0e4; }
+
+    .section { margin-top:clamp(3.7rem,8vw,6.5rem); scroll-margin-top:90px; }
+    .section-head { max-width:47rem; margin-bottom:1.5rem; }
+    .kicker { margin-bottom:.42rem; color:var(--aqua); font-size:.75rem; font-weight:760; letter-spacing:.13em; text-transform:uppercase; }
+    h2 { margin-bottom:.55rem; font-size:clamp(1.7rem,4vw,2.55rem); line-height:1.18; letter-spacing:-.035em; }
+    h3 { margin-bottom:.55rem; font-size:1.08rem; line-height:1.35; }
+    h4 { margin-bottom:.42rem; color:#dceaf1; font-size:.91rem; }
+    .section-head p { margin-bottom:0; color:var(--muted); }
+
+    .panel { min-width:0; border:1px solid var(--line); border-radius:24px; background:linear-gradient(145deg,rgba(17,34,46,.93),rgba(8,20,30,.95)); box-shadow:0 24px 75px rgba(0,0,0,.2); }
+    .pad { padding:clamp(1.05rem,3vw,1.65rem); }
+    .prose-card { max-width:58rem; }
+    .prose-card p:last-child { margin-bottom:0; }
+    .callout { border-left:3px solid var(--aqua); border-radius:0 12px 12px 0; background:rgba(86,225,208,.06); color:#c6d6df; padding:.85rem 1rem; }
+
+    .viz { overflow:hidden; }
+    .viz-top { border-bottom:1px solid var(--line); background:rgba(3,12,19,.35); padding:.85rem clamp(1rem,3vw,1.4rem); }
+    .viz-body { grid-template-columns:minmax(250px,.92fr) minmax(0,1.15fr); gap:clamp(1rem,3vw,2rem); padding:clamp(1rem,3vw,1.6rem); }
+    .canvas { min-width:0; border:1px solid rgba(146,190,211,.14); border-radius:18px; background:rgba(4,13,21,.55); padding:clamp(.85rem,3vw,1.35rem); }
+    .pixel-grid { display:grid; width:min(100%,330px); grid-template-columns:repeat(3,minmax(0,1fr)); gap:clamp(.42rem,2vw,.72rem); margin:1.1rem auto; }
+    .pixel { position:relative; display:grid; aspect-ratio:1; min-width:0; place-items:center; overflow:hidden; border:2px solid rgba(255,255,255,.11); border-radius:clamp(11px,3vw,18px); color:#fff; transition:transform .18s ease,background-color .18s ease,border-color .18s ease; }
+    .v0{background:#273a49;color:#afbfca}.v1{background:#236b9f}.v2{background:#128f84}.queued{border-color:var(--amber)}.current{border-color:#fff;transform:scale(1.05)}
+    .start::after { content:"S"; position:absolute; right:7px; top:5px; color:#fff5c9; font-size:.61rem; font-weight:800; }
+    .pixel strong { font-size:clamp(1.1rem,4vw,1.45rem); }
+    .coord { position:absolute; left:7px; bottom:4px; color:rgba(255,255,255,.7); font-size:.58rem; }
+    .legend { justify-content:center; color:var(--muted); font-size:.75rem; }
+    .dot { width:9px; height:9px; border-radius:3px; }.dot-current{border:2px solid #fff}.dot-queue{border:2px solid var(--amber)}.dot-fill{background:#128f84}
+
+    .step-count { color:var(--aqua); font-size:.79rem; font-weight:760; letter-spacing:.08em; text-transform:uppercase; }
+    .step-title { margin:.35rem 0 .45rem; font-size:clamp(1.2rem,3vw,1.55rem); }
+    .step-copy { min-height:3.4rem; margin-bottom:1rem; color:var(--muted); }
+    .status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; }
+    .status { min-width:0; border:1px solid rgba(146,190,211,.13); border-radius:13px; background:rgba(3,12,19,.42); padding:.8rem; }
+    .status.wide { grid-column:1/-1; }
+    .label { margin-bottom:.42rem; color:var(--subtle); font-size:.68rem; font-weight:760; letter-spacing:.11em; text-transform:uppercase; }
+    .value { max-width:100%; min-height:1.7rem; overflow:auto; color:#dcebf3; font-size:.79rem; white-space:pre; }
+    .neighbors { display:flex; min-height:32px; flex-wrap:wrap; gap:.4rem; }
+    .chip { border:1px solid var(--line); border-radius:999px; padding:.22rem .55rem; font-size:.71rem; }
+    .add{border-color:rgba(86,225,208,.42);color:#84eadf}.skipc{color:#8999a6}.seen{border-color:rgba(184,165,255,.35);color:#c7bbff}.edge{border-color:rgba(255,145,162,.25);color:#d69da7}
+    .track { height:4px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.07); }
+    .bar { height:100%; width:0; border-radius:inherit; background:linear-gradient(90deg,var(--aqua),var(--sky)); transition:width .18s ease; }
+    .controls { padding-top:1rem; }
+    .btn { min-height:42px; border:1px solid rgba(149,208,229,.34); border-radius:12px; background:rgba(255,255,255,.035); color:#dce9f1; padding:.56rem .82rem; cursor:pointer; font-weight:650; }
+    .btn:hover:not(:disabled) { border-color:rgba(86,225,208,.7); background:rgba(86,225,208,.09); }
+    .btn.primary { border-color:transparent; background:var(--aqua); color:#04211f; }
+    .btn.primary:hover:not(:disabled) { border-color:transparent; background:#78eee2; }
+    .keyboard { margin:.8rem 0 0; color:var(--subtle); font-size:.74rem; }
+
+    .two-col { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .example { overflow:hidden; }
+    .card-head { border-bottom:1px solid var(--line); padding:.9rem 1rem; }
+    .io { min-width:0; padding:.95rem 1rem; }
+    .io-label { color:var(--aqua); font-size:.71rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+    .io-value { max-width:100%; margin-top:.36rem; overflow:auto; color:#d9e8f1; font-size:.79rem; white-space:pre; }
+    .note { margin:0; border-top:1px solid var(--line); color:var(--muted); padding:.9rem 1rem; font-size:.87rem; }
+    .constraints { grid-template-columns:repeat(2,minmax(0,1fr)); margin:0; padding:0; list-style:none; }
+    .constraint { border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.02); padding:.82rem .94rem; }
+
+    .pending-banner { border:1px solid rgba(255,199,106,.28); border-radius:14px; background:rgba(255,199,106,.06); color:#ecd6aa; padding:.85rem 1rem; }
+    .test-list { margin-top:1rem; }
+    .test { overflow:hidden; }
+    .pending { border:1px solid rgba(255,199,106,.3); border-radius:999px; color:var(--amber); padding:.16rem .55rem; font-size:.69rem; }
+    .test-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .test-field { min-width:0; border-top:1px solid var(--line); padding:.9rem 1rem; }
+    .test-field:nth-child(even) { border-left:1px solid var(--line); }
+
+    .reveal-wrap { padding:clamp(2.7rem,8vw,5rem) 0 0; text-align:center; }
+    .reveal { min-width:min(100%,230px); min-height:52px; border-radius:15px; background:var(--aqua); color:#04211f; padding:.8rem 1.2rem; cursor:pointer; font-weight:800; }
+    .reveal:hover { background:#78eee2; }
+    .reveal-note { margin:.75rem auto 0; color:var(--subtle); font-size:.79rem; }
+    .solution { border-top:1px solid var(--line); padding-top:clamp(3.2rem,8vw,6rem); }
+    .insight { padding:1.1rem; }
+    .number { color:var(--aqua); font-size:.7rem; font-weight:800; letter-spacing:.12em; }
+    .insight p,.qa p { margin-bottom:0; color:var(--muted); font-size:.88rem; }
+    .steps { margin:0; padding-left:1.25rem; color:#c4d3dc; }.steps li{padding-left:.35rem}.steps li+li{margin-top:.6rem}
+    .proof { border-left:2px solid var(--violet); padding-left:1rem; }.proof p{color:var(--muted)}
+    .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .metric { border:1px solid var(--line); border-radius:16px; padding:1rem; }
+    .metric strong { display:block; margin-bottom:.2rem; color:var(--aqua); font-size:1.35rem; }
+    .code-stack { display:grid; gap:1rem; }
+    .code-card { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:17px; background:#051019; }
+    .code-head { border-bottom:1px solid var(--line); background:rgba(255,255,255,.025); padding:.7rem 1rem; }
+    .qa-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.qa{border:1px solid var(--line);border-radius:15px;padding:1rem}
+    .warnings { margin:0; padding-left:1.2rem; color:#c4d3dc; }.warnings li+li{margin-top:.55rem}
+    footer { border-top:1px solid var(--line); margin-top:6rem; padding:1.5rem clamp(1rem,4vw,2.25rem) 2.2rem; color:var(--subtle); font-size:.77rem; }
+
+    @media(max-width:760px){
+      .desktop-nav{display:none}.viz-body,.two-col,.qa-grid{grid-template-columns:1fr}.test-fields{grid-template-columns:1fr}
+      .test-field:nth-child(even){border-left:0}
+    }
+    @media(max-width:480px){
+      .optional-title{display:none}.shell{padding-inline:.85rem}.panel{border-radius:18px}.pad,.viz-body{padding:.9rem}
+      .status-grid,.constraints,.metrics{grid-template-columns:1fr}.status.wide{grid-column:auto}
+      .btn{flex:1 1 calc(50% - .5rem)}.pixel-grid{width:min(100%,278px)}pre{font-size:.75rem;padding:.9rem}
+    }
+    @media(prefers-reduced-motion:reduce){
+      *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+
+  <header class="topbar">
+    <div class="topbar-inner max-w-6xl mx-auto flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="mark" aria-hidden="true">73</span>
+        <span class="font-semibold">LeetCode 733</span>
+        <span class="optional-title text-subtle text-sm">图论 · 矩阵</span>
+      </div>
+      <nav class="desktop-nav flex items-center gap-2 text-sm" aria-label="页内导航">
+        <a class="nav-link" href="#problem">题目</a>
+        <a class="nav-link" href="#visualizer">演示</a>
+        <a class="nav-link" href="#examples">示例</a>
+        <a class="nav-link" href="#verification">验证</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="shell max-w-6xl mx-auto">
+    <section class="hero" aria-labelledby="page-title">
+      <p class="eyebrow">Problem 733 · Matrix traversal</p>
+      <h1 id="page-title">图像渲染<span class="en" lang="en">Flood Fill</span></h1>
+      <p class="lede">从一个像素出发，把与它上下左右连通、且颜色相同的整片区域换成新颜色。</p>
+      <div class="flex flex-wrap gap-2" aria-label="题目标签">
+        <span class="badge easy">简单 EASY</span><span class="badge">深度优先搜索</span>
+        <span class="badge">广度优先搜索</span><span class="badge">数组</span><span class="badge">矩阵</span>
+      </div>
+    </section>
+
+    <section id="problem" class="section" aria-labelledby="problem-title">
+      <div class="section-head">
+        <p class="kicker">Problem</p>
+        <h2 id="problem-title">题目描述</h2>
+        <p>识别与起点属于同一连通区域的像素，并完成一次颜色替换。</p>
+      </div>
+      <article class="panel pad prose-card">
+        <p>给定一个由 <code>m × n</code> 整数网格表示的图像 <code>image</code>，其中 <code>image[i][j]</code> 是像素颜色值；另给起点行 <code>sr</code>、起点列 <code>sc</code> 和目标颜色 <code>color</code>。</p>
+        <p>从 <code>image[sr][sc]</code> 开始，将起点以及所有通过<strong>上、下、左、右</strong>相连、且颜色等于起点<strong>原始颜色</strong>的像素改为 <code>color</code>。当没有更多符合条件的相邻像素时停止，并返回修改后的图像。</p>
+        <div class="callout">对角线不算相邻。即使某个像素颜色相同，只要无法沿四方向同色路径抵达，也不能被修改。</div>
+      </article>
+    </section>
+
+    <section id="visualizer" class="section" aria-labelledby="visualizer-title">
+      <div class="section-head">
+        <p class="kicker">Interactive lab</p>
+        <h2 id="visualizer-title">让颜色沿着连通区域流动</h2>
+        <p>逐步观察待处理边界、当前像素和已渲染区域。演示使用官方示例 1。</p>
+      </div>
+      <div id="vizRegion" class="panel viz" tabindex="0" role="group" aria-label="图像渲染逐步演示" aria-describedby="keyboardHelp">
+        <div class="viz-top flex items-center justify-between gap-3 flex-wrap">
+          <div class="flex items-center gap-2"><span class="badge">起点 (1, 1)</span><span class="badge">原色 1 → 新色 2</span></div>
+          <span id="playState" class="text-xs text-muted">手动模式</span>
+        </div>
+        <div class="viz-body grid">
+          <div class="canvas">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-sm font-semibold">image</span>
+              <span id="snapshot" class="mono text-xs text-muted">[[1,1,1],[1,1,0],[1,0,1]]</span>
+            </div>
+            <div id="pixelGrid" class="pixel-grid" aria-label="三行三列像素矩阵"></div>
+            <div class="legend flex flex-wrap gap-3" aria-label="图例">
+              <span class="flex items-center gap-2"><i class="dot dot-current" aria-hidden="true"></i>当前</span>
+              <span class="flex items-center gap-2"><i class="dot dot-queue" aria-hidden="true"></i>待处理</span>
+              <span class="flex items-center gap-2"><i class="dot dot-fill" aria-hidden="true"></i>已渲染</span>
+            </div>
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0"><div id="stepCount" class="step-count">步骤 0 / 5</div><h3 id="stepTitle" class="step-title">准备起点</h3></div>
+              <span id="currentCoord" class="badge mono">current: —</span>
+            </div>
+            <p id="stepCopy" class="step-copy">记录起点原始颜色 1，并把坐标 (1, 1) 放入待处理队列。</p>
+            <div class="status-grid grid">
+              <div class="status"><div class="label">待处理边界</div><div id="queueValue" class="value mono">[(1, 1)]</div></div>
+              <div class="status"><div class="label">已完成顺序</div><div id="paintedValue" class="value mono">—</div></div>
+              <div class="status wide"><div class="label">本步检查的四邻域</div><div id="neighborList" class="neighbors"><span class="text-subtle text-xs">尚未检查</span></div></div>
+            </div>
+            <div class="controls">
+              <div class="track" aria-hidden="true"><div id="progressBar" class="bar"></div></div>
+              <div class="flex flex-wrap gap-2" style="margin-top:.9rem">
+                <button id="prevBtn" class="btn" type="button">← 上一步</button>
+                <button id="nextBtn" class="btn primary" type="button">下一步 →</button>
+                <button id="autoBtn" class="btn" type="button" aria-pressed="false">自动播放</button>
+                <button id="resetBtn" class="btn" type="button">重置</button>
+              </div>
+              <p id="keyboardHelp" class="keyboard">键盘：聚焦演示区后，用 ← / → 切换，空格播放或暂停，Home 重置。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="vizLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    </section>
+
+    <section id="examples" class="section" aria-labelledby="examples-title">
+      <div class="section-head"><p class="kicker">Official examples</p><h2 id="examples-title">官方示例</h2><p>保留完整参数形式，便于直接对应函数签名。</p></div>
+      <div class="two-col grid gap-4">
+        <article class="panel example">
+          <header class="card-head flex items-center justify-between gap-3"><h3 style="margin:0">示例 1</h3><span class="badge">跨 5 个像素</span></header>
+          <div class="io"><div class="io-label">输入</div><div class="io-value mono">image = [[1,1,1],[1,1,0],[1,0,1]], sr = 1, sc = 1, color = 2</div></div>
+          <div class="io"><div class="io-label">输出</div><div class="io-value mono">[[2,2,2],[2,2,0],[2,0,1]]</div></div>
+          <p class="note">右下角的 1 与起点只有对角关系，没有四方向同色路径，因此保持不变。</p>
+        </article>
+        <article class="panel example">
+          <header class="card-head flex items-center justify-between gap-3"><h3 style="margin:0">示例 2</h3><span class="badge">提前返回</span></header>
+          <div class="io"><div class="io-label">输入</div><div class="io-value mono">image = [[0,0,0],[0,0,0]], sr = 0, sc = 0, color = 0</div></div>
+          <div class="io"><div class="io-label">输出</div><div class="io-value mono">[[0,0,0],[0,0,0]]</div></div>
+          <p class="note">起点原色已经等于目标颜色，无需遍历或改动任何像素。</p>
+        </article>
+      </div>
+      <div style="margin-top:2rem">
+        <h3>约束</h3>
+        <ul class="constraints grid gap-3">
+          <li class="constraint"><code>m == image.length</code></li><li class="constraint"><code>n == image[i].length</code></li>
+          <li class="constraint"><code>1 &lt;= m, n &lt;= 50</code></li><li class="constraint"><code>0 &lt;= image[i][j], color &lt; 2<sup>16</sup></code></li>
+          <li class="constraint"><code>0 &lt;= sr &lt; m</code></li><li class="constraint"><code>0 &lt;= sc &lt; n</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="verification" class="section" aria-labelledby="verification-title">
+      <div class="section-head"><p class="kicker">Verification</p><h2 id="verification-title">测试与验证</h2><p>只列出待验证用例，不伪造任何运行结果。</p></div>
+      <div class="pending-banner"><strong>快速生成模式：待补验证</strong></div>
+      <div class="test-list grid gap-4">
+        <article class="panel test">
+          <header class="card-head flex items-center justify-between gap-3"><h3 style="margin:0">用例 1 · 官方连通区域</h3><span class="pending">待补验证</span></header>
+          <div class="test-fields grid">
+            <div class="test-field"><div class="label">输入</div><div class="value mono">image=[[1,1,1],[1,1,0],[1,0,1]]
+sr=1, sc=1, color=2</div></div>
+            <div class="test-field"><div class="label">期望输出</div><div class="value mono">[[2,2,2],[2,2,0],[2,0,1]]</div></div>
+            <div class="test-field"><div class="label">实际输出</div><div class="value">待补验证</div></div>
+            <div class="test-field"><div class="label">通过状态</div><div class="value">待补验证</div></div>
+          </div>
+        </article>
+        <article class="panel test">
+          <header class="card-head flex items-center justify-between gap-3"><h3 style="margin:0">用例 2 · 原色等于目标色</h3><span class="pending">待补验证</span></header>
+          <div class="test-fields grid">
+            <div class="test-field"><div class="label">输入</div><div class="value mono">image=[[0,0,0],[0,0,0]]
+sr=0, sc=0, color=0</div></div>
+            <div class="test-field"><div class="label">期望输出</div><div class="value mono">[[0,0,0],[0,0,0]]</div></div>
+            <div class="test-field"><div class="label">实际输出</div><div class="value">待补验证</div></div>
+            <div class="test-field"><div class="label">通过状态</div><div class="value">待补验证</div></div>
+          </div>
+        </article>
+        <article class="panel test">
+          <header class="card-head flex items-center justify-between gap-3"><h3 style="margin:0">用例 3 · 单像素边界</h3><span class="pending">待补验证</span></header>
+          <div class="test-fields grid">
+            <div class="test-field"><div class="label">输入</div><div class="value mono">image=[[7]]
+sr=0, sc=0, color=9</div></div>
+            <div class="test-field"><div class="label">期望输出</div><div class="value mono">[[9]]</div></div>
+            <div class="test-field"><div class="label">实际输出</div><div class="value">待补验证</div></div>
+            <div class="test-field"><div class="label">通过状态</div><div class="value">待补验证</div></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <div class="reveal-wrap">
+      <button id="solutionToggle" class="reveal" type="button" aria-expanded="false" aria-controls="solutionPanel">查看题解</button>
+      <p class="reveal-note">先自己推演，再展开完整思路与代码。</p>
+      <div id="solutionLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    </div>
+
+    <section id="solutionPanel" class="section solution" aria-labelledby="solution-title" hidden>
+      <div class="section-head">
+        <p class="kicker">Solution</p>
+        <h2 id="solution-title" tabindex="-1">题解：只沿“原始颜色”扩张</h2>
+        <p>把矩阵看成一张图：每个像素是节点，上下左右是边。本解采用广度优先搜索。</p>
+      </div>
+
+      <div class="two-col grid gap-4">
+        <article class="panel insight"><div class="number">01 · SNAPSHOT</div><h3>先保存起点原色</h3><p>后续始终与 <code>oldColor</code> 比较，不要把已修改的起点值当作基准。</p></article>
+        <article class="panel insight"><div class="number">02 · GUARD</div><h3>相同颜色直接返回</h3><p>若 <code>oldColor == color</code>，改色无法充当访问标记，搜索可能重复进行。</p></article>
+        <article class="panel insight"><div class="number">03 · MARK EARLY</div><h3>入队时立即改色</h3><p>发现合格邻居时就改色并入队，同时完成 visited 标记，避免重复入队。</p></article>
+        <article class="panel insight"><div class="number">04 · FOUR WAYS</div><h3>只检查四个方向</h3><p>方向固定为上、下、左、右；对角线相同颜色不构成连通。</p></article>
+      </div>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="process-title">
+        <h3 id="process-title">完整过程</h3>
+        <ol class="steps">
+          <li>读取 <code>oldColor = image[sr][sc]</code>；若它与 <code>color</code> 相同，直接返回。</li>
+          <li>将起点改成新颜色并放入队列，改色也标记它已被发现。</li>
+          <li>不断取出队首坐标，枚举它的四个相邻位置。</li>
+          <li>邻居未越界且仍为 <code>oldColor</code> 时，立即改色并入队。</li>
+          <li>队列为空时，返回已经修改的图像。</li>
+        </ol>
+      </section>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="proof-title">
+        <h3 id="proof-title">正确性说明</h3>
+        <div class="proof">
+          <p><strong>不会漏染：</strong>起点先被染色。对任意与起点四向连通的原色像素，沿一条同色路径归纳：当前一个像素被处理时，下一个像素一定因未越界且仍为原色而被染色入队。</p>
+          <p><strong>不会误染：</strong>算法只从已抵达像素沿四方向扩张，并且只接纳值为 <code>oldColor</code> 的邻居，因此每个被修改像素都有一条原色四向路径回到起点。</p>
+          <p><strong>必然终止：</strong>像素入队时立刻改色；新旧颜色不同时，它不会再次满足入队条件。矩阵有限，队列最终为空。</p>
+          <p style="margin-bottom:0"><strong>结论：</strong>被改色的集合恰好是起点所在的原色四连通分量。</p>
+        </div>
+      </section>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="complexity-title">
+        <h3 id="complexity-title">复杂度</h3>
+        <div class="metrics grid gap-4">
+          <div class="metric"><strong>O(m × n)</strong><span class="text-muted">时间：最坏访问整张图，每个像素至多入队一次。</span></div>
+          <div class="metric"><strong>O(m × n)</strong><span class="text-muted">空间：队列最坏可容纳线性数量的像素。</span></div>
+        </div>
+      </section>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="boundary-title">
+        <h3 id="boundary-title">边界情况</h3>
+        <ul class="warnings">
+          <li><strong>新旧颜色相同：</strong>必须提前返回。</li>
+          <li><strong>单行、单列或单像素：</strong>统一的越界判断已覆盖。</li>
+          <li><strong>对角线同色：</strong>不属于四连通区域。</li>
+          <li><strong>起点被异色包围：</strong>只修改起点，队列随即清空。</li>
+          <li><strong>较大颜色值：</strong>小于 <code>2^16</code>，普通整数足够。</li>
+        </ul>
+      </section>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="code-title">
+        <div class="section-head"><p class="kicker">Implementations</p><h3 id="code-title" style="font-size:1.6rem">四语言完整代码</h3><p>四份实现均采用“入队即改色”的 BFS。</p></div>
+        <div class="code-stack">
+          <article class="code-card">
+            <div class="code-head flex items-center justify-between gap-3"><strong>Java</strong><span class="text-xs text-subtle">Queue&lt;int[]&gt;</span></div>
+            <pre tabindex="0" aria-label="Java 代码"><code>import java.util.ArrayDeque;
+import java.util.Queue;
+
+class Solution {
+    public int[][] floodFill(int[][] image, int sr, int sc, int color) {
+        int oldColor = image[sr][sc];
+        if (oldColor == color) return image;
+
+        int rows = image.length;
+        int cols = image[0].length;
+        int[][] dirs = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        Queue&lt;int[]&gt; queue = new ArrayDeque&lt;&gt;();
+        image[sr][sc] = color;
+        queue.offer(new int[]{sr, sc});
+
+        while (!queue.isEmpty()) {
+            int[] cur = queue.poll();
+            for (int[] dir : dirs) {
+                int nr = cur[0] + dir[0];
+                int nc = cur[1] + dir[1];
+                if (nr &gt;= 0 &amp;&amp; nr &lt; rows &amp;&amp; nc &gt;= 0 &amp;&amp; nc &lt; cols
+                        &amp;&amp; image[nr][nc] == oldColor) {
+                    image[nr][nc] = color;
+                    queue.offer(new int[]{nr, nc});
+                }
+            }
+        }
+        return image;
+    }
+}</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head flex items-center justify-between gap-3"><strong>JavaScript</strong><span class="text-xs text-subtle">数组队列 + head</span></div>
+            <pre tabindex="0" aria-label="JavaScript 代码"><code>/**
+ * @param {number[][]} image
+ * @param {number} sr
+ * @param {number} sc
+ * @param {number} color
+ * @return {number[][]}
+ */
+var floodFill = function(image, sr, sc, color) {
+    const oldColor = image[sr][sc];
+    if (oldColor === color) return image;
+
+    const rows = image.length;
+    const cols = image[0].length;
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const queue = [[sr, sc]];
+    let head = 0;
+    image[sr][sc] = color;
+
+    while (head &lt; queue.length) {
+        const [row, col] = queue[head++];
+        for (const [dr, dc] of dirs) {
+            const nr = row + dr;
+            const nc = col + dc;
+            if (nr &gt;= 0 &amp;&amp; nr &lt; rows &amp;&amp; nc &gt;= 0 &amp;&amp; nc &lt; cols
+                    &amp;&amp; image[nr][nc] === oldColor) {
+                image[nr][nc] = color;
+                queue.push([nr, nc]);
+            }
+        }
+    }
+    return image;
+};</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head flex items-center justify-between gap-3"><strong>Python</strong><span class="text-xs text-subtle">collections.deque</span></div>
+            <pre tabindex="0" aria-label="Python 代码"><code>from collections import deque
+from typing import List
+
+
+class Solution:
+    def floodFill(
+        self,
+        image: List[List[int]],
+        sr: int,
+        sc: int,
+        color: int
+    ) -&gt; List[List[int]]:
+        old_color = image[sr][sc]
+        if old_color == color:
+            return image
+
+        rows, cols = len(image), len(image[0])
+        dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        queue = deque([(sr, sc)])
+        image[sr][sc] = color
+
+        while queue:
+            row, col = queue.popleft()
+            for dr, dc in dirs:
+                nr, nc = row + dr, col + dc
+                if (0 &lt;= nr &lt; rows and 0 &lt;= nc &lt; cols
+                        and image[nr][nc] == old_color):
+                    image[nr][nc] = color
+                    queue.append((nr, nc))
+
+        return image</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head flex items-center justify-between gap-3"><strong>C++</strong><span class="text-xs text-subtle">std::queue</span></div>
+            <pre tabindex="0" aria-label="C++ 代码"><code>#include &lt;queue&gt;
+#include &lt;utility&gt;
+#include &lt;vector&gt;
+using namespace std;
+
+class Solution {
+public:
+    vector&lt;vector&lt;int&gt;&gt; floodFill(
+        vector&lt;vector&lt;int&gt;&gt;&amp; image, int sr, int sc, int color
+    ) {
+        int oldColor = image[sr][sc];
+        if (oldColor == color) return image;
+
+        int rows = static_cast&lt;int&gt;(image.size());
+        int cols = static_cast&lt;int&gt;(image[0].size());
+        int dirs[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        queue&lt;pair&lt;int, int&gt;&gt; pending;
+        image[sr][sc] = color;
+        pending.push({sr, sc});
+
+        while (!pending.empty()) {
+            auto [row, col] = pending.front();
+            pending.pop();
+            for (const auto&amp; dir : dirs) {
+                int nr = row + dir[0];
+                int nc = col + dir[1];
+                if (nr &gt;= 0 &amp;&amp; nr &lt; rows &amp;&amp; nc &gt;= 0 &amp;&amp; nc &lt; cols
+                        &amp;&amp; image[nr][nc] == oldColor) {
+                    image[nr][nc] = color;
+                    pending.push({nr, nc});
+                }
+            }
+        }
+        return image;
+    }
+};</code></pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="alternatives-title">
+        <h3 id="alternatives-title">替代方案</h3>
+        <div class="two-col grid gap-4">
+          <article class="panel insight"><h3>递归 DFS</h3><p>代码更短：遇到原色就改色，再递归四邻域。时间复杂度相同，但大连通块会增加调用栈深度。</p></article>
+          <article class="panel insight"><h3>显式栈 DFS</h3><p>把 BFS 队列换成栈，避免递归栈风险。搜索顺序不同，最终渲染集合相同。</p></article>
+        </div>
+      </section>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="interview-title">
+        <h3 id="interview-title">面试追问</h3>
+        <div class="qa-grid grid gap-4">
+          <article class="qa"><h4>为什么入队时改色？</h4><p>它会立即标记已发现，阻止同一坐标被多个邻居重复入队。</p></article>
+          <article class="qa"><h4>允许八方向连通怎么办？</h4><p>把方向数组扩充成八个方向即可，框架与复杂度不变。</p></article>
+          <article class="qa"><h4>不能修改输入矩阵怎么办？</h4><p>复制结果矩阵或维护 visited 集合，额外使用 O(mn) 空间。</p></article>
+          <article class="qa"><h4>BFS 与 DFS 如何选择？</h4><p>两者时间复杂度相同；BFS 避免深递归，递归 DFS 更简短。</p></article>
+        </div>
+      </section>
+
+      <section class="section" style="margin-top:2.5rem" aria-labelledby="mistakes-title">
+        <h3 id="mistakes-title">常见错误</h3>
+        <ul class="warnings">
+          <li>改完起点后才读取原色，导致比较基准变成新颜色。</li>
+          <li>漏掉新旧颜色相同的提前返回，造成重复访问。</li>
+          <li>出队时才标记访问，让同一坐标多次入队。</li>
+          <li>把对角线当成邻居，误染其他连通分量。</li>
+          <li>先访问邻居再判断边界，引发数组越界。</li>
+          <li>JavaScript 反复使用 <code>shift()</code>；head 指针可避免线性移动。</li>
+        </ul>
+      </section>
+
+      <div style="margin-top:2.5rem;text-align:center">
+        <button id="solutionClose" class="btn" type="button">收起题解并返回</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="max-w-6xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+      <span>LeetCode 733 · 图像渲染</span><span>快速生成模式：待补验证</span>
+    </div>
+  </footer>
+
+  <script data-cfasync="false">
+    (() => {
+      "use strict";
+      const original = [[1,1,1],[1,1,0],[1,0,1]];
+      const steps = [
+        {title:"准备起点",copy:"记录起点原始颜色 1，并把坐标 (1, 1) 放入待处理队列。",current:null,queue:[[1,1]],painted:[],checks:[]},
+        {title:"渲染起点",copy:"取出 (1, 1) 并改成 2。上方与左侧同色，加入待处理边界。",current:[1,1],queue:[[0,1],[1,0]],painted:[[1,1]],checks:[["(0, 1)","加入","add"],["(1, 2)","颜色 0","skipc"],["(2, 1)","颜色 0","skipc"],["(1, 0)","加入","add"]]},
+        {title:"扩张到上方",copy:"处理 (0, 1)。左右原色像素入队；下方起点已改色，不重复加入。",current:[0,1],queue:[[1,0],[0,2],[0,0]],painted:[[1,1],[0,1]],checks:[["(-1, 1)","越界","edge"],["(0, 2)","加入","add"],["(1, 1)","已渲染","seen"],["(0, 0)","加入","add"]]},
+        {title:"处理左侧分支",copy:"处理 (1, 0)。相邻位置已发现、越界或异色，没有新增坐标。",current:[1,0],queue:[[0,2],[0,0]],painted:[[1,1],[0,1],[1,0]],checks:[["(0, 0)","已在队列","seen"],["(1, 1)","已渲染","seen"],["(2, 0)","颜色 1 但不连通","skipc"],["(1, -1)","越界","edge"]]},
+        {title:"完成顶部右侧",copy:"处理 (0, 2)。周围没有新的原色像素，边界只剩 (0, 0)。",current:[0,2],queue:[[0,0]],painted:[[1,1],[0,1],[1,0],[0,2]],checks:[["(-1, 2)","越界","edge"],["(0, 3)","越界","edge"],["(1, 2)","颜色 0","skipc"],["(0, 1)","已渲染","seen"]]},
+        {title:"队列清空，渲染完成",copy:"最后处理 (0, 0)。共修改 5 个像素；右下角因不连通而保持 1。",current:[0,0],queue:[],painted:[[1,1],[0,1],[1,0],[0,2],[0,0]],checks:[["(-1, 0)","越界","edge"],["(0, 1)","已渲染","seen"],["(1, 0)","已渲染","seen"],["(0, -1)","越界","edge"]]}
+      ];
+      const byId = (id) => document.getElementById(id);
+      const el = {
+        region:byId("vizRegion"),grid:byId("pixelGrid"),snapshot:byId("snapshot"),count:byId("stepCount"),
+        title:byId("stepTitle"),copy:byId("stepCopy"),current:byId("currentCoord"),queue:byId("queueValue"),
+        painted:byId("paintedValue"),neighbors:byId("neighborList"),bar:byId("progressBar"),prev:byId("prevBtn"),
+        next:byId("nextBtn"),auto:byId("autoBtn"),reset:byId("resetBtn"),state:byId("playState"),live:byId("vizLive"),
+        toggle:byId("solutionToggle"),panel:byId("solutionPanel"),solutionTitle:byId("solution-title"),
+        close:byId("solutionClose"),solutionLive:byId("solutionLive")
+      };
+      let index = 0;
+      let timer = null;
+      const keyOf = (coord) => coord[0] + "," + coord[1];
+      const coordText = (coord) => "(" + coord[0] + ", " + coord[1] + ")";
+      const listText = (list) => list.length ? "[" + list.map(coordText).join(", ") + "]" : "—";
+
+      function matrixFor(step) {
+        const matrix = original.map((row) => row.slice());
+        step.painted.forEach(([r,c]) => { matrix[r][c] = 2; });
+        return matrix;
+      }
+
+      function renderGrid(step,matrix) {
+        const queued = new Set(step.queue.map(keyOf));
+        const painted = new Set(step.painted.map(keyOf));
+        const current = step.current ? keyOf(step.current) : "";
+        const fragment = document.createDocumentFragment();
+        matrix.forEach((row,r) => row.forEach((value,c) => {
+          const key = r + "," + c;
+          const cell = document.createElement("div");
+          cell.className = "pixel v" + value;
+          if (queued.has(key)) cell.classList.add("queued");
+          if (current === key) cell.classList.add("current");
+          if (key === "1,1") cell.classList.add("start");
+          const states = [];
+          if (current === key) states.push("当前处理");
+          if (queued.has(key)) states.push("待处理");
+          if (painted.has(key)) states.push("已渲染");
+          cell.setAttribute("role","img");
+          cell.setAttribute("aria-label","坐标 " + coordText([r,c]) + "，颜色 " + value + (states.length ? "，" + states.join("，") : ""));
+          const number = document.createElement("strong");
+          number.textContent = String(value);
+          const coord = document.createElement("span");
+          coord.className = "coord mono";
+          coord.textContent = r + "," + c;
+          cell.append(number,coord);
+          fragment.appendChild(cell);
+        }));
+        el.grid.replaceChildren(fragment);
+      }
+
+      function renderChecks(checks) {
+        const fragment = document.createDocumentFragment();
+        if (!checks.length) {
+          const empty = document.createElement("span");
+          empty.className = "text-subtle text-xs";
+          empty.textContent = "尚未检查";
+          fragment.appendChild(empty);
+        } else {
+          checks.forEach(([coord,label,status]) => {
+            const chip = document.createElement("span");
+            chip.className = "chip " + status;
+            chip.textContent = coord + " · " + label;
+            fragment.appendChild(chip);
+          });
+        }
+        el.neighbors.replaceChildren(fragment);
+      }
+
+      function render(announce) {
+        const step = steps[index];
+        const matrix = matrixFor(step);
+        renderGrid(step,matrix);
+        renderChecks(step.checks);
+        el.snapshot.textContent = JSON.stringify(matrix);
+        el.count.textContent = "步骤 " + index + " / " + (steps.length - 1);
+        el.title.textContent = step.title;
+        el.copy.textContent = step.copy;
+        el.current.textContent = "current: " + (step.current ? coordText(step.current) : "—");
+        el.queue.textContent = listText(step.queue);
+        el.painted.textContent = listText(step.painted);
+        el.bar.style.width = (index / (steps.length - 1) * 100) + "%";
+        el.prev.disabled = index === 0;
+        el.next.disabled = index === steps.length - 1;
+        if (announce) el.live.textContent = "第 " + index + " 步：" + step.title + "。" + step.copy;
+      }
+
+      function stopAuto(announce) {
+        if (timer !== null) window.clearInterval(timer);
+        timer = null;
+        el.auto.setAttribute("aria-pressed","false");
+        el.auto.textContent = "自动播放";
+        el.state.textContent = "手动模式";
+        if (announce) el.live.textContent = "自动播放已暂停。";
+      }
+
+      function startAuto() {
+        if (index === steps.length - 1) index = 0;
+        el.auto.setAttribute("aria-pressed","true");
+        el.auto.textContent = "暂停播放";
+        el.state.textContent = "正在自动播放";
+        render(true);
+        timer = window.setInterval(() => {
+          if (index === steps.length - 1) {
+            stopAuto(false);
+            el.live.textContent = "演示播放完成，共渲染 5 个像素。";
+            return;
+          }
+          index += 1;
+          render(true);
+        },1100);
+      }
+
+      function toggleAuto() { timer === null ? startAuto() : stopAuto(true); }
+      el.prev.addEventListener("click",() => { stopAuto(false); if(index>0){index-=1;render(true);} });
+      el.next.addEventListener("click",() => { stopAuto(false); if(index<steps.length-1){index+=1;render(true);} });
+      el.auto.addEventListener("click",toggleAuto);
+      el.reset.addEventListener("click",() => { stopAuto(false); index=0; render(true); el.live.textContent="演示已重置。"; });
+      el.region.addEventListener("keydown",(event) => {
+        if (event.target instanceof HTMLButtonElement) return;
+        if (event.key === "ArrowLeft") { event.preventDefault(); el.prev.click(); }
+        else if (event.key === "ArrowRight") { event.preventDefault(); el.next.click(); }
+        else if (event.key === " ") { event.preventDefault(); toggleAuto(); }
+        else if (event.key === "Home") { event.preventDefault(); el.reset.click(); }
+      });
+
+      function openSolution() {
+        el.panel.hidden = false;
+        el.toggle.setAttribute("aria-expanded","true");
+        el.toggle.textContent = "收起题解";
+        el.solutionLive.textContent = "题解已展开。";
+        window.requestAnimationFrame(() => el.solutionTitle.focus());
+      }
+      function closeSolution() {
+        el.panel.hidden = true;
+        el.toggle.setAttribute("aria-expanded","false");
+        el.toggle.textContent = "查看题解";
+        el.solutionLive.textContent = "题解已收起。";
+        el.toggle.focus();
+      }
+      el.toggle.addEventListener("click",() => { el.panel.hidden ? openSolution() : closeSolution(); });
+      el.close.addEventListener("click",closeSolution);
+      render(false);
+    })();
+  </script>
+</body>
+</html>
