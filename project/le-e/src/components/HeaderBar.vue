@@ -32,7 +32,7 @@ const favoriteFolderName = (): string =>
     :w="width"
     :h="4"
     border
-    :title="`le-e · LeetCode ${state.cliVersion ?? '…'} · ${LANGUAGES.find(({ value }) => value === state.language)?.label ?? state.language} [g 切换语言] · ${state.viewMode === 'all' ? '题库' : '我的收藏'}`"
+    :title="`le-e · LeetCode ${state.cliVersion ?? '…'} · ${LANGUAGES.find(({ value }) => value === state.language)?.label ?? state.language} [g 切换语言] · ${state.viewMode === 'all' ? '题库' : state.viewMode === 'official' ? '官方题单' : '我的收藏'}`"
     :padding="0"
     :style="focused ? THEME.borderActive : THEME.border"
     :title-style="THEME.title"

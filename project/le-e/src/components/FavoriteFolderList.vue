@@ -8,7 +8,7 @@ import { THEME } from '../styles/theme'
 import { borderedListContentRows, nextListWindowStart } from './listViewport'
 
 const props = defineProps<{
-  folders: FavoriteFolder[]
+  folders: (FavoriteFolder & { questionCount?: number; premium?: boolean })[]
   selectedSlug: string | null
   x: number
   y: number
@@ -16,6 +16,8 @@ const props = defineProps<{
   height: number
   focused: boolean
   loading: boolean
+  label?: string
+  error?: string | null
 }>()
 
 const emit = defineEmits<{ open: [slug: string] }>()
@@ -54,9 +56,11 @@ const clip = (value: string, width: number): string => {
   return `${output}…`
 }
 
-const rowText = (folder: FavoriteFolder): string => {
+const rowText = (
+  folder: FavoriteFolder & { questionCount?: number; premium?: boolean },
+): string => {
   const marker = folder.slug === props.selectedSlug ? '>' : ' '
-  const suffix = `${folder.questions.length} 题${folder.writable ? '' : ' · 只读'}`
+  const suffix = `${folder.questionCount ?? folder.questions.length} 题${folder.premium ? ' · 会员' : folder.writable ? '' : ' · 只读'}`
   const nameWidth = Math.max(4, props.width - 4 - stringWidth(marker) - stringWidth(suffix))
   const name = clip(folder.name, nameWidth)
   return `${marker} ${name}${' '.repeat(Math.max(1, nameWidth - stringWidth(name) + 1))}${suffix}`
@@ -70,16 +74,25 @@ const rowText = (folder: FavoriteFolder): string => {
     :w="width"
     :h="height"
     border
-    :title="`${focused ? '> ' : ''}收藏夹 · ${folders.length}`"
+    :title="`${focused ? '> ' : ''}${label ?? '收藏夹'} · ${folders.length}`"
     :padding="0"
     :style="focused ? THEME.borderActive : THEME.border"
   >
-    <TText v-if="loading" :x="1" :y="1" value="◐ 加载收藏夹中…" :style="THEME.warning" />
+    <TText
+      v-if="loading"
+      :x="1"
+      :y="1"
+      :value="`◐ 加载${label ?? '收藏夹'}中…`"
+      :style="THEME.warning"
+    />
     <TText
       v-else-if="folders.length === 0"
       :x="1"
       :y="1"
-      value="暂无收藏夹。请确认 LeetCode 已登录。"
+      :value="
+        error ||
+          (label ? '暂无匹配题单，按 / 搜索或 r 重试。' : '暂无收藏夹。请确认 LeetCode 已登录。')
+      "
       :style="THEME.muted"
     />
     <TView
@@ -90,7 +103,7 @@ const rowText = (folder: FavoriteFolder): string => {
       :y="index + 1"
       :w="Math.max(1, width - 2)"
       :h="1"
-      @click="emit('open', folder.slug)"
+      @click="!loading && emit('open', folder.slug)"
     >
       <TText
         :x="0"

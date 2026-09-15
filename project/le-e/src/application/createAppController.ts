@@ -17,6 +17,11 @@ import type {
   LeetCodeGateway,
 } from '../infrastructure/leetcodeGateway'
 import type { AccountFavoritesGateway } from '../infrastructure/accountFavoritesGateway'
+import { OfficialStudyPlanAccessError } from '../infrastructure/officialStudyPlans'
+import type {
+  OfficialStudyPlan,
+  createOfficialStudyPlansGateway,
+} from '../infrastructure/officialStudyPlans'
 import { EditorBridgeProtocolError } from '../infrastructure/editorBridgeProtocol'
 import type { SourceBridgeSession } from '../infrastructure/sourceBridgeServer'
 import { SourceFileError } from '../infrastructure/sourceFile'
@@ -63,10 +68,13 @@ export interface AppControllerState {
   submitDialog: SubmitDialogState
   cookieLogin: CookieLoginState
   logExpanded: boolean
-  viewMode: 'all' | 'favorites'
+  viewMode: 'all' | 'favorites' | 'official'
   favoritePage: 'folders' | 'questions'
   favoriteFolders: FavoriteFolder[]
   selectedFavoriteFolderSlug: string | null
+  officialPlans: OfficialStudyPlan[]
+  selectedOfficialPlanSlug: string | null
+  officialError: string | null
 }
 
 export interface AppController {
@@ -74,6 +82,9 @@ export interface AppController {
   start(): Promise<boolean>
   refresh(): Promise<boolean>
   visibleProblems(): ProblemSummary[]
+  visibleOfficialPlans(): OfficialStudyPlan[]
+  showOfficialPlans(): Promise<boolean>
+  openOfficialPlan(slug?: string): Promise<boolean>
   setQuery(query: string): void
   cycleLanguage(): void
   setDifficulty(difficulty: Difficulty | 'all'): void
@@ -106,6 +117,7 @@ export interface CreateAppControllerOptions {
   readonly editorBridge?: EditorBridgeDependencies
   readonly vimEditor?: VimEditorDependencies
   readonly favoritesGateway?: AccountFavoritesGateway
+  readonly officialGateway?: ReturnType<typeof createOfficialStudyPlansGateway>
 }
 
 export interface EditorBridgeDependencies {
@@ -125,6 +137,7 @@ export function createAppController({
   editorBridge,
   vimEditor,
   favoritesGateway,
+  officialGateway,
 }: CreateAppControllerOptions): AppController {
   const state: AppControllerState = reactive({
     language: 'javascript',
@@ -151,6 +164,9 @@ export function createAppController({
     favoritePage: 'folders',
     favoriteFolders: [],
     selectedFavoriteFolderSlug: null,
+    officialPlans: [],
+    selectedOfficialPlanSlug: null,
+    officialError: null,
   })
   let nextLogId = 1
   let activeEditorAbortController: AbortController | null = null
@@ -158,6 +174,9 @@ export function createAppController({
   let activeDetailAbortController: AbortController | null = null
   let activeRefreshAbortController: AbortController | null = null
   let pendingDetailLoad: (() => void) | undefined
+  let officialAbort: AbortController | null = null
+  const loadedPlans = new Set<string>()
+  let officialQuery = ''
 
   const addLog = (
     message: string,
@@ -217,6 +236,13 @@ export function createAppController({
   const selectedFavoriteFolder = (): FavoriteFolder | undefined =>
     state.favoriteFolders.find(({ slug }) => slug === state.selectedFavoriteFolderSlug)
 
+  const visibleOfficialPlans = (): OfficialStudyPlan[] => {
+    const query = state.filters.query.normalize('NFKC').toLowerCase().trim()
+    return state.officialPlans.filter((plan) =>
+      `${plan.name} ${plan.slug}`.normalize('NFKC').toLowerCase().includes(query),
+    )
+  }
+
   const replaceFavoriteFolders = (folders: readonly FavoriteFolder[]): void => {
     const selectedStillExists = folders.some(
       ({ slug }) => slug === state.selectedFavoriteFolderSlug,
@@ -224,7 +250,7 @@ export function createAppController({
     state.favoriteFolders = [...folders]
     if (selectedStillExists) return
     state.selectedFavoriteFolderSlug = state.favoriteFolders[0]?.slug ?? null
-    state.favoritePage = 'folders'
+    if (state.viewMode === 'favorites') state.favoritePage = 'folders'
   }
 
   const favoriteQuestionFor = (folder: FavoriteFolder, problem: ProblemSummary) =>
@@ -239,7 +265,10 @@ export function createAppController({
     const filtered = filterProblems(state.problems, state.filters)
     if (state.viewMode === 'all') return filtered
     if (state.favoritePage === 'folders') return []
-    const folder = selectedFavoriteFolder()
+    const folder =
+      state.viewMode === 'official'
+        ? state.officialPlans.find(({ slug }) => slug === state.selectedOfficialPlanSlug)
+        : selectedFavoriteFolder()
     if (folder === undefined) return []
     const favoriteCandidates = filterProblems(
       [...state.problems, ...[...state.collisionCandidates.values()].flat()],
@@ -259,7 +288,7 @@ export function createAppController({
   }
 
   const syncSelection = (): void => {
-    if (state.viewMode === 'favorites' && state.favoritePage === 'folders') {
+    if (state.viewMode !== 'all' && state.favoritePage === 'folders') {
       state.selectedProblemId = null
       return
     }
@@ -273,6 +302,113 @@ export function createAppController({
     const index = state.problems.findIndex(({ id }) => id === replacement.id)
     if (index >= 0) state.problems[index] = replacement
     syncSelection()
+  }
+
+  const loadOfficialPlans = async (): Promise<boolean> => {
+    if (!officialGateway || !beginOperation('load-plans')) return false
+    const abort = new AbortController()
+    officialAbort = abort
+    state.officialError = null
+    try {
+      state.officialPlans = [...(await officialGateway.list(abort.signal))]
+      if (abort.signal.aborted) return false
+      loadedPlans.clear()
+      const plans = visibleOfficialPlans()
+      state.selectedOfficialPlanSlug =
+        plans.find((p) => p.slug === state.selectedOfficialPlanSlug)?.slug ?? plans[0]?.slug ?? null
+      return true
+    } catch {
+      if (!abort.signal.aborted) state.officialError = '官方题单加载失败，按 r 重试。'
+      return false
+    } finally {
+      if (officialAbort === abort) officialAbort = null
+      finishOperation()
+    }
+  }
+
+  const showOfficialPlans = async (): Promise<boolean> => {
+    if (state.activeOperation !== null || activeEditorAbortController !== null) return false
+    state.viewMode = 'official'
+    state.favoritePage = 'folders'
+    state.filters = { ...state.filters, query: officialQuery, starredOnly: false }
+    syncSelection()
+    if (!state.officialPlans.length) return loadOfficialPlans()
+    return true
+  }
+
+  const openOfficialPlan = async (
+    slug = state.selectedOfficialPlanSlug ?? undefined,
+  ): Promise<boolean> => {
+    if (
+      !slug ||
+      !officialGateway ||
+      state.activeOperation !== null ||
+      activeEditorAbortController !== null
+    )
+      return false
+    const index = state.officialPlans.findIndex((p) => p.slug === slug)
+    if (index < 0) return false
+    state.selectedOfficialPlanSlug = slug
+    state.officialError = null
+    if (!loadedPlans.has(slug)) {
+      if (!beginOperation('load-plans')) return false
+      const abort = new AbortController()
+      officialAbort = abort
+      state.officialError = null
+      try {
+        const plan = await officialGateway.load(slug, abort.signal)
+        if (abort.signal.aborted) return false
+        state.officialPlans[index] = plan
+        loadedPlans.add(slug)
+      } catch (error) {
+        if (!abort.signal.aborted) {
+          state.officialError =
+            error instanceof OfficialStudyPlanAccessError
+              ? '此题单需要访问权限或已下架，请在力扣网页登录并确认会员权限。'
+              : '题单内容加载失败，请点击题单或按 Enter 重试。'
+          if (state.favoritePage === 'questions') {
+            state.favoritePage = 'folders'
+            state.filters = { ...state.filters, query: officialQuery }
+            syncSelection()
+          }
+        }
+        return false
+      } finally {
+        if (officialAbort === abort) officialAbort = null
+        finishOperation()
+      }
+    }
+    const selectedPlan = state.officialPlans[index]!
+    if (selectedPlan.questions.length === 0 && selectedPlan.questionCount > 0) {
+      state.officialError = '此题单未公开题目，请在力扣网页登录并确认会员权限。'
+      state.favoritePage = 'folders'
+      syncSelection()
+      return false
+    }
+    if (state.favoritePage === 'folders') officialQuery = state.filters.query
+    state.filters = { ...state.filters, query: '' }
+    state.viewMode = 'official'
+    state.favoritePage = 'questions'
+    state.selectedProblemId = null
+    syncSelection()
+    const plan = state.officialPlans[index]!
+    if (plan.questions.length < plan.questionCount) {
+      addLog(
+        `公开可见 ${plan.questions.length}/${plan.questionCount} 道题；其余题目请在力扣网页确认访问权限。`,
+        'warn',
+      )
+    }
+    const slugs = new Set(state.problems.map((p) => p.slug))
+    const unavailable = plan.questions.filter((q) => !slugs.has(q.slug)).length
+    if (unavailable) addLog(`${unavailable} 道题未在当前题库中找到，可能受站点或权限限制。`, 'warn')
+    return true
+  }
+
+  const refreshOfficial = async (): Promise<boolean> => {
+    if (state.activeOperation !== null || activeEditorAbortController !== null) return false
+    if (state.favoritePage === 'folders') return loadOfficialPlans()
+    loadedPlans.delete(state.selectedOfficialPlanSlug ?? '')
+    return openOfficialPlan()
   }
 
   const resolveIdentity = async (id: number, signal?: AbortSignal): Promise<boolean> => {
@@ -701,8 +837,11 @@ export function createAppController({
       }
       return refresh()
     },
-    refresh,
+    refresh: () => (state.viewMode === 'official' ? refreshOfficial() : refresh()),
     visibleProblems,
+    visibleOfficialPlans,
+    showOfficialPlans,
+    openOfficialPlan,
     cycleLanguage() {
       if (state.activeOperation !== null || state.submitDialog.open) return
       const index = LANGUAGES.findIndex(({ value }) => value === state.language)
@@ -716,6 +855,10 @@ export function createAppController({
     },
     setQuery(query) {
       state.filters = { ...state.filters, query }
+      if (state.viewMode === 'official' && state.favoritePage === 'folders') {
+        officialQuery = query
+        state.selectedOfficialPlanSlug = visibleOfficialPlans()[0]?.slug ?? null
+      }
       syncSelection()
     },
     setDifficulty(difficulty) {
@@ -727,16 +870,35 @@ export function createAppController({
       syncSelection()
     },
     toggleView() {
+      if (state.activeOperation !== null || activeEditorAbortController !== null) return
       activeDetailAbortController?.abort()
       if (state.viewMode === 'all') {
         state.viewMode = 'favorites'
         state.favoritePage = 'folders'
+      } else if (state.viewMode === 'favorites' && officialGateway) {
+        void showOfficialPlans()
+        return
       } else {
         state.viewMode = 'all'
+        state.filters = { ...state.filters, query: '' }
       }
       syncSelection()
     },
     moveFavoriteFolder(delta) {
+      if (state.viewMode === 'official') {
+        if (state.activeOperation !== null || activeEditorAbortController !== null) return
+        if (state.favoritePage === 'questions') {
+          state.favoritePage = 'folders'
+          state.filters = { ...state.filters, query: officialQuery }
+        }
+        const plans = visibleOfficialPlans()
+        if (!plans.length) return
+        const index = plans.findIndex((p) => p.slug === state.selectedOfficialPlanSlug)
+        state.selectedOfficialPlanSlug =
+          plans[(((Math.max(0, index) + delta) % plans.length) + plans.length) % plans.length]!.slug
+        syncSelection()
+        return
+      }
       if (state.favoriteFolders.length === 0) return
       activeDetailAbortController?.abort()
       if (state.viewMode === 'all') state.favoritePage = 'folders'
@@ -761,9 +923,11 @@ export function createAppController({
       return true
     },
     closeFavoriteFolder() {
-      if (state.viewMode !== 'favorites' || state.favoritePage !== 'questions') return false
+      if (state.viewMode === 'all' || state.favoritePage !== 'questions') return false
+      if (state.activeOperation !== null || activeEditorAbortController !== null) return false
       activeDetailAbortController?.abort()
       state.favoritePage = 'folders'
+      if (state.viewMode === 'official') state.filters = { ...state.filters, query: officialQuery }
       syncSelection()
       return true
     },
@@ -821,7 +985,7 @@ export function createAppController({
       }
     },
     moveSelection(delta) {
-      if (state.viewMode === 'favorites' && state.favoritePage === 'folders') {
+      if (state.viewMode !== 'all' && state.favoritePage === 'folders') {
         this.moveFavoriteFolder(delta)
         return
       }
@@ -845,6 +1009,7 @@ export function createAppController({
       activeEditorAbortController?.abort()
       activeDetailAbortController?.abort()
       activeRefreshAbortController?.abort()
+      officialAbort?.abort()
       gateway.clearSessionCookie()
     },
     testSelected,

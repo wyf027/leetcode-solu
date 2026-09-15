@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TBox, TText } from '@simon_he/vue-tui'
+import { TBox, TText, TView } from '@simon_he/vue-tui'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 
 import type { AppController } from './application/createAppController'
@@ -109,20 +109,49 @@ const selectedFavoriteFolder = computed(
       ({ slug }) => slug === props.controller.state.selectedFavoriteFolderSlug,
     ) ?? null,
 )
+const officialView = computed(() => props.controller.state.viewMode === 'official')
+const collectionLabel = computed(() => (officialView.value ? '官方题单' : '收藏夹'))
+const selectedOfficialPlan = computed(
+  () =>
+    props.controller.state.officialPlans.find(
+      (p) => p.slug === props.controller.state.selectedOfficialPlanSlug,
+    ) ?? null,
+)
+const selectedCollection = computed(() =>
+  officialView.value
+    ? (props.controller.state.officialPlans.find(
+        (p) => p.slug === props.controller.state.selectedOfficialPlanSlug,
+      ) ?? null)
+    : selectedFavoriteFolder.value,
+)
+const collectionDescription = computed(() => {
+  if (officialView.value) {
+    if (props.controller.state.officialError) return props.controller.state.officialError
+    const plan = props.controller.state.officialPlans.find(
+      (p) => p.slug === props.controller.state.selectedOfficialPlanSlug,
+    )
+    return plan
+      ? `${plan.questionCount} 道题 · 官方只读题单${plan.premium ? ' · 会员题单' : ''}\n\n${plan.description ?? ''}\n\n点击或 Enter 打开，/ 搜索题单，r 刷新。\n会员题可能需要权限；SQL/Shell 暂不支持 CLI 执行。`
+      : '按 / 搜索官方题单，r 重试加载。'
+  }
+  const folder = selectedFavoriteFolder.value
+  return folder
+    ? `${folder.questions.length} 道题${folder.writable ? '' : ' · 只读收藏夹'}\n\n按 Enter 或点击文件夹查看题目。`
+    : '暂无可用收藏夹。'
+})
 const problemListTitle = computed(() =>
   props.controller.state.viewMode === 'all'
     ? '题库'
-    : `收藏夹 › ${selectedFavoriteFolder.value?.name ?? '无收藏夹'}`,
+    : `${collectionLabel.value} › ${selectedCollection.value?.name ?? ''}${officialView.value && selectedOfficialPlan.value && selectedOfficialPlan.value.questions.length < selectedOfficialPlan.value.questionCount ? ` · 公开 ${selectedOfficialPlan.value.questions.length}/${selectedOfficialPlan.value.questionCount}` : ''}`,
 )
 const showingFavoriteFolders = computed(
   () =>
-    props.controller.state.viewMode === 'favorites' &&
-    props.controller.state.favoritePage === 'folders',
+    props.controller.state.viewMode !== 'all' && props.controller.state.favoritePage === 'folders',
 )
 const loadingCatalog = computed(
   () =>
     props.controller.state.phase === 'starting' ||
-    ['preflight', 'refresh-list', 'refresh-starred'].includes(
+    ['preflight', 'refresh-list', 'refresh-starred', 'load-plans'].includes(
       props.controller.state.activeOperation ?? '',
     ),
 )
@@ -199,8 +228,36 @@ watch(
 )
 
 const openFavoriteFolder = (slug: string): void => {
-  if (props.controller.state.activeOperation === 'edit') return
+  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
+  if (officialView.value) {
+    void props.controller.openOfficialPlan(slug)
+    ui.focus = 'problems'
+    ui.detailScroll = 0
+    return
+  }
   if (!props.controller.openFavoriteFolder(slug)) return
+  ui.focus = 'problems'
+  ui.detailScroll = 0
+}
+const showOfficialPlans = (): void => {
+  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
+  listCollapsed.value = false
+  ui.focus = 'problems'
+  ui.detailScroll = 0
+  void props.controller.showOfficialPlans()
+}
+
+const selectProblem = (id: number): void => {
+  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
+  props.controller.selectProblem(id)
+  ui.focus = 'problems'
+  ui.detailScroll = 0
+  void props.controller.loadSelectedDetail()
+}
+
+const openBreadcrumbRoot = (): void => {
+  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
+  props.controller.closeFavoriteFolder()
   ui.focus = 'problems'
   ui.detailScroll = 0
 }
@@ -410,7 +467,7 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
       return true
     }
     if (event.type === 'click' || event.type === 'pointerdown') {
-      if (event.cellY === headerHeight && event.cellX < detailX.value) {
+      if (event.cellY === headerHeight && event.cellX >= 0 && event.cellX < 4) {
         if (event.type === 'click') toggleList()
         return true
       }
@@ -515,11 +572,20 @@ onUnmounted(removeInputHandler)
       :search-mode="ui.searchMode"
       :search-draft="ui.searchDraft"
     />
+    <TView :x="screen.cols - 18" :y="0" :w="16" :h="1" @click="showOfficialPlans">
+      <TText :x="0" :y="0" :w="16" value="官方题单 [o]" :style="THEME.title" />
+    </TView>
     <FavoriteFolderList
       v-if="showingFavoriteFolders && !listCollapsed"
       ref="folderList"
-      :folders="controller.state.favoriteFolders"
-      :selected-slug="controller.state.selectedFavoriteFolderSlug"
+      :folders="officialView ? controller.visibleOfficialPlans() : controller.state.favoriteFolders"
+      :selected-slug="
+        officialView
+          ? controller.state.selectedOfficialPlanSlug
+          : controller.state.selectedFavoriteFolderSlug
+      "
+      :label="collectionLabel"
+      :error="officialView ? controller.state.officialError : null"
       :x="0"
       :y="headerHeight + 1"
       :width="listWidth"
@@ -540,15 +606,52 @@ onUnmounted(removeInputHandler)
       :focused="ui.focus === 'problems'"
       :title="`${problemListTitle} · b 收起`"
       :loading="loadingCatalog"
+      @select="selectProblem"
     />
     <TText
       :x="1"
       :y="headerHeight"
-      :w="Math.max(1, listWidth - 2)"
+      :w="listCollapsed ? 1 : 2"
       :z-index="2"
-      :value="listCollapsed ? '▶' : `◀ 收起 [b] · ${problemListTitle}`"
+      :value="listCollapsed ? '▶' : '◀'"
       :style="THEME.title"
     />
+    <TView
+      v-if="!listCollapsed"
+      :x="4"
+      :y="headerHeight"
+      :w="8"
+      :h="1"
+      @click="openBreadcrumbRoot"
+    >
+      <TText
+        :x="0"
+        :y="0"
+        :w="8"
+        :value="controller.state.viewMode === 'all' ? '题库' : collectionLabel"
+        :style="THEME.title"
+      />
+    </TView>
+    <template
+      v-if="!listCollapsed && controller.state.viewMode !== 'all' && !showingFavoriteFolders"
+    >
+      <TText :x="13" :y="headerHeight" value="›" :style="THEME.muted" />
+      <TView
+        :x="15"
+        :y="headerHeight"
+        :w="Math.max(1, listWidth - 16)"
+        :h="1"
+        @click="selectedCollection && openFavoriteFolder(selectedCollection.slug)"
+      >
+        <TText
+          :x="0"
+          :y="0"
+          :w="Math.max(1, listWidth - 16)"
+          :value="selectedCollection?.name ?? ''"
+          :style="THEME.title"
+        />
+      </TView>
+    </template>
     <TBox
       v-if="showingFavoriteFolders"
       :x="detailX"
@@ -556,7 +659,7 @@ onUnmounted(removeInputHandler)
       :w="detailWidth"
       :h="middleHeight"
       border
-      title="收藏夹"
+      :title="collectionLabel"
       :padding="0"
       :style="ui.focus === 'detail' ? THEME.borderActive : THEME.border"
     >
@@ -564,20 +667,14 @@ onUnmounted(removeInputHandler)
         :x="1"
         :y="1"
         :w="Math.max(1, detailWidth - 2)"
-        :value="selectedFavoriteFolder?.name ?? '选择一个收藏夹'"
+        :value="selectedCollection?.name ?? `选择一个${collectionLabel}`"
         :style="THEME.title"
       />
       <TText
         :x="1"
         :y="3"
         :w="Math.max(1, detailWidth - 2)"
-        :value="
-          loadingCatalog
-            ? '◐ 加载收藏夹中…'
-            : selectedFavoriteFolder
-              ? `${selectedFavoriteFolder.questions.length} 道题${selectedFavoriteFolder.writable ? '' : ' · 只读收藏夹'}\n\n按 Enter 或点击文件夹查看题目。`
-              : '暂无可用收藏夹。'
-        "
+        :value="loadingCatalog ? `◐ 加载${collectionLabel}中…` : collectionDescription"
         :style="loadingCatalog ? THEME.warning : THEME.muted"
       />
     </TBox>
@@ -704,7 +801,7 @@ onUnmounted(removeInputHandler)
       :x="1"
       :y="footerY + 2"
       :w="Math.max(1, screen.cols - 2)"
-      value="/ 搜索 · a 收藏 · c Token登录 · v 页面 · [ ] 收藏夹 · Esc 返回 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
+      value="/ 搜索 · o 官方题单 · a 收藏 · c Token登录 · v 页面 · [ ] 目录 · Esc 返回 · f 收藏筛选 · d 难度 · l 日志 · r 刷新 · q 退出"
       :style="THEME.muted"
     />
     <HelpOverlay v-if="ui.helpOpen" :cols="screen.cols" :rows="screen.rows" />

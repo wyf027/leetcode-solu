@@ -182,7 +182,7 @@ function problemMovementStep(
   event: TerminalInputEvent,
 ): number {
   if (ui.focus !== 'problems') return 1
-  if (controller.state.viewMode === 'favorites' && controller.state.favoritePage === 'folders') {
+  if (controller.state.viewMode !== 'all' && controller.state.favoritePage === 'folders') {
     return 1
   }
   if (event.type !== 'keydown') return 1
@@ -279,11 +279,9 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       const step = key === 'ArrowDown' ? problemMovementStep(controller, ui, event) : 1
       moveFocusedArea(controller, ui, 1, step)
     } else if (key === 'Enter') {
-      if (
-        controller.state.viewMode === 'favorites' &&
-        controller.state.favoritePage === 'folders'
-      ) {
-        controller.openFavoriteFolder()
+      if (controller.state.viewMode !== 'all' && controller.state.favoritePage === 'folders') {
+        if (controller.state.viewMode === 'official') void controller.openOfficialPlan()
+        else controller.openFavoriteFolder()
         ui.focus = 'problems'
       } else {
         ui.focus = 'detail'
@@ -301,6 +299,7 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       ui.searchDraft = controller.state.filters.query
     } else if (lower === 'f') controller.toggleStarredOnly()
     else if (lower === 'v') controller.toggleView()
+    else if (lower === 'o') void controller.showOfficialPlans()
     else if (key === '[') controller.moveFavoriteFolder(-1)
     else if (key === ']') controller.moveFavoriteFolder(1)
     else if (lower === 'a') void controller.toggleFavoriteSelected()

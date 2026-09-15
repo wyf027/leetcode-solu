@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TBox, TText } from '@simon_he/vue-tui'
+import { TBox, TText, TView } from '@simon_he/vue-tui'
 import stringWidth from 'string-width'
 import { computed, ref, watch } from 'vue'
 
@@ -18,6 +18,7 @@ const props = defineProps<{
   loading: boolean
   title?: string
 }>()
+const emit = defineEmits<{ select: [id: number] }>()
 
 // Rows start at y=1 inside a bordered TBox, so the last drawable row is height - 3.
 const contentRows = computed(() => borderedListContentRows(props.height))
@@ -94,15 +95,23 @@ const rowStyle = (problem: ProblemSummary) => {
       value="No matching problems."
       :style="THEME.muted"
     />
-    <TText
+    <TView
       v-for="(problem, index) in visible"
       v-show="!loading"
       :key="problem.id"
       :x="1"
       :y="index + 1"
       :w="Math.max(1, width - 2)"
-      :value="rowText(problem)"
-      :style="rowStyle(problem)"
-    />
+      :h="1"
+      @click="!loading && emit('select', problem.id)"
+    >
+      <TText
+        :x="0"
+        :y="0"
+        :w="Math.max(1, width - 2)"
+        :value="rowText(problem)"
+        :style="rowStyle(problem)"
+      />
+    </TView>
   </TBox>
 </template>

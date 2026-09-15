@@ -7,6 +7,7 @@ export type OperationKind =
   | 'test'
   | 'submit'
   | 'favorite'
+  | 'load-plans'
 
 export interface CommandResult {
   readonly command: string

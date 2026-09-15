@@ -13,6 +13,7 @@ import { createAppController } from './application/createAppController'
 import { createTerminalInputBus } from './application/terminalInput'
 import { createAccountFavoritesGateway } from './infrastructure/accountFavoritesGateway'
 import { createChineseProblemCatalog } from './infrastructure/chineseProblemCatalog'
+import { createOfficialStudyPlansGateway } from './infrastructure/officialStudyPlans'
 import { createLeetCodeGateway } from './infrastructure/leetcodeGateway'
 import { createProcessRunner } from './infrastructure/processRunner'
 import { createSourceBridgeSession } from './infrastructure/sourceBridgeServer'
@@ -38,6 +39,9 @@ export function runTerminalApp(options: RunTerminalAppOptions = {}): void {
   const editor = createEmbeddedMicro(options.editorCommand ?? options.vimCommand)
   const sessionTokens = createSessionTokenStore()
   const controller = createAppController({
+    ...(options.cliCommand === undefined
+      ? { officialGateway: createOfficialStudyPlansGateway() }
+      : {}),
     gateway: createLeetCodeGateway({
       runner: createProcessRunner(),
       command:
