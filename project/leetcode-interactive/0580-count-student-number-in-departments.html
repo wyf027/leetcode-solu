@@ -1,0 +1,1283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>580. 统计各专业学生人数｜交互式 SQL 解析</title>
+  <style>
+    :root {
+      --ink: #f8fafc;
+      --muted: #94a3b8;
+      --muted-2: #64748b;
+      --panel: rgba(15, 23, 42, 0.78);
+      --panel-strong: rgba(15, 23, 42, 0.94);
+      --line: rgba(148, 163, 184, 0.18);
+      --cyan: #22d3ee;
+      --cyan-soft: rgba(34, 211, 238, 0.14);
+      --violet: #a78bfa;
+      --violet-soft: rgba(167, 139, 250, 0.14);
+      --emerald: #34d399;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+      --radius: 1.25rem;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      overflow-x: hidden;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 5%, rgba(34, 211, 238, 0.14), transparent 30rem),
+        radial-gradient(circle at 90% 18%, rgba(167, 139, 250, 0.14), transparent 34rem),
+        linear-gradient(180deg, #020617 0%, #07111f 48%, #020617 100%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    button, input, select, textarea { font: inherit; }
+    button {
+      border: 0;
+      box-shadow: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:focus, button:focus-visible, button:disabled { box-shadow: none; }
+    button:focus-visible {
+      outline: 3px solid rgba(34, 211, 238, 0.72);
+      outline-offset: 3px;
+    }
+    button:not(:disabled):hover { box-shadow: 0 14px 34px rgba(2, 6, 23, 0.34); }
+    button:not(:disabled):active { box-shadow: 0 7px 18px rgba(2, 6, 23, 0.3); transform: translateY(1px); }
+    button:disabled { cursor: not-allowed; opacity: 0.4; }
+    a { color: inherit; }
+    code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    [hidden] { display: none !important; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .page-shell { position: relative; isolation: isolate; }
+    .grid-noise {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      opacity: 0.17;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: linear-gradient(to bottom, black, transparent 78%);
+    }
+    .container { width: min(1180px, calc(100% - 2rem)); margin-inline: auto; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-block: 1.25rem;
+      color: #cbd5e1;
+      font-size: 0.82rem;
+      letter-spacing: 0.04em;
+    }
+    .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 800; }
+    .brand-mark {
+      display: grid;
+      width: 2rem;
+      height: 2rem;
+      place-items: center;
+      border: 1px solid rgba(34, 211, 238, 0.32);
+      border-radius: 0.65rem;
+      color: var(--cyan);
+      background: rgba(8, 47, 73, 0.42);
+    }
+    .mode-note { color: var(--muted); text-align: right; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+      gap: 1.5rem;
+      align-items: stretch;
+      padding: 3.8rem 0 2rem;
+    }
+    .hero-copy { min-width: 0; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      margin: 0 0 1rem;
+      color: var(--cyan);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 1.8rem; height: 1px; background: currentColor; }
+    h1, h2, h3, h4, p { margin-top: 0; }
+    h1 {
+      max-width: 760px;
+      margin-bottom: 1rem;
+      font-size: clamp(2.25rem, 7vw, 5.5rem);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+    .hero-title-accent {
+      display: block;
+      color: transparent;
+      background: linear-gradient(90deg, #f8fafc 0%, #67e8f9 45%, #c4b5fd 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .subtitle { max-width: 720px; color: #cbd5e1; font-size: clamp(1rem, 2vw, 1.16rem); }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.5rem; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.42rem 0.72rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #cbd5e1;
+      background: rgba(15, 23, 42, 0.7);
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .pill-medium { border-color: rgba(251, 191, 36, 0.28); color: #fde68a; }
+    .pill-paid { border-color: rgba(167, 139, 250, 0.3); color: #ddd6fe; }
+    .hero-aside {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 1.4rem;
+      border: 1px solid rgba(34, 211, 238, 0.2);
+      border-radius: var(--radius);
+      background: linear-gradient(145deg, rgba(8, 47, 73, 0.48), rgba(30, 41, 59, 0.64));
+      backdrop-filter: blur(16px);
+    }
+    .hero-aside-label { color: var(--muted); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+    .hero-aside strong { display: block; margin: 0.5rem 0 1.4rem; font-size: 1.7rem; line-height: 1.15; }
+    .mini-flow { display: grid; gap: 0.65rem; }
+    .mini-flow-item { display: flex; align-items: center; gap: 0.7rem; color: #cbd5e1; font-size: 0.88rem; }
+    .mini-flow-item span:first-child {
+      display: grid;
+      width: 1.55rem;
+      height: 1.55rem;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 999px;
+      color: var(--cyan);
+      background: rgba(2, 6, 23, 0.35);
+      font-size: 0.7rem;
+      font-weight: 900;
+    }
+
+    main { padding-bottom: 5rem; }
+    .section { padding-top: 4.5rem; scroll-margin-top: 1rem; }
+    .section-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.35rem;
+    }
+    .section-kicker { margin-bottom: 0.35rem; color: var(--cyan); font-size: 0.74rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+    h2 { margin-bottom: 0; font-size: clamp(1.55rem, 4vw, 2.35rem); line-height: 1.15; letter-spacing: -0.035em; }
+    h3 { margin-bottom: 0.7rem; font-size: 1.15rem; letter-spacing: -0.018em; }
+    h4 { margin-bottom: 0.55rem; color: #e2e8f0; font-size: 0.96rem; }
+    .section-note { max-width: 410px; margin: 0; color: var(--muted); font-size: 0.88rem; text-align: right; }
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+    }
+    .panel-pad { padding: clamp(1rem, 3vw, 1.5rem); }
+    .problem-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr); gap: 1rem; }
+    .lead { color: #dbeafe; font-size: 1.02rem; }
+    .plain-list { margin: 0; padding-left: 1.2rem; color: #cbd5e1; }
+    .plain-list li + li { margin-top: 0.45rem; }
+    .callout {
+      margin-top: 1rem;
+      padding: 0.9rem 1rem;
+      border-left: 3px solid var(--cyan);
+      border-radius: 0.2rem 0.8rem 0.8rem 0.2rem;
+      color: #bae6fd;
+      background: rgba(8, 47, 73, 0.4);
+    }
+    .schema-stack { display: grid; gap: 0.85rem; }
+    .schema-card { overflow: hidden; border: 1px solid var(--line); border-radius: 0.9rem; background: rgba(2, 6, 23, 0.36); }
+    .schema-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; padding: 0.8rem 1rem; border-bottom: 1px solid var(--line); }
+    .schema-card-head strong { color: #e0f2fe; }
+    .schema-card-head span { color: var(--muted); font-size: 0.74rem; }
+    .table-scroll { max-width: 100%; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    th, td { padding: 0.65rem 0.8rem; border-bottom: 1px solid rgba(148, 163, 184, 0.12); text-align: left; white-space: nowrap; }
+    th { color: #93c5fd; background: rgba(15, 23, 42, 0.56); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    td { color: #cbd5e1; }
+
+    .example-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+    .data-block { min-width: 0; overflow: hidden; }
+    .data-block h3 { padding: 1rem 1rem 0; }
+    .output-accent td:last-child { color: var(--emerald); font-weight: 900; }
+
+    .viz-shell { overflow: hidden; }
+    .viz-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.2rem;
+      border-bottom: 1px solid var(--line);
+      background: rgba(2, 6, 23, 0.3);
+    }
+    .step-meter { display: flex; align-items: center; gap: 0.75rem; color: var(--muted); font-size: 0.82rem; }
+    .meter-track { width: min(220px, 24vw); height: 0.36rem; overflow: hidden; border-radius: 999px; background: rgba(148, 163, 184, 0.15); }
+    .meter-fill { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--violet)); transition: width 280ms ease; }
+    .viz-stage { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); min-height: 420px; }
+    .student-queue { min-width: 0; padding: 1.2rem; border-right: 1px solid var(--line); background: rgba(2, 6, 23, 0.22); }
+    .lane-title { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; margin-bottom: 1rem; color: #dbeafe; font-size: 0.86rem; font-weight: 800; }
+    .lane-title span { color: var(--muted); font-size: 0.72rem; font-weight: 600; }
+    .student-card-list { display: grid; gap: 0.7rem; }
+    .student-card {
+      display: grid;
+      grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+      gap: 0.7rem;
+      align-items: center;
+      padding: 0.78rem;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 0.8rem;
+      color: #cbd5e1;
+      background: rgba(15, 23, 42, 0.58);
+      transition: border-color 220ms ease, background 220ms ease, opacity 220ms ease, transform 220ms ease;
+    }
+    .student-card.is-current { border-color: rgba(34, 211, 238, 0.62); background: rgba(8, 47, 73, 0.62); transform: translateX(5px); }
+    .student-card.is-processed { opacity: 0.48; }
+    .avatar { display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border-radius: 0.7rem; color: #e0f2fe; background: rgba(34, 211, 238, 0.12); font-size: 0.72rem; font-weight: 900; }
+    .student-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; }
+    .student-dept { color: var(--muted); font-size: 0.72rem; }
+    .dept-board { min-width: 0; padding: 1.2rem; }
+    .dept-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+    .dept-bin {
+      position: relative;
+      min-width: 0;
+      min-height: 142px;
+      overflow: hidden;
+      padding: 0.9rem;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 0.9rem;
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.5));
+      transition: border-color 220ms ease, transform 220ms ease;
+    }
+    .dept-bin::after { content: ""; position: absolute; inset: auto 0 0; height: 4px; background: var(--bin-color, var(--cyan)); opacity: 0.5; }
+    .dept-bin.is-active { border-color: var(--bin-color, var(--cyan)); transform: translateY(-4px); }
+    .dept-bin-name { overflow: hidden; color: #e2e8f0; font-size: 0.82rem; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+    .dept-bin-id { color: var(--muted); font-size: 0.68rem; }
+    .counter { display: flex; align-items: baseline; gap: 0.3rem; margin-top: 1.25rem; }
+    .counter strong { font-size: 2rem; line-height: 1; }
+    .counter span { color: var(--muted); font-size: 0.72rem; }
+    .pending-count { color: var(--muted-2); }
+    .viz-caption { margin: 1rem 0 0; min-height: 3.25rem; padding: 0.85rem 1rem; border: 1px solid rgba(34, 211, 238, 0.16); border-radius: 0.8rem; color: #bae6fd; background: rgba(8, 47, 73, 0.3); font-size: 0.85rem; }
+    .result-strip { margin-top: 0.85rem; overflow-x: auto; }
+    .result-strip table { min-width: 340px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 0.65rem; padding: 1rem 1.2rem; border-top: 1px solid var(--line); background: rgba(2, 6, 23, 0.28); }
+    .control-btn, .solution-toggle, .tab-button {
+      display: inline-flex;
+      min-height: 2.65rem;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      padding: 0.62rem 0.95rem;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 0.75rem;
+      color: #e2e8f0;
+      background: rgba(30, 41, 59, 0.72);
+      font-size: 0.82rem;
+      font-weight: 800;
+      transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+    }
+    .control-btn:hover, .tab-button:hover { border-color: rgba(34, 211, 238, 0.34); background: rgba(8, 47, 73, 0.62); }
+    .control-primary { border-color: rgba(34, 211, 238, 0.28); color: #cffafe; background: rgba(14, 116, 144, 0.42); }
+    .control-spacer { flex: 1 1 auto; }
+
+    .validation-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      padding: 1rem 1.15rem;
+      border: 1px solid rgba(251, 191, 36, 0.22);
+      border-radius: 0.9rem;
+      color: #fde68a;
+      background: rgba(120, 53, 15, 0.18);
+    }
+    .validation-banner strong { display: block; }
+    .validation-banner span { color: #d6d3d1; font-size: 0.82rem; }
+    .status-badge { flex: 0 0 auto; padding: 0.35rem 0.6rem; border: 1px solid rgba(251, 191, 36, 0.24); border-radius: 999px; font-size: 0.7rem; font-weight: 900; }
+    .case-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .case-card { min-width: 0; overflow: hidden; }
+    .case-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 1rem; border-bottom: 1px solid var(--line); }
+    .case-head h3 { margin: 0; }
+    .case-body { display: grid; gap: 0.8rem; padding: 1rem; }
+    .case-part { min-width: 0; }
+    .case-label { margin-bottom: 0.35rem; color: var(--muted); font-size: 0.68rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+    .scroll-box {
+      max-width: 100%;
+      max-height: 230px;
+      overflow: auto;
+      overscroll-behavior: contain;
+      padding: 0.8rem;
+      border: 1px solid rgba(148, 163, 184, 0.13);
+      border-radius: 0.65rem;
+      color: #cbd5e1;
+      background: rgba(2, 6, 23, 0.5);
+      font-size: 0.76rem;
+      white-space: pre;
+    }
+    .pending-box { color: #fde68a; white-space: normal; }
+
+    .solution-gate { display: grid; place-items: center; padding-top: 5rem; text-align: center; }
+    .solution-gate p { max-width: 610px; margin-bottom: 1.25rem; color: var(--muted); }
+    .solution-toggle {
+      min-width: 10rem;
+      border-color: rgba(167, 139, 250, 0.35);
+      color: #ede9fe;
+      background: linear-gradient(135deg, rgba(109, 40, 217, 0.58), rgba(14, 116, 144, 0.52));
+    }
+    .solution-toggle:hover { border-color: rgba(196, 181, 253, 0.68); }
+    .solution-wrap { margin-top: 1.5rem; padding: clamp(1rem, 3vw, 1.6rem); }
+    .solution-head { padding-bottom: 1.2rem; border-bottom: 1px solid var(--line); }
+    .solution-head p { max-width: 760px; margin: 0.55rem 0 0; color: var(--muted); }
+    .insight-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.85rem; margin-top: 1.2rem; }
+    .insight-card { min-width: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 0.85rem; background: rgba(2, 6, 23, 0.3); }
+    .insight-card span { display: inline-block; margin-bottom: 0.65rem; color: var(--cyan); font-size: 0.68rem; font-weight: 900; letter-spacing: 0.1em; }
+    .insight-card p { margin: 0; color: #cbd5e1; font-size: 0.85rem; }
+    .solution-block { padding-top: 2rem; }
+    .numbered-steps { display: grid; gap: 0.8rem; margin-top: 1rem; }
+    .numbered-step { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0.85rem; align-items: start; }
+    .step-number { display: grid; width: 2rem; height: 2rem; place-items: center; border: 1px solid rgba(34, 211, 238, 0.25); border-radius: 0.65rem; color: var(--cyan); background: rgba(8, 47, 73, 0.38); font-size: 0.78rem; font-weight: 900; }
+    .numbered-step p { margin: 0; color: #cbd5e1; }
+    .proof {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1rem;
+    }
+    .proof-card { padding: 1rem; border: 1px solid var(--line); border-radius: 0.85rem; background: rgba(2, 6, 23, 0.3); }
+    .proof-card p, .proof-card li { color: #cbd5e1; font-size: 0.88rem; }
+    .proof-card p:last-child { margin-bottom: 0; }
+    .complexity-row { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 0.85rem; }
+    .complexity-chip { padding: 0.5rem 0.7rem; border: 1px solid rgba(52, 211, 153, 0.22); border-radius: 0.7rem; color: #a7f3d0; background: rgba(6, 78, 59, 0.2); font-size: 0.78rem; }
+
+    .code-tabs { margin-top: 1rem; overflow: hidden; }
+    .tab-list { display: flex; max-width: 100%; overflow-x: auto; gap: 0.4rem; padding: 0.75rem; border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+    .tab-button { min-height: 2.35rem; padding: 0.5rem 0.78rem; white-space: nowrap; }
+    .tab-button[aria-selected="true"] { border-color: rgba(34, 211, 238, 0.42); color: #cffafe; background: rgba(8, 47, 73, 0.64); }
+    .code-panel { min-width: 0; }
+    .code-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; padding: 0.8rem 1rem; border-bottom: 1px solid rgba(148, 163, 184, 0.1); color: var(--muted); font-size: 0.74rem; }
+    .code-meta strong { color: #e2e8f0; }
+    .code-scroll { max-width: 100%; max-height: 560px; overflow: auto; overscroll-behavior: contain; background: #020617; }
+    pre { min-width: max-content; margin: 0; padding: 1rem; color: #dbeafe; font-size: 0.78rem; line-height: 1.65; tab-size: 2; }
+    .sql-key { color: #c4b5fd; }
+    .sql-fn { color: #67e8f9; }
+    .sql-comment { color: #64748b; }
+
+    .qa-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; }
+    details { border: 1px solid var(--line); border-radius: 0.8rem; background: rgba(2, 6, 23, 0.28); }
+    summary { cursor: pointer; padding: 0.9rem 1rem; color: #e2e8f0; font-weight: 800; }
+    summary:focus-visible { outline: 3px solid rgba(34, 211, 238, 0.72); outline-offset: 3px; }
+    details p, details ul { margin: 0; padding: 0 1rem 1rem; color: #cbd5e1; font-size: 0.86rem; }
+    details ul { padding-left: 2.1rem; }
+    footer { padding: 2rem 0 3rem; border-top: 1px solid rgba(148, 163, 184, 0.1); color: var(--muted-2); font-size: 0.78rem; }
+
+    @media (max-width: 900px) {
+      .hero, .problem-grid, .viz-stage, .proof { grid-template-columns: 1fr; }
+      .hero { padding-top: 2.6rem; }
+      .student-queue { border-right: 0; border-bottom: 1px solid var(--line); }
+      .viz-stage { min-height: 0; }
+      .insight-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .container { width: min(100% - 1.1rem, 1180px); }
+      .topbar { align-items: flex-start; }
+      .mode-note { max-width: 12rem; }
+      .hero { gap: 1rem; padding-top: 2rem; }
+      .example-grid, .case-grid, .qa-grid { grid-template-columns: 1fr; }
+      .section { padding-top: 3.5rem; }
+      .section-heading { align-items: flex-start; flex-direction: column; }
+      .section-note { text-align: left; }
+      .dept-grid { grid-template-columns: 1fr; }
+      .dept-bin { min-height: 108px; }
+      .counter { margin-top: 0.8rem; }
+      .viz-top { align-items: flex-start; flex-direction: column; }
+      .meter-track { width: min(240px, 64vw); }
+      .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .control-spacer { display: none; }
+      .validation-banner { align-items: flex-start; flex-direction: column; }
+    }
+    @media (max-width: 410px) {
+      .container { width: calc(100% - 0.8rem); }
+      .topbar { padding-inline: 0.35rem; }
+      .brand-text { display: none; }
+      .hero { padding-inline: 0.35rem; }
+      h1 { font-size: 2.45rem; }
+      .panel-pad, .solution-wrap { padding: 0.85rem; }
+      .student-queue, .dept-board { padding: 0.85rem; }
+      .controls { padding: 0.8rem; }
+      .control-btn { padding-inline: 0.55rem; }
+      th, td { padding: 0.58rem 0.65rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <div class="grid-noise" aria-hidden="true"></div>
+
+    <header class="container">
+      <div class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">SQL</span>
+          <span class="brand-text">LeetCode Visual Lab</span>
+        </div>
+        <div class="mode-note">快速生成模式 · 所有验证待补</div>
+      </div>
+
+      <div class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Database · 580</p>
+          <h1><span class="hero-title-accent">统计各专业</span>学生人数</h1>
+          <p class="subtitle">Count Student Number in Departments — 从完整专业名册出发，让没有学生的专业也能留在结果里。</p>
+          <div class="pill-row" aria-label="题目信息">
+            <span class="pill pill-medium">中等</span>
+            <span class="pill pill-paid">会员题</span>
+            <span class="pill">数据库</span>
+            <span class="pill mono">LEFT JOIN</span>
+            <span class="pill mono">GROUP BY</span>
+          </div>
+        </div>
+
+        <aside class="hero-aside" aria-label="本题学习路线">
+          <div>
+            <span class="hero-aside-label">Learning route</span>
+            <strong>先保留全集，再计算匹配数</strong>
+          </div>
+          <div class="mini-flow">
+            <div class="mini-flow-item"><span>01</span><span>Department 决定结果全集</span></div>
+            <div class="mini-flow-item"><span>02</span><span>Student 按 dept_id 匹配</span></div>
+            <div class="mini-flow-item"><span>03</span><span>COUNT 非空主键并排序</span></div>
+          </div>
+        </aside>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="section" aria-labelledby="problem-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Problem</p>
+            <h2 id="problem-title">题意与数据结构</h2>
+          </div>
+          <p class="section-note">以下内容依据官方元数据中的表结构与示例作准确转述；付费题面正文未在元数据中提供。</p>
+        </div>
+
+        <div class="problem-grid">
+          <article class="panel panel-pad">
+            <p class="lead">给定专业表 <code>Department</code> 和学生表 <code>Student</code>，统计每一个专业当前拥有的学生人数。</p>
+            <ul class="plain-list">
+              <li>输出列为 <code>dept_name</code> 与 <code>student_number</code>。</li>
+              <li>即使某个专业没有任何学生，也必须输出该专业，人数为 <code>0</code>。</li>
+              <li>先按学生人数降序；人数相同时，再按专业名升序。</li>
+            </ul>
+            <div class="callout"><strong>观察目标：</strong>结果的“行全集”来自专业表，而不是学生表。</div>
+          </article>
+
+          <div class="schema-stack" aria-label="数据库表结构">
+            <article class="schema-card">
+              <div class="schema-card-head"><strong>Student</strong><span>学生表</span></div>
+              <div class="table-scroll">
+                <table>
+                  <thead><tr><th>列名</th><th>类型</th><th>含义</th></tr></thead>
+                  <tbody>
+                    <tr><td>student_id</td><td>INT</td><td>学生主键</td></tr>
+                    <tr><td>student_name</td><td>VARCHAR(45)</td><td>姓名</td></tr>
+                    <tr><td>gender</td><td>VARCHAR(6)</td><td>性别</td></tr>
+                    <tr><td>dept_id</td><td>INT</td><td>所属专业 ID</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <article class="schema-card">
+              <div class="schema-card-head"><strong>Department</strong><span>专业表</span></div>
+              <div class="table-scroll">
+                <table>
+                  <thead><tr><th>列名</th><th>类型</th><th>含义</th></tr></thead>
+                  <tbody>
+                    <tr><td>dept_id</td><td>INT</td><td>专业主键</td></tr>
+                    <tr><td>dept_name</td><td>VARCHAR(255)</td><td>专业名称</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <article class="panel panel-pad" style="margin-top: 1rem;">
+          <h3>约束与输出契约</h3>
+          <ul class="plain-list">
+            <li><code>student_id</code> 唯一标识一名学生；<code>dept_id</code> 唯一标识一个专业。</li>
+            <li>学生的 <code>dept_id</code> 用于关联 <code>Department.dept_id</code>。</li>
+            <li>每个专业恰好输出一行；无匹配学生时计数为零。</li>
+            <li>元数据没有提供额外的数值规模上限，因此这里不虚构行数或字符串长度之外的限制。</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="section" aria-labelledby="example-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Official sample</p>
+            <h2 id="example-title">完整示例</h2>
+          </div>
+          <p class="section-note">输入沿用官方元数据中的完整表头与全部行。</p>
+        </div>
+
+        <div class="example-grid">
+          <article class="panel data-block">
+            <h3>输入：Student</h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>student_id</th><th>student_name</th><th>gender</th><th>dept_id</th></tr></thead>
+                <tbody>
+                  <tr><td>1</td><td>Jack</td><td>M</td><td>1</td></tr>
+                  <tr><td>2</td><td>Jane</td><td>F</td><td>1</td></tr>
+                  <tr><td>3</td><td>Mark</td><td>M</td><td>2</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <article class="panel data-block">
+            <h3>输入：Department</h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>dept_id</th><th>dept_name</th></tr></thead>
+                <tbody>
+                  <tr><td>1</td><td>Engineering</td></tr>
+                  <tr><td>2</td><td>Science</td></tr>
+                  <tr><td>3</td><td>Law</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <article class="panel data-block" style="grid-column: 1 / -1;">
+            <h3>期望输出</h3>
+            <div class="table-scroll output-accent">
+              <table>
+                <thead><tr><th>dept_name</th><th>student_number</th></tr></thead>
+                <tbody>
+                  <tr><td>Engineering</td><td>2</td></tr>
+                  <tr><td>Science</td><td>1</td></tr>
+                  <tr><td>Law</td><td>0</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="visual-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Interactive visual</p>
+            <h2 id="visual-title">专业收纳箱：逐个匹配学生</h2>
+          </div>
+          <p class="section-note">先建立三个专业箱，再按 <code>dept_id</code> 投递学生；最后才显示排序后的结果。</p>
+        </div>
+
+        <div class="panel viz-shell">
+          <div class="viz-top">
+            <div>
+              <strong id="step-title">准备专业全集</strong>
+              <div class="step-meter">
+                <span id="step-label">步骤 0 / 4</span>
+                <div class="meter-track" aria-hidden="true"><div id="meter-fill" class="meter-fill"></div></div>
+              </div>
+            </div>
+            <span class="pill mono" id="operation-label">FROM Department</span>
+          </div>
+
+          <div class="viz-stage">
+            <div class="student-queue">
+              <div class="lane-title">Student 队列 <span>等待匹配</span></div>
+              <div id="student-list" class="student-card-list"></div>
+            </div>
+
+            <div class="dept-board">
+              <div class="lane-title">Department 专业箱 <span>LEFT JOIN 保留全部</span></div>
+              <div id="dept-grid" class="dept-grid"></div>
+              <p id="viz-caption" class="viz-caption">先读取 Department 的所有行。此时只确定结果中必须出现哪些专业，不提前计算答案。</p>
+              <div id="result-strip" class="result-strip" hidden>
+                <table aria-label="排序后的统计结果">
+                  <thead><tr><th>dept_name</th><th>student_number</th></tr></thead>
+                  <tbody id="result-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="controls" aria-label="可视化播放控制">
+            <button type="button" id="prev-button" class="control-btn">← 上一步</button>
+            <button type="button" id="next-button" class="control-btn control-primary">下一步 →</button>
+            <button type="button" id="play-button" class="control-btn" aria-pressed="false">▶ 自动播放</button>
+            <span class="control-spacer" aria-hidden="true"></span>
+            <button type="button" id="reset-button" class="control-btn">↺ 重置</button>
+          </div>
+        </div>
+        <div id="viz-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+      </section>
+
+      <section class="section" aria-labelledby="validation-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Validation queue</p>
+            <h2 id="validation-title">测试与验证</h2>
+          </div>
+          <p class="section-note">本页仅生成内容，没有执行 SQL、编译参考代码或进行浏览器检查。</p>
+        </div>
+
+        <div class="validation-banner">
+          <div><strong>快速生成模式：待补验证</strong><span>以下“实际输出”和“状态”均保留为待办，不用推测结果替代真实执行。</span></div>
+          <span class="status-badge">待补验证</span>
+        </div>
+
+        <div class="case-grid">
+          <article class="panel case-card">
+            <div class="case-head"><h3>用例 1 · 官方示例</h3><span class="status-badge">待补验证</span></div>
+            <div class="case-body">
+              <div class="case-part"><div class="case-label">输入</div><pre class="scroll-box">Student
+(1, 'Jack', 'M', 1)
+(2, 'Jane', 'F', 1)
+(3, 'Mark', 'M', 2)
+
+Department
+(1, 'Engineering')
+(2, 'Science')
+(3, 'Law')</pre></div>
+              <div class="case-part"><div class="case-label">期望输出</div><pre class="scroll-box">Engineering | 2
+Science     | 1
+Law         | 0</pre></div>
+              <div class="case-part"><div class="case-label">实际输出</div><div class="scroll-box pending-box">待补验证</div></div>
+              <div class="case-part"><div class="case-label">状态</div><div class="scroll-box pending-box">待补验证</div></div>
+            </div>
+          </article>
+
+          <article class="panel case-card">
+            <div class="case-head"><h3>用例 2 · 全部专业为空</h3><span class="status-badge">待补验证</span></div>
+            <div class="case-body">
+              <div class="case-part"><div class="case-label">输入</div><pre class="scroll-box">Student
+(empty)
+
+Department
+(10, 'Arts')
+(20, 'Biology')</pre></div>
+              <div class="case-part"><div class="case-label">期望输出</div><pre class="scroll-box">Arts    | 0
+Biology | 0</pre></div>
+              <div class="case-part"><div class="case-label">实际输出</div><div class="scroll-box pending-box">待补验证</div></div>
+              <div class="case-part"><div class="case-label">状态</div><div class="scroll-box pending-box">待补验证</div></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <div class="solution-gate">
+        <p>先自己想一想：为什么 <code>COUNT(*)</code> 会让没有学生的专业得到错误结果？准备好后再展开完整题解。</p>
+        <button type="button" id="solution-toggle" class="solution-toggle" aria-expanded="false" aria-controls="solution-content">查看题解</button>
+      </div>
+
+      <section id="solution-content" class="panel solution-wrap" aria-labelledby="solution-title" hidden>
+        <div class="solution-head">
+          <p class="section-kicker">Solution</p>
+          <h2 id="solution-title" tabindex="-1">从 LEFT JOIN 到正确计数</h2>
+          <p>关键不是“怎么数”，而是先确保所有专业都出现在分组输入中，再只统计真实匹配到的学生。</p>
+        </div>
+
+        <div class="insight-grid">
+          <article class="insight-card"><span>INSIGHT 01</span><h3>全集在左边</h3><p>以 <code>Department</code> 为驱动表做左连接，保证没有学生的专业仍产生一行。</p></article>
+          <article class="insight-card"><span>INSIGHT 02</span><h3>数非空主键</h3><p><code>COUNT(s.student_id)</code> 忽略左连接补出的 <code>NULL</code>，空专业自然得到零。</p></article>
+          <article class="insight-card"><span>INSIGHT 03</span><h3>稳定排序</h3><p>先按计数降序，再按专业名升序，明确处理并列人数。</p></article>
+        </div>
+
+        <div class="solution-block">
+          <h3>完整过程</h3>
+          <div class="numbered-steps">
+            <div class="numbered-step"><span class="step-number">1</span><p>从 <code>Department d</code> 开始，确定结果必须包含的每个专业。</p></div>
+            <div class="numbered-step"><span class="step-number">2</span><p>用 <code>d.dept_id = s.dept_id</code> 左连接 <code>Student s</code>。有学生的专业展开成多行；无学生的专业保留一行，学生列为 <code>NULL</code>。</p></div>
+            <div class="numbered-step"><span class="step-number">3</span><p>按专业主键和名称分组。统计 <code>s.student_id</code> 的非空值数量，而不是统计连接结果的行数。</p></div>
+            <div class="numbered-step"><span class="step-number">4</span><p>将聚合值命名为 <code>student_number</code>，按它降序、再按 <code>dept_name</code> 升序输出。</p></div>
+          </div>
+        </div>
+
+        <div class="solution-block">
+          <h3>官方可提交语言：MySQL</h3>
+          <div class="panel code-tabs">
+            <div class="code-meta"><strong>MySQL</strong><span>主答案 · 数据库提交</span></div>
+            <div class="code-scroll"><pre><code><span class="sql-key">SELECT</span>
+    d.dept_name,
+    <span class="sql-fn">COUNT</span>(s.student_id) <span class="sql-key">AS</span> student_number
+<span class="sql-key">FROM</span> Department <span class="sql-key">AS</span> d
+<span class="sql-key">LEFT JOIN</span> Student <span class="sql-key">AS</span> s
+    <span class="sql-key">ON</span> d.dept_id = s.dept_id
+<span class="sql-key">GROUP BY</span> d.dept_id, d.dept_name
+<span class="sql-key">ORDER BY</span> student_number <span class="sql-key">DESC</span>, d.dept_name <span class="sql-key">ASC</span>;</code></pre></div>
+          </div>
+        </div>
+
+        <div class="solution-block">
+          <h3>正确性说明</h3>
+          <div class="proof">
+            <article class="proof-card">
+              <h4>覆盖所有专业</h4>
+              <p>左连接对每条 <code>Department</code> 记录至少保留一条连接结果。因此，每个专业都会进入某个分组并最终输出，包含没有匹配学生的专业。</p>
+            </article>
+            <article class="proof-card">
+              <h4>计数恰好等于学生数</h4>
+              <p>对于任意专业，每名属于它的学生贡献一个非空且唯一的 <code>student_id</code>；补齐行贡献的是 <code>NULL</code>，不会被 <code>COUNT(column)</code> 统计，所以聚合值恰好等于真实学生人数。</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="solution-block">
+          <h3>边界与复杂度</h3>
+          <div class="proof">
+            <article class="proof-card">
+              <h4>需要留意的边界</h4>
+              <ul class="plain-list">
+                <li>某专业没有学生：必须输出零。</li>
+                <li>所有专业都没有学生：仍输出全部专业。</li>
+                <li>多个专业人数相同：按专业名升序。</li>
+                <li>专业名理论上可能重复：按 <code>dept_id</code> 一同分组可避免误合并。</li>
+              </ul>
+            </article>
+            <article class="proof-card">
+              <h4>复杂度视角</h4>
+              <p>设专业数为 <code>D</code>、学生数为 <code>S</code>。实际代价由数据库执行计划、索引和排序实现决定；概念上需要扫描关联数据并对 <code>D</code> 个聚合结果排序。</p>
+              <div class="complexity-row">
+                <span class="complexity-chip">关联/聚合：约 O(D + S)</span>
+                <span class="complexity-chip">结果排序：O(D log D)</span>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="solution-block">
+          <h3>四语言本地语义参考</h3>
+          <p style="color: var(--muted);">本题的在线提交语言是 SQL。下面四份程序只在内存集合上复现“保留全部专业 → 计数 → 排序”的语义，不能替代 LeetCode 数据库题的 SQL 提交。</p>
+
+          <div class="panel code-tabs">
+            <div class="tab-list" role="tablist" aria-label="本地语义参考代码">
+              <button type="button" class="tab-button" id="tab-java" role="tab" aria-selected="true" aria-controls="panel-java" tabindex="0" data-tab="java">Java</button>
+              <button type="button" class="tab-button" id="tab-js" role="tab" aria-selected="false" aria-controls="panel-js" tabindex="-1" data-tab="js">JavaScript</button>
+              <button type="button" class="tab-button" id="tab-python" role="tab" aria-selected="false" aria-controls="panel-python" tabindex="-1" data-tab="python">Python</button>
+              <button type="button" class="tab-button" id="tab-cpp" role="tab" aria-selected="false" aria-controls="panel-cpp" tabindex="-1" data-tab="cpp">C++</button>
+            </div>
+
+            <div id="panel-java" class="code-panel" role="tabpanel" aria-labelledby="tab-java" tabindex="0">
+              <div class="code-meta"><strong>Java 17</strong><span>本地语义参考 · 未执行</span></div>
+              <div class="code-scroll"><pre><code>import java.util.*;
+import java.util.stream.*;
+
+public class Main {
+    record Student(int studentId, String name, String gender, int deptId) {}
+    record Department(int deptId, String deptName) {}
+    record Result(String deptName, long studentNumber) {}
+
+    static List&lt;Result&gt; countStudents(
+            List&lt;Student&gt; students,
+            List&lt;Department&gt; departments) {
+        Map&lt;Integer, Long&gt; counts = students.stream()
+                .collect(Collectors.groupingBy(
+                        Student::deptId,
+                        Collectors.counting()
+                ));
+
+        return departments.stream()
+                .map(dept -&gt; new Result(
+                        dept.deptName(),
+                        counts.getOrDefault(dept.deptId(), 0L)
+                ))
+                .sorted(Comparator
+                        .comparingLong(Result::studentNumber)
+                        .reversed()
+                        .thenComparing(Result::deptName))
+                .toList();
+    }
+
+    public static void main(String[] args) {
+        List&lt;Student&gt; students = List.of(
+                new Student(1, "Jack", "M", 1),
+                new Student(2, "Jane", "F", 1),
+                new Student(3, "Mark", "M", 2)
+        );
+        List&lt;Department&gt; departments = List.of(
+                new Department(1, "Engineering"),
+                new Department(2, "Science"),
+                new Department(3, "Law")
+        );
+
+        countStudents(students, departments).forEach(System.out::println);
+    }
+}</code></pre></div>
+            </div>
+
+            <div id="panel-js" class="code-panel" role="tabpanel" aria-labelledby="tab-js" tabindex="0" hidden>
+              <div class="code-meta"><strong>JavaScript</strong><span>本地语义参考 · 未执行</span></div>
+              <div class="code-scroll"><pre><code>function countStudents(students, departments) {
+  const counts = new Map();
+
+  for (const student of students) {
+    counts.set(student.deptId, (counts.get(student.deptId) ?? 0) + 1);
+  }
+
+  return departments
+    .map((department) =&gt; ({
+      deptName: department.deptName,
+      studentNumber: counts.get(department.deptId) ?? 0,
+    }))
+    .sort((a, b) =&gt;
+      b.studentNumber - a.studentNumber ||
+      a.deptName.localeCompare(b.deptName)
+    );
+}
+
+const students = [
+  { studentId: 1, name: "Jack", gender: "M", deptId: 1 },
+  { studentId: 2, name: "Jane", gender: "F", deptId: 1 },
+  { studentId: 3, name: "Mark", gender: "M", deptId: 2 },
+];
+
+const departments = [
+  { deptId: 1, deptName: "Engineering" },
+  { deptId: 2, deptName: "Science" },
+  { deptId: 3, deptName: "Law" },
+];
+
+console.table(countStudents(students, departments));</code></pre></div>
+            </div>
+
+            <div id="panel-python" class="code-panel" role="tabpanel" aria-labelledby="tab-python" tabindex="0" hidden>
+              <div class="code-meta"><strong>Python 3</strong><span>本地语义参考 · 未执行</span></div>
+              <div class="code-scroll"><pre><code>from collections import Counter
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Student:
+    student_id: int
+    name: str
+    gender: str
+    dept_id: int
+
+
+@dataclass(frozen=True)
+class Department:
+    dept_id: int
+    dept_name: str
+
+
+def count_students(students: list[Student],
+                   departments: list[Department]) -&gt; list[tuple[str, int]]:
+    counts = Counter(student.dept_id for student in students)
+    result = [
+        (department.dept_name, counts[department.dept_id])
+        for department in departments
+    ]
+    return sorted(result, key=lambda row: (-row[1], row[0]))
+
+
+students = [
+    Student(1, "Jack", "M", 1),
+    Student(2, "Jane", "F", 1),
+    Student(3, "Mark", "M", 2),
+]
+departments = [
+    Department(1, "Engineering"),
+    Department(2, "Science"),
+    Department(3, "Law"),
+]
+
+for dept_name, student_number in count_students(students, departments):
+    print(dept_name, student_number)</code></pre></div>
+            </div>
+
+            <div id="panel-cpp" class="code-panel" role="tabpanel" aria-labelledby="tab-cpp" tabindex="0" hidden>
+              <div class="code-meta"><strong>C++17</strong><span>本地语义参考 · 未执行</span></div>
+              <div class="code-scroll"><pre><code>#include &lt;algorithm&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;unordered_map&gt;
+#include &lt;utility&gt;
+#include &lt;vector&gt;
+
+using namespace std;
+
+struct Student {
+    int studentId;
+    string name;
+    string gender;
+    int deptId;
+};
+
+struct Department {
+    int deptId;
+    string deptName;
+};
+
+vector&lt;pair&lt;string, int&gt;&gt; countStudents(
+        const vector&lt;Student&gt;&amp; students,
+        const vector&lt;Department&gt;&amp; departments) {
+    unordered_map&lt;int, int&gt; counts;
+    for (const Student&amp; student : students) {
+        ++counts[student.deptId];
+    }
+
+    vector&lt;pair&lt;string, int&gt;&gt; result;
+    result.reserve(departments.size());
+    for (const Department&amp; department : departments) {
+        result.push_back({department.deptName, counts[department.deptId]});
+    }
+
+    sort(result.begin(), result.end(), [](const auto&amp; a, const auto&amp; b) {
+        if (a.second != b.second) return a.second &gt; b.second;
+        return a.first &lt; b.first;
+    });
+    return result;
+}
+
+int main() {
+    vector&lt;Student&gt; students = {
+        {1, "Jack", "M", 1},
+        {2, "Jane", "F", 1},
+        {3, "Mark", "M", 2},
+    };
+    vector&lt;Department&gt; departments = {
+        {1, "Engineering"},
+        {2, "Science"},
+        {3, "Law"},
+    };
+
+    for (const auto&amp; [name, count] : countStudents(students, departments)) {
+        cout &lt;&lt; name &lt;&lt; " " &lt;&lt; count &lt;&lt; '\n';
+    }
+}</code></pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="solution-block">
+          <h3>替代方案、面试追问与常见错误</h3>
+          <div class="qa-grid">
+            <details>
+              <summary>替代方案：相关子查询</summary>
+              <p>可以为每个专业执行一个相关子查询来统计学生。写法直观，但优化器之外的直觉成本通常高于一次连接聚合；本题更适合展示左连接语义。</p>
+            </details>
+            <details>
+              <summary>追问：为什么不能 COUNT(*)？</summary>
+              <p>左连接会为无学生的专业保留一条补齐行。<code>COUNT(*)</code> 会把这条行也计为 1；<code>COUNT(s.student_id)</code> 只统计非空学生主键，因此得到 0。</p>
+            </details>
+            <details>
+              <summary>追问：索引如何设计？</summary>
+              <p><code>Department.dept_id</code> 应为主键，<code>Student.dept_id</code> 上的索引有助于关联；是否使用索引仍由数据规模和优化器计划决定。</p>
+            </details>
+            <details>
+              <summary>常见错误清单</summary>
+              <ul>
+                <li>从 Student 出发，直接丢失空专业。</li>
+                <li>把 LEFT JOIN 写成 INNER JOIN。</li>
+                <li>使用 COUNT(*)，空专业被算成 1。</li>
+                <li>遗漏第二排序键 dept_name。</li>
+                <li>只按可能重复的 dept_name 分组。</li>
+              </ul>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="container">LeetCode 580 · Count Student Number in Departments · 快速生成模式：待补验证</div>
+    </footer>
+  </div>
+
+  <script data-cfasync="false">
+    (() => {
+      "use strict";
+
+      const students = [
+        { id: 1, name: "Jack", gender: "M", deptId: 1 },
+        { id: 2, name: "Jane", gender: "F", deptId: 1 },
+        { id: 3, name: "Mark", gender: "M", deptId: 2 }
+      ];
+      const departments = [
+        { id: 1, name: "Engineering", color: "#22d3ee" },
+        { id: 2, name: "Science", color: "#a78bfa" },
+        { id: 3, name: "Law", color: "#34d399" }
+      ];
+      const steps = [
+        {
+          title: "准备专业全集",
+          operation: "FROM Department",
+          caption: "先读取 Department 的所有行。此时只确定结果中必须出现哪些专业，不提前计算答案。",
+          activeDept: null,
+          currentStudent: null,
+          counts: null
+        },
+        {
+          title: "匹配 Jack",
+          operation: "dept_id 1 → 1",
+          caption: "Jack 的 dept_id 为 1，与 Engineering 匹配；该专业的非空 student_id 计数增加。",
+          activeDept: 1,
+          currentStudent: 0,
+          counts: { 1: 1, 2: 0, 3: 0 }
+        },
+        {
+          title: "匹配 Jane",
+          operation: "dept_id 1 → 1",
+          caption: "Jane 也属于 Engineering。同一专业分组内现在已有两个非空 student_id。",
+          activeDept: 1,
+          currentStudent: 1,
+          counts: { 1: 2, 2: 0, 3: 0 }
+        },
+        {
+          title: "匹配 Mark",
+          operation: "dept_id 2 → 2",
+          caption: "Mark 进入 Science 分组。Law 没有匹配学生，但 LEFT JOIN 让它仍留在专业全集中。",
+          activeDept: 2,
+          currentStudent: 2,
+          counts: { 1: 2, 2: 1, 3: 0 }
+        },
+        {
+          title: "计数并排序",
+          operation: "COUNT + ORDER BY",
+          caption: "COUNT(student_id) 忽略 Law 补齐行中的 NULL，得到 0；随后按人数降序、专业名升序排列。",
+          activeDept: 3,
+          currentStudent: null,
+          counts: { 1: 2, 2: 1, 3: 0 }
+        }
+      ];
+
+      const studentList = document.getElementById("student-list");
+      const deptGrid = document.getElementById("dept-grid");
+      const stepTitle = document.getElementById("step-title");
+      const stepLabel = document.getElementById("step-label");
+      const operationLabel = document.getElementById("operation-label");
+      const meterFill = document.getElementById("meter-fill");
+      const caption = document.getElementById("viz-caption");
+      const resultStrip = document.getElementById("result-strip");
+      const resultBody = document.getElementById("result-body");
+      const liveRegion = document.getElementById("viz-live");
+      const previousButton = document.getElementById("prev-button");
+      const nextButton = document.getElementById("next-button");
+      const playButton = document.getElementById("play-button");
+      const resetButton = document.getElementById("reset-button");
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      let currentStep = 0;
+      let timer = null;
+
+      const appendTextElement = (parent, tagName, className, text) => {
+        const element = document.createElement(tagName);
+        if (className) element.className = className;
+        element.textContent = text;
+        parent.appendChild(element);
+        return element;
+      };
+
+      const buildStaticVisualization = () => {
+        students.forEach((student, index) => {
+          const card = document.createElement("div");
+          card.className = "student-card";
+          card.dataset.studentIndex = String(index);
+          appendTextElement(card, "span", "avatar", student.name.slice(0, 2).toUpperCase());
+          const identity = document.createElement("div");
+          appendTextElement(identity, "div", "student-name", student.name);
+          appendTextElement(identity, "div", "student-dept", `student_id ${student.id}`);
+          card.appendChild(identity);
+          appendTextElement(card, "span", "student-dept mono", `dept ${student.deptId}`);
+          studentList.appendChild(card);
+        });
+
+        departments.forEach((department) => {
+          const bin = document.createElement("div");
+          bin.className = "dept-bin";
+          bin.dataset.deptId = String(department.id);
+          bin.style.setProperty("--bin-color", department.color);
+          appendTextElement(bin, "div", "dept-bin-name", department.name);
+          appendTextElement(bin, "div", "dept-bin-id mono", `dept_id ${department.id}`);
+          const counter = document.createElement("div");
+          counter.className = "counter";
+          const value = appendTextElement(counter, "strong", "pending-count", "—");
+          value.dataset.countFor = String(department.id);
+          appendTextElement(counter, "span", "", "students");
+          bin.appendChild(counter);
+          deptGrid.appendChild(bin);
+        });
+
+        [
+          ["Engineering", "2"],
+          ["Science", "1"],
+          ["Law", "0"]
+        ].forEach(([name, count]) => {
+          const row = document.createElement("tr");
+          appendTextElement(row, "td", "", name);
+          appendTextElement(row, "td", "", count);
+          resultBody.appendChild(row);
+        });
+      };
+
+      const stopPlayback = () => {
+        if (timer !== null) {
+          window.clearInterval(timer);
+          timer = null;
+        }
+        playButton.setAttribute("aria-pressed", "false");
+        playButton.textContent = "▶ 自动播放";
+      };
+
+      const renderStep = (announce = true) => {
+        const step = steps[currentStep];
+        stepTitle.textContent = step.title;
+        stepLabel.textContent = `步骤 ${currentStep} / ${steps.length - 1}`;
+        operationLabel.textContent = step.operation;
+        caption.textContent = step.caption;
+        meterFill.style.width = `${(currentStep / (steps.length - 1)) * 100}%`;
+
+        studentList.querySelectorAll(".student-card").forEach((card) => {
+          const index = Number(card.dataset.studentIndex);
+          card.classList.toggle("is-current", index === step.currentStudent);
+          card.classList.toggle("is-processed", index < currentStep - 1 || currentStep === steps.length - 1);
+        });
+
+        deptGrid.querySelectorAll(".dept-bin").forEach((bin) => {
+          const deptId = Number(bin.dataset.deptId);
+          bin.classList.toggle("is-active", deptId === step.activeDept);
+          const countElement = bin.querySelector("[data-count-for]");
+          if (step.counts === null) {
+            countElement.textContent = "—";
+            countElement.classList.add("pending-count");
+          } else {
+            countElement.textContent = String(step.counts[deptId]);
+            countElement.classList.remove("pending-count");
+          }
+        });
+
+        resultStrip.hidden = currentStep !== steps.length - 1;
+        previousButton.disabled = currentStep === 0;
+        nextButton.disabled = currentStep === steps.length - 1;
+
+        if (announce) {
+          liveRegion.textContent = `${step.title}。${step.caption}`;
+        }
+      };
+
+      const goToStep = (nextStep) => {
+        currentStep = Math.max(0, Math.min(steps.length - 1, nextStep));
+        renderStep();
+        if (currentStep === steps.length - 1) stopPlayback();
+      };
+
+      previousButton.addEventListener("click", () => {
+        stopPlayback();
+        goToStep(currentStep - 1);
+      });
+      nextButton.addEventListener("click", () => {
+        stopPlayback();
+        goToStep(currentStep + 1);
+      });
+      resetButton.addEventListener("click", () => {
+        stopPlayback();
+        goToStep(0);
+      });
+      playButton.addEventListener("click", () => {
+        if (timer !== null) {
+          stopPlayback();
+          liveRegion.textContent = "自动播放已暂停。";
+          return;
+        }
+        if (currentStep === steps.length - 1) currentStep = 0;
+        playButton.setAttribute("aria-pressed", "true");
+        playButton.textContent = "Ⅱ 暂停播放";
+        renderStep();
+        timer = window.setInterval(() => {
+          goToStep(currentStep + 1);
+        }, reduceMotion ? 2200 : 1500);
+      });
+
+      const solutionToggle = document.getElementById("solution-toggle");
+      const solutionContent = document.getElementById("solution-content");
+      const solutionTitle = document.getElementById("solution-title");
+      solutionToggle.addEventListener("click", () => {
+        const expanded = solutionToggle.getAttribute("aria-expanded") === "true";
+        solutionToggle.setAttribute("aria-expanded", String(!expanded));
+        solutionToggle.textContent = expanded ? "查看题解" : "收起题解";
+        solutionContent.hidden = expanded;
+        if (expanded) {
+          solutionToggle.focus();
+        } else {
+          solutionTitle.focus({ preventScroll: true });
+          solutionTitle.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+        }
+      });
+
+      const tabs = Array.from(document.querySelectorAll("[role='tab']"));
+      const activateTab = (tab, moveFocus = true) => {
+        tabs.forEach((candidate) => {
+          const selected = candidate === tab;
+          candidate.setAttribute("aria-selected", String(selected));
+          candidate.tabIndex = selected ? 0 : -1;
+          const panel = document.getElementById(candidate.getAttribute("aria-controls"));
+          panel.hidden = !selected;
+        });
+        if (moveFocus) tab.focus();
+      };
+
+      tabs.forEach((tab, index) => {
+        tab.addEventListener("click", () => activateTab(tab, false));
+        tab.addEventListener("keydown", (event) => {
+          let targetIndex = null;
+          if (event.key === "ArrowRight") targetIndex = (index + 1) % tabs.length;
+          if (event.key === "ArrowLeft") targetIndex = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === "Home") targetIndex = 0;
+          if (event.key === "End") targetIndex = tabs.length - 1;
+          if (targetIndex !== null) {
+            event.preventDefault();
+            activateTab(tabs[targetIndex]);
+          }
+        });
+      });
+
+      buildStaticVisualization();
+      renderStep(false);
+    })();
+  </script>
+</body>
+</html>
