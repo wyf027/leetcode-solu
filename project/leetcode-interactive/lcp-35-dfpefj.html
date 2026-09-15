@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LCP 35 电动车游城市：在城市和电量组成的状态图上运行 Dijkstra。"
+    />
+    <meta name="leetcode-slug" content="dfpefj" />
+    <title>LCP 35 · 电动车游城市｜电量最短路台</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        min-width: 320px;
+        overflow-x: hidden;
+        background: #eff6ff;
+      }
+      button {
+        box-shadow: none !important;
+      }
+      button:hover:not(:disabled) {
+        box-shadow: 4px 4px 0 #172554 !important;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .city-active {
+        background: #2563eb !important;
+        color: white;
+        transform: scale(1.05);
+      }
+      pre {
+        overflow: auto;
+        white-space: pre;
+      }
+    </style>
+  </head>
+  <body class="font-sans text-slate-900">
+    <header class="border-b-8 border-blue-500 bg-slate-950 text-white">
+      <div class="mx-auto max-w-6xl px-4 py-14 sm:px-8">
+        <p class="text-xs font-black uppercase tracking-[.2em] text-blue-300">
+          Dijkstra / Hard / normalizedId: lcp-35 / official slug: dfpefj
+        </p>
+        <h1 class="mt-4 text-5xl font-black sm:text-7xl">电动车游城市</h1>
+        <p class="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+          同一座城市带着不同电量到达，后续决策不同。把电量放入状态，在“充电”和“行驶”两类边上跑最短路。
+        </p>
+        <div class="mt-7 flex flex-wrap gap-3 text-sm font-bold">
+          <span class="rounded-full bg-blue-400 px-3 py-1 text-slate-950"
+            >LCP 35</span
+          ><span class="rounded-full border border-slate-600 px-3 py-1"
+            >状态图 Dijkstra</span
+          ><span class="rounded-full border border-slate-600 px-3 py-1"
+            >城市 × 电量</span
+          >
+        </div>
+      </div>
+    </header>
+    <main class="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-8">
+      <section class="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+        <article class="rounded-2xl border-2 border-slate-900 bg-white p-6">
+          <p
+            class="text-xs font-black uppercase tracking-[.18em] text-blue-700"
+          >
+            题意
+          </p>
+          <h2 class="mt-2 text-2xl font-black">在道路和电池容量之间权衡</h2>
+          <p class="mt-4 leading-7 text-slate-700">
+            <code>paths</code> 给出无向道路及耗电/行驶时间，电池最多装
+            <code>cnt</code> 格。城市 <code>i</code> 每充一格花费
+            <code>charge[i]</code> 时间；从 <code>start</code> 零电量出发，求到
+            <code>end</code> 的最短时间。
+          </p>
+        </article>
+        <aside class="rounded-2xl border-2 border-slate-900 bg-blue-300 p-6">
+          <p class="text-xs font-black uppercase tracking-[.18em]">两类边</p>
+          <ol class="mt-4 space-y-3 leading-6">
+            <li>
+              <b>充电：</b><code>(u,b) → (u,b+1)</code>，代价
+              <code>charge[u]</code>。
+            </li>
+            <li>
+              <b>行驶：</b>若 <code>b ≥ d</code>，到 <code>(v,b-d)</code>，代价
+              <code>d</code>。
+            </li>
+          </ol>
+        </aside>
+      </section>
+      <section
+        class="rounded-2xl border-2 border-slate-900 bg-white p-6"
+        aria-labelledby="lab"
+      >
+        <div
+          class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"
+        >
+          <div>
+            <p
+              class="text-xs font-black uppercase tracking-[.18em] text-blue-700"
+            >
+              Interactive lab
+            </p>
+            <h2 id="lab" class="mt-2 text-3xl font-black">电量最短路台</h2>
+          </div>
+          <label class="font-bold text-sm"
+            >场景
+            <select
+              id="preset"
+              class="ml-2 rounded border-2 border-slate-900 bg-white px-2 py-2"
+            >
+              <option value="sample">示例网络</option>
+              <option value="cheap">低价中转充电</option>
+              <option value="direct">直达道路</option>
+            </select></label
+          >
+        </div>
+        <div class="mt-6 grid gap-5 md:grid-cols-[auto_1fr]">
+          <div
+            id="cities"
+            class="grid grid-cols-3 gap-3"
+            aria-live="polite"
+          ></div>
+          <div class="rounded-xl bg-slate-100 p-5">
+            <p class="font-mono text-sm">弹出状态：<b id="state">等待</b></p>
+            <p class="mt-2 font-mono text-sm">
+              已知最短时间：<b id="cost">0</b>
+            </p>
+            <p class="mt-2 font-mono text-sm">
+              最优抵达终点：<b id="best">未确定</b>
+            </p>
+            <p id="status" class="mt-5 min-h-12 leading-7 text-slate-700">
+              准备：从起点的零电量状态开始。
+            </p>
+          </div>
+        </div>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            id="prev"
+            type="button"
+            class="rounded-lg border-2 border-slate-900 bg-white px-4 py-2 font-black"
+          >
+            ← 上一步</button
+          ><button
+            id="next"
+            type="button"
+            class="rounded-lg border-2 border-slate-900 bg-blue-400 px-4 py-2 font-black"
+          >
+            弹出下一状态 →</button
+          ><button
+            id="reset"
+            type="button"
+            class="rounded-lg border-2 border-slate-900 bg-slate-900 px-4 py-2 font-black text-white"
+          >
+            重置
+          </button>
+        </div>
+      </section>
+      <section class="grid gap-6 lg:grid-cols-2">
+        <article
+          class="rounded-2xl border-2 border-slate-900 bg-emerald-950 p-6 text-white"
+        >
+          <p
+            class="text-xs font-black uppercase tracking-[.18em] text-emerald-300"
+          >
+            为什么普通最短路不够
+          </p>
+          <h2 class="mt-2 text-2xl font-black">电量是未来路径的资源</h2>
+          <p class="mt-4 leading-7 text-emerald-50">
+            到同一城市但电量不同，能走的路和补电成本都可能不同。只保留每座城市的一个距离会错误丢弃可行方案。
+          </p>
+        </article>
+        <article class="rounded-2xl border-2 border-slate-900 bg-white p-6">
+          <p
+            class="text-xs font-black uppercase tracking-[.18em] text-blue-700"
+          >
+            复杂度
+          </p>
+          <dl class="mt-4 space-y-3">
+            <div class="flex justify-between border-b pb-3">
+              <dt>状态数</dt>
+              <dd class="font-mono font-bold">n × (cnt + 1)</dd>
+            </div>
+            <div class="flex justify-between border-b pb-3">
+              <dt>边数</dt>
+              <dd class="font-mono font-bold">充电边 + 道路边</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt>算法</dt>
+              <dd class="font-mono font-bold">Dijkstra</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+      <section
+        class="rounded-2xl border-2 border-slate-900 bg-white p-6"
+        aria-labelledby="case-heading"
+      >
+        <p class="text-xs font-black uppercase tracking-[.18em] text-blue-700">
+          Cases
+        </p>
+        <h2 id="case-heading" class="mt-2 text-2xl font-black">
+          检查充电与行驶的边界
+        </h2>
+        <div class="mt-5 overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead class="bg-slate-900 text-white">
+              <tr>
+                <th class="p-3">情况</th>
+                <th class="p-3">应有行为</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b">
+                <td class="p-3">电量不足道路距离</td>
+                <td class="p-3">不能走该道路</td>
+              </tr>
+              <tr class="border-b">
+                <td class="p-3">电池未满</td>
+                <td class="p-3">可在当前城市充一格</td>
+              </tr>
+              <tr>
+                <td class="p-3">先到终点的状态</td>
+                <td class="p-3">Dijkstra 首次弹出即为最短答案</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section
+        class="rounded-2xl border-2 border-slate-900 bg-blue-300 p-6"
+        aria-labelledby="solution-heading"
+      >
+        <p class="text-xs font-black uppercase tracking-[.18em]">
+          Submit-ready solutions
+        </p>
+        <h2 id="solution-heading" class="mt-2 text-2xl font-black">
+          题解默认隐藏
+        </h2>
+        <p class="mt-2 text-sm">
+          所有实现将
+          <code>(city, battery)</code> 作为节点，用最小堆维护当前最短状态。
+        </p>
+        <button
+          id="solution-toggle"
+          type="button"
+          class="mt-5 rounded-lg border-2 border-slate-900 bg-slate-950 px-4 py-2 font-black text-white"
+          aria-expanded="false"
+          aria-controls="solution-area"
+        >
+          展开题解与代码
+        </button>
+      </section>
+      <section
+        id="solution-area"
+        class="rounded-2xl border-2 border-slate-900 bg-slate-950 p-6 text-slate-100"
+        hidden
+      >
+        <p class="leading-7 text-slate-300">
+          初始化
+          <code>dist[start][0] = 0</code
+          >。弹出状态时尝试充电和所有电量足够的道路；终点第一次从堆中弹出时即为答案。
+        </p>
+        <div class="mt-6 grid gap-5 xl:grid-cols-2">
+          <article>
+            <h3 class="font-black text-blue-300">Java</h3>
+            <pre
+              class="mt-2 rounded bg-black p-4 text-xs"
+            ><code>class Solution {
+    public int electricCarPlan(int[][] paths, int cnt, int start, int end, int[] charge) {
+        int n = charge.length, inf = 1 &lt;&lt; 30;
+        java.util.List&lt;int[]&gt;[] graph = new java.util.ArrayList[n];
+        for (int i = 0; i &lt; n; i++) graph[i] = new java.util.ArrayList&lt;&gt;();
+        for (int[] path : paths) { graph[path[0]].add(new int[]{path[1], path[2]}); graph[path[1]].add(new int[]{path[0], path[2]}); }
+        int[][] dist = new int[n][cnt + 1];
+        for (int[] row : dist) java.util.Arrays.fill(row, inf);
+        java.util.PriorityQueue&lt;int[]&gt; heap = new java.util.PriorityQueue&lt;&gt;((a, b) -&gt; a[0] - b[0]);
+        dist[start][0] = 0; heap.offer(new int[]{0, start, 0});
+        while (!heap.isEmpty()) {
+            int[] state = heap.poll(); int cost = state[0], city = state[1], battery = state[2];
+            if (cost != dist[city][battery]) continue;
+            if (city == end) return cost;
+            if (battery &lt; cnt &amp;&amp; cost + charge[city] &lt; dist[city][battery + 1]) { dist[city][battery + 1] = cost + charge[city]; heap.offer(new int[]{dist[city][battery + 1], city, battery + 1}); }
+            for (int[] edge : graph[city]) if (battery &gt;= edge[1] &amp;&amp; cost + edge[1] &lt; dist[edge[0]][battery - edge[1]]) { dist[edge[0]][battery - edge[1]] = cost + edge[1]; heap.offer(new int[]{dist[edge[0]][battery - edge[1]], edge[0], battery - edge[1]}); }
+        }
+        return -1;
+    }
+}</code></pre>
+          </article>
+          <article>
+            <h3 class="font-black text-blue-300">JavaScript</h3>
+            <pre
+              class="mt-2 rounded bg-black p-4 text-xs"
+            ><code>var electricCarPlan = function (paths, cnt, start, end, charge) {
+  const graph = Array.from({ length: charge.length }, () =&gt; []), dist = Array.from({ length: charge.length }, () =&gt; Array(cnt + 1).fill(Infinity));
+  for (const [u, v, d] of paths) { graph[u].push([v, d]); graph[v].push([u, d]); }
+  const heap = [[0, start, 0]]; dist[start][0] = 0;
+  while (heap.length) {
+    heap.sort((a, b) =&gt; b[0] - a[0]);
+    const [cost, city, battery] = heap.pop();
+    if (cost !== dist[city][battery]) continue;
+    if (city === end) return cost;
+    const relax = (next, c, b) =&gt; { if (next &lt; dist[c][b]) { dist[c][b] = next; heap.push([next, c, b]); } };
+    if (battery &lt; cnt) relax(cost + charge[city], city, battery + 1);
+    for (const [nextCity, distance] of graph[city]) if (battery &gt;= distance) relax(cost + distance, nextCity, battery - distance);
+  }
+  return -1;
+};</code></pre>
+          </article>
+          <article>
+            <h3 class="font-black text-blue-300">Python</h3>
+            <pre
+              class="mt-2 rounded bg-black p-4 text-xs"
+            ><code>from heapq import heappop, heappush
+
+
+class Solution:
+    def electricCarPlan(self, paths, cnt, start, end, charge):
+        graph = [[] for _ in charge]
+        for u, v, distance in paths:
+            graph[u].append((v, distance))
+            graph[v].append((u, distance))
+        dist = [[float("inf")] * (cnt + 1) for _ in charge]
+        dist[start][0] = 0
+        heap = [(0, start, 0)]
+        while heap:
+            cost, city, battery = heappop(heap)
+            if cost != dist[city][battery]:
+                continue
+            if city == end:
+                return cost
+            if battery &lt; cnt and cost + charge[city] &lt; dist[city][battery + 1]:
+                dist[city][battery + 1] = cost + charge[city]
+                heappush(heap, (dist[city][battery + 1], city, battery + 1))
+            for next_city, distance in graph[city]:
+                if battery &gt;= distance and cost + distance &lt; dist[next_city][battery - distance]:
+                    dist[next_city][battery - distance] = cost + distance
+                    heappush(heap, (dist[next_city][battery - distance], next_city, battery - distance))
+        return -1</code></pre>
+          </article>
+          <article>
+            <h3 class="font-black text-blue-300">C++</h3>
+            <pre
+              class="mt-2 rounded bg-black p-4 text-xs"
+            ><code>class Solution {
+public:
+    int electricCarPlan(vector&lt;vector&lt;int&gt;&gt;&amp; paths, int cnt, int start, int end, vector&lt;int&gt;&amp; charge) {
+        int n = charge.size(), inf = 1e9;
+        vector&lt;vector&lt;pair&lt;int, int&gt;&gt;&gt; graph(n);
+        for (auto&amp; path : paths) { graph[path[0]].push_back({path[1], path[2]}); graph[path[1]].push_back({path[0], path[2]}); }
+        vector&lt;vector&lt;int&gt;&gt; dist(n, vector&lt;int&gt;(cnt + 1, inf));
+        priority_queue&lt;array&lt;int, 3&gt;, vector&lt;array&lt;int, 3&gt;&gt;, greater&lt;array&lt;int, 3&gt;&gt;&gt; heap;
+        dist[start][0] = 0; heap.push({0, start, 0});
+        while (!heap.empty()) {
+            auto [cost, city, battery] = heap.top(); heap.pop();
+            if (cost != dist[city][battery]) continue;
+            if (city == end) return cost;
+            if (battery &lt; cnt &amp;&amp; cost + charge[city] &lt; dist[city][battery + 1]) { dist[city][battery + 1] = cost + charge[city]; heap.push({dist[city][battery + 1], city, battery + 1}); }
+            for (auto [next, distance] : graph[city]) if (battery &gt;= distance &amp;&amp; cost + distance &lt; dist[next][battery - distance]) { dist[next][battery - distance] = cost + distance; heap.push({dist[next][battery - distance], next, battery - distance}); }
+        }
+        return -1;
+    }
+};</code></pre>
+          </article>
+        </div>
+      </section>
+      <p class="pb-8 text-center text-sm text-slate-500">
+        快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+      </p>
+    </main>
+    <script data-cfasync="false">
+      const samples = {
+        sample: { charge:[1,2,3], paths:[[0,1,2],[1,2,1],[0,2,3]], start:0, end:2, cnt:3 },
+        cheap: { charge:[5,1,4], paths:[[0,1,1],[1,2,2],[0,2,3]], start:0, end:2, cnt:3 },
+        direct: { charge:[2,8,2], paths:[[0,1,1],[1,2,1],[0,2,2]], start:0, end:2, cnt:2 },
+      };
+      let sample = samples.sample, steps = [], cursor = 0; const $ = (id) => document.getElementById(id);
+      function solve() { const {charge,paths,cnt,start,end}=sample, graph=Array.from({length:charge.length},()=>[]), dist=Array.from({length:charge.length},()=>Array(cnt+1).fill(Infinity)), heap=[[0,start,0]], out=[]; for(const [u,v,d] of paths){graph[u].push([v,d]);graph[v].push([u,d]);} dist[start][0]=0; while(heap.length){heap.sort((a,b)=>b[0]-a[0]);const [cost,city,battery]=heap.pop();if(cost!==dist[city][battery])continue;out.push([cost,city,battery]);const add=(x,c,b)=>{if(x&lt;dist[c][b]){dist[c][b]=x;heap.push([x,c,b]);}};if(battery&lt;cnt)add(cost+charge[city],city,battery+1);for(const [next,d] of graph[city])if(battery&gt;=d)add(cost+d,next,battery-d);} return out; }
+      function render() { const current=steps[cursor], best=Math.min(...steps.filter((s)=>s[1]===sample.end).map((s)=>s[0]),Infinity); $("cities").innerHTML=sample.charge.map((price,i)=>`<span class="city-active? flex h-20 w-20 flex-col items-center justify-center rounded-xl border-2 border-slate-900 bg-white font-black ${current&amp;&amp;current[1]===i?"city-active":""}">城市 ${i}<small>充电 ${price}</small></span>`).join(""); $("state").textContent=current?`(${current[1]}, ${current[2]})`:"搜索结束"; $("cost").textContent=current?current[0]:"—"; $("best").textContent=Number.isFinite(best)?best:"未抵达"; $("status").textContent=current?`弹出城市 ${current[1]}、电量 ${current[2]} 的最短状态。`:"已处理所有可达状态。"; $("prev").disabled=cursor===0; $("next").disabled=cursor&gt;=steps.length; }
+      function reset(){steps=solve();cursor=0;render();} $("preset").addEventListener("change",e=>{sample=samples[e.target.value];reset();}); $("prev").addEventListener("click",()=>{cursor--;render();}); $("next").addEventListener("click",()=>{cursor++;render();}); $("reset").addEventListener("click",reset); $("solution-toggle").addEventListener("click",()=>{const area=$("solution-area"),opening=area.hidden;area.hidden=!opening;$("solution-toggle").setAttribute("aria-expanded",String(opening));$("solution-toggle").textContent=opening?"收起题解与代码":"展开题解与代码";}); reset();
+    </script>
+  </body>
+</html>
