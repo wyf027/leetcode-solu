@@ -1,6 +1,6 @@
 # Personal Projects on Vercel
 
-- Status: screenshot tool, browser projects, and GitHub Pages gallery published; real provider generation pending.
+- Status: complete; provider-backed generation explicitly skipped by user.
 - Coordination repository: `wyf027/leetcode-solu`.
 - Branch: `feat/personal-projects-vercel-20260914`.
 - Worktree: `/Users/wuyangfan/Documents/Codex/2026-09-09/gong/work/leetcode-solu-personal-projects-vercel`.
@@ -28,7 +28,7 @@ Customize `wyf027/screenshot-to-code`, deploy the browser-runnable projects unde
   - Production deployment `6434646878` completed successfully.
   - Stable URL: `https://screenshot-to-code-blue.vercel.app/`.
   - HTTP 200, expected title, Chinese primary UI, session-key clearing, hosted field boundary, and clean production console verified.
-  - Real provider generation remains pending until the user manually supplies a key.
+  - Provider-backed generation was skipped by the user on 2026-09-15.
 - Plans:
   - `docs/superpowers/plans/2026-09-14-wyf-screenshot-studio.md`
   - `docs/superpowers/plans/2026-09-14-leetcode-vercel-projects.md`
@@ -36,7 +36,7 @@ Customize `wyf027/screenshot-to-code`, deploy the browser-runnable projects unde
 - Leetcode-solu PR #2215 merged as `29415212`.
 - GitHub Pages gallery PRs #1-#3 merged; final Pages run `34836204576` succeeded.
 - Live homepage: `https://wyf027.github.io/`, HTTP 200 with 12 verified project cards.
-- Next action: complete one provider-backed screenshot generation after the user manually supplies a key.
+- Task complete. No provider-backed model call was made.
 
 ## Vercel Session
 
