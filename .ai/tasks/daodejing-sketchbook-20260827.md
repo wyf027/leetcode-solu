@@ -1,10 +1,10 @@
 # Daodejing Sketchbook
 
-- Status: committed and pushed, pull request open
+- Status: merged and published
 - Branch: `feat/daodejing-sketchbook-20260827`
 - Baseline: `origin/main@c054e2638644e8b02f9f2204fa00ac219153a534`
-- Active writer: Codex in the isolated sparse clone
-- Updated: 2026-08-27
+- Active writer: none
+- Updated: 2026-09-15
 
 ## Objective
 
@@ -56,8 +56,12 @@ ThreeUI sketchbook implementation whose editorial content is the complete
 - Implementation commit: `157587e134e067b2922cbdaa987196521fc630b8`
 - Remote branch SHA matched the local commit after push.
 - Pull request: <https://github.com/wyf027/leetcode-solu/pull/1756>
-- GitHub reports the pull request as open and mergeable with `main`.
+- PR #1756 merged to `main` as `0a5ca13ce0e727d6884f00eab29090a971ba4578` on 2026-09-15 after the user continued the publication work.
+- Vercel deployment `dpl_FUknDzYRhnMDqverZHS86j3oTwMz` is Ready at `https://wyf-daodejing-atlas.vercel.app/`.
+- Production HTML and sampled chapter 1, 8, and 81 images match the merged source hashes.
+- The production browser turned chapter 7 to chapter 8.
+- The user's GitHub Pages homepage now links this sketchbook through its `道德经 · 山水书册` project card.
 
 ## Next action
 
-Review and merge PR #1756 when authorized.
+Delivery complete.
