@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1860 · 增长的内存泄露</title>
+<style>
+/* Inline Tailwind-equivalent utility subset; no runtime or network dependency. */
+*,::before,::after{box-sizing:border-box}body{margin:0;background:#f7f8fc;color:#17243b;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.7}button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}button,button:focus-visible,button:disabled{box-shadow:none}button:hover:not(:disabled){box-shadow:0 4px 12px #18274415}button:active:not(:disabled){box-shadow:0 1px 3px #18274420}:focus-visible{outline:3px solid #6366f1;outline-offset:4px}[hidden]{display:none!important}h1,h2,h3,p{margin-top:0}h1{font-size:clamp(1.9rem,5vw,3rem);line-height:1.2;letter-spacing:-.04em}h2{font-size:1.4rem}h3{font-size:1.05rem}a{color:#4338ca}code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}pre{white-space:pre;overflow:auto;max-width:100%;font-size:.86rem;line-height:1.75;margin:0}input{width:100%;min-width:0;border:1px solid #cbd5e1;border-radius:.6rem;padding:.6rem;background:#fff;color:#17243b}label{display:block;font-size:.85rem;font-weight:600}li+li{margin-top:.45rem}.mx-auto{margin-left:auto;margin-right:auto}.max-w-6xl{max-width:1152px}.p-6{padding:1.5rem}.p-4{padding:1rem}.px-4{padding-left:1rem;padding-right:1rem}.py-3{padding-top:.75rem;padding-bottom:.75rem}.mt-6{margin-top:1.5rem}.mt-4{margin-top:1rem}.mb-2{margin-bottom:.5rem}.mb-0{margin-bottom:0}.flex{display:flex}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-between{justify-content:space-between}.gap-2{gap:.5rem}.gap-4{gap:1rem}.gap-6{gap:1.5rem}.grid{display:grid}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.min-w-0{min-width:0}.rounded-xl{border-radius:1rem}.rounded-lg{border-radius:.75rem}.rounded-full{border-radius:999px}.border{border:1px solid #e0e5ef}.bg-white{background:#fff}.bg-indigo-600{background:#4f46e5}.bg-slate-900{background:#152037}.text-white{color:white}.text-sm{font-size:.875rem}.text-xs{font-size:.75rem}.text-slate-500{color:#59677f}.font-semibold{font-weight:600}.font-mono{font-family:ui-monospace,monospace}.overflow-x-auto{overflow-x:auto}.w-full{width:100%}.badge{background:#eef0ff;color:#4338ca;padding:.25rem .7rem}.eyebrow{letter-spacing:.16em;font-size:.72rem;font-weight:700;color:#66728c}.shell{padding:36px 24px 60px}.intro{max-width:760px}.card{background:white;border:1px solid #e0e5ef;border-radius:18px;padding:24px}.btn{border:1px solid #cbd5e1;border-radius:9px;padding:.55rem .9rem;background:white;color:#27354b;min-height:44px}.btn-primary{background:#4f46e5;border-color:#4f46e5;color:#fff}.rail{height:30px;background:#e8edf4;border-radius:7px;overflow:hidden;margin-top:.6rem}.fill{height:100%;transition:width .25s;background:#6366f1;min-width:0}.fill.teal{background:#0d9488}.stick{padding:18px;border:2px solid #e6eaf1;border-radius:12px}.stick.selected{border-color:#6366f1;background:#f7f7ff}.count{font-size:2rem;font-weight:700;line-height:1.3;font-variant-numeric:tabular-nums}.request{border:1px dashed #a5b4fc;background:#f2f3ff;padding:16px;border-radius:12px}.ledger{max-height:245px;overflow:auto;padding-left:1.5rem}.ledger li{font-size:.88rem;padding:.25rem}.code{padding:20px;background:#152037;color:#e5eafa;border-radius:12px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}table{width:100%;border-collapse:collapse;font-size:.87rem;min-width:660px}th,td{text-align:left;padding:12px;border-bottom:1px solid #e0e5ef;vertical-align:top}td code{white-space:nowrap}th{color:#59677f;font-weight:600}.notice{border-left:3px solid #f59e0b;background:#fffbeb;padding:12px 16px}.footer{color:#66728c;font-size:.8rem;border-top:1px solid #e0e5ef;margin-top:24px;padding-top:18px}@media(min-width:850px){.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-grid{grid-template-columns:1.05fr .95fr}}@media(max-width:480px){.shell{padding:24px 14px 40px}.card{padding:18px}.p-6{padding:18px}.stick{padding:12px}.count{font-size:1.55rem}.btn{padding:.5rem .65rem}}@media(prefers-reduced-motion:reduce){*,::before,::after{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main class="max-w-6xl mx-auto shell">
+<header class="intro">
+<div class="flex gap-2 items-center flex-wrap mb-2"><span class="eyebrow">MEMORY LAB / 1860</span><span class="badge rounded-full text-xs font-semibold">MEDIUM</span><span class="text-xs text-slate-500">免费题</span></div>
+<h1>增长的内存泄露</h1><p class="text-slate-500">Incremental Memory Leak · 两根内存条，一次越来越大的请求。</p>
+<p>每秒观察剩余空间如何变化。先读规则、手动预测下一步，再展开页面底部的题解。</p>
+</header>
+<section class="card mt-6" aria-labelledby="problem-title">
+<h2 id="problem-title">01 / 任务说明</h2>
+<p>给定两个整数 <code>memory1</code> 和 <code>memory2</code>，分别代表两根内存条当前可用的位数。从第 1 秒开始，第 <code>i</code> 秒需要一次性占用 <code>i</code> 位：从<strong>剩余空间较多</strong>的内存条扣除；如果一样多，选择<strong>第一根</strong>。内存不会释放，也不能把一次请求拆到两根上。</p>
+<p>如果两根内存条都无法单独满足本秒的请求，程序立即崩溃，且本秒不扣内存。返回 <code>[crashTime, memory1_crash, memory2_crash]</code>，依次为首次失败的秒数和两根内存条的最终剩余位数。</p>
+<p class="mb-0"><strong>约束：</strong><code>0 ≤ memory1, memory2 ≤ 2³¹ − 1</code>，输入均为整数。接口：<code>memLeak(memory1, memory2)</code>。</p>
+</section>
+<section class="grid md:grid-cols-2 gap-4 mt-4" aria-label="官方示例">
+<article class="card min-w-0"><h3>官方示例 1</h3><pre>输入：memory1 = 2, memory2 = 2
+输出：[3, 1, 0]</pre><p class="text-sm mt-4 mb-0">第 1 秒从第一根扣 1，剩余 (1, 2)；第 2 秒从第二根扣 2，剩余 (1, 0)；第 3 秒两根都不足 3，程序崩溃。</p></article>
+<article class="card min-w-0"><h3>官方示例 2</h3><pre>输入：memory1 = 8, memory2 = 11
+输出：[6, 0, 4]</pre><p class="text-sm mt-4 mb-0">第 1～5 秒依次选择第二、第二、第一、第二、第一根，剩余依次为 (8, 10)、(8, 8)、(5, 8)、(5, 4)、(0, 4)。第 6 秒失败。</p></article>
+</section>
+<section class="card mt-6" aria-labelledby="lab-title">
+<div class="flex flex-wrap justify-between items-center gap-2"><h2 id="lab-title" class="mb-0">02 / 内存分配实验台</h2><span class="text-xs text-slate-500">位 bits · 同一刻度对照</span></div>
+<p class="text-sm text-slate-500 mt-4">每次“下一步”执行一秒；描边表示刚刚被分配的内存条。条形长度以两根初始内存的较大值为统一满刻度，数字为精确值。</p>
+<form id="inputs" class="flex flex-wrap gap-4 items-center">
+<div class="grid grid-cols-2 gap-4" style="flex:1;min-width:220px"><label for="m1">memory1<input id="m1" name="memory1" type="number" min="0" max="2147483647" step="1" value="8" required></label><label for="m2">memory2<input id="m2" name="memory2" type="number" min="0" max="2147483647" step="1" value="11" required></label></div><button type="submit" class="btn">应用输入</button>
+</form>
+<p id="error" role="alert" class="text-sm" style="color:#b91c1c"></p>
+<div class="grid hero-grid gap-4 mt-4">
+<div class="min-w-0"><div id="stick1" class="stick"><div class="flex justify-between gap-2"><span class="font-semibold">内存条 1</span><span class="text-xs text-slate-500">相等时优先</span></div><div class="count"><span id="left1">8</span> <span class="text-sm text-slate-500">bits 可用</span></div><div class="rail" role="img" id="rail1" aria-label="内存条 1 剩余 8 位"><div id="bar1" class="fill" style="width:72.727%"></div></div></div>
+<div id="stick2" class="stick mt-4"><div class="font-semibold">内存条 2</div><div class="count"><span id="left2">11</span> <span class="text-sm text-slate-500">bits 可用</span></div><div class="rail" role="img" id="rail2" aria-label="内存条 2 剩余 11 位"><div id="bar2" class="fill teal" style="width:100%"></div></div></div></div>
+<div class="min-w-0"><div class="request"><div class="eyebrow">REQUEST / 递增请求</div><p class="count mb-2" id="request">第 1 秒 · 1 bit</p><p id="action" class="text-sm mb-0">准备开始。预测第一秒会选择哪根内存条。</p></div><h3 class="mt-4 mb-2">最近 8 个步骤</h3><ol id="log" class="ledger"><li>初始剩余：(8, 11)。</li></ol></div>
+</div>
+<div class="flex gap-2 flex-wrap mt-6" role="group" aria-label="动画播放控制"><button id="prev" class="btn" disabled>上一步</button><button id="next" class="btn btn-primary">下一步</button><button id="play" class="btn" aria-pressed="false">自动播放</button><button id="reset" class="btn">重置</button></div>
+<p id="result" class="font-mono text-sm mt-4 mb-0">当前还没有发生崩溃。</p><p class="text-xs text-slate-500 mt-4 mb-0">Tab 切换控件，Enter / 空格激活按钮。自动播放每 700 毫秒执行一步；减少动态效果偏好下每 1400 毫秒一步且关闭条形过渡。大输入可逐步观察，完整播放可能较久。此演示不代表提交代码已验证。</p>
+<div id="live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+</section>
+<section class="card mt-6" aria-labelledby="verification-title"><h2 id="verification-title">03 / 测试与验证</h2><p class="notice">快速生成模式：待补验证</p><p class="text-sm text-slate-500">以下为官方示例和按规则推导的边界用例，仅列期望值，未执行代码或页面检查。</p><div class="overflow-x-auto"><table><thead><tr><th>场景</th><th>输入</th><th>期望输出</th><th>实际输出</th><th>通过状态</th></tr></thead><tbody>
+<tr><td>官方示例 1</td><td><code>memory1 = 2, memory2 = 2</code></td><td><code>[3, 1, 0]</code></td><td>待补验证</td><td>待补验证</td></tr>
+<tr><td>官方示例 2</td><td><code>memory1 = 8, memory2 = 11</code></td><td><code>[6, 0, 4]</code></td><td>待补验证</td><td>待补验证</td></tr>
+<tr><td>均为空</td><td><code>memory1 = 0, memory2 = 0</code></td><td><code>[1, 0, 0]</code></td><td>待补验证</td><td>待补验证</td></tr>
+<tr><td>相等优先第一根</td><td><code>memory1 = 1, memory2 = 1</code></td><td><code>[2, 0, 1]</code></td><td>待补验证</td><td>待补验证</td></tr>
+<tr><td>仅第二根可用</td><td><code>memory1 = 0, memory2 = 3</code></td><td><code>[3, 0, 0]</code></td><td>待补验证</td><td>待补验证</td></tr>
+<tr><td>总量够但无法合并</td><td><code>memory1 = 4, memory2 = 4</code></td><td><code>[4, 0, 2]</code></td><td>待补验证</td><td>待补验证</td></tr>
+</tbody></table></div></section>
+<section class="card mt-6" aria-labelledby="solution-label"><div class="flex flex-wrap gap-4 items-center justify-between"><div><h2 id="solution-label" class="mb-2">04 / 独立题解</h2><p class="text-sm text-slate-500 mb-0">准备好后，再看思路、证明和四语言实现。</p></div><button id="toggle" class="btn btn-primary" aria-expanded="false" aria-controls="solution">查看题解</button></div>
+<div id="solution" hidden class="mt-6">
+<h3 id="solution-heading" tabindex="-1">核心洞察：按秒模拟已经足够</h3><p>选择哪根内存条由题目完全决定，并不存在需要搜索的策略。只要较大剩余值至少为本秒需求，就从对应内存条扣除；若较大值都不够，小的自然也不够。相等时用 <code>memory1 &gt;= memory2</code> 保证第一根优先。</p>
+<h3>完整过程</h3><ol><li>令 <code>i = 1</code>，两个变量保持当前剩余位数。</li><li>当 <code>memory1 &gt;= i || memory2 &gt;= i</code> 时，本秒可以执行。</li><li>若第一根剩余不少于第二根，则第一根减去 <code>i</code>，否则第二根减去 <code>i</code>。然后令 <code>i++</code>。</li><li>循环结束时 <code>i</code> 恰好是第一次无法分配的秒数，直接返回 <code>[i, memory1, memory2]</code>。</li></ol>
+<p>以 (8, 11) 为例：<code>i=1 → (8,10)</code>，<code>i=2 → (8,8)</code>；此时相等，<code>i=3</code> 从第一根扣除，得到 (5,8)；再得到 (5,4)、(0,4)。此时准备执行第 6 秒，但最大剩余只有 4，返回 [6,0,4]。</p>
+<h3>正确性证明</h3><p><strong>循环不变量：</strong>每轮开始时，两个内存变量等于前 <code>i−1</code> 秒合法分配后的真实剩余内存。初始时没有分配，不变量成立。若循环条件成立，至少一根足够，因此较大的一根必然足够；按大小和相等优先规则扣除 <code>i</code> 后，恰好完成第 <code>i</code> 秒，递增秒数保持不变量。退出时两根均小于 <code>i</code>，本秒必然失败；此前每秒都成功，因此返回的是首次失败时间及真实剩余内存。</p>
+<h3>复杂度与整数范围</h3><p>令 <code>S = memory1 + memory2</code> 为初始总量。成功执行 <code>t</code> 秒至少消耗 <code>t(t+1)/2</code> 位，故 <code>t = O(√S)</code>。计入初始检查，时间为 <code>O(1 + √S)</code>，辅助空间为 <code>O(1)</code>。当两个输入都取上限时，S 小于 2³²，成功秒数小于 92,682；因此直接模拟的循环次数很小。</p><p>四份实现不计算总和或三角数，只比较和扣减非负剩余量，Java / C++ 使用 32 位 <code>int</code> 足够。若实现数学跳步，求和与乘法应使用 64 位整数。页面为了支持回退保存历史，额外占用 <code>O(t)</code> 空间，这不属于题解算法的空间开销。</p>
+<h3>边界与常见错误</h3><ul><li>两个输入都是 0：第 1 秒直接崩溃，返回 [1,0,0]。</li><li>只剩一根可用：继续从该根扣，直到它也不够。</li><li>剩余恰好等于 i：允许扣到 0，不能用严格大于作为继续条件。</li><li>不能检查总量是否足够后拆分请求。例如从 (4,4) 开始，第 3 秒之前为 (3,2)，第 3 秒扣第一根后为 (0,2)，第 4 秒失败；而从 (1,1) 开始，第 2 秒前为 (0,1)，也不能合并初始空间改变选择。</li><li>循环条件应为“或”，写“且”会在一根不足而另一根仍足够时提前终止。</li><li>相等时选择第一根；失败秒不扣内存、不再递增秒数，也不是返回最后成功的秒数。</li></ul>
+<h3>替代方案</h3><p>可以利用等差数列求和跳过多次分配：先计算初始较大内存条连续被选择多久，再处理两根交替承担的递增请求，用二分搜索寻找可承担的批次数。这能减少循环，但必须单独处理相等时第一根优先、阶段交界和最后一个请求。当前约束下模拟简洁且足够；只用总量解三角不等式不能得到准确崩溃时刻，因为请求不可拆分。</p>
+<h3>面试追问</h3><ul><li><strong>这是贪心吗？</strong>这里执行的是固定选择规则，没有优化目标，不需要交换论证。</li><li><strong>扩展为 k 根内存条呢？</strong>用最大堆维护剩余容量，容量相等按原编号排序，每次取出并扣减后放回，单次分配 O(log k)。</li><li><strong>若容量上限大幅增大呢？</strong>考虑分阶段的等差数列批处理，使用宽整数并处理精确边界，不能直接用浮点平方根替代全部流程。</li></ul>
+<h3>Java</h3><div class="code"><pre><code>class Solution {
+    public int[] memLeak(int memory1, int memory2) {
+        int i = 1;
+        while (memory1 &gt;= i || memory2 &gt;= i) {
+            if (memory1 &gt;= memory2) {
+                memory1 -= i;
+            } else {
+                memory2 -= i;
+            }
+            i++;
+        }
+        return new int[] {i, memory1, memory2};
+    }
+}</code></pre></div>
+<h3 class="mt-6">JavaScript</h3><div class="code"><pre><code>/**
+ * @param {number} memory1
+ * @param {number} memory2
+ * @return {number[]}
+ */
+var memLeak = function(memory1, memory2) {
+    let i = 1;
+    while (memory1 &gt;= i || memory2 &gt;= i) {
+        if (memory1 &gt;= memory2) {
+            memory1 -= i;
+        } else {
+            memory2 -= i;
+        }
+        i++;
+    }
+    return [i, memory1, memory2];
+};</code></pre></div>
+<h3 class="mt-6">Python 3</h3><div class="code"><pre><code>from typing import List
+
+class Solution:
+    def memLeak(self, memory1: int, memory2: int) -&gt; List[int]:
+        i = 1
+        while memory1 &gt;= i or memory2 &gt;= i:
+            if memory1 &gt;= memory2:
+                memory1 -= i
+            else:
+                memory2 -= i
+            i += 1
+        return [i, memory1, memory2]</code></pre></div>
+<h3 class="mt-6">C++</h3><div class="code"><pre><code>#include &lt;vector&gt;
+using std::vector;
+
+class Solution {
+public:
+    vector&lt;int&gt; memLeak(int memory1, int memory2) {
+        int i = 1;
+        while (memory1 &gt;= i || memory2 &gt;= i) {
+            if (memory1 &gt;= memory2) {
+                memory1 -= i;
+            } else {
+                memory2 -= i;
+            }
+            ++i;
+        }
+        return {i, memory1, memory2};
+    }
+};</code></pre></div><p class="text-xs text-slate-500 mt-4">以上采用官方 memLeak 参数与返回形式；均为待补验证的可提交实现。</p>
+</div></section>
+<footer class="footer">1860 · 题意、示例和约束依据本地官方元数据。<a href="https://leetcode.cn/problems/incremental-memory-leak/">官方题目</a> · 单文件离线交互 · 仅生成 HTML，所有验证待补</footer>
+</main>
+<script data-cfasync="false">
+'use strict';
+const $ = id => document.getElementById(id);
+let initial = [8, 11], frames = [], cursor = 0, timer = null;
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+function stop() { clearInterval(timer); timer = null; $('play').textContent = '自动播放'; $('play').setAttribute('aria-pressed', 'false'); }
+function render() {
+    const s = frames[cursor], scale = Math.max(...initial, 1);
+    for (let j = 1; j <= 2; j++) {
+        const n = j === 1 ? s.a : s.b;
+        $('left' + j).textContent = n;
+        $('bar' + j).style.width = (100 * n / scale) + '%';
+        $('rail' + j).setAttribute('aria-label', '内存条 ' + j + ' 剩余 ' + n + ' 位');
+        $('stick' + j).classList.toggle('selected', s.chosen === j);
+    }
+    $('request').textContent = s.crash ? '第 ' + s.i + ' 秒 · 请求失败' : '第 ' + s.i + ' 秒 · 需要 ' + s.i + ' bit' + (s.i === 1 ? '' : 's');
+    $('action').textContent = s.message;
+    $('result').textContent = s.crash ? '崩溃结果：[' + [s.i, s.a, s.b].join(', ') + ']' : '已成功分配 ' + (s.i - 1) + ' 秒；下一次请求不可拆分。';
+    $('prev').disabled = cursor === 0;
+    $('next').disabled = s.crash;
+    $('play').disabled = s.crash;
+    const start = Math.max(0, cursor - 7);
+    $('log').replaceChildren();
+    $('log').start = start + 1;
+    for (let k = start; k <= cursor; k++) { const li = document.createElement('li'); li.textContent = frames[k].message; $('log').append(li); }
+    $('live').textContent = s.message + ' ' + $('result').textContent;
+}
+function reset() {
+    stop(); cursor = 0;
+    frames = [{a:initial[0], b:initial[1], i:1, chosen:0, crash:false, message:'初始剩余：(' + initial.join(', ') + ')。准备执行第 1 秒。'}];
+    render();
+}
+function next() {
+    const s = frames[cursor];
+    if (s.crash) { stop(); return; }
+    if (cursor === frames.length - 1) {
+        const n = {...s, chosen:0};
+        if (Math.max(s.a, s.b) < s.i) {
+            n.crash = true;
+            n.message = '第 ' + s.i + ' 秒：两根都不足 ' + s.i + ' 位，崩溃；本秒不扣内存。';
+        } else {
+            n.chosen = s.a >= s.b ? 1 : 2;
+            if (n.chosen === 1) n.a -= s.i; else n.b -= s.i;
+            n.i++;
+            n.message = '第 ' + s.i + ' 秒：' + (s.a === s.b ? '相等，优先第一根；' : '') + '内存条 ' + n.chosen + ' 扣 ' + s.i + ' 位 → (' + n.a + ', ' + n.b + ')。';
+        }
+        frames.push(n);
+    }
+    cursor++;
+    if (frames[cursor].crash) stop();
+    render();
+}
+$('inputs').addEventListener('submit', e => {
+    e.preventDefault(); stop();
+    const raw = [$('m1').value, $('m2').value], values = raw.map(Number);
+    if (raw.some(v => v.trim() === '') || values.some(v => !Number.isInteger(v) || v < 0 || v > 2147483647)) {
+        $('error').textContent = '请输入 0 到 2147483647 范围内的两个整数。'; return;
+    }
+    $('error').textContent = ''; initial = values; reset();
+});
+$('next').addEventListener('click', () => { stop(); next(); });
+$('prev').addEventListener('click', () => { stop(); if (cursor > 0) cursor--; render(); });
+$('reset').addEventListener('click', () => { $('m1').value = initial[0]; $('m2').value = initial[1]; $('error').textContent = ''; reset(); });
+$('play').addEventListener('click', () => {
+    if (timer) { stop(); $('live').textContent = '自动播放已暂停。'; return; }
+    if (frames[cursor].crash) return;
+    $('play').textContent = '暂停播放'; $('play').setAttribute('aria-pressed', 'true');
+    $('live').textContent = '开始自动播放。'; timer = setInterval(next, reduced.matches ? 1400 : 700);
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+$('toggle').addEventListener('click', () => {
+    const opening = $('solution').hidden;
+    $('solution').hidden = !opening;
+    $('toggle').setAttribute('aria-expanded', String(opening));
+    $('toggle').textContent = opening ? '收起题解' : '查看题解';
+    $('live').textContent = opening ? '题解已展开。' : '题解已收起。';
+    if (opening) { stop(); $('solution-heading').focus(); } else $('toggle').focus();
+});
+reset();
+</script>
+</body>
+</html>
