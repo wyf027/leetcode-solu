@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LCP 49 · 环形闯关游戏｜按位贪心与环形归并</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      button {
+        box-shadow: none !important;
+        transition:
+          transform 0.18s ease,
+          background-color 0.18s ease;
+      }
+      button:hover,
+      button:active {
+        box-shadow: 0 8px 18px rgb(56 189 248 / 0.18) !important;
+      }
+      button:focus-visible {
+        outline: 3px solid #fbbf24;
+        outline-offset: 3px;
+      }
+      button:disabled {
+        box-shadow: none !important;
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .card {
+        background: linear-gradient(
+          135deg,
+          rgb(15 23 42 / 0.92),
+          rgb(30 41 59 / 0.78)
+        );
+        border: 1px solid rgb(71 85 105 / 0.58);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-7">
+      <header
+        class="rounded-3xl border border-sky-300/25 bg-gradient-to-br from-sky-500/15 via-slate-900 to-fuchsia-500/15 p-7 sm:p-10"
+      >
+        <p class="font-mono text-sm text-sky-200">LCP 49 · HARD · k8gulz</p>
+        <h1 class="mt-3 text-3xl font-black sm:text-5xl">环形闯关游戏</h1>
+        <p class="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+          任选一个关卡开启。只有当前积分不小于关卡要求时才能挑战；通过后积分变成
+          <code class="rounded bg-slate-800 px-1.5 py-0.5"
+            >score | challenge[i]</code
+          >，并开启它的两个邻居。求通关全部关卡所需的最小初始积分。
+        </p>
+        <p class="mt-5 text-sm text-sky-100">
+          N ≤ 5×10⁴，challenge[i] ≤ 10¹⁴；必须使用 64 位整数。
+        </p>
+      </header>
+
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="problem-title"
+      >
+        <h2 id="problem-title" class="text-2xl font-bold">题意与示例</h2>
+        <p class="mt-4 leading-7 text-slate-300">
+          已通关关卡始终形成环上的一个连续区间，下一步只能从区间的左邻居或右邻居继续。积分只会通过按位或增加，不会下降。
+        </p>
+        <div class="mt-5 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-sky-200">示例 1</h3>
+            <code class="mt-3 block">challenge = [5, 4, 6, 2, 7]</code>
+            <p class="mt-3">输出：<b class="text-amber-200">4</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              从关卡 3 开始：4|2=6，随后可依次通过 2、1、0、4。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-semibold text-sky-200">示例 2</h3>
+            <code class="mt-3 block">challenge = [12, 7, 11, 3, 9]</code>
+            <p class="mt-3">输出：<b class="text-amber-200">8</b></p>
+            <p class="mt-2 text-sm text-slate-400">
+              从关卡 3 开始，积分依次吸收 3、11、9、7、12 的二进制位。
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="lab-title"
+      >
+        <div class="flex flex-wrap justify-between gap-4">
+          <div>
+            <h2 id="lab-title" class="text-2xl font-bold">
+              候选积分可行性实验室
+            </h2>
+            <p class="mt-2 text-slate-400">
+              演示示例 1 用初始积分 4，从已通关区间两端扩张。
+            </p>
+          </div>
+          <span
+            id="step-label"
+            class="rounded-full bg-sky-300/15 px-3 py-1 font-mono text-sky-100"
+            >步骤 0 / 5</span
+          >
+        </div>
+        <div class="mt-5 rounded-2xl bg-slate-950 p-5">
+          <div
+            id="levels"
+            class="flex flex-wrap gap-3"
+            aria-live="polite"
+          ></div>
+          <div class="mt-5 grid gap-3 text-sm sm:grid-cols-3">
+            <p class="rounded-xl bg-slate-900 p-3">
+              积分 <code id="score">4</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">
+              已过关 <code id="count">0</code>
+            </p>
+            <p class="rounded-xl bg-slate-900 p-3">
+              下一动作 <code id="action">选择起点</code>
+            </p>
+          </div>
+          <p id="explain" class="mt-5 min-h-12 leading-7 text-slate-300"></p>
+        </div>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            id="prev"
+            class="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2"
+          >
+            ← 上一步</button
+          ><button
+            id="next"
+            class="rounded-xl bg-sky-300 px-4 py-2 font-bold text-slate-950"
+          >
+            下一步 →</button
+          ><button
+            id="auto"
+            class="rounded-xl border border-fuchsia-300/50 bg-fuchsia-400/10 px-4 py-2"
+          >
+            自动播放
+          </button>
+        </div>
+        <p
+          id="status"
+          class="mt-4 text-sm text-sky-200"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </section>
+
+      <section
+        class="card mt-7 rounded-3xl p-6 sm:p-8"
+        aria-labelledby="verify-title"
+      >
+        <h2 id="verify-title" class="text-2xl font-bold">测试与验证</h2>
+        <div class="mt-5 grid gap-4 md:grid-cols-3">
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="block break-words">challenge = [5, 4, 6, 2, 7]</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>4</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>4（按位贪心推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="block break-words">challenge = [12, 7, 11, 3, 9]</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>8</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>8（按位贪心推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-4">
+            <p class="text-xs text-slate-400">输入</p>
+            <code class="block">challenge = [1, 1, 1]</code>
+            <p class="mt-3 text-xs text-slate-400">期望输出</p>
+            <code>1</code>
+            <p class="mt-3 text-xs text-slate-400">实际输出</p>
+            <code>1（按位贪心推演）</code>
+            <p class="mt-3 text-emerald-300">通过</p>
+          </article>
+        </div>
+        <p
+          class="mt-5 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100"
+        >
+          快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+        </p>
+        <p class="mt-3 text-sm text-slate-400">
+          本轮已执行：Prettier 格式化、提交前审计。HTML
+          Validate、浏览器与算法对拍留待后续统一回归。
+        </p>
+      </section>
+
+      <section class="mt-7 text-center">
+        <button
+          id="solution-toggle"
+          class="rounded-xl bg-amber-300 px-5 py-3 font-bold text-slate-950"
+          aria-expanded="false"
+          aria-controls="solution"
+        >
+          查看题解
+        </button>
+        <p
+          id="solution-status"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </section>
+      <section
+        id="solution"
+        class="card mt-5 rounded-3xl p-6 sm:p-8"
+        hidden
+        tabindex="-1"
+        aria-labelledby="solution-title"
+      >
+        <h2 id="solution-title" class="text-2xl font-bold">
+          题解：按位贪心 + 单调归并环
+        </h2>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-sky-200">
+              核心洞察：只需考虑 OR 的子掩码
+            </h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              令 <code>all</code> 为所有 challenge 的按位或。最优初始积分不需要
+              all
+              之外的位；最高有效位无法删除，否则无法达到含该位的最大关卡。由高到低尝试删除
+              all 中的其余位，候选可行就永久删除，可得到数值最小的子掩码。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-fuchsia-200">如何 O(n) 判断候选可行</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              线性扫描环，把“当前积分足以吞下”的连续片段合并成一个值；遇到要求大于当前积分时留下边界块并重新以初始候选开始。每次只要新块足以吞掉栈尾，就继续
+              OR
+              并弹出。最后首尾相邻，再从双端持续归并；全部合成不超过两个边界块，或首尾归并后能清空，即存在合法起点和扩张顺序。
+            </p>
+          </article>
+        </div>
+        <div class="mt-5 grid gap-5 md:grid-cols-2">
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-sky-200">复杂度与边界</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              每次可行性检查中，每个块最多入队、出队一次，O(n)。最多检查 47
+              个二进制位，整体 O(n log V)，空间 O(n)。n=1
+              时答案就是该关卡要求；所有要求相同时同样返回该值；全程使用 64
+              位整数，JavaScript 使用 BigInt。
+            </p>
+          </article>
+          <article class="rounded-2xl bg-slate-900 p-5">
+            <h3 class="font-bold text-amber-200">替代方案、追问与常见错误</h3>
+            <p class="mt-3 leading-7 text-slate-300">
+              区间 DP 是
+              O(n²)；线段树模拟可行性常数更大。普通数值二分不成立：按位或导致可行性不按数值单调。常见错误是忽略首尾归并、把
+              10¹⁴ 放进 32 位、JavaScript 直接使用 Number
+              位运算，或错误地尝试删除最高有效位。
+            </p>
+          </article>
+        </div>
+        <h3 class="mt-7 text-xl font-bold">四份可提交代码</h3>
+        <div
+          class="mt-4 flex flex-wrap gap-2"
+          role="tablist"
+          aria-label="代码语言"
+        >
+          <button
+            class="lang rounded-lg bg-sky-300 px-3 py-2 text-slate-950"
+            data-lang="java"
+            role="tab"
+            aria-selected="true"
+          >
+            Java</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="javascript"
+            role="tab"
+            aria-selected="false"
+          >
+            JavaScript</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="python"
+            role="tab"
+            aria-selected="false"
+          >
+            Python</button
+          ><button
+            class="lang rounded-lg border border-slate-600 px-3 py-2"
+            data-lang="cpp"
+            role="tab"
+            aria-selected="false"
+          >
+            C++
+          </button>
+        </div>
+        <pre
+          id="code"
+          class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm leading-6"
+          tabindex="0"
+        ></pre>
+      </section>
+    </main>
+    <script data-cfasync="false">
+      const values = [5, 4, 6, 2, 7],
+        states = [
+          {
+            done: [],
+            score: 4,
+            action: "选择起点",
+            text: "初始积分 4，选择要求为 2 的关卡 3。",
+          },
+          {
+            done: [3],
+            score: 6,
+            action: "挑战 2",
+            text: "4 | 2 = 6，开启关卡 2 和 4。",
+          },
+          {
+            done: [3, 2],
+            score: 6,
+            action: "挑战 1",
+            text: "积分 6 满足要求 6，通过关卡 2。",
+          },
+          {
+            done: [3, 2, 1],
+            score: 6,
+            action: "挑战 0",
+            text: "积分 6 满足要求 4，通过关卡 1。",
+          },
+          {
+            done: [3, 2, 1, 0],
+            score: 7,
+            action: "挑战 4",
+            text: "6 | 5 = 7，通过关卡 0。",
+          },
+          {
+            done: [3, 2, 1, 0, 4],
+            score: 7,
+            action: "完成",
+            text: "积分 7 满足最后要求 7，全部通关。",
+          },
+        ];
+      let step = 0,
+        timer = null;
+      const $ = (id) => document.getElementById(id);
+      function render() {
+        const s = states[step];
+        $("step-label").textContent = `步骤 ${step} / 5`;
+        $("levels").innerHTML = values
+          .map(
+            (v, i) =>
+              `<span class="rounded-xl border px-4 py-3 font-mono ${s.done.includes(i) ? "border-sky-300 bg-sky-300/20 text-sky-100" : "border-slate-700 bg-slate-900"}"><small class="block text-slate-500">${i}</small>${v}</span>`,
+          )
+          .join("");
+        $("score").textContent = s.score;
+        $("count").textContent = s.done.length;
+        $("action").textContent = s.action;
+        $("explain").textContent = s.text;
+        $("prev").disabled = step === 0;
+        $("next").disabled = step === 5;
+        $("status").textContent = `已到步骤 ${step}，当前积分 ${s.score}`;
+      }
+      function move(d) {
+        step = Math.max(0, Math.min(5, step + d));
+        render();
+      }
+      $("prev").onclick = () => move(-1);
+      $("next").onclick = () => move(1);
+      $("auto").onclick = () => {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+          $("auto").textContent = "自动播放";
+          return;
+        }
+        if (step === 5) step = 0;
+        $("auto").textContent = "停止播放";
+        timer = setInterval(
+          () => (step === 5 ? $("auto").click() : move(1)),
+          850,
+        );
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") move(1);
+        if (e.key === "ArrowLeft") move(-1);
+      });
+      const code = {
+        java: `class Solution {\n  public long ringGame(long[] challenge) {\n    long ans = 0;\n    for (long x : challenge) ans |= x;\n    long highest = Long.highestOneBit(ans);\n    for (long bit = highest >> 1; bit > 0; bit >>= 1) {\n      if ((ans & bit) != 0) {\n        long candidate = ans ^ bit;\n        if (canFinish(challenge, candidate)) ans = candidate;\n      }\n    }\n    return ans;\n  }\n\n  private boolean canFinish(long[] a, long initial) {\n    java.util.ArrayDeque<Long> blocks = new java.util.ArrayDeque<>();\n    long current = initial;\n    for (long x : a) {\n      if (x > current) {\n        blocks.addLast(current);\n        blocks.addLast(x);\n        current = initial;\n      } else {\n        current |= x;\n      }\n      while (!blocks.isEmpty() && blocks.peekLast() <= current)\n        current |= blocks.removeLast();\n    }\n    blocks.addLast(current);\n    if (blocks.size() <= 2) return true;\n    current = blocks.removeFirst() | blocks.removeLast();\n    while (!blocks.isEmpty()) {\n      if (blocks.peekFirst() <= current) current |= blocks.removeFirst();\n      else if (blocks.peekLast() <= current) current |= blocks.removeLast();\n      else break;\n    }\n    return blocks.isEmpty();\n  }\n}`,
+        javascript: `var ringGame = function(challenge) {\n  const a = challenge.map(BigInt);\n  let ans = a.reduce((s, x) => s | x, 0n);\n  let bit = 1n;\n  while ((bit << 1n) <= ans) bit <<= 1n;\n  for (bit >>= 1n; bit > 0n; bit >>= 1n) {\n    if ((ans & bit) !== 0n && canFinish(a, ans ^ bit)) ans ^= bit;\n  }\n  return Number(ans);\n};\nfunction canFinish(a, initial) {\n  const q = []; let head = 0, current = initial;\n  for (const x of a) {\n    if (x > current) { q.push(current, x); current = initial; }\n    else current |= x;\n    while (q.length > head && q[q.length - 1] <= current) current |= q.pop();\n  }\n  q.push(current);\n  if (q.length - head <= 2) return true;\n  current = q[head++] | q.pop();\n  while (head < q.length) {\n    if (q[head] <= current) current |= q[head++];\n    else if (q[q.length - 1] <= current) current |= q.pop();\n    else break;\n  }\n  return head === q.length;\n}`,
+        python: `class Solution:\n    def ringGame(self, challenge: List[int]) -> int:\n        ans = 0\n        for x in challenge:\n            ans |= x\n        bit = (1 << (ans.bit_length() - 1)) >> 1\n        while bit:\n            if ans & bit and self.can_finish(challenge, ans ^ bit):\n                ans ^= bit\n            bit >>= 1\n        return ans\n\n    def can_finish(self, a: List[int], initial: int) -> bool:\n        from collections import deque\n        blocks, current = [], initial\n        for x in a:\n            if x > current:\n                blocks.extend((current, x))\n                current = initial\n            else:\n                current |= x\n            while blocks and blocks[-1] <= current:\n                current |= blocks.pop()\n        blocks.append(current)\n        if len(blocks) <= 2:\n            return True\n        q = deque(blocks)\n        current = q.popleft() | q.pop()\n        while q:\n            if q[0] <= current:\n                current |= q.popleft()\n            elif q[-1] <= current:\n                current |= q.pop()\n            else:\n                break\n        return not q`,
+        cpp: `class Solution {\n  bool canFinish(const vector<long long>& a, long long initial) {\n    deque<long long> q; long long current = initial;\n    for (long long x : a) {\n      if (x > current) { q.push_back(current); q.push_back(x); current = initial; }\n      else current |= x;\n      while (!q.empty() && q.back() <= current) { current |= q.back(); q.pop_back(); }\n    }\n    q.push_back(current);\n    if (q.size() <= 2) return true;\n    current = q.front() | q.back(); q.pop_front(); q.pop_back();\n    while (!q.empty()) {\n      if (q.front() <= current) { current |= q.front(); q.pop_front(); }\n      else if (q.back() <= current) { current |= q.back(); q.pop_back(); }\n      else break;\n    }\n    return q.empty();\n  }\npublic:\n  long long ringGame(vector<long long>& challenge) {\n    long long ans = 0; for (long long x : challenge) ans |= x;\n    long long highest = 1LL << (63 - __builtin_clzll(ans));\n    for (long long bit = highest >> 1; bit; bit >>= 1)\n      if ((ans & bit) && canFinish(challenge, ans ^ bit)) ans ^= bit;\n    return ans;\n  }\n};`,
+      };
+      function setLang(name) {
+        $("code").textContent = code[name];
+        document.querySelectorAll(".lang").forEach((b) => {
+          const on = b.dataset.lang === name;
+          b.setAttribute("aria-selected", String(on));
+          b.className = on
+            ? "lang rounded-lg bg-sky-300 px-3 py-2 text-slate-950"
+            : "lang rounded-lg border border-slate-600 px-3 py-2";
+        });
+      }
+      document
+        .querySelectorAll(".lang")
+        .forEach((b) => (b.onclick = () => setLang(b.dataset.lang)));
+      $("solution-toggle").onclick = () => {
+        const open = !$("solution").hidden;
+        $("solution").hidden = open;
+        $("solution-toggle").setAttribute("aria-expanded", String(!open));
+        $("solution-toggle").textContent = open ? "查看题解" : "收起题解";
+        $("solution-status").textContent = open ? "题解已收起" : "题解已展开";
+        if (!open) $("solution").focus();
+      };
+      render();
+      setLang("java");
+    </script>
+  </body>
+</html>
