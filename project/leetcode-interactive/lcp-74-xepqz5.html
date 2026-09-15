@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LCP 74 最强祝福力场：坐标变换、扫描线和线段树交互讲解。"
+    />
+    <title>LCP 74 · 最强祝福力场｜交互讲解</title>
+    <script data-cfasync="false">
+      tailwind = {
+        config: {
+          theme: {
+            extend: {
+              colors: {
+                ink: "#09111f",
+                panel: "#111c30",
+                lime: "#a4ff74",
+                sky: "#67d8ff",
+                warm: "#ffac6a",
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        background:
+          radial-gradient(circle at 85% 0, #17355a, transparent 32rem), #09111f;
+      }
+      .diamond {
+        transition: 0.2s;
+      }
+      .diamond.active {
+        border-color: #a4ff74;
+        background: #1d3b29;
+        transform: scale(1.04);
+      }
+      pre {
+        white-space: pre;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen text-slate-100">
+    <main class="mx-auto max-w-6xl px-4 py-8">
+      <header class="border border-sky/45 bg-panel/90 p-7">
+        <div class="flex flex-wrap justify-between gap-3">
+          <p class="font-mono text-sm font-bold tracking-[.16em] text-lime">
+            LCP 74 · MEDIUM · xepqz5
+          </p>
+          <span
+            class="border border-lime/50 px-3 py-1 font-mono text-xs text-lime"
+            >ROTATE + SWEEP + SEGMENT TREE</span
+          >
+        </div>
+        <h1 class="mt-5 text-4xl font-black">最强祝福力场</h1>
+        <p class="mt-4 max-w-3xl text-lg leading-8 text-slate-300">
+          每个力场是曼哈顿距离菱形。令 u=x+y、v=x−y 后，菱形变为轴对齐矩形；按 u
+          扫描，在 v 轴上做区间加与最大值查询。
+        </p>
+      </header>
+      <section class="mt-8 grid gap-6 lg:grid-cols-[1.35fr_.65fr]">
+        <div class="border border-white/15 bg-panel/90 p-6">
+          <p class="font-mono text-xs tracking-widest text-sky">
+            INTERACTIVE VISUALIZATION
+          </p>
+          <h2 class="mt-2 text-2xl font-bold">从菱形到矩形</h2>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <label class="font-mono text-sm"
+              >力场 (x,y,r)
+              <input
+                id="fields"
+                value="0,0,2; 2,0,2; 1,2,1"
+                class="ml-2 w-64 border border-white/30 bg-ink p-2" /></label
+            ><button
+              id="load"
+              class="border border-lime bg-lime px-4 py-2 font-bold text-ink"
+            >
+              载入</button
+            ><button
+              id="step"
+              class="border border-sky px-4 py-2 font-bold text-sky"
+            >
+              扫描下一条边
+            </button>
+          </div>
+          <div
+            id="scene"
+            class="mt-5 grid min-h-48 grid-cols-2 gap-3 border border-dashed border-sky/60 bg-ink/70 p-4"
+          ></div>
+          <p
+            id="event"
+            class="mt-4 border-l-2 border-lime bg-ink p-3 font-mono text-sm"
+            aria-live="polite"
+          >
+            每个菱形的边界在 (u,v) 平面成为矩形。
+          </p>
+          <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
+            <div class="border border-white/15 p-3">
+              扫描 u <b id="u" class="text-sky">—</b>
+            </div>
+            <div class="border border-white/15 p-3">
+              当前最大 <b id="best" class="text-lime">0</b>
+            </div>
+            <div class="border border-white/15 p-3">
+              事件 <b id="progress" class="text-warm">0</b>
+            </div>
+          </div>
+        </div>
+        <aside class="border border-white/15 bg-panel/90 p-6">
+          <p class="font-mono text-xs tracking-widest text-sky">ALGORITHM</p>
+          <h2 class="mt-2 text-2xl font-bold">三个关键点</h2>
+          <ol class="mt-5 space-y-4 text-sm leading-6 text-slate-300">
+            <li><b class="text-lime">1.</b> 坐标整体乘 2，避免半整数端点。</li>
+            <li>
+              <b class="text-lime">2.</b> 进入边做区间 +1，离开边做区间 −1。
+            </li>
+            <li>
+              <b class="text-lime">3.</b> 线段树根节点始终是当前 v 覆盖最大值。
+            </li>
+          </ol>
+          <p class="mt-6 border border-warm/40 bg-warm/10 p-3 text-sm">
+            同一 u 上必须先处理所有事件，再读取最大值，边界才会正确重合。
+          </p>
+        </aside>
+      </section>
+      <section class="mt-8 grid gap-6 lg:grid-cols-2">
+        <article class="border border-white/15 bg-panel/90 p-6">
+          <h2 class="text-2xl font-bold">完整推导</h2>
+          <p class="mt-4 leading-7 text-slate-300">
+            原区域满足 |x−cx|+|y−cy|≤r。变换后等价于 |u−(cx+cy)|≤r 与
+            |v−(cx−cy)|≤r。扩大两倍后，每个闭矩形为 [2(cx+cy−r), 2(cx+cy+r)] ×
+            [2(cx−cy−r), 2(cx−cy+r)]。压缩所有 v 端点，以 u 的左右边为事件扫描。
+          </p>
+        </article>
+        <article class="border border-white/15 bg-panel/90 p-6">
+          <h2 class="text-2xl font-bold">复杂度</h2>
+          <p class="mt-4 leading-7 text-slate-300">
+            共有 2n 条扫描事件、2n 个 v 端点。排序与每次区间更新都是 O(n log
+            n)，空间 O(n)。
+          </p>
+        </article>
+      </section>
+      <section class="mt-8 border border-lime/50 bg-panel/90 p-6">
+        <p class="font-mono text-xs tracking-widest text-lime">TEST AREA</p>
+        <h2 class="mt-2 text-2xl font-bold">示例输入</h2>
+        <pre class="mt-4 border border-white/15 bg-ink p-4">
+forceField = [[0,0,2],[2,0,2],[1,2,1]]
+预期：交叠覆盖数由扫描线根节点给出</pre
+        >
+      </section>
+      <section class="mt-8 border border-white/15 bg-panel/90 p-6">
+        <button
+          id="toggle"
+          aria-expanded="false"
+          aria-controls="solutions"
+          class="flex w-full justify-between text-left"
+        >
+          <span
+            ><span class="font-mono text-xs text-sky">SOLUTION</span
+            ><span class="block text-2xl font-bold"
+              >显示提交级四语言代码</span
+            ></span
+          ><b id="mark" class="text-3xl text-lime">＋</b>
+        </button>
+        <div id="solutions" hidden class="mt-5">
+          <div class="flex flex-wrap gap-2" role="tablist">
+            <button
+              class="lang border border-lime bg-lime px-3 py-2 text-ink"
+              data-id="java"
+              aria-selected="true"
+              aria-controls="java"
+            >
+              Java</button
+            ><button
+              class="lang border border-white/30 px-3 py-2"
+              data-id="js"
+              aria-selected="false"
+              aria-controls="js"
+            >
+              JavaScript</button
+            ><button
+              class="lang border border-white/30 px-3 py-2"
+              data-id="py"
+              aria-selected="false"
+              aria-controls="py"
+            >
+              Python</button
+            ><button
+              class="lang border border-white/30 px-3 py-2"
+              data-id="cpp"
+              aria-selected="false"
+              aria-controls="cpp"
+            >
+              C++
+            </button>
+          </div>
+          <pre
+            id="java"
+            class="code mt-4 border border-white/15 bg-ink p-4 text-xs"
+          ><code>class Solution { int[] mx, tag; void add(int p,int l,int r,int a,int b,int v){if(a&lt;=l&amp;&amp;r&lt;=b){mx[p]+=v;tag[p]+=v;return;}int m=(l+r)/2;if(a&lt;=m)add(p*2,l,m,a,b,v);if(b&gt;m)add(p*2+1,m+1,r,a,b,v);mx[p]=tag[p]+Math.max(mx[p*2],mx[p*2+1]);} public int fieldOfGreatestBlessing(int[][] f){int n=f.length;long[] vs=new long[n*2];long[][] e=new long[n*2][4];for(int i=0;i&lt;n;i++){long x=f[i][0],y=f[i][1],r=f[i][2],u=2*(x+y),v=2*(x-y),d=2*r;vs[2*i]=v-d;vs[2*i+1]=v+d;e[2*i]=new long[]{u-d,v-d,v+d,1};e[2*i+1]=new long[]{u+d,v-d,v+d,-1};}Arrays.sort(vs);Arrays.sort(e,(a,b)-&gt;Long.compare(a[0],b[0]));mx=new int[n*8];tag=new int[n*8];int ans=0;for(long[] z:e){int a=Arrays.binarySearch(vs,z[1]),b=Arrays.binarySearch(vs,z[2]);add(1,0,2*n-1,a,b,(int)z[3]);ans=Math.max(ans,mx[1]);}return ans;} }</code></pre>
+          <pre
+            id="js"
+            class="code mt-4 hidden border border-white/15 bg-ink p-4 text-xs"
+          ><code>var fieldOfGreatestBlessing=function(f){let v=[],e=[];for(const[x,y,r]of f){let u=2*(x+y),w=2*(x-y),d=2*r;v.push(w-d,w+d);e.push([u-d,w-d,w+d,1],[u+d,w-d,w+d,-1])}v.sort((a,b)=&gt;a-b);e.sort((a,b)=&gt;a[0]-b[0]);let mx=Array(v.length*4).fill(0),tag=Array(v.length*4).fill(0);function add(p,l,r,a,b,x){if(a&lt;=l&amp;&amp;r&lt;=b){mx[p]+=x;tag[p]+=x;return}let m=(l+r)&gt;&gt;1;if(a&lt;=m)add(p*2,l,m,a,b,x);if(b&gt;m)add(p*2+1,m+1,r,a,b,x);mx[p]=tag[p]+Math.max(mx[p*2],mx[p*2+1])}let ans=0;for(let z of e){add(1,0,v.length-1,v.indexOf(z[1]),v.indexOf(z[2]),z[3]);ans=Math.max(ans,mx[1])}return ans};</code></pre>
+          <pre
+            id="py"
+            class="code mt-4 hidden border border-white/15 bg-ink p-4 text-xs"
+          ><code>class Solution:
+ def fieldOfGreatestBlessing(self,f):
+  vs=[]; ev=[]
+  for x,y,r in f:
+   u,v,d=2*(x+y),2*(x-y),2*r; vs += [v-d,v+d]; ev += [(u-d,v-d,v+d,1),(u+d,v-d,v+d,-1)]
+  vs.sort(); ev.sort(); mx=[0]*len(vs)*4; tag=[0]*len(vs)*4
+  def add(p,l,r,a,b,x):
+   if a&lt;=l and r&lt;=b: mx[p]+=x; tag[p]+=x; return
+   m=(l+r)//2
+   if a&lt;=m:add(p*2,l,m,a,b,x)
+   if b&gt;m:add(p*2+1,m+1,r,a,b,x)
+   mx[p]=tag[p]+max(mx[p*2],mx[p*2+1])
+  for _,a,b,x in ev:add(1,0,len(vs)-1,vs.index(a),vs.index(b),x)
+  return mx[1]</code></pre>
+          <pre
+            id="cpp"
+            class="code mt-4 hidden border border-white/15 bg-ink p-4 text-xs"
+          ><code>class Solution{vector&lt;int&gt;mx,t;void add(int p,int l,int r,int a,int b,int x){if(a&lt;=l&amp;&amp;r&lt;=b){mx[p]+=x;t[p]+=x;return;}int m=(l+r)/2;if(a&lt;=m)add(p*2,l,m,a,b,x);if(b&gt;m)add(p*2+1,m+1,r,a,b,x);mx[p]=t[p]+max(mx[p*2],mx[p*2+1]);}public:int fieldOfGreatestBlessing(vector&lt;vector&lt;int&gt;&gt;&amp; f){vector&lt;long long&gt;v;vector&lt;array&lt;long long,4&gt;&gt;e;for(auto&amp;a:f){long long u=2LL*(a[0]+a[1]),w=2LL*(a[0]-a[1]),d=2LL*a[2];v.insert(v.end(),{w-d,w+d});e.push_back({u-d,w-d,w+d,1});e.push_back({u+d,w-d,w+d,-1});}sort(v.begin(),v.end());sort(e.begin(),e.end());mx.assign(v.size()*4,0);t=mx;for(auto z:e)add(1,0,v.size()-1,lower_bound(v.begin(),v.end(),z[1])-v.begin(),lower_bound(v.begin(),v.end(),z[2])-v.begin(),z[3]);return mx[1];}};</code></pre>
+        </div>
+      </section>
+      <section class="mt-8 border border-sky/35 bg-sky/10 p-5 text-sm">
+        <b class="text-sky">生成说明：</b>
+        快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+      </section>
+    </main>
+    <script data-cfasync="false">
+      (function () {
+        var $ = function (x) {
+            return document.getElementById(x);
+          },
+          events = [],
+          i = 0,
+          b = 0;
+        function load() {
+          var fs = $("fields")
+            .value.split(";")
+            .map(function (s) {
+              return s.trim().split(",").map(Number);
+            });
+          events = [];
+          fs.forEach(function (a, k) {
+            var u = 2 * (a[0] + a[1]),
+              v = 2 * (a[0] - a[1]),
+              d = 2 * a[2];
+            events.push({ u: u - d, k: k, x: 1 }, { u: u + d, k: k, x: -1 });
+          });
+          events.sort(function (a, c) {
+            return a.u - c.u;
+          });
+          i = 0;
+          b = 0;
+          $("scene").innerHTML = fs
+            .map(function (a, k) {
+              return (
+                '<div class="diamond border-2 border-white/30 p-4 font-mono" data-k="' +
+                k +
+                '">(' +
+                a.join(", ") +
+                ")<br>u=" +
+                2 * (a[0] + a[1]) +
+                " · v=" +
+                2 * (a[0] - a[1]) +
+                "</div>"
+              );
+            })
+            .join("");
+          $("event").textContent = "已完成菱形→矩形转换。";
+          $("u").textContent = "—";
+          $("best").textContent = 0;
+          $("progress").textContent = "0 / " + events.length;
+        }
+        $("load").onclick = load;
+        $("step").onclick = function () {
+          if (i >= events.length) {
+            $("event").textContent = "所有扫描边已处理。";
+            return;
+          }
+          var e = events[i++];
+          document.querySelectorAll(".diamond").forEach(function (x) {
+            x.classList.remove("active");
+          });
+          document
+            .querySelector('[data-k="' + e.k + '"]')
+            .classList.add("active");
+          b += e.x;
+          $("u").textContent = e.u;
+          $("best").textContent = Math.max(Number($("best").textContent), b);
+          $("progress").textContent = i + " / " + events.length;
+          $("event").textContent =
+            (e.x > 0 ? "进入" : "离开") +
+            " 力场 " +
+            e.k +
+            "：在线段树的 v 区间做 " +
+            (e.x > 0 ? "+1" : "−1") +
+            "。";
+        };
+        $("toggle").onclick = function () {
+          var o = $("toggle").getAttribute("aria-expanded") === "true";
+          $("toggle").setAttribute("aria-expanded", !o);
+          $("solutions").hidden = o;
+          $("mark").textContent = o ? "＋" : "－";
+        };
+        document.querySelectorAll(".lang").forEach(function (x) {
+          x.onclick = function () {
+            document.querySelectorAll(".lang").forEach(function (y) {
+              y.setAttribute("aria-selected", "false");
+            });
+            document.querySelectorAll(".code").forEach(function (y) {
+              y.hidden = true;
+            });
+            x.setAttribute("aria-selected", "true");
+            $(x.dataset.id).hidden = false;
+          };
+        });
+        load();
+      })();
+    </script>
+  </body>
+</html>
