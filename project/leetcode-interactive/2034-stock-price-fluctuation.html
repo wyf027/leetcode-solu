@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>2034 · 股票价格波动</title>
+<style>
+/* 内联 Tailwind 等价 utility 子集，无网络依赖。 */
+*,::before,::after{box-sizing:border-box}body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.75}button{font:inherit;cursor:pointer;box-shadow:none}button:focus-visible,button:disabled{box-shadow:none}button:hover:not(:disabled){box-shadow:0 3px 0 #14b8a6}button:active:not(:disabled){box-shadow:0 1px 0 #14b8a6}button:disabled{cursor:not-allowed;opacity:.4} :focus-visible{outline:3px solid #0d9488;outline-offset:4px} [hidden],.hidden{display:none!important}.bg-slate-950{background:#081321}.bg-slate-900{background:#112237}.text-slate-100{color:#e2e8f0}.text-slate-400{color:#aab9cb}.text-teal-300{color:#5eead4}.font-mono{font-family:ui-monospace,monospace}.font-bold{font-weight:700}.text-sm{font-size:.875rem}.text-3xl{font-size:2rem}.max-w-6xl{max-width:1120px}.mx-auto{margin-inline:auto}.p-6{padding:1.5rem}.p-4{padding:1rem}.py-10{padding-block:2.5rem}.mb-4{margin-bottom:1rem}.mt-6{margin-top:1.5rem}.grid{display:grid}.gap-4{gap:1rem}.flex{display:flex}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-between{justify-content:space-between}.rounded-xl{border-radius:1rem}.border{border:1px solid #2b4056}.overflow-x-auto{overflow-x:auto}.min-w-0{min-width:0}.space-y-6>*+*{margin-top:1.5rem}h1,h2,h3,p{margin-top:0}h2{font-size:1.3rem}h3{font-size:1.05rem;color:#99f6e4}a{color:#5eead4}button{border:1px solid #456178;border-radius:.55rem;background:#18354a;color:#edf8ff;padding:.55rem .9rem}pre{max-width:100%;overflow:auto;background:#06101d;border:1px solid #293e52;border-radius:.6rem;padding:1rem;line-height:1.6;font-size:.85rem;max-height:540px}code{font-family:ui-monospace,monospace}section,article{min-width:0}.bar{height:12px;background:#2dd4bf;border-radius:3px}.entry{padding:.6rem;border-bottom:1px solid #30475d}.stale{color:#fda4af;text-decoration:line-through}.badge{border:1px solid #54716b;padding:.15rem .6rem;border-radius:99px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(min-width:768px){.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:420px){.p-6{padding:1rem}.text-3xl{font-size:1.6rem}}@media(prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style></head><body class="bg-slate-950 text-slate-100"><main class="max-w-6xl mx-auto p-6 space-y-6">
+<header class="py-10"><div class="text-teal-300 font-mono text-sm">DATA STREAM / 2034 / MEDIUM</div><h1 class="text-3xl">股票价格波动</h1><p class="text-slate-400">Stock Price Fluctuation · 乱序到达，同一时刻允许更正。</p><span class="badge">先观察，再揭晓思路</span></header>
+<section class="bg-slate-900 border rounded-xl p-6"><h2>01 / 任务与接口</h2><p>维护一支股票的时间戳与价格记录。记录可能乱序到达；同一时间戳再次出现时，以新价格替换旧价格。最新价格取最大时间戳对应的值，而最高、最低价格只考虑每个时间戳更正后的有效值。</p><ul><li><code>StockPrice()</code>：创建空对象。</li><li><code>void update(int timestamp, int price)</code>：写入或更正记录。</li><li><code>int current()</code>：返回最大时间戳的价格。</li><li><code>int maximum()</code>：返回有效记录的最大价格。</li><li><code>int minimum()</code>：返回有效记录的最小价格。</li></ul><p>约束：1 ≤ timestamp, price ≤ 10<sup>9</sup>；四种方法总调用次数不超过 10<sup>5</sup>；任何查询前至少调用一次 update。</p><a href="https://leetcode.cn/problems/stock-price-fluctuation/">官方题目</a></section>
+<section class="bg-slate-900 border rounded-xl p-6"><h2>02 / 官方示例</h2><pre>输入操作：
+["StockPrice","update","update","current","maximum","update","maximum","update","minimum"]
+输入参数：
+[[],[1,10],[2,5],[],[],[1,3],[],[4,2],[]]
+输出：
+[null,null,null,5,10,null,5,null,2]</pre><p>先记录 (1,10)、(2,5)，最新价格是 5、最高价格是 10。将时间戳 1 更正为 3 后，最高价格变为 5。再写入 (4,2)，最低价格为 2。</p></section>
+<section class="bg-slate-900 border rounded-xl p-6" aria-labelledby="viz-title"><h2 id="viz-title">03 / 时间戳行情回放</h2><p class="text-slate-400">沿官方调用序列观察：更正过去的报价，会不会改变最新价格？展开题解后，可同步查看候选记录的淘汰过程。</p><div class="flex flex-wrap gap-4 mb-4"><button id="prev">上一步</button><button id="next">下一步</button><button id="play" aria-pressed="false">自动播放</button><button id="reset">重置</button></div><p id="step" class="font-mono text-teal-300" role="status" aria-live="polite"></p><div class="grid md:grid-cols-2 gap-4"><div class="border rounded-xl p-4"><h3>按时间戳排列的有效报价</h3><div id="records"></div></div><div class="border rounded-xl p-4"><h3>本次调用返回</h3><p id="result" class="text-3xl font-mono"></p><p id="note"></p><p id="latest" class="text-slate-400"></p></div></div></section>
+<section class="bg-slate-900 border rounded-xl p-6"><h2>04 / 测试与验证</h2><p class="text-teal-300">快速生成模式：待补验证</p><p>以下期望值按题意给出，页面回放不代表代码已执行验证。</p>
+<article><h3>用例 1 · 官方完整序列</h3><pre>输入：
+["StockPrice","update","update","current","maximum","update","maximum","update","minimum"]
+[[],[1,10],[2,5],[],[],[1,3],[],[4,2],[]]
+期望输出：[null,null,null,5,10,null,5,null,2]
+实际输出：待补验证
+通过状态：待补验证</pre></article>
+<article><h3>用例 2 · 乱序写入与更正最新时间戳</h3><pre>输入：
+["StockPrice","update","update","current","update","current","maximum","minimum"]
+[[],[10,7],[2,9],[],[10,1],[],[],[]]
+期望输出：[null,null,null,7,null,1,9,1]
+实际输出：待补验证
+通过状态：待补验证</pre></article>
+<article><h3>用例 3 · 相同价格与上界</h3><pre>输入：
+["StockPrice","update","update","update","maximum","minimum","current"]
+[[],[1,1000000000],[2,1000000000],[1,1],[],[],[]]
+期望输出：[null,null,null,null,1000000000,1,1000000000]
+实际输出：待补验证
+通过状态：待补验证</pre></article>
+<article><h3>用例 4 · 单一时间戳恢复旧值</h3><pre>输入：
+["StockPrice","update","update","update","current","maximum","minimum"]
+[[],[1,8],[1,3],[1,8],[],[],[]]
+期望输出：[null,null,null,null,8,8,8]
+实际输出：待补验证
+通过状态：待补验证</pre></article></section>
+<section class="border rounded-xl p-6"><div class="flex flex-wrap justify-between items-center gap-4"><h2>05 / 独立题解</h2><button id="reveal" aria-expanded="false" aria-controls="solution">查看题解</button></div><p id="announce" class="sr-only" role="status" aria-live="polite"></p><div id="solution" hidden><h3 id="solution-title" tabindex="-1" class="mt-6">核心洞察：真值表 + 双堆惰性删除</h3><p>哈希表保存每个时间戳当前有效的价格。最大时间戳单独维护。最大堆、最小堆保留所有写入的 (价格, 时间戳)，旧记录不急着删除；只有旧记录来到堆顶，且其价格与真值表不一致时，才弹出。</p>
+<h3>与回放同步的候选视图</h3><p class="text-sm text-slate-400">按取出优先级展示，而非堆数组形状。删除线表示已失效但尚未弹出；查询只清理对应堆顶。</p><div class="grid md:grid-cols-2 gap-4"><div class="border rounded-xl p-4"><h3>最大堆候选</h3><div id="high"></div></div><div class="border rounded-xl p-4"><h3>最小堆候选</h3><div id="low"></div></div></div><p id="cleanup" class="text-teal-300"></p>
+<h3>完整过程</h3><ol><li>初始化空哈希表和两个堆，latest = 0。</li><li>update(t,p)：覆盖表中 t 的值，令 latest = max(latest,t)，向两堆插入 (p,t)。</li><li>current()：读取表中 latest 的值，不受最近到达记录的时间先后影响。</li><li>maximum()/minimum()：反复检查对应堆顶；与表不符则弹出，直到有效，再返回其价格。</li></ol><p>示例更正 (1,10) 为 (1,3) 时，10 仍在最大堆中。下一次 maximum 弹出失效的 (10,1)，随后有效堆顶为 (5,2)，返回 5。</p>
+<h3>正确性</h3><p>每次覆盖后，哈希表恰好保存每个时间戳最后写入的值；latest 通过取最大值始终等于已出现时间戳的最大值，所以 current 正确。每次更新都向两堆加入新记录，因此每个有效价格都有一个候选副本。清理只移除与当前值不符的候选，不会移除该时间戳当前值的所有副本。清理结束时最大堆顶有效，且不小于堆内任何有效候选，所以等于全局最大值；最小堆同理。</p><h3>边界与复杂度</h3><p>同价重复写入可留下多个有效副本，不影响答案。价格从 8 改为 3 再恢复为 8 时，旧的 8 也可视为有效，因为查询只关心价格。同一时间戳被反复更正时，必须用 while 连续清理。题目保证查询时非空，无需定义空查询返回值。</p><p>设 U 为累计更新次数，N 为不同时间戳数：update 为 O(log U)，current 为期望 O(1)。一次极值查询清理 k 个旧条目需要 O(k log U + 1)，最坏 O(U log U)，不可宣称每次都 O(log U)。每个条目在每个堆只进出一次，整个调用序列的总成本为 O(U log U + Q)，其中 Q 为查询次数；空间 O(U + N)，即 O(U)。哈希表操作采用期望 O(1) 假设。</p>
+<h3>替代方案</h3><p>哈希表 + 有序多重集合：更新时删除旧价格的一个副本，再插入新价格。Java 可用 TreeMap 记录价格频次，C++ 可用 multiset；能将空间控制在 O(N)，更新 O(log N)。Python 与 JavaScript 标准库没有对应平衡树。直接扫描哈希表查询极值为 O(N)，大量查询时不适合本题规模。</p><h3>常见错误</h3><ul><li>把最近一次调用 update 的价格当作 current。</li><li>只保存历史最大值，无法撤销被更正的极值。</li><li>堆只存价格、不存时间戳，无法判断有效性。</li><li>仅弹出一次失效记录，或在多重集合中删除所有同价副本。</li><li>把惰性堆空间写成 O(N)，忽略累计历史更新。</li></ul><h3>面试追问</h3><p>如果需要严格控制单次查询延迟？使用有序多重集合。若长期运行且历史更新无限增长？可周期性从真值表重建堆以回收旧条目，并分析重建开销。若还要查询时间范围内的极值？需增加按时间组织的区间数据结构，当前双堆只能回答全局极值。</p><h3>四语言完整实现</h3><p class="text-slate-400">均按官方 StockPrice 类接口编写；Python 使用 Python3。代码尚未运行或提交验证。</p>
+<article><h3>Java</h3><pre tabindex="0" aria-label="Java 代码"><code>import java.util.*;
+
+class StockPrice {
+    private final Map&lt;Integer, Integer&gt; prices = new HashMap&lt;&gt;();
+    private final PriorityQueue&lt;int[]&gt; low = new PriorityQueue&lt;&gt;(
+        (a, b) -&gt; Integer.compare(a[0], b[0]));
+    private final PriorityQueue&lt;int[]&gt; high = new PriorityQueue&lt;&gt;(
+        (a, b) -&gt; Integer.compare(b[0], a[0]));
+    private int latest = 0;
+
+    public StockPrice() {}
+    public void update(int timestamp, int price) {
+        prices.put(timestamp, price);
+        latest = Math.max(latest, timestamp);
+        low.offer(new int[]{price, timestamp});
+        high.offer(new int[]{price, timestamp});
+    }
+    public int current() { return prices.get(latest); }
+    private int read(PriorityQueue&lt;int[]&gt; heap) {
+        while (prices.get(heap.peek()[1]).intValue() != heap.peek()[0])
+            heap.poll();
+        return heap.peek()[0];
+    }
+    public int maximum() { return read(high); }
+    public int minimum() { return read(low); }
+}</code></pre></article><article><h3>JavaScript</h3><pre tabindex="0" aria-label="JavaScript 代码"><code>// 自带二叉堆，不依赖平台的优先队列版本。
+class Heap {
+    constructor(before) { this.a = []; this.before = before; }
+    peek() { return this.a[0]; }
+    push(x) {
+        const a = this.a;
+        let i = a.length;
+        a.push(x);
+        while (i &gt; 0) {
+            const p = (i - 1) &gt;&gt; 1;
+            if (!this.before(x, a[p])) break;
+            a[i] = a[p]; i = p;
+        }
+        a[i] = x;
+    }
+    pop() {
+        const a = this.a, root = a[0], x = a.pop();
+        if (!a.length) return root;
+        let i = 0;
+        while (i * 2 + 1 &lt; a.length) {
+            let c = i * 2 + 1;
+            if (c + 1 &lt; a.length &amp;&amp; this.before(a[c + 1], a[c])) c++;
+            if (!this.before(a[c], x)) break;
+            a[i] = a[c]; i = c;
+        }
+        a[i] = x;
+        return root;
+    }
+}
+class StockPrice {
+    constructor() {
+        this.prices = new Map(); this.latest = 0;
+        this.low = new Heap((a, b) =&gt; a[0] &lt; b[0]);
+        this.high = new Heap((a, b) =&gt; a[0] &gt; b[0]);
+    }
+    update(timestamp, price) {
+        this.prices.set(timestamp, price);
+        this.latest = Math.max(this.latest, timestamp);
+        this.low.push([price, timestamp]);
+        this.high.push([price, timestamp]);
+    }
+    current() { return this.prices.get(this.latest); }
+    read(heap) {
+        while (this.prices.get(heap.peek()[1]) !== heap.peek()[0]) heap.pop();
+        return heap.peek()[0];
+    }
+    maximum() { return this.read(this.high); }
+    minimum() { return this.read(this.low); }
+}</code></pre></article><article><h3>Python</h3><pre tabindex="0" aria-label="Python 代码"><code>import heapq
+
+class StockPrice:
+    def __init__(self):
+        self.prices = {}
+        self.latest = 0
+        self.low = []
+        self.high = []
+
+    def update(self, timestamp: int, price: int) -&gt; None:
+        self.prices[timestamp] = price
+        self.latest = max(self.latest, timestamp)
+        heapq.heappush(self.low, (price, timestamp))
+        heapq.heappush(self.high, (-price, timestamp))
+
+    def current(self) -&gt; int:
+        return self.prices[self.latest]
+
+    def maximum(self) -&gt; int:
+        while -self.high[0][0] != self.prices[self.high[0][1]]:
+            heapq.heappop(self.high)
+        return -self.high[0][0]
+
+    def minimum(self) -&gt; int:
+        while self.low[0][0] != self.prices[self.low[0][1]]:
+            heapq.heappop(self.low)
+        return self.low[0][0]</code></pre></article><article><h3>C++</h3><pre tabindex="0" aria-label="C++ 代码"><code>#include &lt;unordered_map&gt;
+#include &lt;queue&gt;
+#include &lt;vector&gt;
+#include &lt;functional&gt;
+#include &lt;algorithm&gt;
+using namespace std;
+
+class StockPrice {
+    using Entry = pair&lt;int, int&gt;; // price, timestamp
+    unordered_map&lt;int, int&gt; prices;
+    priority_queue&lt;Entry&gt; high;
+    priority_queue&lt;Entry, vector&lt;Entry&gt;, greater&lt;Entry&gt;&gt; low;
+    int latest = 0;
+public:
+    StockPrice() {}
+    void update(int timestamp, int price) {
+        prices[timestamp] = price;
+        latest = max(latest, timestamp);
+        high.emplace(price, timestamp);
+        low.emplace(price, timestamp);
+    }
+    int current() { return prices.at(latest); }
+    int maximum() {
+        while (prices.at(high.top().second) != high.top().first) high.pop();
+        return high.top().first;
+    }
+    int minimum() {
+        while (prices.at(low.top().second) != low.top().first) low.pop();
+        return low.top().first;
+    }
+};</code></pre></article></div></section><footer class="text-slate-400 text-sm py-10">2034 · 股票价格波动 / 快速生成模式：待补验证</footer></main>
+<script data-cfasync="false">
+'use strict';
+const $=id=>document.getElementById(id);
+const ops=[['StockPrice'],['update',1,10],['update',2,5],['current'],['maximum'],['update',1,3],['maximum'],['update',4,2],['minimum']];
+let pos=0,timer=null;
+function render(){
+ const map=new Map();let high=[],low=[],latest=0,result=null,note='',clean='本步没有弹出旧候选。';
+ for(let i=0;i<=pos;i++){
+  const [op,t,p]=ops[i];clean='本步没有弹出旧候选。';
+  if(op==='StockPrice'){result=null;note='创建空对象。';}
+  else if(op==='update'){
+   const old=map.get(t);map.set(t,p);latest=Math.max(latest,t);high.push([p,t]);low.push([p,t]);high.sort((a,b)=>b[0]-a[0]);low.sort((a,b)=>a[0]-b[0]);result=null;
+   note=old===undefined?'新增时间戳 '+t+' 的报价 '+p+'。':'更正时间戳 '+t+'：'+old+' → '+p+'。';
+  }else if(op==='current'){result=map.get(latest);note='最大时间戳为 '+latest+'，读取其当前价格。';}
+  else{const heap=op==='maximum'?high:low;const removed=[];while(heap.length&&map.get(heap[0][1])!==heap[0][0])removed.push(heap.shift());result=heap[0][0];note='查询当前有效记录的'+(op==='maximum'?'最高':'最低')+'价格。';if(removed.length)clean='本步弹出失效候选：'+removed.map(([p,t])=>'('+p+', t='+t+')').join('、')+'。';}
+ }
+ $('step').textContent=(pos+1)+' / '+ops.length+' · '+ops[pos][0]+'('+ops[pos].slice(1).join(', ')+')';
+ $('result').textContent=result===null?'null':String(result);$('note').textContent=note;$('latest').textContent=map.size?'最新时间戳：'+latest+' ｜ 最新价格：'+map.get(latest):'暂无有效报价';
+ $('records').replaceChildren();
+ for(const [t,p] of [...map].sort((a,b)=>a[0]-b[0])){const row=document.createElement('div');row.className='entry';const label=document.createElement('div');label.textContent='t='+t+' · 价格 '+p+(t===latest?' · 最新':'');const bar=document.createElement('div');bar.className='bar';bar.style.width=(p*8)+'%';row.append(label,bar);$('records').append(row);}
+ if(!map.size)$('records').textContent='空记录';
+ for(const [id,heap] of [['high',high],['low',low]]){const box=$(id);box.replaceChildren();heap.forEach(([p,t],i)=>{const e=document.createElement('div');const valid=map.get(t)===p;e.className='entry'+(valid?'':' stale');e.textContent=(i===0?'堆顶 → ':'')+'价格 '+p+' / t='+t+' / '+(valid?'有效':'失效');box.append(e);});if(!heap.length)box.textContent='空堆';}
+ $('cleanup').textContent=clean;$('prev').disabled=pos===0;$('next').disabled=pos===ops.length-1;
+}
+function stop(){clearInterval(timer);timer=null;$('play').textContent='自动播放';$('play').setAttribute('aria-pressed','false');}
+$('prev').onclick=()=>{stop();if(pos>0)pos--;render();};$('next').onclick=()=>{stop();if(pos<ops.length-1)pos++;render();};$('reset').onclick=()=>{stop();pos=0;render();};
+$('play').onclick=()=>{if(timer){stop();return;}if(pos===ops.length-1)pos=0;render();$('play').textContent='暂停';$('play').setAttribute('aria-pressed','true');timer=setInterval(()=>{if(pos<ops.length-1){pos++;render();}if(pos===ops.length-1)stop();},1800);};
+$('reveal').onclick=()=>{const open=$('solution').hidden;$('solution').hidden=!open;$('reveal').setAttribute('aria-expanded',String(open));$('reveal').textContent=open?'收起题解':'查看题解';$('announce').textContent=open?'题解已展开':'题解已收起';if(open)$('solution-title').focus();else $('reveal').focus();};
+render();
+</script></body></html>
