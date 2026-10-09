@@ -216,7 +216,7 @@
       "</section>" +
       '<div class="section-head">' +
       '<h2 class="section-title">完整条目与提示词</h2>' +
-      '<p class="section-note">图片仍为纯色占位；每张卡都保留完整正文和可直接用于图像生成的 Prompt。</p>' +
+      '<p class="section-note">原图插画已恢复；每张卡都保留完整正文和可直接用于图像生成的 Prompt。</p>' +
       "</div>" +
       '<section class="grid">' +
       renderCards(data.cards) +
