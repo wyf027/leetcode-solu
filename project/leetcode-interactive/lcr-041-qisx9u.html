@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="LCR 041 数据流中的移动平均值：可交互队列窗口演示与四语言题解"
+    />
+    <title>LCR 041 · 数据流中的移动平均值</title>
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    <script data-cfasync="false">
+      tailwind.config = {
+        theme: { extend: { colors: { ink: "#102a43", mint: "#0f766e" } } },
+      };
+    </script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-800">
+    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <header
+        class="rounded-3xl bg-gradient-to-br from-teal-700 via-cyan-700 to-sky-800 p-7 text-white shadow-xl sm:p-10"
+      >
+        <p class="text-sm font-semibold tracking-[0.2em] text-teal-100">
+          LCR 041 · EASY · qisx9u
+        </p>
+        <h1 class="mt-3 text-3xl font-black tracking-tight sm:text-5xl">
+          数据流中的移动平均值
+        </h1>
+        <p class="mt-4 max-w-3xl text-base leading-7 text-cyan-50 sm:text-lg">
+          设计一个能够返回数据流最近
+          <code class="rounded bg-white/15 px-1.5 py-0.5">size</code>
+          个元素平均值的数据结构。用队列保存窗口，用滚动和避免重复求和。
+        </p>
+      </header>
+
+      <section class="mt-6 grid gap-6 lg:grid-cols-[1.15fr_.85fr]">
+        <article
+          class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-xl font-bold text-ink">交互演示</h2>
+            <span
+              id="status"
+              class="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700"
+              aria-live="polite"
+              >准备就绪</span
+            >
+          </div>
+          <div class="mt-5 grid gap-4 sm:grid-cols-2">
+            <label class="text-sm font-semibold text-slate-700"
+              >窗口大小 size
+              <input
+                id="sizeInput"
+                type="number"
+                min="1"
+                max="20"
+                value="3"
+                class="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+              />
+            </label>
+            <label class="text-sm font-semibold text-slate-700"
+              >下一项 value
+              <input
+                id="valueInput"
+                type="number"
+                value="1"
+                step="any"
+                class="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+              />
+            </label>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              id="nextButton"
+              class="rounded-xl bg-teal-700 px-4 py-2.5 font-bold text-white shadow-sm transition hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+            >
+              执行 next(value)
+            </button>
+            <button
+              type="button"
+              id="sampleButton"
+              class="rounded-xl bg-slate-100 px-4 py-2.5 font-bold text-slate-700 transition hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+            >
+              运行示例
+            </button>
+            <button
+              type="button"
+              id="resetButton"
+              class="rounded-xl border border-slate-300 px-4 py-2.5 font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+            >
+              重置
+            </button>
+          </div>
+          <div class="mt-6 rounded-2xl bg-slate-900 p-5 text-slate-100">
+            <div class="flex items-center justify-between gap-4">
+              <span class="font-semibold">当前窗口（队首 → 队尾）</span
+              ><span id="sumText" class="font-mono text-sm text-cyan-300"
+                >sum = 0</span
+              >
+            </div>
+            <div id="queue" class="mt-4 flex min-h-16 flex-wrap gap-2"></div>
+            <p id="average" class="mt-4 text-2xl font-black text-white">
+              平均值：—
+            </p>
+          </div>
+          <ol id="history" class="mt-5 space-y-2 text-sm text-slate-600"></ol>
+        </article>
+
+        <aside
+          class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8"
+        >
+          <h2 class="text-xl font-bold text-ink">核心思路</h2>
+          <div class="mt-5 space-y-4 text-sm leading-6 text-slate-600">
+            <p>
+              <strong class="text-slate-800">入队：</strong
+              >将新数字加入队尾，同时加入滚动和。
+            </p>
+            <p>
+              <strong class="text-slate-800">出队：</strong>若队列超过
+              <code>size</code>，弹出队首并从滚动和减去它。
+            </p>
+            <p>
+              <strong class="text-slate-800">返回：</strong
+              ><code>sum / queue.length</code>。每次操作仅访问常数个元素。
+            </p>
+          </div>
+          <dl class="mt-6 grid grid-cols-2 gap-3 text-center">
+            <div class="rounded-2xl bg-teal-50 p-4">
+              <dt class="text-xs font-semibold text-teal-700">时间</dt>
+              <dd class="mt-1 text-xl font-black text-teal-900">O(1)</dd>
+            </div>
+            <div class="rounded-2xl bg-sky-50 p-4">
+              <dt class="text-xs font-semibold text-sky-700">空间</dt>
+              <dd class="mt-1 text-xl font-black text-sky-900">O(size)</dd>
+            </div>
+          </dl>
+          <div
+            class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"
+          >
+            <strong>常见错误：</strong>每次
+            <code>next</code> 都遍历窗口重新求和，会把单次时间从 O(1) 退化为
+            O(size)。
+          </div>
+        </aside>
+      </section>
+
+      <section
+        class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <h2 class="text-xl font-bold text-ink">示例与自检</h2>
+          <span id="testResult" class="text-sm font-semibold text-slate-500"
+            >尚未运行</span
+          >
+        </div>
+        <div class="mt-5 overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead class="border-b border-slate-200 text-slate-500">
+              <tr>
+                <th class="px-3 py-2">输入</th>
+                <th class="px-3 py-2">期望输出</th>
+                <th class="px-3 py-2">实际输出</th>
+                <th class="px-3 py-2">状态</th>
+              </tr>
+            </thead>
+            <tbody id="tests" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="verificationTitle"
+        class="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-6 text-sm leading-6 text-amber-950 shadow-sm sm:p-8"
+      >
+        <h2 id="verificationTitle" class="text-xl font-bold">测试与验证说明</h2>
+        <p class="mt-2">
+          快速生成模式：UI、算法对拍、四语言编译和交互验收待补。
+        </p>
+      </section>
+
+      <section
+        aria-labelledby="solutionGateTitle"
+        class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 id="solutionGateTitle" class="text-xl font-bold text-ink">
+              题解与参考实现
+            </h2>
+            <p class="mt-1 text-sm text-slate-600">
+              需要时再展开，先用交互演示验证自己的思路。
+            </p>
+          </div>
+          <button
+            id="solutionToggle"
+            type="button"
+            class="rounded-xl bg-teal-700 px-4 py-2.5 font-bold text-white shadow-sm transition hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+            aria-expanded="false"
+            aria-controls="solutionPanel"
+          >
+            查看题解
+          </button>
+        </div>
+        <p id="solutionAnnouncement" class="sr-only" aria-live="polite"></p>
+      </section>
+
+      <section
+        id="solutionPanel"
+        class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 sm:p-8"
+        aria-labelledby="solutionPanelTitle"
+        hidden
+      >
+        <h2 id="solutionPanelTitle" class="text-xl font-bold text-ink">
+          题解与参考实现
+        </h2>
+        <div class="flex flex-wrap gap-2" role="tablist" aria-label="语言代码">
+          <button
+            type="button"
+            class="lang-tab rounded-xl bg-teal-700 px-4 py-2 text-sm font-bold text-white"
+            data-lang="javascript"
+            role="tab"
+            aria-selected="true"
+          >
+            JavaScript
+          </button>
+          <button
+            type="button"
+            class="lang-tab rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700"
+            data-lang="python"
+            role="tab"
+            aria-selected="false"
+          >
+            Python
+          </button>
+          <button
+            type="button"
+            class="lang-tab rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700"
+            data-lang="java"
+            role="tab"
+            aria-selected="false"
+          >
+            Java
+          </button>
+          <button
+            type="button"
+            class="lang-tab rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700"
+            data-lang="cpp"
+            role="tab"
+            aria-selected="false"
+          >
+            C++
+          </button>
+        </div>
+        <pre
+          class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100"
+        ><code id="code" aria-live="polite"></code></pre>
+      </section>
+
+      <section
+        class="mt-6 rounded-3xl border border-teal-100 bg-teal-50 p-6 text-sm leading-6 text-teal-950"
+      >
+        <h2 class="font-bold">为什么它是移动平均？</h2>
+        <p class="mt-2">
+          窗口像一段固定长度的传送带：新数据上带，最旧数据下带。滚动和始终等于带上所有数字之和，所以平均值可立即得到。
+        </p>
+      </section>
+    </main>
+    <script data-cfasync="false" defer>
+      (() => {
+        const $ = (id) => document.getElementById(id);
+        let queue = [],
+          sum = 0,
+          size = 3,
+          timer = null;
+        const codes = {
+          javascript: `class MovingAverage {\n  constructor(size) { this.size = size; this.q = []; this.sum = 0; }\n  next(val) {\n    this.q.push(val); this.sum += val;\n    if (this.q.length > this.size) this.sum -= this.q.shift();\n    return this.sum / this.q.length;\n  }\n}`,
+          python: `from collections import deque\n\nclass MovingAverage:\n    def __init__(self, size: int):\n        self.size, self.q, self.total = size, deque(), 0\n\n    def next(self, val: int) -> float:\n        self.q.append(val); self.total += val\n        if len(self.q) > self.size: self.total -= self.q.popleft()\n        return self.total / len(self.q)`,
+          java: `class MovingAverage {\n    private final int size; private final Queue<Integer> q = new ArrayDeque<>();\n    private double sum;\n    MovingAverage(int size) { this.size = size; }\n    public double next(int val) {\n        q.offer(val); sum += val;\n        if (q.size() > size) sum -= q.poll();\n        return sum / q.size();\n    }\n}`,
+          cpp: `class MovingAverage {\n    int size; queue<int> q; double sum = 0;\npublic:\n    MovingAverage(int size) : size(size) {}\n    double next(int val) {\n        q.push(val); sum += val;\n        if (q.size() > size) { sum -= q.front(); q.pop(); }\n        return sum / q.size();\n    }\n};`,
+        };
+        const fmt = (n) =>
+          Number.isInteger(n)
+            ? String(n)
+            : n.toFixed(5).replace(/0+$/, "").replace(/\.$/, "");
+        function render(message = "准备就绪") {
+          $("queue").innerHTML = queue.length
+            ? queue
+                .map(
+                  (n, i) =>
+                    `<span class="rounded-xl bg-cyan-500 px-3 py-2 font-mono font-bold text-slate-950">${i === 0 ? "← " : ""}${fmt(n)}</span>`,
+                )
+                .join("")
+            : '<span class="text-slate-400">队列为空</span>';
+          $("sumText").textContent = `sum = ${fmt(sum)}`;
+          $("average").textContent =
+            `平均值：${queue.length ? fmt(sum / queue.length) : "—"}`;
+          $("status").textContent = message;
+        }
+        function reset() {
+          clearTimeout(timer);
+          queue = [];
+          sum = 0;
+          size = Math.max(1, Number($("sizeInput").value) || 3);
+          $("history").innerHTML = "";
+          render("已重置");
+        }
+        function next(value, quiet = false) {
+          if (!Number.isFinite(value)) {
+            render("请输入有效数字");
+            return null;
+          }
+          queue.push(value);
+          sum += value;
+          let removed = null;
+          if (queue.length > size) {
+            removed = queue.shift();
+            sum -= removed;
+          }
+          const avg = sum / queue.length;
+          if (!quiet) {
+            const item = document.createElement("li");
+            item.className = "rounded-xl bg-slate-50 px-3 py-2";
+            item.textContent = `next(${fmt(value)})${removed === null ? "" : `，移出 ${fmt(removed)}`} → ${fmt(avg)}`;
+            $("history").prepend(item);
+          }
+          render(`next(${fmt(value)}) 返回 ${fmt(avg)}`);
+          return avg;
+        }
+        function runTests() {
+          const cases = [
+            { size: 3, values: [1, 10, 3, 5], expected: [1, 5.5, 14 / 3, 6] },
+            { size: 1, values: [5, -2, 8], expected: [5, -2, 8] },
+            { size: 2, values: [2, 4, 6], expected: [2, 3, 5] },
+          ];
+          let passed = 0;
+          $("tests").innerHTML = cases
+            .map((t) => {
+              let q = [],
+                s = 0;
+              const got = t.values.map((v) => {
+                q.push(v);
+                s += v;
+                if (q.length > t.size) s -= q.shift();
+                return s / q.length;
+              });
+              const ok = got.every(
+                (v, i) => Math.abs(v - t.expected[i]) < 1e-10,
+              );
+              passed += ok;
+              return `<tr><td class="px-3 py-3">size=${t.size}; [${t.values.join(", ")}]</td><td class="px-3 py-3">[${t.expected.map(fmt).join(", ")}]</td><td class="px-3 py-3">[${got.map(fmt).join(", ")}]</td><td class="px-3 py-3 font-bold ${ok ? "text-teal-700" : "text-rose-700"}">${ok ? "通过" : "失败"}</td></tr>`;
+            })
+            .join("");
+          $("testResult").textContent = `${passed}/${cases.length} 通过`;
+        }
+        $("nextButton").addEventListener("click", () =>
+          next(Number($("valueInput").value)),
+        );
+        $("resetButton").addEventListener("click", reset);
+        $("sizeInput").addEventListener("change", reset);
+        $("sampleButton").addEventListener("click", () => {
+          reset();
+          const values = [1, 10, 3, 5];
+          let i = 0;
+          const play = () => {
+            if (i >= values.length) return;
+            next(values[i++]);
+            timer = setTimeout(play, 450);
+          };
+          play();
+        });
+        $("solutionToggle").addEventListener("click", () => {
+          const panel = $("solutionPanel");
+          const open = panel.hidden;
+          panel.hidden = !open;
+          $("solutionToggle").setAttribute("aria-expanded", String(open));
+          $("solutionToggle").textContent = open ? "收起题解" : "查看题解";
+          $("solutionAnnouncement").textContent = open
+            ? "题解已展开。"
+            : "题解已收起。";
+        });
+        document.querySelectorAll(".lang-tab").forEach((button) =>
+          button.addEventListener("click", () => {
+            document.querySelectorAll(".lang-tab").forEach((tab) => {
+              const active = tab === button;
+              tab.className = `lang-tab rounded-xl px-4 py-2 text-sm font-bold ${active ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-700"}`;
+              tab.setAttribute("aria-selected", String(active));
+            });
+            $("code").textContent = codes[button.dataset.lang];
+          }),
+        );
+        $("code").textContent = codes.javascript;
+        render();
+        runTests();
+      })();
+    </script>
+  </body>
+</html>
