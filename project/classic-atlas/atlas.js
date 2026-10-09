@@ -13,7 +13,7 @@
   }
 
   function cardText(card) {
-    return [card.title, card.group, card.quote, card.note, card.prompt, ...(card.content || [])].join("");
+    return [card.title, card.group, card.quote, card.note, ...(card.content || [])].join("");
   }
 
   function renderOptions(groups) {
@@ -95,10 +95,6 @@
           escapeHtml(card.note) +
           "</p>" +
           renderFullText(card) +
-          '<div class="prompt-label">Prompt</div>' +
-          '<pre class="prompt">' +
-          escapeHtml(card.prompt) +
-          "</pre>" +
           "</div>" +
           "</article>"
         );
@@ -208,15 +204,15 @@
       "</div>" +
       "</section>" +
       '<section class="toolbar" aria-label="图册筛选">' +
-      '<label><span>搜索</span><input data-search-input type="search" placeholder="标题、正文、提示词" /></label>' +
+      '<label><span>搜索</span><input data-search-input type="search" placeholder="标题、正文" /></label>' +
       '<label><span>分组</span><select data-group-filter><option value="">全部分组</option>' +
       renderOptions(groups) +
       "</select></label>" +
       '<div class="counter"><span data-counter>0 / 0</span></div>' +
       "</section>" +
       '<div class="section-head">' +
-      '<h2 class="section-title">完整条目与提示词</h2>' +
-      '<p class="section-note">原图插画已恢复；每张卡都保留完整正文和可直接用于图像生成的 Prompt。</p>' +
+      '<h2 class="section-title">完整图册与正文</h2>' +
+      '<p class="section-note">每张卡都包含原图插画与完整正文。</p>' +
       "</div>" +
       '<section class="grid">' +
       renderCards(data.cards) +
