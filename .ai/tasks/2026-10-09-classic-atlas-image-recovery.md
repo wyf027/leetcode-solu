@@ -9,3 +9,6 @@
 - Restored mapping uses same book, position, title, group and prompt. All 804 match. Preserve all current text; two Shanhaijing cards have historical text differences but identical titles/groups/prompts.
 - Store original PNGs in Git LFS; route requests through pinned media source. No regeneration, tests, builds or browser automation.
 - Next action: commit and publish LFS originals, configure image routing, publish this static site and verify PNG responses.
+
+- Independent review passed: all 804 card non-image fields unchanged from base; 804 unique PNG mappings; route before filesystem verified.
+- Original image commit: 1985335c69582cdaea31a9d7cb97a673e0b1a0fa; LFS upload in progress. Static configuration pins this commit, and .vercelignore excludes local original bytes from CLI deployments.
