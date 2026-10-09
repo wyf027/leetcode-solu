@@ -1,6 +1,6 @@
 # Devframe Demo publication
 
-- Status: locally verified; final independent review and publication pending.
+- Status: implementation and verification complete; source publication tracked by PR #2250.
 - Repository: `wyf027/leetcode-solu`.
 - Branch: `feat/devframe-demo-20261009`.
 - Base: `957cf96d4cb0fee7b95ed847ebba83b7a5f8074b` from `origin/main`.
@@ -20,4 +20,6 @@
 - Independent review found no credentials, private data, machine paths or missing runtime dependencies.
 - No tests or builds requested or run.
 - Verification: `node --check` passed for both scripts; `git diff --check` passed. All seven imported files match the installed source bytes. HTML and manifest asset references resolve locally. Both repository indexes contain one project entry each.
-- Next: finish independent review, commit and publish through a pull request.
+- Publication: https://github.com/wyf027/leetcode-solu/pull/2250; inspect this PR for the canonical merge state and final SHA.
+- Runtime/source commit: `998ac18cf3496423de3aada995030d3b0dfc7bfd`.
+- Next action at this checkpoint: merge the reviewed PR and verify imported files and both index entries on `origin/main`.
