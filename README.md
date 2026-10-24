@@ -79,6 +79,7 @@
 | [`rag-flow-demo`](./project/rag-flow-demo/)                                       | RAG 流程可视化单页演示                        | `open project/rag-flow-demo/index.html`                                             |
 | [`react-book`](./project/react-book/)                                             | React 更新机制学习代码                        | [`update.js`](./project/react-book/update.js)                                       |
 | [`react-demo`](./project/react-demo/)                                             | Create React App 示例                         | `cd project/react-demo && npm install && npm start`                                 |
+| [`slides-react`](./project/slides-react/) | React/Vite 创作台，42 款原站模板与 249 页本地预览 | `cd project/slides-react && npm ci && npm run dev` |
 | [`upload`](./project/upload/)                                                     | Vue 3、Vite、Express、Multer 文件上传示例     | `cd project/upload && npm install && npm run dev`                                   |
 | [`db-console-standalone`](./test/db-console-standalone/)                          | Flask + 原生前端的 PostgreSQL Web Console     | `cd test/db-console-standalone && uv sync && uv run python -m db_console_app.app`   |
 
