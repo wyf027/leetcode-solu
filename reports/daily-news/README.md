@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-06 | [AI 新闻简报](ai-2026-11-06.md) | 荣耀智能体合作、小艺电脑独立 App、文心基座跟进、Omni 视频模型、GPT-6 Cyber 跟进；黑板报当日无更新 |
 | 2026-11-05 | [AI 新闻简报](ai-2026-11-05.md) | WorkBuddy 扩容、比亚迪与 vivo 合作、SWE-2 Flash、Conductor 云服务关闭预告、OpenAI 企业业务表态；黑板报当日无更新 |
 | 2026-11-04 | [AI 新闻简报](ai-2026-11-04.md) | 混元 Hy4、扣子套餐调整预告、MoWorld 2.0、Classroom 引导学习、OpenAI 工程合作、FlashProve 跟进；黑板报当日无更新 |
 | 2026-11-03 | [AI 新闻简报](ai-2026-11-03.md) | 百度 Apollo World、商汤 Flash 跟进、LifeVal 评测、Hume 音频 API、Claude 消息线程；黑板报当日无更新 |
