@@ -64,6 +64,7 @@ function harness(options: { favorites?: boolean } = {}) {
     preflight: vi.fn<LeetCodeGateway['preflight']>(),
     listProblems: vi.fn<LeetCodeGateway['listProblems']>(),
     listStarred: vi.fn<LeetCodeGateway['listStarred']>(),
+    loadDailyProblem: vi.fn<NonNullable<LeetCodeGateway['loadDailyProblem']>>(),
     loadDetail: vi.fn<LeetCodeGateway['loadDetail']>(),
     edit: vi.fn<LeetCodeGateway['edit']>(),
     test: vi.fn<LeetCodeGateway['test']>(),
@@ -78,6 +79,7 @@ function harness(options: { favorites?: boolean } = {}) {
   } satisfies AppResult<CliVersionInfo>)
   gateway.listProblems.mockResolvedValue({ ok: true, value: parsedList([]) })
   gateway.listStarred.mockResolvedValue({ ok: true, value: parsedList([]) })
+  gateway.loadDailyProblem.mockResolvedValue({ ok: true, value: null })
   let releaseEdit: (() => void) | undefined
   gateway.edit.mockImplementation(async () => {
     await new Promise<void>((resolve) => {
@@ -320,6 +322,31 @@ describe('createAppController', () => {
     ])
     expect(controller.state.selectedProblemId).toBe(1)
     expect(controller.state.stale).toBe(false)
+  })
+
+  it('keeps the daily problem separate from the selected catalogue problem', async () => {
+    const { controller, gateway } = harness()
+    gateway.listProblems.mockResolvedValue({
+      ok: true,
+      value: parsedList([summary(1, 'Two Sum')]),
+    })
+    gateway.loadDailyProblem.mockResolvedValue({
+      ok: true,
+      value: {
+        frontendId: '1606',
+        title: 'Find Servers That Handled Most Number of Requests',
+        localizedTitle: '找到处理最多请求的服务器',
+        slug: 'find-servers-that-handled-most-number-of-requests',
+      },
+    })
+
+    await expect(controller.refresh()).resolves.toBe(true)
+
+    expect(controller.state.dailyProblem).toMatchObject({
+      frontendId: '1606',
+      localizedTitle: '找到处理最多请求的服务器',
+    })
+    expect(controller.state.selectedProblemId).toBe(1)
   })
 
   it('wraps upward from the first visible problem to the last', async () => {

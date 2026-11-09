@@ -18,6 +18,13 @@ export interface ProblemSummary {
   readonly identityStatus: IdentityStatus
 }
 
+export interface DailyProblem {
+  readonly frontendId: string
+  readonly title: string
+  readonly localizedTitle?: string
+  readonly slug?: string
+}
+
 export interface ProblemDetail {
   readonly id: number
   readonly slug?: string

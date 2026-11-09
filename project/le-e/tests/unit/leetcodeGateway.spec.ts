@@ -7,6 +7,7 @@ import {
   createLeetCodeGateway,
   type GatewayLogChunk,
 } from '../../src/infrastructure/leetcodeGateway'
+import type { ChineseProblemCatalog } from '../../src/infrastructure/chineseProblemCatalog'
 import { ProcessSpawnError, type ProcessRunner } from '../../src/infrastructure/processRunner'
 
 function fixture(name: string): string {
@@ -42,6 +43,38 @@ function harness() {
 }
 
 describe('LeetCodeGateway', () => {
+  it('adapts the localized daily problem for the application header', async () => {
+    const runCaptured = vi.fn<ProcessRunner['runCaptured']>()
+    const runInherited = vi.fn<ProcessRunner['runInherited']>()
+    const dailyCatalog = {
+      list: vi.fn<ChineseProblemCatalog['list']>(),
+      loadDailyProblem: vi.fn<ChineseProblemCatalog['loadDailyProblem']>(),
+      loadDetail: vi.fn<ChineseProblemCatalog['loadDetail']>(),
+    } satisfies ChineseProblemCatalog
+    dailyCatalog.loadDailyProblem.mockResolvedValue({
+      frontendId: '1606',
+      originalTitle: 'Find Servers That Handled Most Number of Requests',
+      title: '找到处理最多请求的服务器',
+      slug: 'find-servers-that-handled-most-number-of-requests',
+    })
+    const gateway = createLeetCodeGateway({
+      runner: { runCaptured, runInherited },
+      command: 'fake-leetcode',
+      identityMode: false,
+      chineseCatalog: dailyCatalog,
+    })
+
+    await expect(gateway.loadDailyProblem?.()).resolves.toEqual({
+      ok: true,
+      value: {
+        frontendId: '1606',
+        title: 'Find Servers That Handled Most Number of Requests',
+        localizedTitle: '找到处理最多请求的服务器',
+        slug: 'find-servers-that-handled-most-number-of-requests',
+      },
+    })
+  })
+
   it('preflights the exact version command and flags unsupported versions', async () => {
     const supported = harness()
     supported.runCaptured.mockResolvedValue(commandResult({ stdout: 'leetcode 0.5.4\n' }))

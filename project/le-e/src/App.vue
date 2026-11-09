@@ -151,7 +151,7 @@ const showingFavoriteFolders = computed(
 const loadingCatalog = computed(
   () =>
     props.controller.state.phase === 'starting' ||
-    ['preflight', 'refresh-list', 'refresh-starred', 'load-plans'].includes(
+    ['preflight', 'refresh-list', 'refresh-starred', 'load-daily', 'load-plans'].includes(
       props.controller.state.activeOperation ?? '',
     ),
 )
@@ -253,6 +253,22 @@ const selectProblem = (id: number): void => {
   ui.focus = 'problems'
   ui.detailScroll = 0
   void props.controller.loadSelectedDetail()
+}
+
+const openDailyProblem = (): void => {
+  const { state } = props.controller
+  if (
+    state.activeOperation !== null ||
+    props.editor?.state.active ||
+    ui.searchMode ||
+    ui.helpOpen ||
+    state.cookieLogin.open ||
+    state.submitDialog.open
+  )
+    return
+  ui.focus = 'detail'
+  ui.detailScroll = 0
+  void props.controller.openDailyProblem()
 }
 
 const openBreadcrumbRoot = (): void => {
@@ -571,6 +587,7 @@ onUnmounted(removeInputHandler)
       :focused="ui.focus === 'filters'"
       :search-mode="ui.searchMode"
       :search-draft="ui.searchDraft"
+      @open-daily="openDailyProblem"
     />
     <TView :x="screen.cols - 18" :y="0" :w="16" :h="1" @click="showOfficialPlans">
       <TText :x="0" :y="0" :w="16" value="官方题单 [o]" :style="THEME.title" />

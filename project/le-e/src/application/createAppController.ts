@@ -5,6 +5,7 @@ import type { AppError } from '../domain/errors'
 import type { FavoriteFolder } from '../domain/favorite'
 import type { OperationKind, ParsedTestResult } from '../domain/operation'
 import type {
+  DailyProblem,
   Difficulty,
   ProblemDetail,
   ProblemSummary,
@@ -75,6 +76,9 @@ export interface AppControllerState {
   officialPlans: OfficialStudyPlan[]
   selectedOfficialPlanSlug: string | null
   officialError: string | null
+  dailyProblem: DailyProblem | null
+  dailyLoading: boolean
+  dailyError: string | null
 }
 
 export interface AppController {
@@ -90,6 +94,7 @@ export interface AppController {
   setDifficulty(difficulty: Difficulty | 'all'): void
   toggleStarredOnly(): void
   toggleView(): void
+  openDailyProblem(): Promise<boolean>
   moveFavoriteFolder(delta: number): void
   openFavoriteFolder(slug?: string): boolean
   closeFavoriteFolder(): boolean
@@ -167,6 +172,9 @@ export function createAppController({
     officialPlans: [],
     selectedOfficialPlanSlug: null,
     officialError: null,
+    dailyProblem: null,
+    dailyLoading: false,
+    dailyError: null,
   })
   let nextLogId = 1
   let activeEditorAbortController: AbortController | null = null
@@ -501,6 +509,21 @@ export function createAppController({
           )
         }
       }
+      state.dailyProblem = null
+      state.dailyError = null
+      state.dailyLoading = gateway.loadDailyProblem !== undefined
+      if (gateway.loadDailyProblem !== undefined) {
+        state.activeOperation = 'load-daily'
+        const dailyResult = await gateway.loadDailyProblem(gatewayOptions(abortController.signal))
+        if (abortController.signal.aborted) return false
+        if (dailyResult.ok) {
+          state.dailyProblem = dailyResult.value
+        } else if (dailyResult.error.code !== ERROR_CODES.commandCancelled) {
+          state.dailyError = dailyResult.error.message
+          addLog(`${dailyResult.error.message} ${dailyResult.error.detail ?? ''}`.trim(), 'warn')
+        }
+      }
+      state.dailyLoading = false
       state.details.clear()
       state.sourceReadyIds.clear()
       state.testStatuses.clear()
@@ -513,6 +536,7 @@ export function createAppController({
       addLog(`Loaded ${state.problems.length} problem(s).`)
       return true
     } finally {
+      state.dailyLoading = false
       if (activeRefreshAbortController === abortController) activeRefreshAbortController = null
       finishOperation()
     }
@@ -564,7 +588,11 @@ export function createAppController({
   const loadSelectedDetail = async (): Promise<boolean> => {
     const id = state.selectedProblemId
     if (id === null) return false
-    if (state.activeOperation === 'refresh-list' || state.activeOperation === 'refresh-starred') {
+    if (
+      state.activeOperation === 'refresh-list' ||
+      state.activeOperation === 'refresh-starred' ||
+      state.activeOperation === 'load-daily'
+    ) {
       pendingDetailLoad = () => {
         if (state.selectedProblemId === id) void loadSelectedDetail()
       }
@@ -883,6 +911,26 @@ export function createAppController({
         state.filters = { ...state.filters, query: '' }
       }
       syncSelection()
+    },
+    async openDailyProblem() {
+      const daily = state.dailyProblem
+      if (daily === null || state.activeOperation !== null || activeEditorAbortController !== null)
+        return false
+      const problem = state.problems.find((candidate) =>
+        daily.slug !== undefined
+          ? candidate.slug === daily.slug
+          : candidate.frontendId === daily.frontendId && candidate.title === daily.title,
+      )
+      if (problem === undefined) {
+        addLog(`每日一题 #${daily.frontendId} 不在当前题库中。`, 'warn')
+        return false
+      }
+      if (!visibleProblems().some(({ id, slug }) => id === problem.id && slug === problem.slug)) {
+        state.viewMode = 'all'
+        state.filters = { query: '', difficulty: 'all', starredOnly: false }
+      }
+      state.selectedProblemId = problem.id
+      return loadSelectedDetail()
     },
     moveFavoriteFolder(delta) {
       if (state.viewMode === 'official') {

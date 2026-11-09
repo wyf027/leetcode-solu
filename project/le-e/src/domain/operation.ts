@@ -2,6 +2,7 @@ export type OperationKind =
   | 'preflight'
   | 'refresh-list'
   | 'refresh-starred'
+  | 'load-daily'
   | 'load-detail'
   | 'edit'
   | 'test'
