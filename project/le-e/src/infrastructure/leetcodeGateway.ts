@@ -5,7 +5,12 @@ import { RUNTIME_CONFIG } from '../config/runtime'
 import { ERROR_CODES } from '../domain/errors'
 import type { AppError, AppResult } from '../domain/errors'
 import type { CommandResult, ParsedRunResult } from '../domain/operation'
-import type { ParsedProblemList, ProblemDetail, ProblemSummary } from '../domain/problem'
+import type {
+  DailyProblem,
+  ParsedProblemList,
+  ProblemDetail,
+  ProblemSummary,
+} from '../domain/problem'
 import type { ChineseProblemCatalog } from './chineseProblemCatalog'
 import { parseProblemDetail } from './parsers/detailParser'
 import { parseProblemList, parseQuestionCatalog } from './parsers/listParser'
@@ -57,6 +62,7 @@ export interface LeetCodeGateway {
   preflight(options?: GatewayCallOptions): Promise<AppResult<CliVersionInfo>>
   listProblems(options?: GatewayCallOptions): Promise<AppResult<ParsedProblemList>>
   listStarred(options?: GatewayCallOptions): Promise<AppResult<ParsedProblemList>>
+  loadDailyProblem?(options?: GatewayCallOptions): Promise<AppResult<DailyProblem | null>>
   loadDetail(id: number, options?: GatewayCallOptions): Promise<AppResult<ProblemDetail>>
   edit(id: number, options?: GatewayEditOptions): Promise<AppResult<CommandResult>>
   test(id: number, options?: GatewayCallOptions): Promise<AppResult<GatewayRunValue>>
@@ -476,6 +482,38 @@ export function createLeetCodeGateway({
       return executed.ok
         ? localizeProblemList(parseProblemList(executed.value.stdout, { starred: true }), options)
         : executed
+    },
+
+    async loadDailyProblem(options = {}) {
+      if (chineseCatalog === undefined) return { ok: true, value: null }
+      try {
+        const daily = await chineseCatalog.loadDailyProblem(options.signal)
+        return {
+          ok: true,
+          value:
+            daily === null
+              ? null
+              : {
+                  frontendId: daily.frontendId,
+                  title: daily.originalTitle,
+                  localizedTitle: daily.title,
+                  slug: daily.slug,
+                },
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            code:
+              options.signal?.aborted === true
+                ? ERROR_CODES.commandCancelled
+                : ERROR_CODES.siteOrNetwork,
+            message:
+              options.signal?.aborted === true ? '每日一题加载已取消。' : '每日一题加载失败。',
+            detail: error instanceof Error ? error.message : String(error),
+          },
+        }
+      }
     },
 
     async loadDetail(id, options = {}) {

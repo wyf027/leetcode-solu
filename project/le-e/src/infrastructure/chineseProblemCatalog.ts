@@ -32,6 +32,19 @@ const QUESTION_DETAIL_QUERY = `
   }
 `
 
+const DAILY_PROBLEM_QUERY = `
+  query questionOfToday {
+    todayRecord {
+      question {
+        questionFrontendId
+        title
+        titleSlug
+        translatedTitle
+      }
+    }
+  }
+`
+
 export interface ChineseProblemSummary {
   readonly frontendId: string
   readonly originalTitle: string
@@ -48,6 +61,7 @@ export interface ChineseProblemDetail {
 
 export interface ChineseProblemCatalog {
   list(signal?: AbortSignal): Promise<ReadonlyMap<string, ChineseProblemSummary>>
+  loadDailyProblem(signal?: AbortSignal): Promise<ChineseProblemSummary | null>
   loadDetail(id: number | string, signal?: AbortSignal): Promise<ChineseProblemDetail | null>
 }
 
@@ -155,6 +169,35 @@ export function createChineseProblemCatalog({
 
   return {
     list,
+    async loadDailyProblem(signal) {
+      const data = await postGraphql(DAILY_PROBLEM_QUERY, {}, signal)
+      const records =
+        typeof data === 'object' && data !== null ? Reflect.get(data, 'todayRecord') : null
+      const firstRecord = Array.isArray(records) ? records[0] : null
+      const question =
+        typeof firstRecord === 'object' && firstRecord !== null
+          ? Reflect.get(firstRecord, 'question')
+          : null
+      if (typeof question !== 'object' || question === null) return null
+
+      const frontendId = Reflect.get(question, 'questionFrontendId')
+      const originalTitle = Reflect.get(question, 'title')
+      const slug = Reflect.get(question, 'titleSlug')
+      const title = Reflect.get(question, 'translatedTitle')
+      if (
+        typeof frontendId !== 'string' ||
+        frontendId === '' ||
+        typeof originalTitle !== 'string' ||
+        originalTitle === '' ||
+        typeof slug !== 'string' ||
+        slug === '' ||
+        typeof title !== 'string' ||
+        title === ''
+      ) {
+        return null
+      }
+      return { frontendId, originalTitle, title, slug }
+    },
     async loadDetail(id, signal) {
       // Numeric arguments are only for legacy CLI adapters; production passes exact slugs.
       const problem =
