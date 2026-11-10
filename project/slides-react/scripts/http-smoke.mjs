@@ -14,6 +14,7 @@ try {
   let signedIn = false;
   let uploads = [];
   const parts = [];
+  const authorizationKeys = new Set();
   let submitted;
   const session = { session_id: 'test-session', csrf_token: 'test-csrf', permissions: [] };
   const failure = (message) => ({
@@ -26,19 +27,32 @@ try {
     const request = route.request();
     const endpoint = new URL(request.url()).pathname.replace('/mock-api/v1', '');
     const method = request.method();
+    const headers = request.headers();
     result.interceptedRequests.push(`${method} ${endpoint}`);
     const json = (body, status = 200) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (endpoint === '/access-sessions/code') {
+      assert.equal(headers['x-session-id'], undefined);
+      assert.equal(headers['x-csrf-token'], undefined);
+      const idempotencyKey = headers['idempotency-key'];
+      assert(idempotencyKey);
+      assert(!authorizationKeys.has(idempotencyKey));
+      authorizationKeys.add(idempotencyKey);
       if (request.postDataJSON().code !== 'TESTCODE') return json(failure('测试授权码无效'), 401);
-      assert(request.headers()['idempotency-key']);
       signedIn = true;
       return json(session);
     }
-    if (endpoint === '/session') return signedIn ? json(session) : json(failure('请先登录'), 401);
-    assert.equal(request.headers()['x-session-id'], session.session_id);
-    if (!['GET', 'HEAD'].includes(method))
-      assert.equal(request.headers()['x-csrf-token'], session.csrf_token);
+    if (endpoint === '/session') {
+      assert.equal(headers['x-session-id'], signedIn ? session.session_id : undefined);
+      assert.equal(headers['x-csrf-token'], undefined);
+      return signedIn ? json(session) : json(failure('请先登录'), 401);
+    }
+    assert(signedIn);
+    assert.equal(headers['x-session-id'], session.session_id);
+    assert.equal(
+      headers['x-csrf-token'],
+      ['GET', 'HEAD'].includes(method) ? undefined : session.csrf_token,
+    );
     if (endpoint === '/entitlements')
       return json({
         items: [
@@ -72,6 +86,7 @@ try {
       return json(uploads[0]);
     }
     if (endpoint === '/jobs' && method === 'POST') {
+      assert(headers['idempotency-key']);
       submitted = request.postDataJSON();
       return json(
         {
@@ -86,14 +101,28 @@ try {
     throw new Error(`Unexpected request ${method} ${endpoint}`);
   });
   await page.goto(base, { waitUntil: 'networkidle' });
-  await page.getByLabel('授权码', { exact: true }).fill('BADCODE');
-  await page.getByRole('button', { name: '进入创作台', exact: true }).click();
+  const accessCode = page.getByLabel('授权码', { exact: true });
+  const enterStudio = page.getByRole('button', { name: '进入创作台', exact: true });
+  const topic = page.getByRole('textbox', { name: '演示主题与要求', exact: true });
+  await accessCode.fill(' ABC ');
+  await enterStudio.click();
+  await page.getByRole('alert').filter({ hasText: '请输入至少 6 位授权码' }).waitFor();
+  assert.deepEqual([...new Set(result.interceptedRequests)], ['GET /session']);
+  await accessCode.fill('BADCODE');
+  await enterStudio.click();
   await page.getByRole('alert').filter({ hasText: '测试授权码无效' }).waitFor();
-  await page.getByLabel('授权码', { exact: true }).fill('TESTCODE');
-  await page.getByRole('button', { name: '进入创作台', exact: true }).click();
-  await page.getByRole('textbox', { name: '演示主题与要求', exact: true }).fill('真实接口配置测试');
+  assert.equal(await topic.count(), 0);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('slides-api-session')), null);
+  assert.deepEqual([...new Set(result.interceptedRequests)], [
+    'GET /session',
+    'POST /access-sessions/code',
+  ]);
+  result.checks.push('short and rejected access codes never open the studio or fetch protected data');
+  await accessCode.fill('TESTCODE');
+  await enterStudio.click();
+  await topic.fill('真实接口配置测试');
   await page.locator('.source-card--violet').click();
-  result.checks.push('configured API base, auth error, session and CSRF');
+  result.checks.push('authorized reads and writes use the expected session, CSRF and idempotency headers');
   await page
     .getByLabel('选择资料', { exact: true })
     .setInputFiles({
