@@ -58,7 +58,7 @@ try {
   check('upload metadata, file manager and removal');
   await page.locator('.source-card--indigo').click();
   await page.getByPlaceholder('搜索风格', { exact: true }).fill('深蓝');
-  await page.getByRole('button', { name: '查看深蓝工作汇报完整预览', exact: true }).click();
+  await page.getByRole('button', { name: '查看深蓝图谱完整预览', exact: true }).click();
   await page.getByRole('button', { name: '下一页预览', exact: true }).click();
   assert(
     await page.locator('.style-preview__stage img').evaluate((image) => image.naturalWidth > 0),
