@@ -97,6 +97,7 @@ git ls-tree -d --name-only HEAD:project | LC_ALL=C sort
 | [`refactoring/`](./refactoring/)                               | 《重构》账单示例及数据拆分练习                          |
 | [`packages/index.js`](./packages/index.js)                     | 根目录 ESLint 当前覆盖的 JavaScript 入口                |
 | [`demo.go`](./demo.go)                                         | Go 语言独立示例                                         |
+| [`local-web-terminal`](./project/local-web-terminal/)            | macOS 和 Windows WSL 2 的网页与本地终端同步工具          |
 | [`sh/`](./sh/)                                                 | Shell 小工具与练习                                      |
 | [`leetcode-videos/`](./leetcode-videos/)                       | 按题号区间整理的 LeetCode 讲解视频与素材                |
 | [`scripts/`](./scripts/)                                       | LeetCode 批量视频与单题视频生成脚本                     |
