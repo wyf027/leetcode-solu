@@ -1,0 +1,50 @@
+name: Validate local terminal on WSL 2
+
+on:
+  push:
+    branches: [validate/local-terminal-2259-wsl]
+
+permissions:
+  contents: read
+
+jobs:
+  terminal:
+    runs-on: windows-2025
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            project/local-web-terminal
+            .github
+      - name: Start Ubuntu 24.04 on WSL 2
+        shell: pwsh
+        run: |
+          wsl.exe --version
+          wsl.exe --set-default-version 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          wsl.exe --install --distribution Ubuntu-24.04 --web-download --no-launch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $kernelOutput = wsl.exe -d Ubuntu-24.04 -u root --exec uname -r
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $kernel = $kernelOutput -join "`n"
+          if ($kernel -notmatch 'WSL2') { throw "Expected WSL 2 kernel, received $kernel" }
+          Write-Output "Guest kernel $kernel"
+      - name: Install test dependencies
+        shell: pwsh
+        run: |
+          wsl.exe -d Ubuntu-24.04 -u root --exec bash -ec 'apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y tmux ttyd socat && useradd -m -s /bin/sh terminaltest'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m venv "$env:RUNNER_TEMP\terminal-wsl-venv"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $testPython = "$env:RUNNER_TEMP\terminal-wsl-venv\Scripts\python.exe"
+          & $testPython -m pip install playwright==1.52.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $testPython -m playwright install chromium --only-shell
+          exit $LASTEXITCODE
+      - name: Exercise Windows browser and WSL terminal
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP\terminal-wsl-venv\Scripts\python.exe" .github/terminal-wsl-validation.py
+          exit $LASTEXITCODE
