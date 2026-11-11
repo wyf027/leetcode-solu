@@ -3,6 +3,8 @@ import { TBox, TText, TView } from '@simon_he/vue-tui'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 
 import type { AppController } from './application/createAppController'
+import { createEditorWorkspace } from './application/editorWorkspace'
+import type { TerminalInputEvent } from './application/terminalInput'
 import { createKeyRouter } from './application/keyRouter'
 import type { UiInteractionState } from './application/keyRouter'
 import type { TerminalInputBus } from './application/terminalInput'
@@ -227,62 +229,105 @@ watch(
   },
 )
 
+const workspace = createEditorWorkspace({
+  active: () =>
+    props.editor?.state.active === true && props.controller.state.activeOperation === 'edit',
+  available: () => props.editor !== undefined,
+  idle: () => props.controller.state.activeOperation === null,
+  saveAndClose: () => props.editor?.save(true) ?? Promise.resolve(false),
+  edit: () => props.controller.editSelected(),
+  focus: () => {
+    ui.focus = 'editor'
+  },
+  error: () => props.editor?.state.error ?? '',
+})
+watch(
+  () => workspace.state.error,
+  (error) => {
+    if (error) actionMessage.value = error
+  },
+)
+
 const openFavoriteFolder = (slug: string): void => {
-  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
-  if (officialView.value) {
-    void props.controller.openOfficialPlan(slug)
+  void workspace.run(async () => {
+    if (officialView.value) await props.controller.openOfficialPlan(slug)
+    else if (!props.controller.openFavoriteFolder(slug)) return
     ui.focus = 'problems'
     ui.detailScroll = 0
-    return
-  }
-  if (!props.controller.openFavoriteFolder(slug)) return
-  ui.focus = 'problems'
-  ui.detailScroll = 0
+  })
 }
 const showOfficialPlans = (): void => {
-  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
-  listCollapsed.value = false
-  ui.focus = 'problems'
-  ui.detailScroll = 0
-  void props.controller.showOfficialPlans()
+  void workspace.run(async () => {
+    listCollapsed.value = false
+    ui.focus = 'problems'
+    ui.detailScroll = 0
+    await props.controller.showOfficialPlans()
+  })
 }
 
 const selectProblem = (id: number): void => {
-  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
-  props.controller.selectProblem(id)
-  ui.focus = 'problems'
-  ui.detailScroll = 0
-  void props.controller.loadSelectedDetail()
+  if (id === props.controller.state.selectedProblemId && props.editor?.state.active) {
+    ui.focus = 'editor'
+    return
+  }
+  void workspace.run(async () => {
+    props.controller.selectProblem(id)
+    ui.focus = 'detail'
+    ui.detailScroll = 0
+    return props.controller.loadSelectedDetail()
+  }, true)
 }
 
 const openDailyProblem = (): void => {
   const { state } = props.controller
-  if (
-    state.activeOperation !== null ||
-    props.editor?.state.active ||
-    ui.searchMode ||
-    ui.helpOpen ||
-    state.cookieLogin.open ||
-    state.submitDialog.open
-  )
-    return
-  ui.focus = 'detail'
-  ui.detailScroll = 0
-  void props.controller.openDailyProblem()
+  if (ui.searchMode || ui.helpOpen || state.cookieLogin.open || state.submitDialog.open) return
+  void workspace.run(async () => {
+    ui.focus = 'detail'
+    ui.detailScroll = 0
+    return props.controller.openDailyProblem()
+  }, true)
 }
 
 const openBreadcrumbRoot = (): void => {
-  if (props.controller.state.activeOperation !== null || props.editor?.state.active) return
-  props.controller.closeFavoriteFolder()
-  ui.focus = 'problems'
-  ui.detailScroll = 0
+  void workspace.run(() => {
+    props.controller.closeFavoriteFolder()
+    ui.focus = 'problems'
+    ui.detailScroll = 0
+  })
 }
 
-const handleInput = createKeyRouter({
+const rawHandleInput = createKeyRouter({
   controller: props.controller,
   ui,
   requestExit: props.requestExit,
+  openProblem: () => {
+    if (props.editor?.state.active) workspace.open()
+    else void workspace.run(() => props.controller.loadSelectedDetail(), true)
+  },
 })
+const handleInput = (event: TerminalInputEvent): boolean => {
+  // Keep scrolling, help, search entry and focus changes available while Micro runs.
+  // Context mutations wait for a confirmed save before changing the selected source.
+  if (
+    props.editor?.state.active &&
+    event.type === 'keydown' &&
+    !ui.helpOpen &&
+    !props.controller.state.submitDialog.open &&
+    !props.controller.state.cookieLogin.open
+  ) {
+    const key = event.key.toLowerCase()
+    const changesContext = ui.searchMode
+      ? event.key === 'Enter'
+      : ['f', 'v', 'o', '[', ']', 'a', 'c', 'd', 'g', 'r', 'escape', 'backspace'].includes(key) ||
+        (ui.focus === 'problems' && ['arrowup', 'arrowdown', 'j', 'k'].includes(key)) ||
+        (event.key === 'Enter' && showingFavoriteFolders.value)
+    if (changesContext) {
+      void workspace.run(() => rawHandleInput(event))
+      return true
+    }
+  }
+  return rawHandleInput(event)
+}
 
 type Divider = 'width' | 'list' | 'log'
 const actionBusy = ref(false)
@@ -356,6 +401,7 @@ const editorAction = async (action: 'save' | 'test' | 'submit') => {
   }
 }
 const removeInputHandler = props.inputBus.setHandler((event) => {
+  if (workspace.state.busy) return true
   if (tooSmall.value) {
     dragging.value = false
     pointer.value = null
@@ -511,11 +557,9 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
   }
   if (event.type === 'keydown') {
     if (event.key === 'F6' || (event.key === 'Tab' && ui.focus !== 'editor')) {
-      const order = props.editor?.state.active
+      const order = listCollapsed.value
         ? (['detail', 'editor', 'log'] as const)
-        : listCollapsed.value
-          ? (['detail', 'editor', 'log'] as const)
-          : (['problems', 'detail', 'editor', 'log'] as const)
+        : (['problems', 'detail', 'editor', 'log'] as const)
       const current = order.findIndex((pane) => pane === ui.focus)
       ui.focus =
         order[(current + (event.shiftKey ? order.length - 1 : 1)) % order.length] ?? 'detail'
@@ -541,10 +585,10 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
   if (
     event.type === 'keydown' &&
     event.key === 'e' &&
-    props.controller.state.activeOperation === null
+    (props.controller.state.activeOperation === null || props.editor?.state.active)
   ) {
     actionMessage.value = ''
-    void props.controller.editSelected()
+    workspace.open()
     return true
   }
   if (
@@ -553,15 +597,6 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
     (event.key === 't' || event.key === 's')
   ) {
     void editorAction(event.key === 't' ? 'test' : 'submit')
-    return true
-  }
-  if (props.controller.state.activeOperation === 'edit') {
-    if (
-      event.type === 'keydown' &&
-      ['ArrowUp', 'ArrowDown', 'j', 'k'].includes(event.key) &&
-      ui.focus !== 'problems'
-    )
-      return handleInput(event)
     return true
   }
   if (ui.focus === 'editor') {
@@ -633,14 +668,7 @@ onUnmounted(removeInputHandler)
       :value="listCollapsed ? '▶' : '◀'"
       :style="THEME.title"
     />
-    <TView
-      v-if="!listCollapsed"
-      :x="4"
-      :y="headerHeight"
-      :w="8"
-      :h="1"
-      @click="openBreadcrumbRoot"
-    >
+    <TView v-if="!listCollapsed" :x="4" :y="headerHeight" :w="8" :h="1" @click="openBreadcrumbRoot">
       <TText
         :x="0"
         :y="0"
@@ -713,7 +741,7 @@ onUnmounted(removeInputHandler)
       :favorite-writable="selectedFavoriteFolder?.writable ?? false"
       :favorite-folder-name="selectedFavoriteFolder?.name ?? '无收藏夹'"
       :loading="loadingDetail"
-      @toggle-favorite="void controller.toggleFavoriteSelected()"
+      @toggle-favorite="void workspace.run(() => controller.toggleFavoriteSelected())"
       @update-scroll="ui.detailScroll = $event"
     />
     <TText
