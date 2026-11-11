@@ -32,5 +32,63 @@ if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
   exit 2
 fi
 
-exec ttyd -i 127.0.0.1 -p "$port" -W -O \
-  tmux -L leetcode-web-terminal new-session -A -s shared -c "$PWD"
+if ! command -v socat >/dev/null 2>&1; then
+  printf 'Install socat before starting the web terminal.\n' >&2
+  exit 1
+fi
+
+socket_dir=$(mktemp -d /tmp/leetcode-web-terminal.XXXXXXXX)
+socket_path=$socket_dir/ttyd.sock
+ttyd_pid=
+proxy_pid=
+
+cleanup() {
+  for pid in "$proxy_pid" "$ttyd_pid"; do
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+  for pid in "$proxy_pid" "$ttyd_pid"; do
+    if [ -n "$pid" ]; then
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
+  rm -f "$socket_path"
+  rmdir "$socket_dir"
+}
+
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# A private Unix socket keeps ttyd off TCP even when interface lookup fails.
+ttyd -i "$socket_path" -W -O \
+  tmux -L leetcode-web-terminal new-session -A -s shared -c "$PWD" &
+ttyd_pid=$!
+
+attempt=0
+while [ ! -S "$socket_path" ]; do
+  if ! kill -0 "$ttyd_pid" 2>/dev/null; then
+    wait "$ttyd_pid"
+    exit 1
+  fi
+  if [ "$attempt" -ge 100 ]; then
+    printf 'Timed out waiting for the web terminal socket.\n' >&2
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.1
+done
+
+socat "TCP4-LISTEN:$port,bind=127.0.0.1,reuseaddr,fork" "UNIX-CONNECT:$socket_path" &
+proxy_pid=$!
+
+while kill -0 "$ttyd_pid" 2>/dev/null && kill -0 "$proxy_pid" 2>/dev/null; do
+  sleep 1
+done
+if kill -0 "$ttyd_pid" 2>/dev/null; then
+  wait "$proxy_pid"
+else
+  wait "$ttyd_pid"
+fi
