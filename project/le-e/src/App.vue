@@ -319,7 +319,8 @@ const handleInput = (event: TerminalInputEvent): boolean => {
     const changesContext = ui.searchMode
       ? event.key === 'Enter'
       : ['f', 'v', 'o', '[', ']', 'a', 'c', 'd', 'g', 'r', 'escape', 'backspace'].includes(key) ||
-        (ui.focus === 'problems' && ['arrowup', 'arrowdown', 'j', 'k'].includes(key)) ||
+        ((ui.focus === 'problems' || ui.focus === 'filters') &&
+          ['arrowup', 'arrowdown', 'j', 'k'].includes(key)) ||
         (event.key === 'Enter' && showingFavoriteFolders.value)
     if (changesContext) {
       void workspace.run(() => rawHandleInput(event))
@@ -582,22 +583,20 @@ const removeInputHandler = props.inputBus.setHandler((event) => {
     }
   }
   if (ui.focus === 'editor' && props.editor?.state.active) return props.editor.input(event)
-  if (
-    event.type === 'keydown' &&
-    event.key === 'e' &&
-    (props.controller.state.activeOperation === null || props.editor?.state.active)
-  ) {
-    actionMessage.value = ''
-    workspace.open()
-    return true
-  }
-  if (
-    ui.focus !== 'editor' &&
-    event.type === 'keydown' &&
-    (event.key === 't' || event.key === 's')
-  ) {
-    void editorAction(event.key === 't' ? 'test' : 'submit')
-    return true
+  if (event.type === 'keydown') {
+    const key = event.key.toLowerCase()
+    if (
+      key === 'e' &&
+      (props.controller.state.activeOperation === null || props.editor?.state.active)
+    ) {
+      actionMessage.value = ''
+      workspace.open()
+      return true
+    }
+    if (ui.focus !== 'editor' && (key === 't' || key === 's')) {
+      void editorAction(key === 't' ? 'test' : 'submit')
+      return true
+    }
   }
   if (ui.focus === 'editor') {
     if (event.type === 'keydown' && event.key === 'Tab') {
