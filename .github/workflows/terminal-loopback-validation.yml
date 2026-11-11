@@ -1,0 +1,45 @@
+name: Validate local terminal loopback
+
+on:
+  push:
+    branches: [validate/local-terminal-2259-loopback]
+
+permissions:
+  contents: read
+
+jobs:
+  terminal:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            project/local-web-terminal
+            .github
+      - name: Install terminal dependencies
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -q
+            sudo apt-get install -y tmux ttyd socat
+          else
+            brew install tmux ttyd socat
+          fi
+          tmux -V
+          ttyd --version
+          socat -V | sed -n '1,2p'
+      - name: Exercise the browser and tmux session
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/terminal-venv"
+          terminal_python="$RUNNER_TEMP/terminal-venv/bin/python"
+          "$terminal_python" -m pip install pexpect==4.9.0 playwright==1.52.0
+          "$terminal_python" -m playwright install chromium --only-shell
+          sh -n project/local-web-terminal/terminal.sh
+          "$terminal_python" .github/terminal-loopback-validation.py
