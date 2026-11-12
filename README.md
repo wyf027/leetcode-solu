@@ -4,6 +4,10 @@
 
 > 更新：2026-10-09。新增 Devframe Demo 的源码、预览与 Chrome DevTools 安装入口；另收录 `test/` 下可独立运行的 DB Console。
 
+## 本机工作台
+
+[产品介绍](https://local-workbench-codex.vercel.app/)：不用下载 Codex 桌面版，直接在 ChatGPT Work 上使用 Codex。页面提供终端、多对话、模型切换等模拟交互演示。
+
 ## 快速导航
 
 | 分类              | 入口                                                                                                         | 内容                                                      |
