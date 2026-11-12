@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-11 | [AI 新闻简报](ai-2026-11-11.md) | 千问 Qwen4 预览、Qwen Code 1.0、文心 API 与权重预告、黑板报 Carbon、Claude 协作工具、AlphaGenome 2 |
 | 2026-11-10 | [AI 新闻简报](ai-2026-11-10.md) | MiniMax H3-Image、智元 WITA-Omni、Claude 5.2、Muse Ember、Signal 形式化验证；黑板报新文属 11 日 |
 | 2026-11-09 | [AI 新闻简报](ai-2026-11-09.md) | Seedream 5.5、LongCat-2.5 开放权重、统一备案系统、LG 免费模型 API、Shizuku 对话模型跟进；黑板报当日无更新 |
 | 2026-11-08 | [AI 新闻简报](ai-2026-11-08.md) | AutoDNA 研究跟进、移动云与智谱合作、灵光用户数据、索尼接管预警、富士电视台 AI 制作计划；黑板报当日无更新 |
