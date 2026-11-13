@@ -1,0 +1,220 @@
+name: Verify le-e Micro browser routing
+
+on:
+  push:
+    branches: [verify/pr-2260-micro-browser-e978e7c]
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e978e7c426dc62f9175212307be087879c679e28
+          persist-credentials: false
+          sparse-checkout: project/le-e
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+      - name: Build the exact pull request source
+        working-directory: project/le-e
+        run: |
+          test "$(git rev-parse HEAD)" = e978e7c426dc62f9175212307be087879c679e28
+          npm install --global pnpm@11.25.0 --no-audit --no-fund
+          printf 'allowBuilds:\n  node-pty: true\n' > pnpm-workspace.yaml
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm typecheck
+          pnpm exec vitest run tests/unit/editorInputRouting.spec.ts tests/unit/editorWorkspace.spec.ts tests/unit/keyRouter.spec.ts
+      - name: Prepare Chromium, Micro and the browser harness
+        run: |
+          fixture="$RUNNER_TEMP/le-e-browser"
+          mkdir "$fixture"
+          cd "$fixture"
+          npm install --no-save --no-audit --no-fund @xterm/xterm@6.0.0 ws@8.18.3 playwright@1.62.1
+          npx playwright install --with-deps chromium
+          curl --fail --silent --show-error --location --retry 2 --max-time 45 \
+            https://github.com/micro-editor/micro/releases/download/v2.0.14/micro-2.0.14-linux64.tar.gz \
+            --output micro.tar.gz
+          printf '%s  %s\n' 704e96add9b44e0041179f7934338d330e85230af6869f70b88720830f554786 micro.tar.gz | sha256sum --check
+          tar -xzf micro.tar.gz
+          ./micro-2.0.14/micro --version
+          cat > verify-micro.cjs <<'BROWSER_HARNESS'
+          const assert = require('node:assert/strict')
+          const { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync } = require('node:fs')
+          const { createServer } = require('node:http')
+          const { tmpdir } = require('node:os')
+          const { delimiter, join, resolve } = require('node:path')
+          const { chromium } = require('playwright')
+          const { WebSocketServer } = require('ws')
+
+          const app = resolve(process.argv[2])
+          const micro = resolve(process.argv[3])
+          const fixture = mkdtempSync(join(tmpdir(), 'le-e-browser-'))
+          const home = join(fixture, 'home')
+          mkdirSync(home)
+          const launcher = `import { runTerminalApp } from './dist-terminal/main.js';
+          runTerminalApp({
+            cliCommand: ${JSON.stringify(join(app, 'scripts/fake-leetcode.mjs'))},
+            accountHelperCommand: ${JSON.stringify(join(app, 'scripts/fake-account-helper.mjs'))},
+            editorCommand: ${JSON.stringify(micro)},
+          });`
+          const { spawn } = require(join(app, 'node_modules/node-pty'))
+          const terminalMarkup = `<!doctype html><meta charset="utf-8">
+          <link rel="stylesheet" href="/xterm.css"><div id="terminal"></div>
+          <script src="/xterm.js"></script><script>
+          const term = new Terminal({cols: 150, rows: 40, scrollback: 0, fontSize: 14});
+          term.open(document.querySelector('#terminal'));
+          term.focus();
+          const socket = new WebSocket('ws://' + location.host);
+          term.onData(data => socket.send(data));
+          socket.onmessage = ({data}) => term.write(data);
+          window.readTerminal = () => Array.from({length: term.rows}, (_, index) =>
+            term.buffer.active.getLine(term.buffer.active.viewportY + index)?.translateToString(true) ?? '');
+          </script>`
+          const server = createServer((req, res) => {
+            if (req.url === '/xterm.js') {
+              res.setHeader('Content-Type', 'text/javascript')
+              return res.end(readFileSync(require.resolve('@xterm/xterm')))
+            }
+            if (req.url === '/xterm.css') {
+              res.setHeader('Content-Type', 'text/css')
+              return res.end(readFileSync(require.resolve('@xterm/xterm/css/xterm.css')))
+            }
+            res.setHeader('Content-Type', 'text/html; charset=utf-8')
+            res.end(terminalMarkup)
+          })
+          const webSockets = new WebSocketServer({ server })
+          let terminal
+          webSockets.once('connection', (socket) => {
+            terminal = spawn(process.execPath, ['--input-type=module', '-e', launcher], {
+              name: 'xterm-256color',
+              cols: 150,
+              rows: 40,
+              cwd: app,
+              env: {
+                PATH: [require('node:path').dirname(process.execPath), process.env.PATH].join(delimiter),
+                HOME: home,
+                XDG_CONFIG_HOME: home,
+                XDG_DATA_HOME: home,
+                TMPDIR: fixture,
+                LANG: 'C.UTF-8',
+              },
+            })
+            terminal.onData(data => { if (socket.readyState === socket.OPEN) socket.send(data) })
+            socket.on('message', data => terminal.write(data.toString()))
+          })
+
+          const sourcePath = id => join(fixture, `le-e-fake-${process.getuid()}`, `${id}.solution.js`)
+          const readSource = id => existsSync(sourcePath(id)) ? readFileSync(sourcePath(id), 'utf8') : ''
+
+          ;(async () => {
+            await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
+            const probe = createServer()
+            await new Promise((resolveListen, reject) => {
+              probe.once('error', reject)
+              probe.listen(join(fixture, 'unix-probe.sock'), resolveListen)
+            })
+            await new Promise((resolveClose, reject) => probe.close(error => error ? reject(error) : resolveClose()))
+            const browser = await chromium.launch({
+              ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+              args: ['--no-sandbox', '--disable-dev-shm-usage'],
+            })
+            let page
+            try {
+              page = await browser.newPage({ viewport: { width: 1500, height: 850 } })
+              page.on('pageerror', error => console.error(error.message))
+              await page.goto(`http://127.0.0.1:${server.address().port}/`)
+              const key = value => page.keyboard.press(value)
+              const screen = () => page.evaluate(() => window.readTerminal())
+              const waitText = value => page.waitForFunction(text => window.readTerminal?.().some(line => line.includes(text)), value, { timeout: 10_000 })
+              const waitSelection = value => page.waitForFunction(text => window.readTerminal?.().some(line => line.slice(0, 42).includes('>') && line.slice(0, 42).includes(text)), value, { timeout: 10_000 })
+              const waitMissing = value => page.waitForFunction(text => !window.readTerminal?.().some(line => line.includes(text)), value, { timeout: 10_000 })
+              const clickProblem = async title => {
+                const index = (await screen()).findIndex(line => line.slice(0, 42).includes(title))
+                assert(index >= 0, title)
+                const row = await page.locator('.xterm-rows > div').nth(index).boundingBox()
+                assert(row)
+                await page.mouse.click(row.x + 28, row.y + row.height / 2)
+              }
+              const insert = async marker => {
+                await key('Home')
+                await page.keyboard.type(`// ${marker}`)
+                await key('Enter')
+                await waitText(marker)
+              }
+
+              await waitSelection('两数之和')
+              await key('Enter')
+              await waitText('1.solution.js')
+              await insert('saved-via-mouse')
+              await key('F6')
+              await key('?')
+              await waitText('le-e 帮助')
+              await key('Escape')
+              await waitMissing('le-e 帮助')
+              await clickProblem('两数相加')
+              await waitSelection('两数相加')
+              await waitText('2.solution.js')
+              assert.match(readSource(1), /saved-via-mouse/)
+              console.log('PASS Enter opens real Micro; F6 reaches help; mouse saves first source before opening the second')
+
+              await insert('saved-via-arrow')
+              await key('F6')
+              await key('/')
+              await key('Escape')
+              await key('ArrowUp')
+              await waitSelection('两数之和')
+              await waitMissing('2.solution.js')
+              assert.match(readSource(2), /saved-via-arrow/)
+              await key('E')
+              await waitText('1.solution.js')
+              await insert('saved-via-j')
+              await key('F6')
+              await key('F6')
+              await key('j')
+              await waitSelection('两数相加')
+              await waitMissing('1.solution.js')
+              assert.match(readSource(1), /saved-via-j/)
+              console.log('PASS ArrowUp after search cancellation and j after uppercase E both save before selection changes')
+
+              await key('E')
+              await waitText('2.solution.js')
+              await insert('saved-via-uppercase-T')
+              await key('F6')
+              await key('T')
+              await waitText('Accepted')
+              await waitText('2.solution.js')
+              assert.match(readSource(2), /saved-via-uppercase-T/)
+              await key('Shift+F6')
+              await insert('saved-via-uppercase-S')
+              await key('F6')
+              await key('S')
+              await waitText('Confirm LeetCode submission')
+              assert.match(readSource(2), /saved-via-uppercase-S/)
+              await key('Escape')
+              await waitMissing('Confirm LeetCode submission')
+              await waitText('2.solution.js')
+              console.log('PASS uppercase T saves then tests, and S saves then shows a cancellable confirmation; Micro stays open')
+            } catch (error) {
+              if (page) console.error((await page.evaluate(() => window.readTerminal?.()) ?? []).join('\n'))
+              throw error
+            } finally {
+              await browser.close()
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1 }).finally(() => {
+            terminal?.kill()
+            for (const socket of webSockets.clients) socket.terminate()
+            server.close()
+            rmSync(fixture, { recursive: true, force: true })
+          })
+          BROWSER_HARNESS
+          node --check verify-micro.cjs
+      - name: Drive the terminal through Chromium with real Micro
+        run: |
+          fixture="$RUNNER_TEMP/le-e-browser"
+          node "$fixture/verify-micro.cjs" "$GITHUB_WORKSPACE/project/le-e" "$fixture/micro-2.0.14/micro"
