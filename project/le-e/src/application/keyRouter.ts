@@ -23,6 +23,7 @@ export interface KeyRouterOptions {
   readonly ui: UiInteractionState
   readonly requestExit: () => void
   readonly readClipboard?: () => Promise<string>
+  readonly openProblem?: () => void
 }
 
 const specialKeys = new Set([
@@ -286,7 +287,8 @@ export function createKeyRouter(options: KeyRouterOptions): (event: TerminalInpu
       } else {
         ui.focus = 'detail'
         ui.detailScroll = 0
-        void controller.loadSelectedDetail()
+        if (options.openProblem) options.openProblem()
+        else void controller.loadSelectedDetail()
       }
     } else if (key === 'Escape' || key === 'Backspace') {
       if (!controller.closeFavoriteFolder()) return false

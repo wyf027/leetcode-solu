@@ -53,6 +53,15 @@ function harness(initialFocus: UiInteractionState['focus'] = 'problems') {
 }
 
 describe('createKeyRouter pane focus', () => {
+  it('opens the selected problem through the editor workspace on Enter', () => {
+    const { controller, ui } = harness()
+    const openProblem = vi.fn()
+    const route = createKeyRouter({ controller, ui, requestExit: vi.fn(), openProblem })
+    route(keydown('Enter'))
+    expect(openProblem).toHaveBeenCalledOnce()
+    expect(ui.focus).toBe('detail')
+  })
+
   it('uses Tab and Shift+Tab to switch only between the problem and detail panes', () => {
     const { route, ui } = harness('problems')
 
