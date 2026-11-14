@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-13 | [AI 新闻简报](ai-2026-11-13.md) | DeepSeek 应用 API、混元实时语音、快乐虾米移动端、黑板报 Hydrogen、气象数据集、ChatGPT Wallet |
 | 2026-11-12 | [AI 新闻简报](ai-2026-11-12.md) | Seedance flash API 预告、讯飞语音 API、词元所大会发布、Gemini Decisions、三星眼镜预售；黑板报新文属 13 日 |
 | 2026-11-11 | [AI 新闻简报](ai-2026-11-11.md) | 千问 Qwen4 预览、Qwen Code 1.0、文心 API 与权重预告、黑板报 Carbon、Claude 协作工具、AlphaGenome 2 |
 | 2026-11-10 | [AI 新闻简报](ai-2026-11-10.md) | MiniMax H3-Image、智元 WITA-Omni、Claude 5.2、Muse Ember、Signal 形式化验证；黑板报新文属 11 日 |
