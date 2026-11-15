@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-14 | [AI 新闻简报](ai-2026-11-14.md) | ProtCell 复现跟进、Momenta OTA 预告、Kitesurf 开源、Cursor 安全复盘、llama.cpp 1.0 跟进；黑板报当日无更新 |
 | 2026-11-13 | [AI 新闻简报](ai-2026-11-13.md) | DeepSeek 应用 API、混元实时语音、快乐虾米移动端、黑板报 Hydrogen、气象数据集、ChatGPT Wallet |
 | 2026-11-12 | [AI 新闻简报](ai-2026-11-12.md) | Seedance flash API 预告、讯飞语音 API、词元所大会发布、Gemini Decisions、三星眼镜预售；黑板报新文属 13 日 |
 | 2026-11-11 | [AI 新闻简报](ai-2026-11-11.md) | 千问 Qwen4 预览、Qwen Code 1.0、文心 API 与权重预告、黑板报 Carbon、Claude 协作工具、AlphaGenome 2 |
