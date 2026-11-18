@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-17 | [AI 新闻简报](ai-2026-11-17.md) | 可灵 Image 4.0、Gamer 研究跟进、Gemini 地区语音、Olala 发布预告、Goodfire 安全评估合作；黑板报当日无更新 |
 | 2026-11-16 | [AI 新闻简报](ai-2026-11-16.md) | Qwen4-Max 正式版、Hy4 flash、Seedance 4K API、苹果健康 AI 研究、FAA 空管 AI 跟进；黑板报当日无更新 |
 | 2026-11-15 | [AI 新闻简报](ai-2026-11-15.md) | 盘古 2.1-Pro、MotrixSim 跟进、谷歌披露政策、LG Token 业务预告、OATs 原型跟进；黑板报当日无更新 |
 | 2026-11-14 | [AI 新闻简报](ai-2026-11-14.md) | ProtCell 复现跟进、Momenta OTA 预告、Kitesurf 开源、Cursor 安全复盘、llama.cpp 1.0 跟进；黑板报当日无更新 |
