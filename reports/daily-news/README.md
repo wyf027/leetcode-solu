@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-20 | [AI 新闻简报](ai-2026-11-20.md) | Hy4 开放权重、WorkBuddy 电脑操控公测、MiMo 套餐跟进、GPT-Live API、Gemini Mac 操控、AI200 评估跟进；黑板报当日无更新 |
 | 2026-11-19 | [AI 新闻简报](ai-2026-11-19.md) | 豆包实时音视频 API、LoFT 研究跟进、黑板报 Gemini 4 Neon、Genie 4 开放体验、OpenAI 芯片设计、Canva AI 开关 |
 | 2026-11-18 | [AI 新闻简报](ai-2026-11-18.md) | DeepSeek 联网工具费调整、Hy4 flash 开放权重、GPT-6.2、MAI Realtime1 限量预览、Gemini 隐私跟进、黑板报年度应用榜单 |
 | 2026-11-17 | [AI 新闻简报](ai-2026-11-17.md) | 可灵 Image 4.0、Gamer 研究跟进、Gemini 地区语音、Olala 发布预告、Goodfire 安全评估合作；黑板报当日无更新 |
