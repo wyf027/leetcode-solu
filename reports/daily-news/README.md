@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-23 | [AI 新闻简报](ai-2026-11-23.md) | GLM-5.4、WALL-OSS-1.0、AgentLoop 收费预告、Inkling 2 Mini 与 Mistral 新加坡总部跟进；黑板报当日无更新 |
 | 2026-11-22 | [AI 新闻简报](ai-2026-11-22.md) | Chatterfly 安卓内测、MiniMax 密码分析跟进、B 站智能体治理征询、Signal 隐私更新、Frostbite 仿真设计跟进；黑板报当日无更新 |
 | 2026-11-21 | [AI 新闻简报](ai-2026-11-21.md) | 智元 G2 产线部署、华科大与阿里安全研究跟进、Space 扩容、MedChemBench、反蒸馏防护、AI 供应链泄漏研究跟进；黑板报当日无更新 |
 | 2026-11-20 | [AI 新闻简报](ai-2026-11-20.md) | Hy4 开放权重、WorkBuddy 电脑操控公测、MiMo 套餐跟进、GPT-Live API、Gemini Mac 操控、AI200 评估跟进；黑板报当日无更新 |
