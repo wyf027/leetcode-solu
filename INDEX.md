@@ -75,6 +75,7 @@
 | [`leetcode-interactive`](./project/leetcode-interactive/)                         | LeetCode 题目的可视化交互讲解                 | `open project/leetcode-interactive/index.html`                                      |
 | [`mini-react`](./project/mini-react/)                                             | React Reconciler、调度与 DOM 渲染的精简实现   | `cd project/mini-react && npm install && npm run demos`                             |
 | [`nodepod-demo`](./project/nodepod-demo/)                                         | React、Vite 与 NodePod 本地服务演示           | `cd project/nodepod-demo && npm install && npm run dev`                             |
+| [`ontology-graph-demo`](./project/ontology-graph-demo/) | GPT-6.1 Terra 流式对话与 AntV G6 知识图谱 | [本地启动说明](./project/ontology-graph-demo/README.md) |
 | [`open-file-viewer-demo`](./project/open-file-viewer-demo/)                       | 浏览器文件打开与预览演示                      | `open project/open-file-viewer-demo/index.html`                                     |
 | [`rag-flow-demo`](./project/rag-flow-demo/)                                       | RAG 流程可视化单页演示                        | `open project/rag-flow-demo/index.html`                                             |
 | [`react-book`](./project/react-book/)                                             | React 更新机制学习代码                        | [`update.js`](./project/react-book/update.js)                                       |
