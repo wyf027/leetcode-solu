@@ -4,6 +4,7 @@ AI 日报采用简洁中文 Markdown 格式：按国内、海外分组，每条�
 
 | 覆盖日期 | 日报 | 内容 |
 | --- | --- | --- |
+| 2026-11-25 | [AI 新闻简报](ai-2026-11-25.md) | Hy4 flash 本地部署、MAGI-2、网易语音输入法跟进、Claude 桌面应用与 SWE-2.1；黑板报当日无更新 |
 | 2026-11-24 | [AI 新闻简报](ai-2026-11-24.md) | 文心开放权重、SenseNova U1.6、小豆邀请公测、Claude Ship、ChatGPT 模型更新与 Qt Creator AI 支持跟进；黑板报当日无更新 |
 | 2026-11-23 | [AI 新闻简报](ai-2026-11-23.md) | GLM-5.4、WALL-OSS-1.0、AgentLoop 收费预告、Inkling 2 Mini 与 Mistral 新加坡总部跟进；黑板报当日无更新 |
 | 2026-11-22 | [AI 新闻简报](ai-2026-11-22.md) | Chatterfly 安卓内测、MiniMax 密码分析跟进、B 站智能体治理征询、Signal 隐私更新、Frostbite 仿真设计跟进；黑板报当日无更新 |
